@@ -2,16 +2,15 @@
 PolyPaper Bot — Phase 70-73 Telegram Command Handlers
 =====================================================
 Exposes orphaned roadmap modules as Telegram commands:
-  /ev_stats    — EV threshold statistics
-  /metrics     — Performance metrics (Sharpe/Sortino/MaxDD)
-  /breed       — Run evolutionary parameter breeding
-  /vote        — Majority voting consensus status
-  /drift_check — Paper vs live PnL drift check
-  /whale       — Whale flow signal analysis
-  /surface     — 2D calibration surface status
-  /latency     — Cross-market latency stats
-  /spread_info — Spread analysis for active markets
-  /market_quality — EventWaves market quality score
+  /ev_stats    — EV threshold statistics (core.ev_tracker)
+  /metrics     — Performance metrics (Sharpe/Sortino/MaxDD) (backtest.metrics)
+  /surface     — 2D calibration surface status (calibration.surface_2d)
+  /latency     — WebSocket connection stats (Phase 79 S2-06, engine.scanner.ws)
+
+T1.3 Commit 5 (2026-04-20): Ghost modüllere bağlı 6 komut silindi:
+  /breed, /vote, /drift_check, /whale, /market_quality, /correlation_check
+  Bağımlı arşivler: core.evolutionary, core.majority_voting, core.pnl_verification,
+  data_feeds.whale_tracker, data_feeds.event_waves, core.strategy_correlation
 """
 import logging
 import os
@@ -140,158 +139,11 @@ async def metrics_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ═══════════════════════════════════════════════════
-# /breed — Evolutionary Parameter Breeding
+# T1.3 Commit 5 (2026-04-20): /breed, /vote, /drift_check, /whale silindi
+# Bağımlı arşivler: core.evolutionary, core.majority_voting, core.pnl_verification,
+# data_feeds.whale_tracker — hepsi _archive/sprint4_modules/ altında. Komutlar
+# ghost modüller üzerinden except Exception yakalıyordu, sessiz broken durumdaydı.
 # ═══════════════════════════════════════════════════
-async def breed_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Run evolutionary breeding on top strategies."""
-    if not _is_admin(update):
-        return
-    db = ctx.bot_data.get("db")
-    if not db:
-        await update.message.reply_text("⚠️ DB bağlantısı yok.", parse_mode="HTML")
-        return
-
-    await update.message.reply_text("🧬 Evolutionary breeding başlatılıyor...", parse_mode="HTML")
-    try:
-        from core.evolutionary import EvolutionaryBreeder
-        breeder = EvolutionaryBreeder(db)
-        result = await breeder.breed()
-        text = breeder.format_telegram(result)
-        await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Breed hatası: {esc(str(e))}", parse_mode="HTML")
-
-
-# ═══════════════════════════════════════════════════
-# /vote — Majority Voting Consensus
-# ═══════════════════════════════════════════════════
-async def vote_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Show current strategy consensus (majority voting)."""
-    if not _is_admin(update):
-        return
-    db = ctx.bot_data.get("db")
-    engine = ctx.bot_data.get("engine")
-    if not db:
-        await update.message.reply_text("⚠️ DB bağlantısı yok.", parse_mode="HTML")
-        return
-
-    try:
-        # Collect votes from active strategies' last signals
-        rows = await db.conn.execute_fetchall(
-            """SELECT s.id, s.strategy_type,
-                      (SELECT COUNT(*) FROM executions e WHERE e.strategy_id=s.id AND e.result IS NOT NULL) as trades,
-                      (SELECT COALESCE(SUM(CASE WHEN e2.pnl>0 THEN 1.0 ELSE 0.0 END) / NULLIF(COUNT(*),0), 0.5)
-                       FROM executions e2 WHERE e2.strategy_id=s.id AND e2.result IS NOT NULL) as wr,
-                      s.direction
-               FROM strategies s WHERE s.status='active'""")
-
-        if not rows or len(rows) < 2:
-            await update.message.reply_text("📊 Aktif strateji yeterli değil (min 2).", parse_mode="HTML")
-            return
-
-        from core.majority_voting import Vote, compute_majority_vote, format_voting_telegram
-        votes = []
-        for r in rows:
-            sid, stype, trades, wr, direction = r
-            if trades and trades >= 5:
-                # Phase 78-fix: Vote dataclass has no 'trades' field; add strategy_type
-                votes.append(Vote(
-                    strategy_id=str(sid),
-                    strategy_type=str(stype) if stype else "",
-                    direction=str(direction) if direction else "UP",
-                    confidence=float(wr) if wr else 0.5,
-                    win_rate=float(wr) if wr else 0.5,
-                ))
-
-        if len(votes) < 2:
-            await update.message.reply_text("📊 Yeterli oy yok (min 2 strateji, 5+ trade).", parse_mode="HTML")
-            return
-
-        result = compute_majority_vote(votes)
-        text = format_voting_telegram(result)
-        await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Vote hatası: {esc(str(e))}", parse_mode="HTML")
-
-
-# ═══════════════════════════════════════════════════
-# /drift_check — Paper vs Live PnL Drift
-# ═══════════════════════════════════════════════════
-async def drift_check_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Compare paper vs shadow live PnL drift."""
-    if not _is_admin(update):
-        return
-    db = ctx.bot_data.get("db")
-    if not db:
-        await update.message.reply_text("⚠️ DB bağlantısı yok.", parse_mode="HTML")
-        return
-
-    try:
-        from core.pnl_verification import PnLVerifier
-        verifier = PnLVerifier(db)
-        result = await verifier.verify()
-        text = verifier.format_telegram(result)
-        await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Drift check hatası: {esc(str(e))}", parse_mode="HTML")
-
-
-# ═══════════════════════════════════════════════════
-# /whale — Whale Flow Signal
-# ═══════════════════════════════════════════════════
-async def whale_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Show whale flow analysis from recent large trades."""
-    if not _is_admin(update):
-        return
-    db = ctx.bot_data.get("db")
-    if not db:
-        await update.message.reply_text("⚠️ DB bağlantısı yok.", parse_mode="HTML")
-        return
-
-    try:
-        from data_feeds.whale_tracker import WhaleTracker, WhaleTrade
-        tracker = WhaleTracker(db)
-
-        # Phase 78-fix: ensure whale_trades table exists before querying
-        try:
-            await db.conn.execute(
-                """CREATE TABLE IF NOT EXISTS whale_trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    slug TEXT NOT NULL,
-                    direction TEXT DEFAULT '',
-                    notional_usd REAL DEFAULT 0,
-                    price REAL DEFAULT 0,
-                    ts_ms INTEGER DEFAULT 0,
-                    source TEXT DEFAULT ''
-                )""")
-        except Exception:
-            pass
-
-        rows = await db.conn.execute_fetchall(
-            """SELECT slug, direction, COALESCE(notional_usd, 0), price, COALESCE(ts_ms, 0)
-               FROM whale_trades
-               WHERE ts_ms > ?
-               ORDER BY notional_usd DESC LIMIT 30""",
-            (int(__import__('time').time() * 1000 - 3600000),))
-
-        if not rows:
-            await update.message.reply_text(
-                "🐋 <b>Whale Flow</b>\n\nSon 1 saatte büyük trade yok.",
-                parse_mode="HTML")
-            return
-
-        whale_trades = [
-            WhaleTrade(slug=r[0], direction=r[1] or "",
-                       amount_usd=float(r[2] or 0), price=float(r[3] or 0),
-                       timestamp=float(r[4] or 0), source="internal")
-            for r in rows
-        ]
-
-        signal = tracker.compute_signal(whale_trades, orderbook=None)
-        text = tracker.format_telegram(signal)
-        await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Whale hatası: {esc(str(e))}", parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════
@@ -370,107 +222,7 @@ async def latency_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ═══════════════════════════════════════════════════
-# /market_quality [slug] — EventWaves Market Quality
+# T1.3 Commit 5 (2026-04-20): /market_quality + /correlation_check silindi
+# Bağımlı arşivler: data_feeds.event_waves, core.strategy_correlation —
+# _archive/sprint4_modules/ altında.
 # ═══════════════════════════════════════════════════
-async def market_quality_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Assess market quality using EventWaves scoring."""
-    if not _is_admin(update):
-        return
-
-    args = ctx.args
-    slug = args[0] if args else None
-
-    try:
-        from data_feeds.event_waves import assess_market_quality, format_quality_telegram
-
-        db = ctx.bot_data.get("db")
-        if slug and db:
-            row = await db.conn.execute_fetchall(
-                """SELECT COUNT(*) as trades,
-                          SUM(trade_amount) as volume
-                   FROM executions WHERE slug=? AND created_at > datetime('now', '-24 hours')""",
-                (slug,))
-            vol_24h = float(row[0][1]) if row and row[0][1] else 0
-            trades_24h = int(row[0][0]) if row and row[0][0] else 0
-        else:
-            slug = "overall"
-            row = await db.conn.execute_fetchall(
-                """SELECT COUNT(*) as trades,
-                          SUM(trade_amount) as volume
-                   FROM executions WHERE created_at > datetime('now', '-24 hours')""")
-            vol_24h = float(row[0][1]) if row and row[0][1] else 0
-            trades_24h = int(row[0][0]) if row and row[0][0] else 0
-
-        quality = assess_market_quality(
-            slug=slug,
-            volume_24h=vol_24h,
-            spread=0.02,
-            n_traders=0,
-            minutes_remaining=60.0 * 24,
-            total_minutes=60.0 * 24,
-            up_odds=0.5,
-        )
-        text = format_quality_telegram(quality)
-        await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Market quality hatası: {esc(str(e))}", parse_mode="HTML")
-
-
-# /correlation_check — Strategy Orthogonality Analysis (Phase 75+)
-# ═══════════════════════════════════════════════════
-async def correlation_check_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """
-    Identify redundant vs independent strategies via correlation analysis.
-
-    Correlation > 0.7 = false diversification (same strategy, different params)
-    Correlation < 0.3 = truly independent strategies
-    """
-    if not _is_admin(update):
-        return
-
-    db = ctx.bot_data.get("db")
-    if not db:
-        await update.message.reply_text("⚠️ DB bağlantısı yok.", parse_mode="HTML")
-        return
-
-    try:
-        from core.strategy_correlation import StrategyCorrelationAnalyzer
-        analyzer = StrategyCorrelationAnalyzer(db)
-
-        # Get correlations
-        correlations = await analyzer.get_all_correlations()
-        redundant_groups = await analyzer.identify_redundant_groups(threshold=0.7)
-        orthogonal = await analyzer.get_orthogonal_strategies(threshold=0.3)
-
-        lines = ["<b>🔗 Strategy Correlation Analysis</b>\n\n"]
-
-        # Redundant groups
-        if redundant_groups:
-            lines.append("<b>⚠️ Redundant Strategy Groups (corr > 0.7):</b>\n")
-            for group_key, members in redundant_groups.items():
-                escaped_group = esc(group_key)
-                escaped_members = ", ".join(esc(m) for m in members)
-                lines.append(f"  {escaped_group}: {escaped_members}\n")
-            lines.append("\n")
-
-        # Orthogonal strategies
-        if orthogonal:
-            lines.append(f"<b>✅ Independent Strategies (corr < 0.3):</b>\n")
-            for label in orthogonal:
-                lines.append(f"  • {esc(label)}\n")
-            lines.append("\n")
-
-        # Top correlations (high redundancy)
-        if correlations:
-            lines.append("<b>🔴 Highest Correlations (redundancy risk):</b>\n")
-            for l1, l2, corr in correlations[:5]:
-                lines.append(f"  {esc(l1):20s} <-> {esc(l2):20s}  corr={corr:+.2f}\n")
-
-        text = "".join(lines)
-        if len(text) > 4000:
-            text = text[:3990] + "\n..."
-
-        await update.message.reply_text(text, parse_mode="HTML")
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Correlation hatası: {esc(str(e))}", parse_mode="HTML")

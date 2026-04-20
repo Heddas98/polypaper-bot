@@ -16,6 +16,14 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 
+import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
+
+try:
+    from telegram.error import TelegramError
+except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
+    class TelegramError(Exception):  # type: ignore[no-redef]
+        ...
+
 from core.fees_v2 import (
     polymarket_maker_rebate,
     polymarket_taker_fee_v2,
@@ -103,8 +111,9 @@ class EngineSettlementMixin:
                     logger.info(
                         f"  💰 MAKER REBATE: {row['id'][:6]} "
                         f"+${rebate:.4f} ({cat} {entry_px:.3f})")
-            except Exception as _rex:
-                logger.debug(f"maker rebate calc: {_rex}")
+            except (TypeError, KeyError, ValueError) as _rex:
+                # T1.4 Faz 1: narrowed — rebate calc is pure arithmetic on row dict.
+                logger.debug(f"maker rebate calc ({type(_rex).__name__}): {_rex}")
                 rebate = 0.0
 
         pnl = round(payout - row["trade_amount"] - fee + rebate, 4)
@@ -178,7 +187,8 @@ class EngineSettlementMixin:
                     if rows:
                         label = rows[0][0] or ""
                         stype = (rows[0][1] or "").lower()
-                except Exception:
+                except aiosqlite.Error:
+                    # T1.4 Faz 1: narrowed — only DB errors expected here.
                     pass
             if not notify_all and stype != "classic":
                 return
@@ -188,7 +198,8 @@ class EngineSettlementMixin:
                 return
             try:
                 admin_id_int = int(admin_id)
-            except Exception:
+            except (ValueError, TypeError):
+                # T1.4 Faz 1: narrowed — int() cast failures only.
                 return
 
             slug = row.get("event_slug", "?")
@@ -202,7 +213,8 @@ class EngineSettlementMixin:
                 slug_safe = esc(slug)
                 label_safe = esc(label or stype or "classic")
                 reason_safe = esc(reason or "exit")
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
+                # T1.4 Faz 1: narrowed — module missing or esc() type coercion.
                 def _esc(x):
                     return (str(x).replace("&", "&amp;")
                                   .replace("<", "&lt;")
@@ -230,10 +242,13 @@ class EngineSettlementMixin:
                     text=text,
                     parse_mode="HTML",
                 )
-            except Exception as _send_err:
+            except TelegramError as _send_err:
+                # T1.4 Faz 1: narrowed — telegram transport errors only.
                 logger.debug(f"classic exit notify send: {_send_err}")
         except Exception as _outer:
-            logger.debug(f"classic exit notify: {_outer}")
+            # T1.4 Faz 1: catch-all kept — notify wrapper must never raise into
+            # the settlement path (fire-and-forget side effect). Log type for triage.
+            logger.exception(f"classic exit notify failed ({type(_outer).__name__}): {_outer}")
 
     async def _classic_resolution_notify(self, row, won, pnl, payout, fee,
                                           rebate, last_odds, entry_px,
@@ -263,7 +278,8 @@ class EngineSettlementMixin:
                     if rows:
                         label = rows[0][0] or ""
                         stype = (rows[0][1] or "").lower()
-                except Exception:
+                except aiosqlite.Error:
+                    # T1.4 Faz 1: narrowed — DB errors only.
                     pass
             if not notify_all and stype != "classic":
                 return
@@ -274,7 +290,8 @@ class EngineSettlementMixin:
                 return
             try:
                 admin_id_int = int(admin_id)
-            except Exception:
+            except (ValueError, TypeError):
+                # T1.4 Faz 1: narrowed — int() cast failures only.
                 return
 
             slug = row.get("event_slug", "?")
@@ -286,7 +303,8 @@ class EngineSettlementMixin:
             if last_odds is not None:
                 try:
                     last_odds_line = f"\n💹 Son fiyat: <code>{float(last_odds):.3f}</code>"
-                except Exception:
+                except (ValueError, TypeError):
+                    # T1.4 Faz 1: narrowed — float() cast failures only.
                     last_odds_line = ""
             emoji = "🟢" if won else "🔴"
             result_word = "KAZANDI" if won else "KAYBETTI"
@@ -295,7 +313,8 @@ class EngineSettlementMixin:
                 from telegram_bot.templates.safe_html import esc
                 slug_safe = esc(slug)
                 label_safe = esc(label or stype or "classic")
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
+                # T1.4 Faz 1: narrowed — module missing or esc() type coercion.
                 def _esc(x):
                     return (str(x).replace("&", "&amp;")
                                   .replace("<", "&lt;")
@@ -323,10 +342,13 @@ class EngineSettlementMixin:
                     text=text,
                     parse_mode="HTML",
                 )
-            except Exception as _send_err:
+            except TelegramError as _send_err:
+                # T1.4 Faz 1: narrowed — telegram transport errors only.
                 logger.debug(f"classic notify send: {_send_err}")
         except Exception as _outer:
-            logger.debug(f"classic notify: {_outer}")
+            # T1.4 Faz 1: catch-all kept — notify wrapper must never raise into
+            # the settlement path. Upgrade to logger.exception for triage.
+            logger.exception(f"classic notify failed ({type(_outer).__name__}): {_outer}")
 
     async def _ai_trade_analysis(self, row, pnl, result):
         """Phase 27: Send trade to AI analyst for per-trade analysis."""
@@ -348,7 +370,9 @@ class EngineSettlementMixin:
                 "slug": row.get("event_slug", ""),
             })
         except Exception as e:
-            logger.debug(f"AI trade analysis: {e}")
+            # T1.4 Faz 1: catch-all kept — AI analyst call wraps httpx (Anthropic
+            # SDK), JSON, and dict access. Log type for triage.
+            logger.debug(f"AI trade analysis ({type(e).__name__}): {e}")
 
     async def _close(self, row, pnl, payout, result, rebate: float = 0.0):
         """F-03: Single transaction for execution update + wallet credit."""
@@ -376,14 +400,16 @@ class EngineSettlementMixin:
                     if _t0.tzinfo is None:
                         _t0 = _t0.replace(tzinfo=timezone.utc)
                     _dur = int((datetime.now(timezone.utc) - _t0).total_seconds())
-                except Exception:
+                except (ValueError, TypeError):
+                    # T1.4 Faz 1: narrowed — datetime.fromisoformat parse only.
                     pass
             _max_fav, _max_adv = None, None
             try:
                 _moves = self._pop_max_moves(row["id"])
                 if _moves:
                     _max_fav, _max_adv = round(_moves[0], 6), round(_moves[1], 6)
-            except Exception:
+            except (KeyError, TypeError, IndexError):
+                # T1.4 Faz 1: narrowed — row lookup + tuple unpack only.
                 pass
 
             # Both operations in single transaction
@@ -400,10 +426,14 @@ class EngineSettlementMixin:
                     (payout, row["wallet_id"]))
             await self.db.conn.commit()  # Single commit for both
         except Exception as e:
-            logger.error(f"Close transaction failed: {e}")
+            # T1.4 Faz 1: catch-all kept — outer body includes EVTracker
+            # calculation (may hit httpx/DB) plus the critical UPDATE+credit
+            # transaction. Use logger.exception so any regression is traceable.
+            logger.exception(f"Close transaction failed ({type(e).__name__}): {e}")
             try:
                 await self.db.conn.rollback()
-            except Exception:
+            except aiosqlite.Error:
+                # T1.4 Faz 1: narrowed — rollback only raises DB errors.
                 pass
             return
 
@@ -423,20 +453,19 @@ class EngineSettlementMixin:
                 try:
                     _t0 = _dt.fromisoformat(str(_created))
                     _dur = (datetime.now(timezone.utc) - _t0).total_seconds()
-                except Exception:
+                except (ValueError, TypeError):
+                    # T1.4 Faz 1: narrowed — datetime.fromisoformat parse only.
                     pass
             log_decision_close(row["strategy_id"], row.get("event_slug", ""),
                                result, float(pnl), duration_sec=_dur)
-        except Exception:
-            pass
+        except Exception as _ldc:
+            # T1.4 Faz 1: catch-all kept — journal writes are fire-and-forget
+            # side effects (file I/O + import). Log type for triage.
+            logger.debug(f"log_decision_close skipped ({type(_ldc).__name__}): {_ldc}")
 
-        # Phase 76: Release capital in allocator
-        _ca = getattr(self, "_capital_allocator", None)
-        if _ca is not None:
-            try:
-                await _ca.release(row["strategy_id"], row["trade_amount"])
-            except Exception:
-                pass
+        # Phase 76 capital_allocator integration removed in T1.3 (ghost module purge,
+        # 2026-04-20). Attribute `_capital_allocator` is never set on the engine any
+        # more, so this branch was dead code. Kept comment for history.
 
         # Phase 77: Record trade outcome into Trade Memory
         _tm = getattr(self, "_trade_memory", None)
@@ -451,8 +480,9 @@ class EngineSettlementMixin:
                     signal_score=float(row.get("signal_score", 0) or 0),  # Phase 79 BUG-03: use original signal_score
                     entry_price=float(row.get("execution_price", 0) or 0),
                 )
-            except Exception:
-                pass
+            except (aiosqlite.Error, KeyError, TypeError, ValueError) as _tme:
+                # T1.4 Faz 1: narrowed — DB write, row lookup, or float() cast.
+                logger.debug(f"trade_memory.record skipped ({type(_tme).__name__}): {_tme}")
 
         # Phase 47a: feed realized PnL back into the adaptive micro tracker
         if getattr(self, "micro_weight", None) is not None:
@@ -467,7 +497,9 @@ class EngineSettlementMixin:
                     order_key=pk, asset=asset_guess, pnl_usd=float(pnl),
                 )
             except Exception as _mwc:
-                logger.debug(f"micro_weight.record_close: {_mwc}")
+                # T1.4 Faz 1: catch-all kept — adaptive weight tracker internals
+                # (Phase 47a). Log type so regressions are visible.
+                logger.debug(f"micro_weight.record_close ({type(_mwc).__name__}): {_mwc}")
         # Phase 48: feed realized PnL back into the adaptive Becker tracker
         if getattr(self, "becker_weight", None) is not None:
             try:
@@ -475,7 +507,9 @@ class EngineSettlementMixin:
                     order_key=pk, pnl_usd=float(pnl),
                 )
             except Exception as _bwc:
-                logger.debug(f"becker_weight.record_close: {_bwc}")
+                # T1.4 Faz 1: catch-all kept — adaptive Becker weight internals
+                # (Phase 48). Log type so regressions are visible.
+                logger.debug(f"becker_weight.record_close ({type(_bwc).__name__}): {_bwc}")
         # Phase 28: Persist risk state to DB
         await self.risk.save_state(self.db)
         # Phase 33: Update Thompson Sampling
@@ -487,8 +521,10 @@ class EngineSettlementMixin:
                 await self.live.check_settlement(
                     row["event_slug"], won, pnl,
                     paper_amount=float(row.get("trade_amount", 0) or 25.0))
-            except Exception:
-                pass
+            except Exception as _lse:
+                # T1.4 Faz 1: catch-all kept — live.check_settlement body spans
+                # CLOB + DB + telegram; must not raise into paper close path.
+                logger.exception(f"live.check_settlement failed ({type(_lse).__name__}): {_lse}")
         parts = row["event_slug"].split("-")
         if len(parts) >= 3 and row.get("strategy_id"):
             self._cooldowns[f"{row['strategy_id']}:{parts[0].upper()}_{parts[2]}"] = \
@@ -514,7 +550,8 @@ class EngineSettlementMixin:
                     _dur_str = f"{_secs}sn"
                 else:
                     _dur_str = f"{_secs // 60}dk"
-            except Exception:
+            except (ValueError, TypeError):
+                # T1.4 Faz 1: narrowed — datetime.fromisoformat parse only.
                 pass
         # Strategy label
         _label = ""
@@ -522,7 +559,8 @@ class EngineSettlementMixin:
             _lbl_row = await self.db.conn.execute_fetchall(
                 "SELECT label FROM strategies WHERE id=?", (row.get("strategy_id", ""),))
             _label = _lbl_row[0][0] if _lbl_row else row.get("strategy_id", "?")[:8]
-        except Exception:
+        except aiosqlite.Error:
+            # T1.4 Faz 1: narrowed — only DB errors expected.
             _label = row.get("strategy_id", "?")[:8]
         # Parse asset/tf from slug
         _parts = row["event_slug"].split("-")
@@ -551,8 +589,9 @@ class EngineSettlementMixin:
             u = await self.db.get_user_by_id(uid)
             if u:
                 await self.bot_app.bot.send_message(chat_id=u.telegram_id, text=text, parse_mode="HTML")
-        except Exception:
-            pass
+        except (aiosqlite.Error, TelegramError) as _ne:
+            # T1.4 Faz 1: narrowed — DB user lookup + telegram transport only.
+            logger.debug(f"_notify skipped ({type(_ne).__name__}): {_ne}")
 
     async def _count(self, sid, slug):
         async with self.db.conn.execute(
@@ -595,7 +634,8 @@ class EngineSettlementMixin:
                 slip_pct = max(0.0005, min(avg, 0.02))
             else:
                 slip_pct = 0.003  # fallback 0.3%
-        except Exception:
+        except (aiosqlite.Error, ValueError, TypeError):
+            # T1.4 Faz 1: narrowed — DB read or numeric coercion only.
             slip_pct = 0.003
         self._cached_avg_slip = slip_pct
         self._cached_avg_slip_ts = now

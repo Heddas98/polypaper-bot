@@ -38,6 +38,20 @@ MAX_SCALE_AI = 5.0        # AI strategies: max 5x (experimental)
 MAX_THR_DELTA_HUMAN = 0.05  # Human strategies: tight threshold protection
 MAX_THR_DELTA_AI = 0.15     # AI strategies: more freedom
 MAX_TRADE_AMOUNT = 25.0
+# PROTECTED_STRATEGIES: label → preferred odds_threshold.
+# Purpose: shield against LLM-driven AI Brain mistakes (STOP + TUNE actions).
+#   - A proven winner can weather a short bad streak; we don't want the LLM
+#     acting on noise. Format: {label: target_threshold}.
+#   - NOT a defense against `auto_optimizer` — that runs deterministic
+#     PnL/WR/loss-streak rules which apply to ALL non-classic strategies
+#     (paper AND live). Parity is intentional: self-healing design assumes
+#     live mirrors paper, so if a strategy stops paying in paper, live
+#     should stop too.
+#   - Not tied to LIVE_STRATEGIES (live_trader.py:40). A strategy can be
+#     LIVE without being PROTECTED (e.g. AI_F_* experimental strategies:
+#     they trade real $1 but AI Brain may stop/tune them based on fresh
+#     performance data — deliberate).
+# Decision log: 2026-04-20 Epic 4 T4.4 parity audit (kept as-is).
 PROTECTED_STRATEGIES = {"M_BTC_5m_any_0.92": 0.92, "BTC High-Threshold Pure": 0.80}
 # Sprint 3 S3-01: ENV-configurable cycle. Default 1h (was 6h).
 # More strategies = more trades = AI can act more often.
@@ -1413,23 +1427,10 @@ CONSENSUS KURALI:
             if existing:
                 return f"⏭ {label} zaten var"
 
-            # Phase 33: Walk-forward validation BEFORE deployment (optional)
-            # Phase 79b: wf_validator archived — make optional
-            validation = {"passed": True, "reason": "wf_validator disabled", "simulated_trades": 0, "win_rate": 0}
-            try:
-                from core.wf_validator import validate_strategy
-                validation = await validate_strategy(self.db, {
-                    "strategy_type": stype, "asset": asset,
-                    "direction": direction, "odds_threshold": threshold,
-                    "trade_amount": amount,
-                })
-                if not validation["passed"]:
-                    logger.info(f"🔬 CREATE REJECTED: {label} — {validation['reason']}")
-                    return f"🔬 WF FAIL: {label} — {validation['reason']}"
-            except ImportError:
-                logger.debug("wf_validator not available — skipping validation")
-            except Exception as _wf_err:
-                logger.debug(f"wf_validator error: {_wf_err} — skipping")
+            # T1.3 Commit 3 (2026-04-20): Phase 33 walk-forward validation
+            # bloğu silindi — core.wf_validator ghost modül (archive'da, Phase
+            # 79b yorumuyla "archived — make optional"). Artık create öncesi WF
+            # doğrulama yok. wf label'ı (log+reason+return) da kaldırıldı.
 
             sid = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat()
@@ -1442,14 +1443,13 @@ CONSENSUS KURALI:
                 (sid,user[0][0],wallet[0][0],label,asset,direction,amount,threshold,stype,
                  tp,sl,now,now))
             await self.db.conn.commit()
-            wf = f"WF:{validation['simulated_trades']}t {validation['win_rate']:.0f}%"
-            logger.info(f"🧠 CREATE: {label} [{stype}] ${amount}@{threshold} | {wf}")
+            logger.info(f"🧠 CREATE: {label} [{stype}] ${amount}@{threshold}")
             from core.changelog import log_change
             await log_change(self.db, sid, "CREATE", "ai_brain",
                              new={"strategy_type": stype, "asset": asset, "direction": direction,
                                   "odds_threshold": threshold, "trade_amount": amount},
-                             reason=f"{reason} | {wf}", label=label)
-            return f"🆕 CREATE: {label} ${amount}@{threshold} | {wf} — {reason}"
+                             reason=reason, label=label)
+            return f"🆕 CREATE: {label} ${amount}@{threshold} — {reason}"
         except Exception as e:
             return f"❌ CREATE: {e}"
 

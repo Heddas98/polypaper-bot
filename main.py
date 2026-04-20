@@ -43,6 +43,7 @@ from core.engine import TradingEngine
 from data.candle_collector import CandleCollector
 from data.market_recorder import MarketRecorder
 from telegram_bot.bot import PolyPaperBot
+from telegram_bot.version import BOT_VERSION  # T0.2: single source of truth
 
 LOG_DIR = "data_store"
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -100,7 +101,9 @@ if _SENTRY_DSN:
         sentry_sdk.init(
             dsn=_SENTRY_DSN,
             environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
-            release=os.getenv("SENTRY_RELEASE", f"polypaper-bot@v{Settings.BOT_VERSION}"),
+            # T0.2: BOT_VERSION already starts with "v" (e.g. "v9.7.9"),
+            # so no extra "v" prefix in the release tag.
+            release=os.getenv("SENTRY_RELEASE", f"polypaper-bot@{BOT_VERSION}"),
             # Breadcrumbs from INFO, events from ERROR+
             integrations=[LoggingIntegration(
                 level=logging.INFO,

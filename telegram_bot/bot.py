@@ -116,14 +116,15 @@ from telegram_bot.handlers.menu_handler import (
     menu_bt_replay_callback, menu_bt_v2_callback, menu_bt_compare_callback,
     menu_learning_callback, menu_experiment_callback,
     menu_health_callback, menu_advanced_callback,
-    menu_cmd_mistakes_callback, menu_cmd_markov_callback,
-    menu_cmd_capital_callback, menu_cmd_breed_callback,
-    menu_cmd_vote_callback, menu_cmd_whale_callback)
+    menu_cmd_mistakes_callback,
+    # T1.3 Commit 4: markov/capital callback imports silindi
+    # T1.3 Commit 6: breed/vote/whale callback imports silindi (roadmap_handler ghost)
+)
 # Phase 51 P51-04/P51-05 — natural language intent parser
 from telegram_bot.handlers.ai_handler import (  # Phase 51 P51-03 Faz-2 Cluster D
     ai_command, ai_confirm_callback, ai_approval_callback, analyze_apply_callback, analyze_brain_callback, suggest_callback,  # Sprint 3 S3-04 + Phase 79b
     brain_command, brain_toggle_callback,  # merged from brain_handler.py
-    regime_command, ts_command, drift_command, validate_command, monitor_command,  # merged from intelligence_handler.py
+    regime_command, ts_command, drift_command, monitor_command,  # merged from intelligence_handler.py (T1.3 Commit 3: validate_command ghost removed)
 )
 # Phase 47f.7+ in-bot shadow report job (replaces broken sandbox scheduled task)
 from telegram_bot.jobs.shadow_report_job import shadow_report_job
@@ -138,15 +139,16 @@ from telegram_bot.handlers.hyperopt_handler import (  # Phase 67
     hyperopt_apply_callback,  # Sprint 3 S3-05: Apply/Reject buttons
 )
 from telegram_bot.handlers.roadmap_handler import (  # Phase 70-73
-    ev_stats_command, metrics_command, breed_command, vote_command,
-    drift_check_command, whale_command, surface_command,
-    latency_command, market_quality_command, correlation_check_command,
+    # T1.3 Commit 5 (2026-04-20): breed/vote/drift_check/whale/market_quality/
+    # correlation_check import'ları silindi (ghost modüller).
+    ev_stats_command, metrics_command, surface_command, latency_command,
 )
 from telegram_bot.handlers.lifecycle_handler import lifecycle_command  # Phase 74b
 from telegram_bot.handlers.becker_recal_handler import (  # Phase 75+
     becker_recal_status_command, becker_recal_manual_command)
-from telegram_bot.handlers.phase76_handler import (  # Phase 76
-    markov_command, capital_command)
+# T1.3 Commit 4 (2026-04-20): phase76_handler silindi —
+# markov_command + capital_command ghost modüllere (core.markov_estimator,
+# core.capital_allocator) bağlıydı, Phase 76 ayağı Phase 79b sonrası ölü kalmıştı.
 from telegram_bot.handlers.phase77_handler import (  # Phase 77
     why_command, why_callback,
     mistakes_command, patterns_command, patterns_callback,
@@ -224,7 +226,8 @@ class PolyPaperBot:
             ("regime", regime_command),
             ("ts", ts_command), ("thompson", ts_command),  # Phase 47f.9: readable alias
             ("drift", drift_command), ("regime_drift", drift_command),  # Phase 47f.9: readable alias
-            ("validate", validate_command), ("monitor", monitor_command), ("m", monitor_command),
+            # T1.3 Commit 3: ("validate", validate_command) kaldırıldı — wf_validator ghost
+            ("monitor", monitor_command), ("m", monitor_command),
             ("brain", brain_command),
             ("candles", candles_command),
             ("recorder", recorder_command),
@@ -311,26 +314,19 @@ class PolyPaperBot:
             # Phase 82e Sprint 3.2: force-release a stuck hyperopt lock (admin)
             ("hyperopt_abort", hyperopt_abort_command),
             ("mc_kelly", mc_kelly_command),
-            # Phase 70-73: Roadmap commands
+            # Phase 70-73: Roadmap commands (T1.3 Commit 5: breed/vote/drift_check/
+            # whale/market_quality/correlation_check ghost silindi)
             ("ev_stats", ev_stats_command),
             ("metrics", metrics_command),
-            ("breed", breed_command),
-            ("vote", vote_command),
-            ("drift_check", drift_check_command),
-            ("whale", whale_command),
             ("surface", surface_command),
             ("latency", latency_command),
-            ("market_quality", market_quality_command), ("mq", market_quality_command),
-            # Phase 75+: Analysis commands
-            ("correlation_check", correlation_check_command), ("corr_check", correlation_check_command),
             # Phase 75+: Becker rolling recalibration
             ("becker_recal_status", becker_recal_status_command),
             ("becker_recal_manual", becker_recal_manual_command),
             # Phase 74b: Per-strategy lifecycle
             ("lifecycle", lifecycle_command), ("lc", lifecycle_command),
-            # Phase 76: Markov + Capital Allocator
-            ("markov", markov_command),
-            ("capital", capital_command), ("cap", capital_command),
+            # T1.3 Commit 4 (2026-04-20): Phase 76 markov + capital
+            # registration'ları silindi (phase76_handler.py ghost modül).
             # Phase 77: Learning + Explainer + Health + Experiment
             ("why", why_command),
             ("mistakes", mistakes_command),
@@ -448,11 +444,10 @@ class PolyPaperBot:
             ("menu_health", menu_health_callback),
             ("menu_advanced", menu_advanced_callback),
             ("menu_cmd_mistakes", menu_cmd_mistakes_callback),
-            ("menu_cmd_markov", menu_cmd_markov_callback),
-            ("menu_cmd_capital", menu_cmd_capital_callback),
-            ("menu_cmd_breed", menu_cmd_breed_callback),
-            ("menu_cmd_vote", menu_cmd_vote_callback),
-            ("menu_cmd_whale", menu_cmd_whale_callback),
+            # T1.3 Commit 4 (2026-04-20): menu_cmd_markov + menu_cmd_capital
+            # callback handler'ları silindi (phase76_handler ghost).
+            # T1.3 Commit 6 (2026-04-20): menu_cmd_breed/vote/whale silindi
+            # (roadmap_handler ghost).
         ]:
             self.app.add_handler(CallbackQueryHandler(handler, pattern=f"^{pattern}$"))
 
@@ -853,7 +848,8 @@ class PolyPaperBot:
             is_admin = str(update.effective_user.id) == str(admin_id)
 
         core_help = (
-            f"📋 <b>PolyPaper Bot {BOT_VERSION} — Phase 79</b>\n"
+            # T0.5 2026-04-20: drop hardcoded "Phase 79" — follow BOT_CODENAME
+            f"📋 <b>PolyPaper Bot {BOT_VERSION} — {BOT_CODENAME}</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
             "<b>🏠 Genel</b>\n"

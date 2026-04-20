@@ -386,84 +386,12 @@ class TestExperimentRunner:
 
 
 # ═══════════════════════════════════════
-# MARKOV ESTIMATOR TESTS (Phase 76)
+# T1.3 Commit 7 (2026-04-20): TestMarkovEstimator + TestCapitalAllocator
+# sınıfları silindi — core.markov_estimator ve core.capital_allocator
+# _archive/sprint4_modules/core/ altında, canlı kod tarafında da Commit 1+4'te
+# söküldüler. Trade Memory + Decision Explainer + Experiment Runner +
+# BondingYield testleri korundu.
 # ═══════════════════════════════════════
-
-class TestMarkovEstimator:
-    def test_basic_estimate(self):
-        from core.markov_estimator import MarkovEstimator
-        m = MarkovEstimator()
-        series = [0.45 + i * 0.005 for i in range(20)]
-        result = m.estimate(series, 0.55)
-        assert result.direction in ("up", "down", None)
-        assert result.enabled
-
-    def test_short_series(self):
-        from core.markov_estimator import MarkovEstimator
-        m = MarkovEstimator()
-        result = m.estimate([0.5, 0.51], 0.50)
-        assert result.direction is None  # Too short
-
-    def test_becker_fusion(self):
-        from core.markov_estimator import MarkovEstimator
-        m = MarkovEstimator()
-        series = [0.45 + i * 0.005 for i in range(20)]
-        result = m.estimate_with_becker(series, 0.55, becker_prob=0.60)
-        assert result.estimated_prob > 0
-        assert "fused" in result.reason
-
-    def test_format_telegram(self):
-        from core.markov_estimator import MarkovEstimator
-        m = MarkovEstimator()
-        series = [0.50] * 20
-        result = m.estimate(series, 0.50)
-        text = m.format_telegram(result, "test-slug")
-        assert "Markov" in text or "markov" in text.lower()
-
-
-# ═══════════════════════════════════════
-# CAPITAL ALLOCATOR TESTS (Phase 76)
-# ═══════════════════════════════════════
-
-class TestCapitalAllocator:
-    def test_basic_budget(self, db, event_loop):
-        from core.capital_allocator import CapitalAllocator
-        ca = CapitalAllocator()
-        event_loop.run_until_complete(ca.initialize(db))
-        budget = event_loop.run_until_complete(ca.get_budget("strat1"))
-        assert budget.strategy_id == "strat1"
-        assert budget.allocated > 0
-
-    def test_can_trade(self, db, event_loop):
-        from core.capital_allocator import CapitalAllocator
-        ca = CapitalAllocator()
-        event_loop.run_until_complete(ca.initialize(db))
-
-        result = event_loop.run_until_complete(ca.can_trade("strat1", 5.0))
-        assert result["allowed"]
-
-    def test_reserve_release(self, db, event_loop):
-        from core.capital_allocator import CapitalAllocator
-        ca = CapitalAllocator()
-        event_loop.run_until_complete(ca.initialize(db))
-
-        # Get initial used amount
-        b = event_loop.run_until_complete(ca.get_budget("strat_rr"))
-        initial_used = b.used  # should be 0
-
-        event_loop.run_until_complete(ca.reserve("strat_rr", 10.0))
-        b2 = event_loop.run_until_complete(ca.get_budget("strat_rr"))
-        assert b2.used == initial_used + 10.0
-
-        event_loop.run_until_complete(ca.release("strat_rr", 10.0))
-        b3 = event_loop.run_until_complete(ca.get_budget("strat_rr"))
-        assert b3.used == initial_used
-
-    def test_format_telegram(self):
-        from core.capital_allocator import CapitalAllocator
-        ca = CapitalAllocator()
-        text = ca.format_telegram()
-        assert "💰" in text
 
 
 # ═══════════════════════════════════════
@@ -527,10 +455,8 @@ class TestBondingYield:
 # ═══════════════════════════════════════
 
 class TestHandlerImports:
-    def test_phase76_handler(self):
-        from telegram_bot.handlers.phase76_handler import markov_command, capital_command
-        assert callable(markov_command)
-        assert callable(capital_command)
+    # T1.3 Commit 7 (2026-04-20): test_phase76_handler silindi —
+    # phase76_handler.py Commit 4'te dosya olarak silindi.
 
     def test_phase77_handler(self):
         from telegram_bot.handlers.phase77_handler import (

@@ -103,15 +103,24 @@ class EngineSignalsMixin:
     # block exactly the scenarios that classic targets.
     #
     # BYPASS BEHAVIOR (default: CLASSIC_BYPASS_ALL_GATES=true):
-    #   - For stype=="classic", skip all 14+ strategic gates
-    #   - HARD SAFETY is always enforced: MARKET_HALT, NO_LIQ, BAD_PRICE,
-    #     RISK, MIN_SIZE, MIN_SHARES, FEE_TAIL, STP, TOKEN_CAP, PLUGIN_ERROR
+    #   - For stype=="classic", skip all 14+ strategic gates (free trade mode)
+    #   - HARD SAFETY (always enforced, cannot be bypassed):
+    #     MARKET_HALT, NO_LIQ, BAD_PRICE, RISK (9-gate check_trade),
+    #     MIN_SIZE, MIN_SHARES, STP, PLUGIN_ERROR
+    #   - OPT-IN RESPECT flags (gate bypassed by default, set env to "true"
+    #     to re-enable gate for classic):
+    #       CLASSIC_RESPECT_ZONES        → ALLOWED_ZONES gate
+    #       CLASSIC_RESPECT_UNSELLABLE   → UNSELLABLE gate
+    #       CLASSIC_RESPECT_FEE_TAIL     → FEE_TAIL gate
+    #       CLASSIC_RESPECT_TOKEN_CAP    → TOKEN_CAP cross-strategy gate
     #   - STRATEGY-LEVEL fields still apply when user sets them: EMA_BLOCK,
     #     LOW_VOL, PRICE_DIFF, TOO_EARLY, SLIPPAGE, MAX_EXEC/LOSS — defaults
     #     are off anyway
     #
     # OPT-OUT: set CLASSIC_BYPASS_ALL_GATES=false → classic behaves like
-    # any other strategy type.
+    # any other strategy type (all strategic gates re-enabled).
+    # Design intent (2026-04-20 confirmed): Classic strategies must trade
+    # freely based on user-directed triggers. Hard safety + check_trade only.
     @staticmethod
     def _classic_free_mode(ctx_or_stype) -> bool:
         """Return True if classic stype AND env opt-in not disabled.
@@ -319,12 +328,8 @@ class EngineSignalsMixin:
             self.skips.record("NO_LIQ")
             return None
 
-        # Lag arb recorder
-        if getattr(self, "_lag_arb", None) is not None and up is not None:
-            try:
-                self._lag_arb.record(asset.lower(), up)
-            except Exception:
-                pass
+        # T1.3 Commit 1 (2026-04-20): lag_arb recorder kaldırıldı
+        # (core.lag_arbitrage ghost modül — engine.py init'ten silindi).
 
         now = datetime.now(timezone.utc)
 
@@ -1053,103 +1058,11 @@ class EngineSignalsMixin:
             except Exception:
                 pass
 
-        # ── Cascade Overshoot Contrarian ──
-        if getattr(self, "_cascade_detector", None) is not None:
-            try:
-                cascade_sig = self._cascade_detector.get_signal(slug)
-                if cascade_sig > 0:
-                    event = self._cascade_detector.check(slug)
-                    if event and trade_direction == event.contrarian_direction:
-                        cascade_boost = cascade_sig * 0.15
-                        signal_score = min(signal_score + cascade_boost, 1.0)
-                        signal_reason += f" | cascade_ctr={cascade_boost:+.3f}"
-                        if verbose:
-                            logger.info(
-                                f"  [{sid}] 🌊 CASCADE BOOST: {event.direction} cascade "
-                                f"Δ={event.magnitude:.3f} vol={event.volume_ratio:.1f}x "
-                                f"→ contrarian {event.contrarian_direction} +{cascade_boost:.3f}")
-                    elif event and trade_direction == event.direction:
-                        cascade_penalty = cascade_sig * 0.10
-                        signal_score = max(signal_score - cascade_penalty, -1.0)
-                        signal_reason += f" | cascade_with={-cascade_penalty:+.3f}"
-            except Exception as _ce:
-                logger.debug(f"  [{sid}] cascade_signal_error: {_ce}")
-
-        # ── Lag Arbitrage ──
-        if getattr(self, "_lag_arb", None) is not None and trade_direction:
-            try:
-                lag_sig = self._lag_arb.check_lag(asset.lower())
-                if lag_sig and lag_sig.signal_strength > 0.01:
-                    _lag_weight = float(os.getenv("LAG_SIGNAL_WEIGHT", "0.10"))
-                    if lag_sig.expected_direction == trade_direction:
-                        lag_boost = lag_sig.signal_strength * _lag_weight
-                        signal_score = min(signal_score + lag_boost, 1.0)
-                        signal_reason += f" | lag_{lag_sig.leader}={lag_boost:+.3f}"
-                        if verbose:
-                            logger.info(
-                                f"  [{sid}] 🔗 LAG_ARB: {lag_sig.leader}→{asset} "
-                                f"move={lag_sig.leader_move:+.3f} ρ={lag_sig.correlation:.2f} "
-                                f"→ +{lag_boost:.3f}")
-                    else:
-                        lag_pen = lag_sig.signal_strength * _lag_weight * 0.5
-                        signal_score = max(signal_score - lag_pen, -1.0)
-                        signal_reason += f" | lag_against={-lag_pen:+.3f}"
-            except Exception as _le:
-                logger.debug(f"  [{sid}] lag_arb_error: {_le}")
-
-        # ── Whale Signal ──
-        if getattr(self, "_whale_signal", None) is not None and trade_direction:
-            try:
-                whale_boost = self._whale_signal.get_signal(
-                    slug, trade_direction, minutes_remaining)
-                if abs(whale_boost) > 0.001:
-                    signal_score = max(min(signal_score + whale_boost, 1.0), -1.0)
-                    signal_reason += f" | whale={whale_boost:+.3f}"
-                    if verbose and abs(whale_boost) > 0.01:
-                        flow = self._whale_signal.analyze_flow(slug)
-                        logger.info(
-                            f"  [{sid}] 🐋 WHALE: flow={flow.net_direction} "
-                            f"${flow.up_volume_usd:.0f}↑/${flow.down_volume_usd:.0f}↓ "
-                            f"n={flow.trade_count} late={flow.is_late_entry} "
-                            f"→ {whale_boost:+.3f}")
-            except Exception as _we:
-                logger.debug(f"  [{sid}] whale_signal_error: {_we}")
-
-        # ── Phase 71: Spread Signal (orderbook imbalance) ──
-        if os.getenv("SPREAD_SIGNAL_ENABLED", "false").lower() == "true" and trade_direction:
-            try:
-                from data_feeds.spread_signal import analyze_spread
-                _ob = cached.get("orderbook")
-                if _ob:
-                    _spread_result = analyze_spread(
-                        _ob, trade_direction=trade_direction)
-                    if abs(_spread_result.signal) > 0.001:
-                        signal_score = max(min(
-                            signal_score + _spread_result.signal, 1.0), -1.0)
-                        signal_reason += f" | spread={_spread_result.signal:+.3f}"
-            except Exception as _se:
-                logger.debug(f"  [{sid}] spread_signal_error: {_se}")
-
-        # ── Phase 76: Markov Chain probability boost ──
-        _markov = getattr(self, "_markov", None)
-        if _markov is not None and best_ask is not None:
-            try:
-                from core.markov_estimator import MARKOV_ENABLED, MARKOV_WEIGHT
-                if MARKOV_ENABLED:
-                    _odds_series = self.odds_feed.get_odds_series(slug, "up") or []
-                    if len(_odds_series) >= 5:
-                        _m_result = _markov.estimate(_odds_series, best_ask)
-                        if _m_result.direction is not None:
-                            _m_boost = _m_result.edge * MARKOV_WEIGHT
-                            _m_boost = max(min(_m_boost, 0.10), -0.10)  # clamp
-                            signal_score = max(min(signal_score + _m_boost, 1.0), -1.0)
-                            signal_reason += f" | markov={_m_boost:+.3f}(e={_m_result.edge:+.3f})"
-                            if verbose:
-                                logger.info(f"  [{sid}] 🔮 MARKOV: est={_m_result.estimated_prob:.3f} "
-                                            f"mkt={best_ask:.3f} edge={_m_result.edge:+.3f} "
-                                            f"boost={_m_boost:+.3f}")
-            except Exception as _me:
-                logger.debug(f"  [{sid}] markov_boost_error: {_me}")
+        # T1.3 Commit 1 (2026-04-20): Phase 60 Cascade/LagArb/Whale + Phase 71
+        # Spread + Phase 76 Markov boost blokları silindi — hepsi ghost modüllere
+        # bağlıydı (core.cascade_detector, core.lag_arbitrage, core.whale_signal,
+        # data_feeds.spread_signal, core.markov_estimator). Sessiz fail ile
+        # signal_score üzerinde hiç etki yapmıyorlardı.
 
         # ── Phase 77: Trade Memory pattern lookup ──
         _tm = getattr(self, "_trade_memory", None)
@@ -1169,23 +1082,9 @@ class EngineSignalsMixin:
             except Exception as _tme:
                 logger.debug(f"  [{sid}] trade_memory_error: {_tme}")
 
-        # ── Phase 71: EventWaves Market Quality Gate ──
-        if not _classic_free and os.getenv("EVENT_WAVES_ENABLED", "false").lower() == "true":
-            try:
-                from data_feeds.event_waves import assess_market_quality
-                _vol_24h = cached.get("volume_24h", 0)
-                _spread_val = cached.get("spread", 0.05)
-                _mq = assess_market_quality(
-                    slug=slug, volume_24h=_vol_24h, spread=_spread_val,
-                    minutes_remaining=minutes_remaining or 60,
-                    total_minutes=300, up_odds=best_ask)
-                if not _mq.should_trade:
-                    self.skips.record("EVENT_WAVES_QUALITY")
-                    if verbose:
-                        logger.info(f"  [{sid}] ⛔ MARKET_QUALITY: {_mq.reason}")
-                    return None
-            except Exception as _ewe:
-                logger.debug(f"  [{sid}] event_waves_error: {_ewe}")
+        # T1.3 Commit 1 (2026-04-20): Phase 71 EventWaves market-quality gate
+        # silindi — data_feeds.event_waves ghost modül, default ENV=false zaten
+        # kapalıydı. EVENT_WAVES_QUALITY skip reason da ölü.
 
         ctx.update({
             "signal_score": signal_score,

@@ -41,8 +41,10 @@ CATEGORY_FEES: dict[str, dict] = {
     "mentions":    {"taker_rate": 0.040, "taker_exp": 2,   "maker_rebate_pct": 0.25},
     "other":       {"taker_rate": 0.050, "taker_exp": 2,   "maker_rebate_pct": 0.25},
     "geopolitics": {"taker_rate": 0.000, "taker_exp": 1,   "maker_rebate_pct": 0.00},
-    # Legacy quadratic (pre-March 2026) kept for backtest parity.
-    "legacy":      {"taker_rate": 0.25,  "taker_exp": 2,   "maker_rebate_pct": 0.00},
+    # NOTE: Pre-Mart 2026 "legacy" quadratic category removed 2026-04-21 with
+    # Epic 4 T4.1. Polymarket deprecated that curve; fees_v2 is the canonical
+    # source (verified against live Gamma feeSchedule). See git history for
+    # the old {rate: 0.25, exp: 2} entry if ever needed for archival review.
 }
 
 DEFAULT_CATEGORY = "crypto"

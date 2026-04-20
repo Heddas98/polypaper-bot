@@ -320,8 +320,7 @@ async def menu_learning_callback(update: Update, context: ContextTypes.DEFAULT_T
         "/why — Son trade kararlarını açıkla\n"
         "/mistakes — Overconfident kayıplar (yüksek sinyal, kayıp)\n"
         "/patterns — En iyi/kötü trading pattern'leri\n"
-        "/markov — Markov Chain olasılık tahmini\n"
-        "/capital — Sermaye dağıtım tablosu (/cap)\n"
+        # T1.3 Commit 4: /markov + /capital satırları kaldırıldı (phase76 ghost).
         "/lifecycle — Strateji yaşam döngüsü (/lc)\n"
         "/brier — Brier Score kalibrasyon raporu\n"
         "/ev_stats — EV gate istatistikleri\n"
@@ -333,10 +332,8 @@ async def menu_learning_callback(update: Update, context: ContextTypes.DEFAULT_T
             InlineKeyboardButton("💀 /mistakes", callback_data="menu_cmd_mistakes"),
             InlineKeyboardButton("📊 /patterns", callback_data="patterns_refresh"),
         ],
-        [
-            InlineKeyboardButton("🔮 /markov", callback_data="menu_cmd_markov"),
-            InlineKeyboardButton("💰 /capital", callback_data="menu_cmd_capital"),
-        ],
+        # T1.3 Commit 4 (2026-04-20): /markov + /capital butonları kaldırıldı —
+        # phase76_handler.py ghost modüllere bağlıydı, silindi.
         [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
     ])
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
@@ -384,30 +381,21 @@ async def menu_advanced_callback(update: Update, context: ContextTypes.DEFAULT_T
     """Advanced sub-menu — evolutionary, swarm, cross-platform features."""
     q = update.callback_query
     await q.answer()
+    # T1.3 Commit 5-6 (2026-04-20): Ghost komutlar (breed, vote, drift_check,
+    # market_quality, correlation_check, whale) menüden çıkarıldı —
+    # roadmap_handler.py'deki komutlar ve callback'ler silindi.
     text = (
         "🚀 <b>Gelişmiş Araçlar</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
-        "Evrimsel, sürü ve çapraz piyasa araçları.\n\n"
-        "🧬 <b>Evrimsel:</b>\n"
-        "/breed — Genetik strateji üretimi\n"
-        "/vote — Swarm oylama (majority vote)\n"
-        "/drift_check — Parametre drift kontrolü\n\n"
+        "Piyasa analiz ve kalibrasyon araçları.\n\n"
         "📈 <b>Piyasa Analiz:</b>\n"
         "/surface — 2D kalibrasyon yüzeyi C(K,τ)\n"
-        "/latency — API latency monitor\n"
-        "/market_quality — Piyasa kalitesi (/mq)\n"
-        "/correlation_check — Cross-asset korelasyon\n"
-        "/whale — Whale akış analizi\n\n"
+        "/latency — WebSocket bağlantı durumu\n\n"
         "🔧 <b>Kalibrasyon:</b>\n"
         "/becker_recal_status — Becker recal durumu\n"
         "/becker_recal_manual — Becker manuel recal"
     )
     kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🧬 /breed", callback_data="menu_cmd_breed"),
-            InlineKeyboardButton("🗳 /vote", callback_data="menu_cmd_vote"),
-            InlineKeyboardButton("🐋 /whale", callback_data="menu_cmd_whale"),
-        ],
         [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
     ])
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
@@ -420,13 +408,15 @@ async def _menu_cmd_callback(update: Update, context: ContextTypes.DEFAULT_TYPE,
     try:
         import importlib
         # Map callback names to (module, function) pairs
+        # T1.3 Commit 4 (2026-04-20): markov + capital entries removed —
+        # phase76_handler.py ghost modüllere (core.markov_estimator,
+        # core.capital_allocator) bağlıydı, silindi.
+        # T1.3 Commit 6 (2026-04-20): breed/vote/whale entries removed —
+        # roadmap_handler.py içindeki bu komutlar Commit 5'te silindi
+        # (ghost modül bağımlılıkları: core.evolutionary, core.majority_voting,
+        # data_feeds.whale_tracker).
         CMD_MAP = {
             "mistakes": ("telegram_bot.handlers.phase77_handler", "mistakes_command"),
-            "markov": ("telegram_bot.handlers.phase76_handler", "markov_command"),
-            "capital": ("telegram_bot.handlers.phase76_handler", "capital_command"),
-            "breed": ("telegram_bot.handlers.roadmap_handler", "breed_command"),
-            "vote": ("telegram_bot.handlers.roadmap_handler", "vote_command"),
-            "whale": ("telegram_bot.handlers.roadmap_handler", "whale_command"),
         }
         if cmd_name in CMD_MAP:
             mod_path, fn_name = CMD_MAP[cmd_name]
@@ -443,20 +433,11 @@ async def _menu_cmd_callback(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def menu_cmd_mistakes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _menu_cmd_callback(update, context, "mistakes")
 
-async def menu_cmd_markov_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _menu_cmd_callback(update, context, "markov")
-
-async def menu_cmd_capital_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _menu_cmd_callback(update, context, "capital")
-
-async def menu_cmd_breed_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _menu_cmd_callback(update, context, "breed")
-
-async def menu_cmd_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _menu_cmd_callback(update, context, "vote")
-
-async def menu_cmd_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _menu_cmd_callback(update, context, "whale")
+# T1.3 Commit 4 (2026-04-20): menu_cmd_markov_callback + menu_cmd_capital_callback
+# silindi — phase76_handler.py ghost modüllere bağlıydı.
+# T1.3 Commit 6 (2026-04-20): menu_cmd_breed_callback + menu_cmd_vote_callback +
+# menu_cmd_whale_callback silindi — roadmap_handler.py'deki komutlar Commit 5'te
+# ghost olarak temizlendi.
 
 
 async def menu_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

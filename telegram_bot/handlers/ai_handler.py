@@ -491,62 +491,8 @@ async def drift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"❌ <b>Drift Tespiti Hatasi</b>\n\nDetay: {str(e)[:100]}", parse_mode="HTML")
 
 
-async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Walk-forward validate a strategy idea.
-    /validate BTC down 0.45
-    /validate ETH up 0.60
-    """
-    args = context.args or []
-    if len(args) < 3:
-        return await update.message.reply_text(
-            "🔬 <b>Walk-Forward Validator</b>\n\n"
-            "Kullanim: /validate [asset] [direction] [threshold]\n"
-            "Ornek: /validate BTC down 0.45\n"
-            "Ornek: /validate ETH up 0.60\n\n"
-            "<i>Son 7 gunun gercek trade verisinde simule eder.</i>",
-            parse_mode="HTML")
-
-    asset = args[0].upper()
-    direction = args[1].lower()
-    try:
-        threshold = float(args[2])
-    except ValueError:
-        return await update.message.reply_text("Gecersiz threshold.")
-
-    db = context.bot_data.get("db")
-    if not db:
-        return await update.message.reply_text("DB bulunamadi.", parse_mode="HTML")
-
-    # Loading indicator
-    await update.message.reply_text(
-        f"⏳ <b>Walk-Forward Validasyon</b>\n"
-        f"Asset: {esc(asset)} | Direction: {esc(direction)}\n"
-        f"Threshold: {threshold}",
-        parse_mode="HTML")
-
-    try:
-        from core.wf_validator import validate_strategy
-        result = await validate_strategy(db, {
-            "asset": asset, "direction": direction,
-            "odds_threshold": threshold, "trade_amount": 1.0,
-        })
-    except Exception as e:
-        logger.error(f"Validate command error: {esc(e)}", exc_info=True)
-        return await update.message.reply_text(
-            f"❌ <b>Validasyon Hatasi</b>\n\nDetay: {str(e)[:100]}",
-            parse_mode="HTML")
-
-    emoji = "✅" if result["passed"] else "❌"
-    text = (
-        f"🔬 <b>Walk-Forward Sonucu</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{emoji} <b>{result['reason']}</b>\n\n"
-        f"Asset: {esc(asset)} | Yon: {esc(direction)} | Threshold: {threshold}\n"
-        f"Simule: {result['simulated_trades']} trade\n"
-        f"Win Rate: {result['win_rate']:.1f}%\n"
-        f"EV/trade: {result['ev_per_trade']:+.3f}\n"
-        f"Toplam PnL: {result['total_pnl']:+.2f}\n\n"
-        f"<i>Min gecme: %52 WR + pozitif EV</i>")
-    await update.message.reply_text(text, parse_mode="HTML")
+# T1.3 Commit 3 (2026-04-20): validate_command komple silindi —
+# core.wf_validator ghost modüle bağlıydı, /validate komutu broken durumdaydı.
 
 
 async def monitor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

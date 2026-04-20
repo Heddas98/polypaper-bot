@@ -46,7 +46,7 @@ polyPaper-bot/
 │
 ├── core/                          # ENGINE KALBI
 │   ├── engine.py                  # Ana engine, market loop, pozisyon yönetimi
-│   ├── engine_signals.py          # Sinyal üretimi + 14-gate pipeline (Confluence, EV, MCI, Parity, Penny, Slippage, Zones, UNSELLABLE, Classic-bypass…)
+│   ├── engine_signals.py          # Sinyal üretimi + çok-gate pipeline (14+ strategic gate, 30+ skip reason): Confluence, EV, MCI, Parity, Penny, Slippage, Zones, UNSELLABLE, Classic-bypass…
 │   ├── engine_fills.py            # Fill modelleri (MAKER, TAKER, MAKER_HYBRID)
 │   ├── engine_settlement.py       # Resolution fiyatı + CLOB unclamped, force_settle
 │   ├── engine_monitor.py          # In-flight pozisyon gözetim
@@ -82,7 +82,12 @@ polyPaper-bot/
 │   └── signals/                   # Eski signal moduleleri (legacy)
 │
 ├── backtest/                      # BACKTEST MOTORU
-│   ├── engine.py                  # ReplayEngine (event-driven tick replay)
+│   ├── engine_v2.py               # Backtest engine v2
+│   ├── replay_engine.py           # Event-driven tick replay (legacy)
+│   ├── replay_engine_v3.py        # Replay engine v3 (Phase 81)
+│   ├── archive_reader.py          # Parquet/CSV arşiv okuyucu
+│   ├── becker_replay.py           # Becker calibration replay tool
+│   ├── metrics.py                 # Sharpe, Sortino, MDD, Calmar metrikleri
 │   ├── data_sources/
 │   │   ├── binance_hist.py        # Binance historical candles
 │   │   ├── gamma_hist.py          # Polymarket Gamma API historical
@@ -103,7 +108,10 @@ polyPaper-bot/
 │   │   ├── reporter.py            # PnL, WR, Sharpe, Sortino raporları
 │   │   ├── charts.py              # Matplotlib görselleri
 │   │   └── comparator.py          # A/B + split-backtest karşılaştırma
-│   └── hyperopt_runner.py         # Optuna pipeline (Phase 67+)
+│   ├── hyperopt.py                # Optuna ana pipeline (Phase 67+)
+│   ├── hyperopt_launcher.py       # HyperOpt subprocess launcher
+│   ├── hyperopt_worker.py         # HyperOpt child worker
+│   └── hyperopt_ipc.py            # Parent↔child IPC protokolü (Phase 82b)
 │
 ├── telegram_bot/                  # BOT + HANDLER'LAR
 │   ├── bot.py                     # Main entry — Application, dispatcher
@@ -132,16 +140,17 @@ polyPaper-bot/
 │   │   ├── phase76_handler.py     # /markov, /capital
 │   │   ├── phase77_handler.py     # /experiment, /health
 │   │   └── …
-│   ├── jobs/                      # APScheduler periyodik işler
-│   │   ├── heartbeat.py           # 5dk aralıkla durum özeti
-│   │   ├── daily_db_snapshot.py   # Gecelik DB snapshot
-│   │   ├── db_retention_job.py    # 5 tablo nightly retention
-│   │   ├── shadow_report_job.py   # 30dk shadow-vs-paper rapor
-│   │   ├── ai_brain_job.py        # 1 saat AI brain cycle
-│   │   ├── auto_resume_job.py     # Startup auto-resume
-│   │   ├── hyperopt_nightly.py    # Nightly tournament
-│   │   ├── wr_milestone_job.py    # 50/100/200/500 trade milestone
-│   │   └── …
+│   ├── jobs/                      # PTB JobQueue periyodik işler
+│   │   ├── maintenance_jobs.py    # heartbeat_job (10dk) + daily_db_snapshot
+│   │   ├── db_retention_job.py    # Gecelik retention (archive-first)
+│   │   ├── db_archive_job.py      # DB arşivleme yardımcıları
+│   │   ├── shadow_report_job.py   # 30dk shadow-vs-paper rapor (in-bot)
+│   │   ├── shadow_vs_paper_job.py # Shadow/paper karşılaştırma detayı
+│   │   ├── auto_promote_job.py    # AI strateji otomatik promote/demote
+│   │   ├── becker_rolling_recal_job.py  # Becker calibrator rolling recal
+│   │   ├── pattern_discovery_job.py     # Pattern discovery (Phase 77)
+│   │   ├── pnl_divergence_job.py  # Paper↔shadow PnL sapma alarmı
+│   │   └── tournament_job.py      # HyperOpt nightly tournament
 │   └── templates/                 # Message templates (HTML)
 │
 ├── indicators/                    # TEKNIK INDIKATOR SKILLS
@@ -149,30 +158,32 @@ polyPaper-bot/
 │
 ├── skills/                        # SKILL MODULLERI (Phase 73)
 │   ├── ema_skill.py
-│   ├── vol_skill.py
+│   ├── volatility_skill.py        # T0.3.1: vol_skill.py değil — dosyanın gerçek adı
 │   └── orderbook_skill.py
 │
-├── data_feeds/                    # GERÇEK ZAMANLI VERİ FEEDLERİ
-│   ├── polymarket_ws.py           # Polymarket OB WebSocket
-│   ├── binance_ws.py              # BTC/ETH spot fiyat feed
-│   ├── chainlink_oracle.py        # Parity gate için
-│   ├── whale_tracker.py           # $100+ trade'leri izler
-│   ├── spread_signal.py           # Spread-based mikro sinyal
-│   ├── latency_monitor.py         # Feed gecikme ölçümü
-│   └── event_waves.py             # Haber/event kalite sinyali
+├── data_feeds/                    # HABER/EVENT SCANNER (Phase 82e)
+│   └── news_scanner.py            # Haber kaynağı tarayıcı
+│   # NOT (T0.3.1 2026-04-20): polymarket_ws, binance_ws, chainlink_oracle,
+│   # whale_tracker, spread_signal, latency_monitor, event_waves modülleri
+│   # Sprint 4 cleanup ile _archive/sprint4_modules/data_feeds/'a taşındı.
+│   # core/engine_signals.py:1121,1175 ve tests/unit/test_phase71.py hâlâ
+│   # bu yolu import ediyor → Epic 1 T0.3.2 ghost-module temizliği.
 │
-├── calibration/                   # 2D KALİBRASYON (Phase 70)
-│   ├── surface.py                 # C(K, τ) probability surface
-│   └── mci.py                     # MCI quality score
+├── calibration/                   # KALİBRASYON (Phase 70+)
+│   ├── surface_2d.py              # 2D C(K, τ) probability surface
+│   ├── coherence.py               # Cross-platform coherence / MCI quality
+│   └── ev_threshold.py            # EV threshold calibration helper
 │
 ├── config/                        # YAML + static config
 │   ├── strategies/                # Per-strategy parametre yaml'ları
 │   └── zones.yaml                 # ALLOWED_ZONES default
 │
 ├── db/                            # DB KATMANI
-│   ├── ro_connect.py              # Read-only connection + retry/fallback (Sprint 2.2)
-│   ├── migrations/                # Versiyon bazlı schema değişiklikleri
-│   └── schema.sql                 # Full schema snapshot
+│   ├── database.py                # Ana Database sınıfı (WAL, pool, retry)
+│   ├── models.py                  # Dataclass tablo modelleri
+│   ├── migrations.py              # Versiyon bazlı schema değişiklikleri (dosya, klasör değil)
+│   ├── migration_phase79.py       # Standalone Phase 79 migration script
+│   └── ro_connect.py              # Read-only connection + retry/fallback (Sprint 2.2)
 │
 ├── scripts/                       # YARDIMCI SCRIPTLER
 │   ├── hyperopt_worker.py         # HyperOpt subprocess worker
@@ -191,6 +202,13 @@ polyPaper-bot/
 │
 ├── tools/                         # Ad-hoc analiz araçları
 ├── analysis/                      # Analiz notebooks
+│
+├── _archive/                      # Kullanımdan kalkmış modüller (Sprint 4 cleanup)
+├── backups/                       # DB snapshot yedekleri
+├── data/                          # Runtime cache + ikincil veri
+├── data_store/                    # becker_calibration.db + kalıcı feature store
+├── logs/                          # Bot log'ları (rotation'lı)
+├── reports/                       # Shadow/AI/backtest çıktı raporları
 │
 ├── docs/                          # BU KLASÖR
 │   ├── ARCHITECTURE.md            # Bu dosya
@@ -214,7 +232,7 @@ polyPaper-bot/
 2. **Binance WS** → BTC/ETH spot → `data_feeds/binance_ws.py`
 3. **Chainlink oracle** → parity check → `data_feeds/chainlink_oracle.py`
 4. `engine.py` → `generate_signals()` her aktif strateji için
-5. `engine_signals.py` → **14-gate pipeline**: Confluence → EV → MCI → Parity → Penny → Slippage → Zones → Kelly → Becker → vb.
+5. `engine_signals.py` → **14+ strategic-gate pipeline** (30+ skip reason): Confluence → EV → MCI → Parity → Penny → Slippage → Zones → Kelly → Becker → UNSELLABLE → vb.
 6. Geçen sinyal → `kelly.py` sizing → `engine.py._open_position()`
 7. `polypaper.db`'ye insert + Telegram notification
 

@@ -218,7 +218,7 @@ git log @{upstream}..HEAD --oneline
 echo.
 set /p OK="Push et? (y/n): "
 if /i not "!OK!"=="y" (
-    echo Iptal edildi. Lokal commit(ler) var ama push edilmedi.
+    echo Iptal edildi. Lokal commitler var ama push edilmedi.
     goto :fail
 )
 

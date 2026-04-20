@@ -15,7 +15,7 @@ from typing import Optional
 
 from backtest.strategies.base import Signal
 from backtest.simulation.fill_model import FillResult
-from backtest.simulation.fee_model import FeeCalculator
+from backtest.simulation.fee_model_v3 import FeeCalculatorV3 as FeeCalculator  # T4.1 unified
 
 logger = logging.getLogger("polypaper.backtest.portfolio")
 

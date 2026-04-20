@@ -18,6 +18,16 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
+import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
+
+try:
+    from telegram.error import BadRequest as TelegramBadRequest, TelegramError
+except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
+    class TelegramBadRequest(Exception):  # type: ignore[no-redef]
+        ...
+    class TelegramError(Exception):  # type: ignore[no-redef]
+        ...
+
 logger = logging.getLogger("polypaper.core.live")
 
 # ═══ SAFETY LIMITS ═══
@@ -27,10 +37,27 @@ MAX_CONCURRENT = 1
 MIN_SIGNAL = 0.75
 MIN_ODDS = 0.75
 
+# LIVE_STRATEGIES: whitelist of paper strategies that may mirror to
+# real-money ($1/trade) via py-clob-client. Selection criterion: proven
+# WR + positive EV in paper.
+#
+# Parity principle (Epic 4 T4.4, 2026-04-20 confirmed): paper and live
+# share the SAME governance. If `auto_optimizer` stops a strategy in
+# paper (PnL < adaptive threshold, rolling WR kill, loss-streak), the
+# same strategy becomes ineligible for live mirroring upstream — engine
+# only feeds `maybe_mirror` from active strategies.
+#
+# NOT identical to `ai_brain.PROTECTED_STRATEGIES` (ai_brain.py:41).
+# Those two sets serve different purposes:
+#   LIVE_STRATEGIES        — "which strategies get to trade real money"
+#   PROTECTED_STRATEGIES   — "which strategies are shielded from LLM noise"
+# A strategy can be LIVE without being PROTECTED — e.g. AI_F_* strategies
+# are experimental; AI Brain retains the right to stop/tune them on fresh
+# performance evidence.
 LIVE_STRATEGIES = {
-    "M_BTC_5m_any_0.92",       # 35t 89% WR +$139 EV:+3.98
-    "BTC High-Threshold Pure",  # 30t 93% WR +$73  EV:+2.43
-    "AI_F_BTC_5m_up_0.38",     # 21t 86% WR +$104 EV:+4.93
+    "M_BTC_5m_any_0.92",       # 35t 89% WR +$139 EV:+3.98  [PROTECTED]
+    "BTC High-Threshold Pure",  # 30t 93% WR +$73  EV:+2.43  [PROTECTED]
+    "AI_F_BTC_5m_up_0.38",     # 21t 86% WR +$104 EV:+4.93  [experimental]
 }
 
 
@@ -74,11 +101,13 @@ class LiveTrader:
         await self._restore_state()
 
         # Derive + verify L2 auth (runs in executor since py-clob-client is sync)
+        # T1.4 Faz 1: inner exceptions are caught inside _derive_and_verify_sync;
+        # only loop/threadpool-level failures can surface here.
         try:
             loop = asyncio.get_running_loop()
             ok, detail = await loop.run_in_executor(None, self._derive_and_verify_sync, pk, wallet)
-        except Exception as e:
-            ok, detail = False, f"derive exception: {e}"
+        except RuntimeError as e:
+            ok, detail = False, f"derive runtime error: {e}"
 
         if not ok:
             self._enabled = False
@@ -118,7 +147,9 @@ class LiveTrader:
                 funder=wallet,
             )
         except Exception as e:
-            return (False, f"client init failed: {e}")
+            # T1.4 Faz 1: catch-all kept — py-clob-client ctor can raise ValueError,
+            # TypeError, or network errors from dependency libs. Emit type for triage.
+            return (False, f"client init failed ({type(e).__name__}): {e}")
 
         # Try derive first
         try:
@@ -129,12 +160,14 @@ class LiveTrader:
                 f"derived key={str(getattr(derived, 'api_key', ''))[:8]}..."
             )
         except Exception as e:
+            # T1.4 Faz 1: catch-all kept — derive path wraps HTTP + signature
+            # internals from py-clob-client. Fallback path below is intentional.
             # Fallback: stored triplet (may be stale — will be logged)
             stored_key = os.getenv("POLYMARKET_API_KEY", "").strip()
             stored_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
             stored_pass = os.getenv("POLYMARKET_PASSPHRASE", "").strip()
             if not all([stored_key, stored_secret, stored_pass]):
-                return (False, f"derive failed ({e}) and no fallback triplet")
+                return (False, f"derive failed ({type(e).__name__}: {e}) and no fallback triplet")
             try:
                 creds = ApiCreds(
                     api_key=stored_key,
@@ -143,9 +176,10 @@ class LiveTrader:
                 )
                 client.set_api_creds(creds)
                 self._api_creds = creds
-                detail_derived = f"fallback stored key={stored_key[:8]}... (derive err: {e})"
+                detail_derived = f"fallback stored key={stored_key[:8]}... (derive err: {type(e).__name__}: {e})"
             except Exception as e2:
-                return (False, f"both derive ({e}) and fallback ({e2}) failed")
+                # T1.4 Faz 1: catch-all kept — both derive and stored-creds failed.
+                return (False, f"both derive ({type(e).__name__}: {e}) and fallback ({type(e2).__name__}: {e2}) failed")
 
         # Verify with a cheap authenticated call (get_trades with limit)
         try:
@@ -153,7 +187,8 @@ class LiveTrader:
             _ = client.get_trades(TradeParams())
             return (True, detail_derived)
         except Exception as e:
-            return (False, f"{detail_derived} | verify failed: {e}")
+            # T1.4 Faz 1: catch-all kept — get_trades can raise HTTP/auth/network.
+            return (False, f"{detail_derived} | verify failed ({type(e).__name__}): {e}")
 
     def is_enabled(self) -> bool:
         # Phase 49 A-01: also require verified L2 auth before mirroring any trade
@@ -236,7 +271,9 @@ class LiveTrader:
                 return None
 
         except Exception as e:
-            logger.error(f"Live place: {e}")
+            # T1.4 Faz 1: catch-all kept — _place body spans CLOB exec + DB write +
+            # telegram notify. Use logger.exception to capture traceback for triage.
+            logger.exception(f"Live place failed ({type(e).__name__}): {e}")
             return None
 
     async def check_settlement(
@@ -280,7 +317,8 @@ class LiveTrader:
                      actual_exit_price,
                      datetime.now(timezone.utc).isoformat(), slug))
                 await self.db.conn.commit()
-            except Exception as e:
+            except aiosqlite.Error as e:
+                # T1.4 Faz 1: narrowed from bare Exception — only DB errors expected here.
                 logger.debug(f"Live settle DB: {e}")
 
         emoji = "🟢" if won else "🔴"
@@ -297,10 +335,13 @@ class LiveTrader:
         await self._save_state()
 
     async def _execute_clob(self, token_id, amount, price, direction) -> Optional[dict]:
+        # T1.4 Faz 1: inner CLOB exceptions caught in _sync_order (L363).
+        # Only loop/threadpool-level failures can surface here; let CancelledError
+        # propagate so cooperative cancellation still works.
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(None, self._sync_order, token_id, amount, price)
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"CLOB exec: {e}")
             return None
 
@@ -339,7 +380,8 @@ class LiveTrader:
                         f"{str(getattr(creds, 'api_key', ''))[:8]}..."
                     )
                 except Exception as e:
-                    return {"id": "", "status": f"error:derive failed: {e}"}
+                    # T1.4 Faz 1: catch-all kept — on-demand derive wraps HTTP + sig.
+                    return {"id": "", "status": f"error:derive failed ({type(e).__name__}): {e}"}
 
             client.set_api_creds(creds)
 
@@ -361,8 +403,10 @@ class LiveTrader:
             logger.warning("py-clob-client not installed — mock order")
             return {"id": f"MOCK_{token_id[:8]}", "status": "mock"}
         except Exception as e:
-            logger.error(f"CLOB order: {e}")
-            return {"id": "", "status": f"error:{e}"}
+            # T1.4 Faz 1: catch-all kept — _sync_order body spans CLOB signature,
+            # HTTP post_order, and response parsing. Use logger.exception for traceback.
+            logger.exception(f"CLOB order failed ({type(e).__name__}): {e}")
+            return {"id": "", "status": f"error ({type(e).__name__}):{e}"}
 
     async def get_comparison(self) -> dict:
         """Get paper vs real comparison data for dashboard."""
@@ -392,7 +436,8 @@ class LiveTrader:
                      "ts": str(t[7])[:16]} for t in (recent or [])
                 ],
             }
-        except Exception as e:
+        except aiosqlite.Error as e:
+            # T1.4 Faz 1: narrowed from bare Exception — only DB read errors expected.
             return {"error": str(e)}
 
     async def _save_state(self):
@@ -405,8 +450,11 @@ class LiveTrader:
                 "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?,?,?)",
                 ("live_state", state, datetime.now(timezone.utc).isoformat()))
             await self.db.conn.commit()
-        except Exception:
-            pass
+        except (aiosqlite.Error, TypeError) as e:
+            # T1.4 Faz 1: narrowed from bare Exception — DB errors (aiosqlite) or
+            # json.dumps TypeError (non-serializable field). Upgrade from silent pass
+            # to a warning so regressions aren't invisible in logs.
+            logger.warning(f"Live _save_state failed ({type(e).__name__}): {e}")
 
     async def _restore_state(self):
         if not self.db: return
@@ -419,8 +467,10 @@ class LiveTrader:
                 self._total_pnl = s.get("total_pnl", 0)
                 self._trade_count = s.get("trade_count", 0)
                 logger.info(f"  💰 Live state restored: spent=${self._total_spent:.2f} pnl=${self._total_pnl:+.4f}")
-        except Exception:
-            pass
+        except (aiosqlite.Error, json.JSONDecodeError, KeyError, IndexError) as e:
+            # T1.4 Faz 1: narrowed from bare Exception — DB miss, corrupted JSON,
+            # missing row index, or missing dict key. Upgrade pass to warning.
+            logger.warning(f"Live _restore_state skipped ({type(e).__name__}): {e}")
 
     def _maybe_reset_daily(self):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -451,11 +501,16 @@ class LiveTrader:
     async def _notify(self, text):
         aid = getattr(self.settings, 'ADMIN_TELEGRAM_ID', None) if self.settings else None
         if not aid or not self.bot_app: return
+        # T1.4 Faz 1: narrowed from bare Exception.
+        # BadRequest = HTML parse error → fallback to plain text. Other telegram
+        # errors (NetworkError, RetryAfter, Forbidden) still caught by second arm.
         try:
             await self.bot_app.bot.send_message(chat_id=aid, text=text, parse_mode="HTML")
-        except Exception:
-            try: await self.bot_app.bot.send_message(chat_id=aid, text=text)
-            except Exception as e: logger.debug("Fallback notify failed: %s", e)
+        except TelegramBadRequest:
+            try:
+                await self.bot_app.bot.send_message(chat_id=aid, text=text)
+            except TelegramError as e:
+                logger.debug("Fallback notify failed: %s", e)
 
     def get_trade_history(self) -> list[dict]:
         """Return trade history from in-memory state for live_handler."""
@@ -480,5 +535,7 @@ class LiveTrader:
                  "result": r[6] or "", "ts": str(r[7])[:16]}
                 for r in (rows or [])
             ]
-        except Exception:
+        except aiosqlite.Error as e:
+            # T1.4 Faz 1: narrowed from bare Exception — only DB read errors expected.
+            logger.debug(f"load_trade_history DB: {e}")
             return []

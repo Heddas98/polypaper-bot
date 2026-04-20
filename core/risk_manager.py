@@ -18,14 +18,20 @@ Kapılar (sırayla):
 RiskState DB'ye kalıcı olarak kaydedilir (bot_settings tablosu).
 Günlük sıfırlama: UTC 00:00, halt otomatik kaldırılır.
 
-⚠️ BUG-10: Günlük kayıp sınırı boundary'si tutarsız — tam eşikte halt
-   bazen tetiklenmeyebilir. Toplu patch bekleniyor.
+✅ Daily loss boundary uses <= operator (Phase 54 P0-04 fix, 2026-04-20 audited).
+   All three boundary checks are consistent (check_trade L212, margin L217,
+   record_trade_closed L391). Coverage:
+   tests/test_phase55_critical.py::TestRiskDailyLossBoundary
+   (test_daily_loss_at_exact_limit, test_daily_loss_just_below_limit).
 """
+import json
 import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, Dict
+
+import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
 logger = logging.getLogger("polypaper.core.risk")
 
@@ -211,6 +217,11 @@ class RiskManager:
             self.state.halt_reason = f"Daily loss ${self.state.daily_pnl:.2f} hit limit"
             return RiskVerdict(False,
                 f"DAILY_LOSS: ${self.state.daily_pnl:.2f} <= -${self.limits.max_daily_loss}")
+        # Note (2026-04-20 T3.5 audit): margin check REJECTS this trade but does
+        # NOT set halted=True — daily_pnl itself is still within limits, only
+        # this specific (potentially oversized) trade would breach. Smaller
+        # concurrent trades may still pass. Hard halt only triggers when
+        # daily_pnl reaches -max_daily_loss (L215 here / L391+ record_trade_closed).
         if worst_case_pnl <= -self.limits.max_daily_loss:
             return RiskVerdict(False,
                 f"DAILY_LOSS_MARGIN: pnl={self.state.daily_pnl:.2f} - pending={trade_amount:.2f} "
@@ -245,8 +256,12 @@ class RiskManager:
                     # so future cooldowns work, and keep the gate closed for now.
                     from datetime import datetime as _dt, timezone as _tz
                     self.state.last_loss_ts = _dt.now(_tz.utc).isoformat()
-            except Exception as _e:
-                logger.debug(f"streak cooldown check failed: {_e}")
+            except (ValueError, TypeError, AttributeError) as _e:
+                # T1.4 Faz 1: fromisoformat raises ValueError on bad ISO,
+                # TypeError if last_loss_ts is non-str, AttributeError if
+                # RiskState shape drifts. Gate stays closed on failure
+                # (cooled_down=False) — fail-safe toward halt.
+                logger.debug(f"streak cooldown check failed: {type(_e).__name__}: {_e}")
 
             if not cooled_down:
                 return RiskVerdict(False,
@@ -357,8 +372,10 @@ class RiskManager:
                     f"hard halt at {self.limits.max_loss_streak}.")
                 # Expose for heartbeat / /rs to surface the alert.
                 self.state.alert_flag = f"LOSS_STREAK_{alert_thresh}"
-        except Exception as _e:
-            logger.debug(f"loss-streak alert: {_e}")
+        except (ValueError, TypeError, AttributeError) as _e:
+            # T1.4 Faz 1: ALERT_LOSS_STREAK env parse or state attr access;
+            # alerting is advisory, never blocks the actual hard-halt gate.
+            logger.debug(f"loss-streak alert: {type(_e).__name__}: {_e}")
 
         # Phase 47f.9: daily_pnl soft alert at 40% of max (quieter cousin of
         # the 80% heartbeat warning). Logs once per crossing.
@@ -373,8 +390,10 @@ class RiskManager:
                     f"({soft_limit:.2f}); hard halt at "
                     f"{-self.limits.max_daily_loss:.2f}.")
                 self.state._pnl_soft_flag = True
-        except Exception as _e:
-            logger.debug(f"pnl soft alert: {_e}")
+        except (ValueError, TypeError, AttributeError) as _e:
+            # T1.4 Faz 1: ALERT_DAILY_PNL_PCT env parse or state attr access;
+            # advisory only — doesn't affect the daily_pnl hard limit below.
+            logger.debug(f"pnl soft alert: {type(_e).__name__}: {_e}")
 
         # Check if daily loss limit hit
         if self.state.daily_pnl <= -self.limits.max_daily_loss:
@@ -547,7 +566,6 @@ class RiskManager:
     async def save_state(self, db):
         """Save critical risk state to DB to survive restarts."""
         try:
-            import json as _json
             state_data = {
                 "risk_state.daily_pnl": str(self.state.daily_pnl),
                 "risk_state.daily_trade_count": str(self.state.daily_trade_count),
@@ -558,7 +576,7 @@ class RiskManager:
                 # Phase 49 A-02
                 "risk_state.last_loss_ts": self.state.last_loss_ts or "",
                 # P1-03 FIX: Persist per-market exposure so restarts don't reset Gate 9
-                "risk_state.per_market_exposure": _json.dumps(self.state.per_market_exposure),
+                "risk_state.per_market_exposure": json.dumps(self.state.per_market_exposure),
             }
             # Phase 36: Save tiered limits
             for asset, limit in self.limits.per_asset_limits.items():
@@ -571,8 +589,13 @@ class RiskManager:
                     "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, ?)",
                     (key, val, now))
             await db.conn.commit()
-        except Exception as e:
-            logger.debug(f"Risk save: {e}")
+        except (aiosqlite.Error, TypeError, ValueError) as e:
+            # T1.4 Faz 1: DB write failure or json.dumps TypeError on
+            # per_market_exposure. Elevated to WARNING — if this silently
+            # fails, a crash-restart cycle loses halted state and daily_pnl,
+            # letting the bot re-hit limits that should have stayed locked.
+            logger.warning(f"Risk save FAILED ({type(e).__name__}: {e}) — "
+                           f"state will not survive restart")
 
     async def load_state(self, db):
         """Restore risk state from DB after restart."""
@@ -605,8 +628,11 @@ class RiskManager:
                             f"streak {self.state.consecutive_losses}→0"
                         )
                         self.state.consecutive_losses = 0
-            except Exception as _e:
-                logger.debug(f"boot streak cooldown check failed: {_e}")
+            except (ValueError, TypeError, AttributeError) as _e:
+                # T1.4 Faz 1: same shape as Gate 7 cooldown check (L248).
+                # Gate stays active if parse fails — fail-safe toward halt.
+                logger.debug(f"boot streak cooldown check failed: "
+                             f"{type(_e).__name__}: {_e}")
             # Recount open positions from DB
             open_count = await db.conn.execute_fetchall(
                 "SELECT COUNT(*) FROM executions WHERE status='bet_placed'")
@@ -618,12 +644,15 @@ class RiskManager:
                 self.state.total_exposure = exposure[0][0]
             # P1-03 FIX: Restore per-market exposure from saved JSON
             try:
-                import json as _json
                 _pme_raw = d.get("risk_state.per_market_exposure", "{}")
-                _pme = _json.loads(_pme_raw) if _pme_raw else {}
+                _pme = json.loads(_pme_raw) if _pme_raw else {}
                 self.state.per_market_exposure = {k: float(v) for k, v in _pme.items()}
-            except Exception as _pme_err:
-                logger.debug(f"per_market_exposure restore: {_pme_err}")
+            except (json.JSONDecodeError, TypeError, ValueError, AttributeError) as _pme_err:
+                # T1.4 Faz 1: corrupted/legacy JSON blob. Fallback: empty map
+                # — Gate 9 (market concentration) will rebuild organically as
+                # new trades open. Not critical for short-term correctness.
+                logger.debug(f"per_market_exposure restore: "
+                             f"{type(_pme_err).__name__}: {_pme_err}")
             # Phase 36: Rebuild per-asset exposure from open positions
             await self._rebuild_per_asset_exposure(db)
             # P1-04 FIX: Rebuild strategy_market_open from open positions
@@ -632,8 +661,13 @@ class RiskManager:
                         f"streak={self.state.consecutive_losses} halted={self.state.halted} "
                         f"per_market={len(self.state.per_market_exposure)} "
                         f"strat_market_locks={len(self.state.strategy_market_open)}")
-        except Exception as e:
-            logger.warning(f"Risk load: {e}")
+        except (aiosqlite.Error, ValueError, TypeError, KeyError) as e:
+            # T1.4 Faz 1: DB read, float/int coercion, or missing key. This
+            # is the critical boot path — if it fails, daily_pnl starts at 0
+            # and the bot could re-hit limits that should have stayed
+            # locked. Emit full traceback so boot-time issues surface.
+            logger.exception(f"Risk load FAILED [{type(e).__name__}]: {e} — "
+                             f"state starting from defaults")
 
     async def _rebuild_per_asset_exposure(self, db):
         """Rebuild per-asset exposure from open positions in DB."""
@@ -648,8 +682,11 @@ class RiskManager:
                 asset = self._extract_asset_from_slug(event_slug)
                 self.per_asset_exposure[asset] = \
                     self.per_asset_exposure.get(asset, 0) + trade_amount
-        except Exception as e:
-            logger.debug(f"Per-asset exposure rebuild: {e}")
+        except (aiosqlite.Error, ValueError, TypeError, IndexError) as e:
+            # T1.4 Faz 1: DB read, type coerce, or row shape mismatch.
+            # Phase 36 per-asset exposure rebuilds next cycle from trade
+            # opens, so a one-boot miss is acceptable.
+            logger.debug(f"Per-asset exposure rebuild: {type(e).__name__}: {e}")
 
     async def _rebuild_strategy_market_open(self, db):
         """P1-04: Rebuild strategy_market_open from open positions in DB.
@@ -667,5 +704,7 @@ class RiskManager:
                 key = f"{row[0]}:{row[1]}"
                 self.state.strategy_market_open[key] = True
             logger.debug(f"strategy_market_open rebuilt: {len(rows)} locks")
-        except Exception as e:
-            logger.debug(f"strategy_market_open rebuild: {e}")
+        except (aiosqlite.Error, IndexError) as e:
+            # T1.4 Faz 1: DB read or missing row columns. P1-04 lock map
+            # rebuilds next cycle as strategies reopen — non-blocking.
+            logger.debug(f"strategy_market_open rebuild: {type(e).__name__}: {e}")

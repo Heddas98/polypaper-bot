@@ -112,6 +112,11 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "group": "ws",
         "desc": "WS stale min esigi",
     },
+    "WS_STALE_THRESHOLD": {
+        "type": "float", "default": "60.0", "min": 5.0, "max": 600.0,
+        "group": "ws",
+        "desc": "WS stale kontrol esigi (saniye) - runtime tunable",
+    },
     # ── Logging ──────────────────────────────────────────────────────────
     "TRADE_REASONING_LOG": {
         "type": "bool", "default": "true", "group": "logging",

@@ -199,38 +199,10 @@ class TradingEngine(
             logger.debug(f"event_monitor init: {_eme}")
             self._event_monitor = None
 
-        # Phase 60: Cascade Overshoot Detector — detects herd cascades
-        try:
-            from core.cascade_detector import CascadeDetector
-            self._cascade_detector = CascadeDetector()
-            logger.info("🌊 Cascade overshoot detector initialized")
-        except Exception as _cde:
-            logger.debug(f"cascade_detector init: {_cde}")
-            self._cascade_detector = None
-
-        # Phase 60: Lag Arbitrage — cross-market correlation lag detector
-        try:
-            from core.lag_arbitrage import LagArbitrage, LAG_ARB_ENABLED
-            if LAG_ARB_ENABLED:
-                self._lag_arb = LagArbitrage()
-                logger.info("🔗 Lag arbitrage detector initialized")
-            else:
-                self._lag_arb = None
-        except Exception as _lae:
-            logger.debug(f"lag_arb init: {_lae}")
-            self._lag_arb = None
-
-        # Phase 60: Whale Signal — whale flow directional signal
-        try:
-            from core.whale_signal import WhaleSignal, WHALE_SIGNAL_ENABLED
-            if WHALE_SIGNAL_ENABLED:
-                self._whale_signal = WhaleSignal()
-                logger.info("🐋 Whale signal tracker initialized")
-            else:
-                self._whale_signal = None
-        except Exception as _wse:
-            logger.debug(f"whale_signal init: {_wse}")
-            self._whale_signal = None
+        # T1.3 Commit 1 (2026-04-20): Phase 60 ghost modules removed —
+        # cascade_detector, lag_arbitrage, whale_signal modülleri archive'a
+        # taşınmıştı ve import her bootta sessiz fail ediyordu. Temizlendi.
+        # (Aktif whale akışı için core/signals/whale_flow.py kullanılıyor.)
 
         # Phase 47f: Becker δ(p) calibration curve (poly) — loaded once at init.
         # Stored as list[tuple[float bin_low, float delta]] sorted by bin.
@@ -271,25 +243,9 @@ class TradingEngine(
         except Exception:
             self._ev_tracker = None
 
-        # Phase 76: Markov Chain probability estimator
-        self._markov = None
-        if os.getenv("MARKOV_ENABLED", "true").lower() == "true":
-            try:
-                from core.markov_estimator import get_markov_estimator
-                self._markov = get_markov_estimator()
-                logger.info("🔮 Phase 76: Markov Chain estimator initialized")
-            except Exception as _me:
-                logger.debug(f"markov init: {_me}")
-
-        # Phase 76: Capital Allocator (per-strategy capital buckets)
-        self._capital_allocator = None
-        if os.getenv("CAPITAL_ALLOCATOR_ENABLED", "true").lower() == "true":
-            try:
-                from core.capital_allocator import get_capital_allocator
-                self._capital_allocator = get_capital_allocator()
-                logger.info("💰 Phase 76: Capital Allocator initialized")
-            except Exception as _cae:
-                logger.debug(f"capital_allocator init: {_cae}")
+        # T1.3 Commit 1 (2026-04-20): Phase 76 markov_estimator + capital_allocator
+        # ghost modülleri archive'a taşınmıştı, her bootta sessiz fail ediyordu.
+        # Temizlendi — /markov + /capital komutları ve engine boost'u kalktı.
 
         # Phase 77: Trade Memory (persistent learning from wins/losses)
         self._trade_memory = None
@@ -404,12 +360,8 @@ class TradingEngine(
         except Exception as _e:
             logger.warning(f"HyperOpt startup restore failed: {_e}")
 
-        # Phase 76: Initialize capital allocator with DB
-        if self._capital_allocator is not None:
-            try:
-                await self._capital_allocator.initialize(self.db)
-            except Exception as _cai:
-                logger.warning(f"capital_allocator init: {_cai}")
+        # T1.3 Commit 1 (2026-04-20): capital_allocator.initialize() kaldırıldı
+        # (Phase 76 ghost modül temizliği — yukarıdaki init bloğuyla beraber).
 
         # Phase 77: Initialize Trade Memory, Decision Explainer, Experiment Runner
         if self._trade_memory is not None:
@@ -942,11 +894,17 @@ class TradingEngine(
         logger.warning(f"Engine loop exited at c={self._cycle} running={self._running}")
 
     def _is_ws_fresh(self) -> bool:
-        """F-04: Check if WebSocket data is fresh enough to trade."""
+        """F-04: Check if WebSocket data is fresh enough to trade.
+
+        Phase 82e Sprint 6+: threshold env'den runtime okunuyor, /env_toggle
+        WS_STALE_THRESHOLD <secs> restart gerektirmez. engine_support.py'deki
+        constant legacy default olarak kalir.
+        """
         if not self.scanner.ws or not self.scanner.ws.is_connected:
             return False
         age = time.time() - self.scanner.ws._last_msg_ts if self.scanner.ws._last_msg_ts else 999
-        return age < WS_STALE_THRESHOLD
+        ws_stale_secs = float(os.getenv("WS_STALE_THRESHOLD", "60.0"))
+        return age < ws_stale_secs
 
     def _check_ws_health(self):
         """F-14: Detect WS reconnect and flush stale pending orders."""

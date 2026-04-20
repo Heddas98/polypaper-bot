@@ -25,7 +25,7 @@ from backtest.strategies.base import (
     Signal, Resolution, Direction, StrategyRegistryV2
 )
 from backtest.simulation.fill_model import FillSimulator, FillMode
-from backtest.simulation.fee_model import FeeCalculator
+from backtest.simulation.fee_model_v3 import FeeCalculatorV3 as FeeCalculator  # T4.1 unified
 from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats
 
 logger = logging.getLogger("polypaper.backtest.engine_v2")
@@ -92,10 +92,11 @@ class BacktestEngineV2:
 
     def _setup(self):
         """Initialize components from config."""
-        # Fee calculator
-        self.fee_calc = FeeCalculator.for_market_type(
-            self.config.market_type_filter or "5m"
-        )
+        # Fee calculator — T4.1: for_market_type() removed with legacy fee_model.py.
+        # Prior behavior was `FeeMode.STANDARD` in all branches (the `15m` branch
+        # was hard-disabled with `and False`), so defaulting to FeeCalculatorV3's
+        # V3 mode (taker-only, crypto) preserves identical backtest results.
+        self.fee_calc = FeeCalculator()
 
         # Fill simulator
         fill_mode = FillMode(self.config.fill_mode)
