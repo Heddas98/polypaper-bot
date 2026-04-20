@@ -1,6 +1,6 @@
 # Geliştirme Phase'leri
 
-PolyPaper Bot'un Phase 47'den Phase 82e Sprint 5'e kadar olan tüm mühendislik evrimi. Her phase tarih, amaç, değişiklik ve sonuç formatında.
+PolyPaper Bot'un Phase 47'den Phase 82e Sprint 6'ya kadar olan tüm mühendislik evrimi. Her phase tarih, amaç, değişiklik ve sonuç formatında.
 
 ## Phase Özeti
 
@@ -58,6 +58,9 @@ PolyPaper Bot'un Phase 47'den Phase 82e Sprint 5'e kadar olan tüm mühendislik 
 | 82e Sprint 5 | 2026-04-19 | Unified 5-in-1 — Fusion×29 granular apply, martingale PARAM_SPACES, is_overfit sign-aware |
 | 82e Sprint 5 HOTFIX | 2026-04-19 | Classic UNSELLABLE → CLASSIC_BYPASS_ALL_GATES unified 14-gate bypass |
 | 82e Sprint 5 HOTFIX v4 | 2026-04-19 | Gamma outcomePrices parse, CLOB unclamped get_resolution_price, TF-aware force_after, `/force_settle` |
+| 82e Sprint 5 HOTFIX v5 | 2026-04-20 | Classic FEE_TAIL/TOKEN_CAP/EMA/LOW_VOL/SLIPPAGE/TOO_EARLY bypass + resolution notify |
+| 82e Sprint 5 HOTFIX v6 | 2026-04-20 | Classic TAKER limit ceiling (`CLASSIC_TAKER_LIMIT_CEIL`=0.99) + stuck cancel 120s |
+| 82e Sprint 6 | 2026-04-20 | `/env_toggle` (`/envt`) admin cmd — 23 whitelisted runtime knob hot-tune, .env patch + audit |
 
 ## Detaylı Phase Notları
 
@@ -116,6 +119,27 @@ Yeni **"classic" strategy_type** — algoritma yok, sadece `direction_filter + t
 
 **HOTFIX v4 (Resolution Path):** Gamma `outcomePrices` parse + CLOB unclamped `get_resolution_price` + TF-aware `force_after 900s` + `/force_settle` admin cmd.
 
+**HOTFIX v5 (2026-04-20):** Classic plugin için 6 ek gate bypass (FEE_TAIL / TOKEN_CAP / EMA / LOW_VOL / SLIPPAGE / TOO_EARLY). Opt-in flag: `CLASSIC_RESPECT_FEE_TAIL`. Telegram resolution + exit notify (`CLASSIC_NOTIFY_RESOLUTION=true`).
+
+**HOTFIX v6 (2026-04-20):** v5 sonrası GATE geçip fill'e gitmeyen classic emirler (`cur>limit`) için TAKER limit ceiling eklendi. `CLASSIC_TAKER_LIMIT_CEIL=0.99` + `TAKER_STUCK_TIMEOUT_SEC=120` stuck auto-cancel. Smoke 9/9.
+
+### Phase 82e Sprint 6 — `/env_toggle` Hot-Tune (2026-04-20)
+**Amaç:** Her hotfix sonrası bot restart + `.env` elle edit döngüsünü kır.
+
+**Ne yapar:** Admin Telegram komutu ile 23 whitelisted runtime knob'u (`CLASSIC_BYPASS_ALL_GATES`, `TAKER_STUCK_TIMEOUT_SEC`, `MIN_COMPOSITE`, `CONVICTION_MIN`, `ADAPTIVE_MAKER_ENABLED` vb.) bot kapatmadan değiştir. `os.environ` + `.env` patch + `logs/env_toggle_audit.log`.
+
+**Komutlar:**
+- `/env_toggle` — gruplu liste (◆ = default'tan sapan)
+- `/env_toggle KEY` — detay (type, default, min/max, current)
+- `/env_toggle KEY VALUE` — set (tip + range valide)
+- `/env_toggle reset KEY` — default'a dön (`.env` line silinir)
+
+**Guardrails:** Module-level import-time ENV'ler whitelist'e DAHİL EDİLMEDİ (`MIN_ORDER_SHARES`, `ALLOWED_ZONES`, `SIGNAL_W_*`) — bunlar restart gerektirir, yalan söylemeyiz.
+
+**Yeni dosyalar:** `config/env_whitelist.py`, `telegram_bot/handlers/env_toggle.py`, `scripts/smoke_sprint6_env_toggle.py`, `deploy_sprint6_env_toggle.bat`.
+
+Smoke: 25/25 PASS.
+
 ## Phase Numaralandırma Notları
 
 - Phase 64 ve Phase 66 arası Phase 65'e sığdırıldı (Phase 66 Roadmap document).
@@ -124,4 +148,4 @@ Yeni **"classic" strategy_type** — algoritma yok, sadece `direction_filter + t
 
 ## Mevcut (2026-04-20)
 
-Aktif branch: Phase 82e Sprint 5 HOTFIX v4 Resolution. Bot PID 2273 (son deploy sonrası restart ile değişebilir). Log: "bg_task notify handler registered" ile çalışır durumda.
+Aktif branch: **Phase 82e Sprint 6 — `/env_toggle` hot-tune**. Bot v9.7.9, 18+ engine + Classic plugin + AI stratejileri aktif. Shadow live ($1.49 USDC, $1/trade, 3 strateji) + AI Brain Claude Sonnet 10dk cycle. Bakiye ~$10,386, toplam PnL +$355, WR %57, 1,417+ trade.

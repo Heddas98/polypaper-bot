@@ -5,8 +5,8 @@
 
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Engine](https://img.shields.io/badge/engine-v34-brightgreen.svg)]()
-[![Bot](https://img.shields.io/badge/bot-v9.7.7-brightgreen.svg)]()
-[![Phase](https://img.shields.io/badge/phase-82e%20Sprint%205-orange.svg)]()
+[![Bot](https://img.shields.io/badge/bot-v9.7.9-brightgreen.svg)]()
+[![Phase](https://img.shields.io/badge/phase-82e%20Sprint%206-orange.svg)]()
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-Live-success.svg)]()
 
@@ -20,13 +20,14 @@
 
 | Metric | Value |
 |---|---|
-| Bakiye | ~$10,016 |
-| Toplam PnL | -$17.91 |
+| Bakiye | ~$10,386 |
+| Toplam PnL | +$355 |
 | Trade sayısı | 1,417+ |
-| Win Rate | 58% |
-| Aktif strateji | 18 + Classic plugin |
-| Shadow live | Aktif ($1.49 USDC, $1/trade) |
-| AI Brain | Claude Sonnet, 1 saat cycle |
+| Win Rate | 57% |
+| Aktif strateji | 18 engine + Classic plugin + AI |
+| Shadow live | Aktif ($1.49 USDC, $1/trade, 3 strateji) |
+| AI Brain | Claude Sonnet, 10 dk cycle |
+| Son hotfix | Sprint 6 — /env_toggle hot-tune (2026-04-20) |
 
 **Neden özel:** 18+ stratejinin her biri kendi lifecycle'ında (exploration → evaluation → proven) otomatik gate filtresi öğrenir. 2-Agent AI Brain (Optimist+Critic) her saat parametreleri optimize eder, HyperOpt (Optuna TPE) gecelik overfit-gate'li parametre taraması yapar, Becker Calibrator gerçek Polymarket geçmişinden kalibre probability sağlar.
 

@@ -1,0 +1,135 @@
+# Phase 48 — secrets & runtime state hygiene
+
+# ── Secrets ──────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+**/credentials.json
+**/service_account*.json
+
+# ── Python runtime ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# ── Databases & hot state (DO NOT COMMIT) ────────────────────────
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+polypaper.db*
+shadow_trades.db*
+market_recorder.db*
+db_snapshots/
+backups/
+
+# ── Logs & local-only outputs ────────────────────────────────────
+*.log
+bot_restart.log
+logs/
+out/
+tmp/
+ab_sweep_*.log
+phase*_live_smoke_*.log
+
+# ── IDE / OS ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Test artifacts ───────────────────────────────────────────────
+.coverage
+htmlcov/
+coverage.xml
+pytest-cache-files-*/
+
+# ── Phase 82e addendum — GitHub public-ready hygiene ─────────────
+# Large data stores (DO NOT COMMIT — 195GB+ total)
+data_store/
+data/
+becker_raw/
+becker_rolling/
+data_store/backups/
+data_store/backup_phase82e/
+
+# Deployment execution logs (local-only runtime artifacts)
+deploy_*_log.txt
+analyze_output.txt
+covering_index_output.txt
+clean_overfit_log.txt
+
+# Archive folder (historical code, kept locally only)
+_archive/
+archive/
+
+# Accidental/junk files at root (from shell autocomplete mishaps)
+/0.80
+/1
+/2
+/Zstd
+/`os.`
+/PLUGIN_ERROR
+/fiyat
+/is_overfit()
+/martingale
+/opt-out
+/regress
+/sifir
+/worker
+/~80
+
+# Reports folder (HTML dashboards, snapshots)
+reports/
+
+# Local bot state
+.bot_pid
+*.pid
+bot_*.pid
+
+# Handoff docs — consolidated into docs/HANDOFF_NOTES.md, old ones stay local
+HANDOFF_*.md
+!docs/HANDOFF*.md
+
+# Old per-phase audit artifacts (superseded by CHANGELOG.md)
+AUDIT_*.txt
+AUDIT_*.html
+AUDIT_*.md
+ACMASIZ_AUDIT_*.md
+BRAIN_TRANSFER_*.md
+BUGFIX_CHANGELOG.md
+MEGA_DIAGNOSIS_*.md
+EXTERNAL_ANALYSIS_REPORT.md
+GITHUB_REPOS_DEEP_ANALYSIS.md
+POLYPAPER_BOT_FULL_ANALYSIS.md
+POLYPAPER_LIVE_READINESS_AUDIT.html
+X_MAKALELER_ULTRA_ANALIZ*.html
+EDGE_DISCOVERY_GUIDE.md
+PolyPaper_Ultra_Analiz_Raporu.docx
+PHASE60_ROADMAP.html
+PHASE_75_IMPLEMENTATION.md
+ROADMAP_PHASE*.html
+ROADMAP_PHASE*.md
+ROADMAP_GUNCEL_*.md
+ROADMAP_RESURRECTION.md
+WATCHDOG_SETUP.md
+DEPLOY_INSTRUCTIONS.md
+
+# Replit / cloud dev artifacts
+.replit
+.upm/
+replit.nix
+

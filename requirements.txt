@@ -1,0 +1,36 @@
+# Telegram Bot
+python-telegram-bot==21.6
+
+# Database
+aiosqlite==0.20.0
+
+# Data Models
+pydantic==2.9.2
+
+# HTTP Client
+httpx==0.27.2
+
+# Scheduling
+APScheduler==3.10.4
+
+# Data Processing
+pandas==2.2.3
+numpy==2.1.3
+
+# Image Generation (banners)
+Pillow==11.0.0
+
+# Polymarket
+py-clob-client==0.18.0
+
+# Environment
+python-dotenv==1.0.1
+
+# YAML config
+pyyaml==6.0.2
+
+# WebSocket (Phase 8 - real-time data)
+websockets==13.1
+
+# Keep-Alive HTTP server (Phase 27.1)
+aiohttp==3.10.0

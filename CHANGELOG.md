@@ -7,6 +7,53 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versiyonlama
 ## [Unreleased]
 Aktif geliştirme branch'i.
 
+## [Phase 82e Sprint 6 — `/env_toggle` hot-tune] — 2026-04-20
+
+### Added
+- `/env_toggle` (alias `/envt`) admin Telegram komutu — bot restart olmadan runtime ENV knob'larını değiştir
+- 23 whitelisted runtime knob (classic/fills/gates/sizing/ws/logging/risk grupları)
+- `config/env_whitelist.py` — whitelist tek kaynak, yeni knob eklemek için tek satır
+- `telegram_bot/handlers/env_toggle.py` — group list, detail view, set, reset aksiyonları
+- `logs/env_toggle_audit.log` — tab-separated audit trail (ts, admin, action, key, old, new)
+- `scripts/smoke_sprint6_env_toggle.py` — 25 kontrol smoke test
+- `deploy_sprint6_env_toggle.bat` — deploy otomasyonu
+
+### Changed
+- `telegram_bot/bot.py` — +2 handler registration (`/env_toggle`, `/envt`)
+
+### Guardrails
+- Module-level ENV'ler (import-time okunan, örn. `MIN_ORDER_SHARES`, `ALLOWED_ZONES`, `SIGNAL_W_*`) **whitelist'e dahil edilmedi** — bu knob'lar restart gerektirir, yalan söylemiyoruz
+- Tip + range validasyonu (bilinmeyen key reject, out-of-range reject)
+- Admin-only (`settings.is_admin`), whitelist-only
+
+### Verified
+- Smoke: 25/25 PASS
+
+## [Phase 82e Sprint 5 HOTFIX v6 — Classic TAKER Fill] — 2026-04-20
+
+### Added
+- `CLASSIC_TAKER_LIMIT_CEIL` env (default `0.99`) — classic TAKER emirleri için üst limit ceiling
+- `TAKER_STUCK_TIMEOUT_SEC` env (default `120`) — stuck TAKER auto-cancel
+
+### Fixed
+- HOTFIX v5 sonrası GATE geçtiği halde fill'e gitmeyen (`cur>limit`) classic emirler — ceiling ile limit adaptif
+- Stuck TAKER'ların pending'te sonsuza kadar kalması
+
+### Verified
+- Smoke: 9/9 PASS
+- Live: `pend` düştü, `open` arttı
+
+## [Phase 82e Sprint 5 HOTFIX v5 — Classic FREE-MODE] — 2026-04-20
+
+### Added
+- Classic plugin için FEE_TAIL / TOKEN_CAP / EMA / LOW_VOL / SLIPPAGE / TOO_EARLY gate bypass'ları
+- `CLASSIC_RESPECT_FEE_TAIL` env (opt-in, default false)
+- `CLASSIC_NOTIFY_RESOLUTION` env (default true) — Telegram resolution + exit bildirimi
+- Resolution + exit notify template'leri
+
+### Verified
+- Smoke: 7/7 PASS
+
 ## [Phase 82e Sprint 5 HOTFIX v4] — 2026-04-19
 
 ### Added
