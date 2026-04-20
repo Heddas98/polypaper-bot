@@ -1,9 +1,23 @@
 # PolyPaper Cleanup Backlog
 
-> **Durum:** 2026-04-20 oluşturuldu (ilk tarama). Sahibi: Claude (Baş Geliştirici/Denetçi).
+> **Durum:** 2026-04-20 oluşturuldu (ilk tarama). Son commit sync: **2026-04-21**. Sahibi: Claude (Baş Geliştirici/Denetçi).
 > **Kural:** Bu dosya her oturumun başında okunur. Bitenler `[x]`, yeni iş eklenir. Bir Epic bitmeden sıradakine geçilmez.
 > **Mod:** STRICT CLEANUP — spekülasyon yok. Her iddia: dosya + satır.
 > **Protected:** `core/ai_brain.py::PROTECTED_STRATEGIES` ve `PROTECTED_STRATEGY_TYPES={"classic"}` dokunulmaz.
+
+---
+
+## 🗓️ Son Commit Sync — 2026-04-21
+
+| Commit | Mesaj | Dosya | Kapsam |
+|---|---|---|---|
+| `34494f1` | chore: add backlog artifacts (analysis/, cleanup plan, smoke tests) | 8 | `analysis/` edge-discovery tooling + `TEMIZLEME_PLANI_2026-04-20.md` + `scripts/smoke_ws_stale_threshold.py` + `tests/test_risk_limits_roundtrip.py` (Epic 3 T3.4) |
+| `e9fe9bc` | chore: backlog sync — Epic 2 cleanup + Sprint 5/6 + T1.4 Faz 1 | 28 | Epic 2 (root .bat/py deletions), Sprint 5 HOTFIX v6 Classic fill, Sprint 6 `/env_toggle`, T1.4 Faz 1 bare except (8 core dosya) |
+| `3264add` | epic4(audit): fee oracle consolidation + slippage/latency honesty pass | 11 | T4.1 single fee oracle (`core/fees_v2.py`), T4.2 Faz A ENV-overridable slippage, T4.3 Faz A REST latency docstring honesty + `core/observability/rest_timing.py` helper |
+
+**Toplam commit altına alınan dosya:** 47 (11 + 28 + 8). Uncommitted kalan: yalnız `BUGUN_NE_YAPACAGIM.md` (günlük working note, kasıtlı) + `.hyperopt.lock` (runtime state).
+
+**WSL quirks:** `.git/config` ghost-bug + bulk `git add` index corruption → atomic tek-komut `git add ... && git commit` pattern'i kullanıldı. Detay: `/sessions/happy-confident-cannon/mnt/.auto-memory/reference_wsl_git_quirks.md`.
 
 ---
 
