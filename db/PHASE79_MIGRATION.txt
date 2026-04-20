@@ -1,0 +1,52 @@
+Phase 79 Database Migration
+============================
+
+This migration adds missing database columns and tables that are required by
+multiple bot commands that were crashing due to missing schema elements.
+
+MIGRATION CHANGES:
+------------------
+
+1. executions.signal_score (REAL DEFAULT NULL)
+   - AI signal quality metric from Phase 69+ signal processing
+   - Used by /stats_chart, /compare, engine health checks
+
+2. executions.conviction (REAL DEFAULT NULL)
+   - Trade conviction level (0.0-1.0) from AI decision engine
+   - Used by conviction sizing, engine signal filtering
+
+3. whale_trades TABLE (NEW)
+   - Tracks large block trades (notional > $1000) for signal detection
+   - Columns: id, slug, token_id, direction, side, price, size, notional_usd, ts_ms, ts_iso
+   - Used by /monitor job, whale signal generation, risk aggregation
+
+NOTE: executions.is_maker was already added in Migration v3 (Phase 47f.9)
+      This script is safe to run on existing databases (ALTER TABLE ADD is idempotent)
+
+RUNNING THE MIGRATION:
+----------------------
+
+AUTOMATIC (recommended):
+  - Bot startup runs all unapplied migrations automatically via db.migrations
+  - Tracks applied migrations in schema_version table
+  - Idempotent: safe to run multiple times
+
+MANUAL (standalone):
+  Linux/Mac:
+    python3 db/migration_phase79.py [db-path]
+    python3 db/migration_phase79.py data_store/polypaper.db
+    python3 db/migration_phase79.py polypaper.db
+
+  Windows:
+    py -3.11 db\migration_phase79.bat [db-path]
+    py -3.11 db\migration_phase79.bat data_store/polypaper.db
+
+VERIFICATION:
+--------------
+The migration was tested on 2026-04-14 and verified:
+✓ signal_score: REAL DEFAULT NULL
+✓ conviction: REAL DEFAULT NULL
+✓ is_maker: INTEGER DEFAULT 0 (already present)
+✓ whale_trades: table with 10 columns
+
+All columns are NULL/0-defaulted for backward compatibility.

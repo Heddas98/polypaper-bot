@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# PolyPaper Bot — Pre-commit security hook
+# Prevents accidental commits of .env, API keys, DB files, etc.
+#
+# Install: git config core.hooksPath .githooks
+#
+# Exits with code 1 if any violation detected.
+
+set -e
+
+echo "[pre-commit] Güvenlik taraması başlıyor..."
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED" ]; then
+    echo "[pre-commit] Staged dosya yok, çıkılıyor."
+    exit 0
+fi
+
+VIOLATIONS=0
+
+# ── 1. Check forbidden filenames ─────────────────────────────────
+FORBIDDEN_FILES=(
+    ".env"
+    "polypaper.db"
+    "shadow_trades.db"
+    "market_recorder.db"
+    "becker_calibration.db"
+)
+
+for file in $STAGED; do
+    basename=$(basename "$file")
+    for forbidden in "${FORBIDDEN_FILES[@]}"; do
+        if [ "$basename" = "$forbidden" ]; then
+            echo "[HATA] Yasaklı dosya staged: $file"
+            VIOLATIONS=$((VIOLATIONS + 1))
+        fi
+    done
+
+    # Wildcards
+    case "$basename" in
+        *.db|*.db-wal|*.db-shm|*.sqlite|*.sqlite3)
+            echo "[HATA] Database dosyası staged: $file"
+            VIOLATIONS=$((VIOLATIONS + 1))
+            ;;
+        *.log)
+            echo "[UYARI] Log dosyası staged: $file (gitignore'a ekleyin)"
+            VIOLATIONS=$((VIOLATIONS + 1))
+            ;;
+        *.key|*.pem)
+            echo "[HATA] Key dosyası staged: $file"
+            VIOLATIONS=$((VIOLATIONS + 1))
+            ;;
+    esac
+done
+
+# ── 2. Check for API key patterns in staged content ──────────────
+PATTERNS=(
+    "sk-ant-api[0-9a-zA-Z_\-]{20,}"
+    "sk-or-v1-[0-9a-f]{40,}"
+    "gsk_[0-9a-zA-Z]{40,}"
+    "AIzaSy[0-9a-zA-Z_\-]{30,}"
+    "[0-9]{8,12}:AAH[A-Za-z0-9_\-]{30,}"
+)
+
+for file in $STAGED; do
+    # Skip .env.example and docs (placeholder'lar buralarda izinli)
+    basename=$(basename "$file")
+    if [ "$basename" = ".env.example" ]; then
+        continue
+    fi
+    # Skip .md files except README
+    case "$file" in
+        docs/*|*.md)
+            continue
+            ;;
+    esac
+
+    if [ ! -f "$file" ]; then
+        continue
+    fi
+
+    for pattern in "${PATTERNS[@]}"; do
+        if grep -qE "$pattern" "$file" 2>/dev/null; then
+            echo "[HATA] API key pattern tespit edildi: $file"
+            echo "  Pattern: $pattern"
+            VIOLATIONS=$((VIOLATIONS + 1))
+        fi
+    done
+
+    # Ethereum private key (0x + 64 hex, stricter match)
+    if grep -qE "0x[0-9a-fA-F]{64}" "$file" 2>/dev/null; then
+        # Filter out hash values in logs/tests
+        if grep -E "0x[0-9a-fA-F]{64}" "$file" | grep -qvE "(hash|test|example|placeholder)" 2>/dev/null; then
+            echo "[HATA] Muhtemel Ethereum private key: $file"
+            VIOLATIONS=$((VIOLATIONS + 1))
+        fi
+    fi
+done
+
+# ── 3. Forbidden directories ──────────────────────────────────────
+for file in $STAGED; do
+    case "$file" in
+        data_store/*|data/polypaper.db*|backups/*|logs/*|_archive/*)
+            echo "[HATA] Yasaklı klasörde dosya: $file"
+            VIOLATIONS=$((VIOLATIONS + 1))
+            ;;
+    esac
+done
+
+# ── Sonuç ────────────────────────────────────────────────────────
+if [ "$VIOLATIONS" -gt 0 ]; then
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "COMMIT REDDEDİLDİ — $VIOLATIONS güvenlik ihlali tespit edildi."
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "Düzeltmek için:"
+    echo "  1. Hassas dosyaları unstage et: git rm --cached <dosya>"
+    echo "  2. .gitignore'a ekle"
+    echo "  3. API key pattern'i varsa dosyayı temizle"
+    echo ""
+    echo "Zorla geçmek için (ÖNERİLMEZ):"
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
+fi
+
+echo "[pre-commit] Güvenlik taraması başarılı. ✓"
+exit 0
