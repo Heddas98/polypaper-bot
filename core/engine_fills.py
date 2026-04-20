@@ -21,6 +21,8 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
+
 from core.engine_support import _slug_end
 # Phase 65: fees.py v1 removed — only v2 active
 from core.fees_v2 import polymarket_taker_fee_v2
@@ -69,13 +71,15 @@ class EngineFillsMixin:
         for lvl in bids:
             try:
                 bid_sum += float(lvl.get("size", 0)) * float(lvl.get("price", 0))
-            except Exception:
+            except (TypeError, ValueError):
+                # T1.4 Faz 1: malformed level (None/non-numeric); skip
                 continue
         ask_sum = 0.0
         for lvl in asks:
             try:
                 ask_sum += float(lvl.get("size", 0)) * float(lvl.get("price", 0))
-            except Exception:
+            except (TypeError, ValueError):
+                # T1.4 Faz 1: malformed level (None/non-numeric); skip
                 continue
         total = bid_sum + ask_sum
         if total <= 0:
@@ -143,29 +147,28 @@ class EngineFillsMixin:
                     # Future symmetry for SELL maker orders
                     o.cum_traded_at_price_usd += traded_usd
 
-            # Phase 60: Feed whale signal tracker + cascade detector
-            if traded_usd >= 1000:  # whale threshold
-                _ws = getattr(self, "_whale_signal", None)
-                if _ws is not None:
-                    # Derive slug + direction from pending orders matching token
-                    for o in self._pending:
-                        if o.token_id == token_id:
-                            _ws.record(o.slug, o.direction, traded_usd,
-                                       ts_ms / 1000.0)
-                            break
-            _cd = getattr(self, "_cascade_detector", None)
-            if _cd is not None:
-                for o in self._pending:
-                    if o.token_id == token_id:
-                        _cd.record(o.slug, float(price), traded_usd)
-                        break
-        except Exception as e:
-            logger.debug(f"on_real_trade: {e}")
+            # Phase 60 whale_signal + cascade_detector integration removed in
+            # T1.3 Commit 1 (ghost module purge, 2026-04-20). Attributes
+            # `_whale_signal` and `_cascade_detector` are never set on the
+            # engine any more, so those branches were dead code. Kept comment
+            # for history — if the signals come back, mount new trackers on
+            # the engine and re-add the record() calls here.
+        except (TypeError, ValueError, AttributeError) as e:
+            # T1.4 Faz 1: malformed trade (non-numeric price/size) or missing
+            # tick-tolerance attr. Keep silent on debug-level to avoid WS
+            # spam; real issues surface via cum_traded_at_price_usd stalling.
+            logger.debug(f"on_real_trade: {type(e).__name__}: {e}")
 
     async def _rest_latency_sleep(self):
         """Phase 39 (P1.3): Sleep for a gaussian-jittered REST round-trip
         before paper-trade order create/cancel. Mirrors real Polymarket
-        REST latency so paper fills don't get a free 0ms head-start."""
+        REST latency so paper fills don't get a free 0ms head-start.
+
+        ⚠ HEURISTIC, NOT EMPIRICALLY MEASURED. Defaults
+        (REST_LATENCY_MS=200, REST_LATENCY_JITTER_MS=80) are plausible
+        regional medians chosen at Phase 39 — pending Epic 4 T4.7 Faz B
+        live telemetry calibration via `core/observability/rest_timing.py`.
+        Override via ENV when running fairness-sensitive backtests."""
         try:
             mean = max(0, int(self.settings.REST_LATENCY_MS))
             sigma = max(0, int(self.settings.REST_LATENCY_JITTER_MS))
@@ -175,7 +178,10 @@ class EngineFillsMixin:
             if ms < 0:
                 ms = 0
             await asyncio.sleep(ms / 1000.0)
-        except Exception:
+        except (TypeError, ValueError):
+            # T1.4 Faz 1: non-numeric settings value (misconfigured .env).
+            # Silent pass matches prior behaviour — REST latency is a fairness
+            # simulator, not a correctness gate.
             pass
 
     async def _check_pending(self):
@@ -294,8 +300,14 @@ class EngineFillsMixin:
                 if sig_slip != 0:
                     logger.debug(f"  📊 fallback fill slip={sig_slip:+.2f}%")
                 filled.append((o, round(fill_price, 4), o.amount))
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 - T1.4 Faz 1: broad on purpose
+                # Per-order fill path pulls from many sources: CLOB REST,
+                # WS orderbook, scanner odds, settings. A single order's
+                # failure must not abort the whole cycle. Surface the type
+                # so silent drops get noticed in logs.
+                logger.warning(
+                    f"  [{o.strategy_id[:8]}] check_pending order {o.slug}: "
+                    f"{type(e).__name__}: {e}")
         for item in filled:
             # Support both legacy 2-tuples and new 3-tuples (defensive)
             if len(item) == 3:
@@ -319,7 +331,9 @@ class EngineFillsMixin:
                     f"  🚫 [{o.strategy_id[:8]}] CANCEL {_mode} {o.slug} "
                     f"limit={o.limit_price:.4f} age={(now_ms - o.placement_ts_ms)//1000}s")
                 await self._rest_latency_sleep()
-            except Exception:
+            except ValueError:
+                # T1.4 Faz 1: self._pending.remove(o) raises ValueError when
+                # already removed (double-cancel race). Idempotent; ignore.
                 pass
 
     async def cancel_pending(self, strategy_id: str, slug: str = None) -> int:
@@ -402,8 +416,11 @@ class EngineFillsMixin:
                     _chain.trade_amount = fill_amount_usd
                     _chain.decision = "trade"
                     await _explainer.persist(_chain, ex.id)
-        except Exception as _rce:
-            logger.debug(f"reasoning persist at fill: {_rce}")
+        except (aiosqlite.Error, AttributeError) as _rce:
+            # T1.4 Faz 1: explainer.persist hits DB; attr set on _chain may
+            # AttributeError if reasoning class shape drifts. Non-critical
+            # telemetry — log and move on.
+            logger.debug(f"reasoning persist at fill: {type(_rce).__name__}: {_rce}")
         # Phase 47f.9 P4#18 — persist realized_slippage (signal → fill)
         try:
             slip_pct = self._compute_slippage(o, fill_price)
@@ -411,8 +428,9 @@ class EngineFillsMixin:
                 "UPDATE executions SET realized_slippage=? WHERE id=?",
                 (slip_pct, ex.id))
             await self.db.conn.commit()
-        except Exception as _se:
-            logger.debug(f"slippage persist: {_se}")
+        except aiosqlite.Error as _se:
+            # T1.4 Faz 1: pure DB write — narrow to DB errors. Telemetry only.
+            logger.debug(f"slippage persist: {type(_se).__name__}: {_se}")
         # Phase 59: persist trade reasoning JSON alongside the execution
         try:
             _rj = getattr(o, "reasoning_json", None)
@@ -421,17 +439,16 @@ class EngineFillsMixin:
                     "UPDATE executions SET reasoning_json=? WHERE id=?",
                     (_rj, ex.id))
                 await self.db.conn.commit()
-        except Exception as _rje:
-            logger.debug(f"reasoning_json persist: {_rje}")
+        except aiosqlite.Error as _rje:
+            # T1.4 Faz 1: pure DB write — narrow to DB errors. Telemetry only.
+            logger.debug(f"reasoning_json persist: {type(_rje).__name__}: {_rje}")
         self._open_positions.add(f"{o.strategy_id}:{o.slug}")
         self.risk.record_trade_opened(fill_amount_usd, o.slug, strategy_id=o.strategy_id)
-        # Phase 76: Reserve capital in allocator
-        _ca = getattr(self, "_capital_allocator", None)
-        if _ca is not None:
-            try:
-                await _ca.reserve(o.strategy_id, fill_amount_usd)
-            except Exception:
-                pass
+        # Phase 76 capital_allocator integration removed in T1.3 (ghost module
+        # purge, 2026-04-20). Attribute `_capital_allocator` is never set on
+        # the engine any more, so the reserve() branch was dead code. Mirror
+        # of the release() deletion in engine_settlement.py. Kept comment for
+        # history.
         log_entry(o.slug, o.direction, fill_price, fill_amount_usd, shares,
                   actual_fee, o.strategy_id, o.token_id)
         mode = "MAKER" if o.is_maker else "TAKER"
@@ -451,8 +468,11 @@ class EngineFillsMixin:
                     strategy_label=label, signal_score=o.signal_score,
                     direction=o.direction, token_id=o.token_id,
                     odds=fill_price, slug=o.slug)
-            except Exception as e:
-                logger.debug(f"Live mirror: {e}")
+            except Exception as e:  # noqa: BLE001 - T1.4 Faz 1: CLOB + DB + telegram wrap
+                # live.maybe_mirror chains: DB label lookup, CLOB REST,
+                # telegram notify. Broad on purpose; emit full traceback so
+                # mainnet shadow mirror issues surface cleanly.
+                logger.exception(f"Live mirror failed [{type(e).__name__}]: {e}")
 
         parts = o.slug.split("-")
         asset = parts[0].upper() if parts else "?"
@@ -468,7 +488,9 @@ class EngineFillsMixin:
             _lbl_row = await self.db.conn.execute_fetchall(
                 "SELECT label FROM strategies WHERE id=?", (o.strategy_id,))
             _label = _lbl_row[0][0] if _lbl_row else o.strategy_id[:8]
-        except Exception:
+        except aiosqlite.Error:
+            # T1.4 Faz 1: pure DB query; fallback to short strategy id if
+            # strategies row is missing or the conn is temporarily locked.
             _label = o.strategy_id[:8]
         await self._notify(o.user_id,
             f"{_dir_emoji} <b>{mode} Fill{notif_partial}</b>\n"

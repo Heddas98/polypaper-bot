@@ -40,7 +40,13 @@ class Settings:
     STRATEGY_EVAL_INTERVAL: int = 1
     # Phase 39 (P1.3): REST latency simulation — gaussian sleep before
     # paper-trade order create/cancel to mirror real Polymarket REST RTT.
-    # Real-world median is ~150-250ms; jitter ~50-100ms one-sigma.
+    # ⚠ Defaults (200ms / 80ms) are HEURISTIC plausible-median estimates,
+    # NOT measured against live CLOB endpoints. Pending Epic 4 T4.7 Faz B
+    # empirical calibration (enable `REST_TIMING_TELEMETRY=true` to collect
+    # 24h of live RTT samples via core/observability/rest_timing.py, then
+    # re-derive p50 / p_iqr from real data).
+    # NOTE: backtest/replay_engine.py:98 currently uses 250ms as its own
+    # default — that 50ms drift is intentional placeholder pending Faz B.
     REST_LATENCY_MS: int = field(default_factory=lambda: int(os.environ.get("REST_LATENCY_MS", "200")))
     REST_LATENCY_JITTER_MS: int = field(default_factory=lambda: int(os.environ.get("REST_LATENCY_JITTER_MS", "80")))
     # Phase 40b: Order cancellation modeling. Maker orders left unfilled past
@@ -139,7 +145,8 @@ class Settings:
     # data confirms the 47f.7 wins are stable.
     ADAPTIVE_BECKER_WEIGHT_ENABLED: bool = field(default_factory=lambda: os.environ.get("ADAPTIVE_BECKER_WEIGHT_ENABLED", "false").lower() == "true")
     BOT_NAME: str = "PolyPaper Bot"
-    BOT_VERSION: str = "9.7.3"
+    # BOT_VERSION removed — single source of truth is telegram_bot/version.py
+    # (was: BOT_VERSION: str = "9.7.3", drifted from v9.7.9). T0.2 fix 2026-04-20.
     WEBSITE_URL: str = "https://polyscout.io"
 
     def validate(self) -> list[str]:

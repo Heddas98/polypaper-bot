@@ -52,7 +52,7 @@ from backtest.strategies.base import (
     Signal, Resolution, Direction, StrategyRegistryV2
 )
 from backtest.simulation.fill_model import FillSimulator, FillMode
-from backtest.simulation.fee_model import FeeCalculator
+from backtest.simulation.fee_model_v3 import FeeCalculatorV3 as FeeCalculator  # T4.1 unified
 from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats
 
 # Phase 47f.2 — pure δ(p) helpers for backtest signal consumer
@@ -94,7 +94,12 @@ class ReplayConfig:
     # Time range (ms)
     start_ms: int = 0                   # 0 = no filter
     end_ms: int = 0
-    # Phase 65: Latency injection (Gaussian μ±σ ms)
+    # Phase 65: Latency injection (Gaussian μ±σ ms).
+    # ⚠ Defaults (250ms / 75ms) are HEURISTIC, NOT empirically calibrated.
+    # 50ms higher than live engine's REST_LATENCY_MS=200 (config/settings.py)
+    # — kept higher in backtest as conservative pessimism. Pending Epic 4
+    # T4.7 Faz B: align both defaults with measured live p50 once
+    # `REST_TIMING_TELEMETRY=true` collects 24h of CLOB RTT samples.
     latency_mean_ms: int = 250          # average REST submit latency
     latency_std_ms: int = 75            # standard deviation
     # Limits
@@ -169,10 +174,11 @@ class ReplayEngine:
 
     def _setup(self):
         """Initialize components from config."""
-        # Fee calculator
-        self.fee_calc = FeeCalculator.for_market_type(
-            self.config.timeframe_filter or "5m"
-        )
+        # Fee calculator — T4.1: for_market_type() removed with legacy fee_model.py.
+        # Prior behavior was `FeeMode.STANDARD` in all branches (the `15m` branch
+        # was hard-disabled with `and False`), so defaulting to FeeCalculatorV3's
+        # V3 mode (taker-only, crypto) preserves identical backtest results.
+        self.fee_calc = FeeCalculator()
 
         # Fill simulator (Phase 65: latency injection from config)
         fill_mode = FillMode(self.config.fill_mode)

@@ -21,6 +21,7 @@ Liquidity filter: skip markets with volume < threshold.
 """
 import logging
 import math
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -56,9 +57,14 @@ class FillResult:
 class FillSimulator:
     """Simulates order execution against orderbook state."""
 
-    # Bid-ask spread cost in Polymarket (constant across all orders)
-    # Represents the cost of crossing the spread to get immediate fills
-    SPREAD_COST = 0.005  # 0.5 cents per share on 0-1 price contracts
+    # Bid-ask spread cost in Polymarket (cost of crossing the spread for
+    # immediate execution). Default 0.5c per share — reasonable median for
+    # crypto Up/Down markets where typical spreads are 1-3c (5min markets
+    # widen to 5c+ near settlement). NOT empirically calibrated against
+    # 1417-trade live realized_slippage history yet — see Epic 4 T4.2 Faz B.
+    # Override via ENV `FILL_SPREAD_COST` (e.g. 0.003 for tight markets,
+    # 0.01 for wide-spread sweep tests).
+    SPREAD_COST: float = float(os.getenv("FILL_SPREAD_COST", "0.005"))
 
     def __init__(self, mode: FillMode = FillMode.SIMPLE,
                  min_liquidity: float = 0.0,
@@ -206,17 +212,23 @@ class FillSimulator:
             fill_price = best_ask + self.SPREAD_COST
             slippage = self.SPREAD_COST
 
-        # Phase 65: Latency-induced price drift
-        # During REST submit delay (~250ms), price drifts against us.
-        # Model: latency_ms ~ N(μ, σ²), drift ~ latency × volatility_per_ms
-        # Empirical: ~15-25 bps per 250ms on crypto prediction markets.
+        # Phase 65: Latency-induced price drift.
+        # During REST submit delay (typically 200-300ms), price moves against us
+        # because the orderbook updates between signal and fill.
+        # Model: latency_ms ~ N(μ, σ²); drift = latency × LATENCY_DRIFT_BPS_PER_MS.
+        #
+        # The constant 0.08 bps/ms (→ ~20bps drift at 250ms) is a HEURISTIC
+        # placeholder, NOT empirically calibrated against live fill telemetry.
+        # Override via ENV `FILL_LATENCY_DRIFT_BPS_PER_MS` for sensitivity sweeps.
+        # Empirical calibration tracked under Epic 4 T4.2 Faz B (TASKS.md).
         latency_drift = 0.0
         if self.latency_mean_ms > 0:
             import random
             lat_ms = max(50, random.gauss(self.latency_mean_ms, self.latency_std_ms))
-            # Price drift: assume ~0.08 bps per ms of latency (empirical)
-            # 250ms × 0.08 bps = 20 bps average adverse drift
-            drift_bps_per_ms = 0.08 / 10000  # convert bps to fraction
+            drift_bps_per_ms_env = float(
+                os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "0.08")
+            )
+            drift_bps_per_ms = drift_bps_per_ms_env / 10000  # bps → fraction
             latency_drift = fill_price * lat_ms * drift_bps_per_ms
             fill_price += latency_drift
             slippage += latency_drift
@@ -242,14 +254,21 @@ class FillSimulator:
                         best_ask: float,
                         total_ask_depth: float) -> float:
         """
-        Walk through orderbook levels with realistic slippage thresholds.
-        Slippage increases with fill ratio (order size relative to available depth).
+        Walk through orderbook levels with depth-bucketed slippage tiers.
+        Slippage increases with fill ratio (order size / available depth).
 
-        Realistic thresholds (bid-ask spread + depth impact):
-          <10% depth: 0.2% slippage
-          10-30% depth: 0.5% slippage
-          30-70% depth: 1.5% slippage
-          >70% depth: 3.0% slippage
+        Tier table (SYNTHETIC — NOT calibrated against live data):
+          <10% depth:  0.2% slippage
+          10-30%:      0.5%
+          30-70%:      1.5%
+          >70%:        3.0%
+
+        These were chosen as plausible defaults during Phase 34 backtests
+        without an empirical reference set. For real fills the canonical
+        path is `REAL_ORDERBOOK` (VWAP against recorded L2 depth) — this
+        simpler tier walk is a fallback when raw L2 isn't available.
+        Calibration against the 1417-trade live realized_slippage history
+        is tracked under Epic 4 T4.2 Faz B (see TASKS.md).
         """
         if total_ask_depth <= 0 or amount_usd <= 0:
             return best_ask
@@ -461,24 +480,39 @@ class FillSimulator:
             rebate=round(rebate, 6),
         )
 
+    # Default impact scale — what fraction of best_ask the √-impact term
+    # contributes. NOT derived from Almgren-Chriss calibration; chosen so a
+    # $1000 order in a $100k volume market lands at ~10bps impact. Override
+    # via ENV `FILL_IMPACT_SCALE` for sensitivity sweeps. Pending empirical
+    # fit under Epic 4 T4.2 Faz B (cross-check against realized_slippage).
+    IMPACT_SCALE: float = float(os.getenv("FILL_IMPACT_SCALE", "0.01"))
+    # Minimum spread floor — even tiny orders pay this. Polymarket UI
+    # observation; not a hard fee, just a slippage proxy.
+    IMPACT_MIN_FLOOR: float = float(os.getenv("FILL_IMPACT_MIN_FLOOR", "0.001"))
+
     def _market_impact_fill(self, amount_usd: float,
                             best_ask: float,
                             market_volume: float) -> float:
         """
-        Market impact model: slippage ∝ √(order_size / avg_volume)
-        Based on standard square-root impact model.
+        Market impact model: slippage ∝ √(order_size / market_volume).
 
-        Includes minimum spread floor of 0.1% (even small orders face spread cost).
-        Formula: slippage = max(0.001, √(size/volume) × impact_factor × 0.01)
+        Approximation of the standard square-root impact law (used by
+        Almgren-Chriss / Kyle's lambda style models). The constant scaling
+        factor `IMPACT_SCALE` (default 0.01 → ~1% max impact for orders
+        equal to total volume) is heuristic, NOT calibrated against
+        Polymarket fills. Pending Epic 4 T4.2 Faz B empirical calibration.
+
+        Formula: slippage = max(IMPACT_MIN_FLOOR,
+                                √(size/volume) × impact_factor × IMPACT_SCALE)
         """
         if market_volume <= 0 or amount_usd <= 0:
             return best_ask
 
-        # √(size/volume) × impact_factor × base_spread
+        # √(size/volume) × impact_factor × IMPACT_SCALE
         impact = math.sqrt(amount_usd / market_volume) * self.impact_factor
-        impact = impact * 0.01  # scale to ~1% max for typical sizes
+        impact = impact * self.IMPACT_SCALE
 
-        # Add minimum spread floor: even small orders face 0.1% cost
-        impact = max(0.001, impact)
+        # Spread floor — even small orders pay this minimum.
+        impact = max(self.IMPACT_MIN_FLOOR, impact)
 
         return min(best_ask * (1 + impact), 0.99)

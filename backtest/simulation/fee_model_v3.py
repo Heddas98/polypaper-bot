@@ -9,9 +9,14 @@ remaining pieces (Becker calibration injection + maker rebate accounting
 in the portfolio + replay-engine swap-in) layer on top of this primitive.
 
 Why a separate module:
-  - core.fees still re-exports the legacy quadratic functions used by
-    older strategies; we don't want to retire those during a backtest
-    run (apples-to-apples comparison would break).
+  - As of 2026-04-21 Epic 4 T4.1 the codebase has a SINGLE fee oracle:
+    `core/fees_v2.py` (Mart 2026 linear, category-aware). The old
+    `core/fees.py` v1 quadratic module + `category="legacy"` branch +
+    `tests/unit/test_fees.py` were deleted. fees_v2 was validated against
+    the live Polymarket Gamma feeSchedule (rate=0.072 / exp=1 /
+    rebateRate=0.2 for crypto) so a synthetic regression test against
+    a pre-March-2026 oracle would only constrain new development to
+    match a deprecated curve.
   - Phase 38 also kept FeeMode.ZERO/MAKER as a no-op gate. The new V3
     mode adds:
         FeeMode.V3            → polymarket_taker_fee_v2 + crypto category

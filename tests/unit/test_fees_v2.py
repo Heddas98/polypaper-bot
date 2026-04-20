@@ -36,11 +36,10 @@ class TestTakerFeeV2:
         assert polymarket_taker_fee_v2(1.0, 100) == 0.0
         assert polymarket_taker_fee_v2(0.50, 0) == 0.0
 
-    def test_legacy_category_matches_quadratic(self):
-        from core.fees import polymarket_taker_fee
-        f_v2_legacy = polymarket_taker_fee_v2(0.50, 100, category="legacy")
-        f_v1 = polymarket_taker_fee(0.50, 100)
-        assert f_v2_legacy == pytest.approx(f_v1, abs=0.01)
+    # Removed 2026-04-21 Epic 4 T4.1: legacy category + core/fees.py v1 module
+    # deleted. fees_v2 is now canonical — validated against live Polymarket
+    # Gamma feeSchedule (rate=0.072, exp=1, rebateRate=0.2 for crypto) rather
+    # than the pre-Mart 2026 quadratic oracle.
 
 
 class TestMakerRebate:
