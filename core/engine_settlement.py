@@ -245,9 +245,10 @@ class EngineSettlementMixin:
             except TelegramError as _send_err:
                 # T1.4 Faz 1: narrowed — telegram transport errors only.
                 logger.debug(f"classic exit notify send: {_send_err}")
-        except Exception as _outer:
+        except Exception as _outer:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — notify wrapper must never raise into
             # the settlement path (fire-and-forget side effect). Log type for triage.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"classic exit notify failed ({type(_outer).__name__}): {_outer}")
 
     async def _classic_resolution_notify(self, row, won, pnl, payout, fee,
@@ -345,9 +346,10 @@ class EngineSettlementMixin:
             except TelegramError as _send_err:
                 # T1.4 Faz 1: narrowed — telegram transport errors only.
                 logger.debug(f"classic notify send: {_send_err}")
-        except Exception as _outer:
+        except Exception as _outer:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — notify wrapper must never raise into
             # the settlement path. Upgrade to logger.exception for triage.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"classic notify failed ({type(_outer).__name__}): {_outer}")
 
     async def _ai_trade_analysis(self, row, pnl, result):
@@ -369,9 +371,10 @@ class EngineSettlementMixin:
                 "amount": row.get("trade_amount", 0),
                 "slug": row.get("event_slug", ""),
             })
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — AI analyst call wraps httpx (Anthropic
             # SDK), JSON, and dict access. Log type for triage.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.debug(f"AI trade analysis ({type(e).__name__}): {e}")
 
     async def _close(self, row, pnl, payout, result, rebate: float = 0.0):
@@ -425,10 +428,11 @@ class EngineSettlementMixin:
                     "UPDATE wallets SET balance = balance + ? WHERE id = ?",
                     (payout, row["wallet_id"]))
             await self.db.conn.commit()  # Single commit for both
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — outer body includes EVTracker
             # calculation (may hit httpx/DB) plus the critical UPDATE+credit
             # transaction. Use logger.exception so any regression is traceable.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"Close transaction failed ({type(e).__name__}): {e}")
             try:
                 await self.db.conn.rollback()
@@ -458,9 +462,10 @@ class EngineSettlementMixin:
                     pass
             log_decision_close(row["strategy_id"], row.get("event_slug", ""),
                                result, float(pnl), duration_sec=_dur)
-        except Exception as _ldc:
+        except Exception as _ldc:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — journal writes are fire-and-forget
             # side effects (file I/O + import). Log type for triage.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.debug(f"log_decision_close skipped ({type(_ldc).__name__}): {_ldc}")
 
         # Phase 76 capital_allocator integration removed in T1.3 (ghost module purge,
@@ -496,9 +501,10 @@ class EngineSettlementMixin:
                 self.micro_weight.record_close(
                     order_key=pk, asset=asset_guess, pnl_usd=float(pnl),
                 )
-            except Exception as _mwc:
+            except Exception as _mwc:  # noqa: BLE001
                 # T1.4 Faz 1: catch-all kept — adaptive weight tracker internals
                 # (Phase 47a). Log type so regressions are visible.
+                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.debug(f"micro_weight.record_close ({type(_mwc).__name__}): {_mwc}")
         # Phase 48: feed realized PnL back into the adaptive Becker tracker
         if getattr(self, "becker_weight", None) is not None:
@@ -506,9 +512,10 @@ class EngineSettlementMixin:
                 self.becker_weight.record_close(
                     order_key=pk, pnl_usd=float(pnl),
                 )
-            except Exception as _bwc:
+            except Exception as _bwc:  # noqa: BLE001
                 # T1.4 Faz 1: catch-all kept — adaptive Becker weight internals
                 # (Phase 48). Log type so regressions are visible.
+                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.debug(f"becker_weight.record_close ({type(_bwc).__name__}): {_bwc}")
         # Phase 28: Persist risk state to DB
         await self.risk.save_state(self.db)
@@ -521,9 +528,10 @@ class EngineSettlementMixin:
                 await self.live.check_settlement(
                     row["event_slug"], won, pnl,
                     paper_amount=float(row.get("trade_amount", 0) or 25.0))
-            except Exception as _lse:
+            except Exception as _lse:  # noqa: BLE001
                 # T1.4 Faz 1: catch-all kept — live.check_settlement body spans
                 # CLOB + DB + telegram; must not raise into paper close path.
+                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.exception(f"live.check_settlement failed ({type(_lse).__name__}): {_lse}")
         parts = row["event_slug"].split("-")
         if len(parts) >= 3 and row.get("strategy_id"):
