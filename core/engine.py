@@ -154,16 +154,25 @@ class TradingEngine(
         self._strats_zero_alerted: bool = False
         self._market_open_recorded: set[str] = set()  # Phase 26: track open price per slug
         self._kelly_mode: bool = True  # Phase 27: auto Kelly sizing
+        # ─────────────────────────────────────────────────────────────
         # Phase 35: AI Brain feature toggles
+        #
         # Epic 6 T6.3b: drift_monitor removed — no engine consumer existed
         # (no core/drift_monitor.py module, no brain_flags['drift_monitor']
         # read anywhere). UI toggle was purely cosmetic ("silent ghost").
+        #
+        # Epic 6 T6.3d: kelly_sizing removed from brain_flags. Authoritative
+        # runtime state lives on `self._kelly_mode` (read by engine_signals
+        # at sizing time, toggled by `/kelly_toggle` command + AI Brain
+        # panel 📈 Kelly button). Having both caused "silent ghost toggle":
+        # AI Brain panel wrote to brain_flags['kelly_sizing'] which nothing
+        # consumed. Now the panel button retargets `_kelly_mode` directly.
+        # ─────────────────────────────────────────────────────────────
         self.brain_flags = {
             "ai_brain": True,
             "thompson_sampling": True,
             "regime_detection": True,
             "autopilot": True,
-            "kelly_sizing": True,
             "candle_collector": True,
             "market_recorder": True,
         }

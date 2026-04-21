@@ -306,7 +306,12 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         flags = engine.brain_flags
 
         def fmt_flag(key):
-            val = flags.get(key, True)
+            # Epic 6 T6.3d: kelly_sizing is a virtual flag; authoritative
+            # state lives on engine._kelly_mode (shared with /kelly_toggle).
+            if key == "kelly_sizing":
+                val = bool(getattr(engine, "_kelly_mode", True))
+            else:
+                val = flags.get(key, True)
             return "✅ AÇIK" if val else "⏸ KAPALI"
 
         text = (
@@ -324,9 +329,9 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Epic 6 T6.3b: drift_monitor button removed (ghost — no engine
-        # consumer). Regime is temporarily alone on its row; T6.3d+e will
-        # do a final layout cleanup once kelly_sizing is retired and
-        # market_recorder gets its own button.
+        # consumer). T6.3d: kelly_sizing button now retargets
+        # engine._kelly_mode directly (virtual flag). T6.3e will add a
+        # market_recorder button and finalize the layout.
         kb = _BrainKB([
             [_BrainBtn("🧠 Brain", callback_data="brain_toggle_ai_brain"),
              _BrainBtn("🎯 TS", callback_data="brain_toggle_thompson_sampling")],
@@ -379,10 +384,17 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await query.answer(f"Bilinmeyen feature: {feature}", show_alert=True)
             return
 
-        engine.brain_flags[feature] = not engine.brain_flags.get(feature, True)
-        new_state = engine.brain_flags[feature]
-
-        await db.set_setting(f"brain_flags.{feature}", "1" if new_state else "0")
+        # Epic 6 T6.3d: kelly_sizing is a virtual flag — retarget to
+        # engine._kelly_mode (the authoritative state read by engine_signals
+        # at sizing time). Not persisted to DB — matches /kelly_toggle
+        # command semantics (in-memory only, resets to True on boot).
+        if feature == "kelly_sizing":
+            new_state = not bool(getattr(engine, "_kelly_mode", True))
+            engine._kelly_mode = new_state
+        else:
+            engine.brain_flags[feature] = not engine.brain_flags.get(feature, True)
+            new_state = engine.brain_flags[feature]
+            await db.set_setting(f"brain_flags.{feature}", "1" if new_state else "0")
 
         if feature == "candle_collector":
             cc = getattr(engine, 'candle_collector', None)
