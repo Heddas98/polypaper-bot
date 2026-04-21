@@ -9,11 +9,11 @@ Usage:
     suggester = StrategySuggester(db, engine, bot_app)
     await suggester.run()  # Called by JobQueue every 4h
 """
-import asyncio
-import json
 import logging
 import os
 from datetime import datetime, timezone
+
+import aiosqlite
 
 logger = logging.getLogger("polypaper.core.strategy_suggester")
 
@@ -251,7 +251,12 @@ class StrategySuggester:
 
             self._last_run = datetime.now(timezone.utc)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T1.4 Faz 3: JobQueue top-level umbrella (4h cycle). run() LLM
+            # (httpx/anthropic), Telegram (InlineKeyboardMarkup +
+            # send_message), DB, parse birleşimi içeriyor — tek bir
+            # beklenmedik hata cycle'ı çöpe atsın ama bot'u öldürmesin.
+            # Bilinçli şemsiye.
             logger.error(f"Strategy Suggester error: {e}", exc_info=True)
 
     # Class-level storage for pending approval
@@ -300,7 +305,12 @@ class StrategySuggester:
             if m15_count < 3:
                 lines.append("  ⚠️ 15m NEREDEYSE HIC DENENMEMIS! Buyuk firsat.")
 
-        except Exception as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: DISTINCT SELECT + tuple row access (r[0..3]) +
+            # set/list building. Realistic modes: aiosqlite.Error (DB),
+            # IndexError (r[0] boş tuple), TypeError/ValueError
+            # (f-string / sum guard), AttributeError (self.db.conn None).
             lines.append(f"  Nis kesfı hatasi: {e}")
 
         return "\n".join(lines)
@@ -349,7 +359,12 @@ class StrategySuggester:
             # Yetersiz trade → legacy fallback'e düş
             logger.info(f"ReplayEngine backtest: sadece {stats.total_trades} trade — legacy fallback")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T1.4 Faz 3: ReplayEngine umbrella. Dinamik import
+            # (backtest.replay_engine) + 3rd-party deps (numpy, l2
+            # snapshot parsing, asyncio timing) geniş yüzey — "fallback to
+            # legacy" pattern bilinçli. Tek bir beklenmedik hata legacy
+            # yolu tetiklesin.
             logger.warning(f"ReplayEngine backtest failed: {e} — legacy fallback")
 
         # ── Legacy fallback: odds_history tabanlı basit simülasyon ──
@@ -431,7 +446,13 @@ class StrategySuggester:
                 "engine": "legacy",
             }
 
-        except Exception as e:
+        except (aiosqlite.Error, IndexError, KeyError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: odds_history SELECT + tuple row access (r[0..3])
+            # + dict building + fee/pnl arithmetic. Realistic modes:
+            # aiosqlite.Error (DB), IndexError (r[0] boş), KeyError
+            # (entry_snap["up"]), TypeError/ValueError (arithmetic on None /
+            # float coerce), AttributeError (self.db.conn None).
             logger.debug(f"Legacy mini backtest error: {e}")
             return {"trades": 0, "wins": 0, "wr": 0, "pnl": 0, "error": str(e)}
 
@@ -485,7 +506,14 @@ class StrategySuggester:
             logger.info(f"🔮 Created: {label} [{stype}] {asset}/{tf} {direction} @{threshold}")
             return sid
 
-        except Exception as e:
+        except (ImportError, aiosqlite.Error, IndexError, KeyError, TypeError,
+                ValueError, AttributeError) as e:
+            # T1.4 Faz 3: dinamik uuid/changelog import + users/wallets/
+            # strategies DB yazımı + tuple row access (user[0][0]).
+            # Realistic modes: ImportError (core.changelog gecikmeli),
+            # aiosqlite.Error (INSERT/SELECT), IndexError (empty users/
+            # wallets), KeyError/TypeError/ValueError (strat dict access),
+            # AttributeError (self.db.conn None).
             logger.error(f"Strategy create error: {e}")
             return None
 
@@ -503,8 +531,15 @@ class StrategySuggester:
                 try:
                     await self.bot_app.bot.send_message(
                         chat_id=admin_id, text=safe[i:i+4000], parse_mode="HTML")
-                except Exception:
+                except Exception:  # noqa: BLE001
+                    # T1.4 Faz 3: HTML parse_mode fallback. telegram modülü
+                    # burada local import yok; telegram.error.BadRequest /
+                    # TimedOut / NetworkError namespace dışı — tip bazlı
+                    # narrow yapılamaz. Bilinçli retry-without-HTML pattern.
                     await self.bot_app.bot.send_message(
                         chat_id=admin_id, text=text[i:i+4000])
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T1.4 Faz 3: notify best-effort umbrella. re.sub + chunked
+            # telegram send — network/regex/telegram hataları bildirimi
+            # boş geçsin, bir üst çağrı (run) bozulmasın.
             logger.debug(f"Suggest notify: {e}")
