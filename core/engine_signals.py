@@ -136,6 +136,22 @@ class EngineSignalsMixin:
         return os.getenv("CLASSIC_BYPASS_ALL_GATES", "true").lower() != "false"
 
     # ───────────────────────────────────────────────────────────────────
+    # Epic 5 T5.3 (2026-04-21): pending_reserved helper
+    # ───────────────────────────────────────────────────────────────────
+    def _compute_pending_reserved(self, wallet_id: str) -> float:
+        """Sum of `amount` for pending orders belonging to the given wallet.
+
+        Conservative reservation: uses `o.amount` (original request), not the
+        remaining depth-limited portion. Partial fills remove the full order
+        from _pending (see engine_fills.py:318), so the reservation drops by
+        the full amount on fill — slight over-reservation is intentional and
+        safe. Scoped by wallet_id for multi-wallet isolation.
+        """
+        return sum(
+            o.amount for o in self._pending
+            if o.wallet_id == wallet_id)
+
+    # ───────────────────────────────────────────────────────────────────
     # Phase 79 S4-04: Brier Calibration Alarm Helpers
     # ───────────────────────────────────────────────────────────────────
     async def _load_brier_calibration_cache(self):
@@ -1212,9 +1228,8 @@ class EngineSignalsMixin:
         wallet = await self.db.get_wallet(s.wallet_id)
         if not wallet:
             return None
-        pending_reserved = sum(
-            o.amount for o in self._pending
-            if o.wallet_id == s.wallet_id)
+        # Epic 5 T5.3: extracted to _compute_pending_reserved helper
+        pending_reserved = self._compute_pending_reserved(s.wallet_id)
         effective_balance = max(wallet.balance - pending_reserved, 0.0)
         try:
             verdict = self.risk.check_trade(s.trade_amount, slug, effective_balance, strategy_id=s.id)
@@ -1507,6 +1522,7 @@ class EngineSignalsMixin:
         kelly = ctx["kelly"]
         micro_boost_value = ctx["micro_boost_value"]
         becker_delta_value = ctx["becker_delta_value"]
+        wallet = ctx["wallet"]  # Epic 5 T5.3: needed for defensive reserve check
 
         # Sprint 5 HOTFIX v5 (2026-04-20): classic FREE-MODE order placement.
         # User explicitly asked for a "no-protection" strategy: when price is
@@ -1698,6 +1714,26 @@ class EngineSignalsMixin:
             if len(self._pending) >= 50:
                 self._pending.pop(0)
                 logger.warning("⚠️ Pending overflow — dropped oldest order")
+
+            # ── Epic 5 T5.3: defensive reserve re-check ──
+            # Last-line-of-defense against overdraw. Today evals are sequential
+            # (engine.py: for s in strats) so pending_reserved cannot change
+            # between the initial risk check (line ~1232) and this append. If
+            # that architecture ever changes (asyncio.gather over strategies,
+            # background eval task, etc.) this guard catches the otherwise
+            # silent overdraw. Uses cached wallet.balance — may over-reject if
+            # a settlement credit landed in DB mid-eval (false positive →
+            # trade retries next cycle, safe). Never under-reserves.
+            pending_reserved_now = self._compute_pending_reserved(s.wallet_id)
+            if pending_reserved_now + trade_amount > wallet.balance:
+                self.skips.record("RESERVED_OVERFLOW")
+                if verbose:
+                    logger.info(
+                        f"  [{sid}] ❌ RESERVED_OVERFLOW: "
+                        f"reserved=${pending_reserved_now:.2f}+"
+                        f"need=${trade_amount:.2f} > "
+                        f"balance=${wallet.balance:.2f}")
+                return
 
             # Build reasoning JSON
             _reasoning = None
