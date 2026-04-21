@@ -743,7 +743,7 @@ class TradingEngine(
                     continue
 
                 # ══ F-04: WS stale data gate ══
-                self._check_ws_health()
+                await self._check_ws_health()
 
                 strats = await self.db.get_active_strategies()
                 if self._cycle % 30 == 1:
@@ -906,8 +906,14 @@ class TradingEngine(
         ws_stale_secs = float(os.getenv("WS_STALE_THRESHOLD", "60.0"))
         return age < ws_stale_secs
 
-    def _check_ws_health(self):
-        """F-14: Detect WS reconnect and flush stale pending orders."""
+    async def _check_ws_health(self):
+        """F-14: Detect WS reconnect and flush stale pending orders.
+
+        Epic 5 T5.1 (2026-04-21): Converted to async + _trade_lock wrap for
+        F-01 hygiene. _pending.clear() was previously lock-free (safe via sync
+        atomicity), but that invariant would break silently if this fn ever
+        gained an await. Lock acquisition is cheap (rare drop-event path).
+        """
         ws = self.scanner.ws
         if not ws:
             return
@@ -919,7 +925,8 @@ class TradingEngine(
                 logger.warning(
                     f"🔌 WS dropped (#{self._ws_drop_count})! "
                     f"Flushing {len(self._pending)} pending orders")
-                self._pending.clear()
+                async with self._trade_lock:
+                    self._pending.clear()
             else:
                 logger.warning(f"🔌 WS dropped (#{self._ws_drop_count}) — no pending to flush")
         self._ws_was_connected = is_connected
