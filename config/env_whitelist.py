@@ -128,9 +128,9 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
     },
     # ── Risk / auto-pause ────────────────────────────────────────────────
     "PNL_PAUSE_THRESHOLD": {
-        "type": "float", "default": "-3.0", "min": -1000.0, "max": 0.0,
+        "type": "float", "default": "-8.0", "min": -1000.0, "max": 0.0,
         "group": "risk",
-        "desc": "Auto-optimizer startup pause PnL esigi (USD, negatif)",
+        "desc": "Auto-optimizer PnL pause esigi (USD, negatif) — Sprint 0 -8.0",
     },
 }
 

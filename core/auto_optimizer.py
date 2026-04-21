@@ -27,8 +27,22 @@ logger = logging.getLogger("polypaper.core.optimizer")
 # Thresholds for auto-pause
 # Sprint 0 S0-04: MIN_TRADES raised to 20 — new strategies need room to prove themselves
 MIN_TRADES_FOR_EVAL = int(os.getenv("MIN_TRADES_BEFORE_PAUSE", "20"))
-# Phase 47f: env override. Sprint 0: default loosened from -3.0 to -8.0
-PNL_PAUSE_THRESHOLD = float(os.getenv("PNL_PAUSE_THRESHOLD", "-8.0"))
+
+
+# Epic 6 T6.1: PNL_PAUSE_THRESHOLD is /env_toggle-whitelisted, so it must be
+# read at runtime — not frozen at module import. Keeping the old module-top
+# constant meant /env_toggle could patch os.environ but the optimizer would
+# still use the import-time value (ghost toggle). The helper below re-reads
+# every call so a hot-tune actually takes effect on the next health check.
+# Phase 47f: env override. Sprint 0: default loosened from -3.0 to -8.0.
+def _get_pnl_pause_threshold() -> float:
+    """Return the current PNL_PAUSE_THRESHOLD from env (runtime re-read)."""
+    try:
+        return float(os.getenv("PNL_PAUSE_THRESHOLD", "-8.0"))
+    except (TypeError, ValueError):
+        return -8.0
+
+
 LOSS_STREAK_LIMIT = 5          # Consecutive losses to trigger pause
 ROLLING_WR_WINDOW = int(os.getenv("ROLLING_WR_WINDOW", "20"))        # Phase 52
 ROLLING_WR_KILL_THRESHOLD = float(os.getenv("ROLLING_WR_KILL", "40.0"))  # Phase 52: WR% below this → pause
@@ -74,11 +88,17 @@ ADAPTIVE_PNL_FLOOR = float(os.getenv("ADAPTIVE_PNL_FLOOR", "-10.0"))  # max loos
 
 def _adaptive_pnl_threshold(trade_count: int) -> float:
     """Phase 56: Return adaptive PnL pause threshold based on trade count.
-    More trades → more lenient threshold (strategy has earned trust)."""
+    More trades → more lenient threshold (strategy has earned trust).
+
+    Epic 6 T6.1: base threshold is now read fresh per call via
+    `_get_pnl_pause_threshold()` so /env_toggle changes take effect at
+    runtime instead of being frozen at module import.
+    """
+    base = _get_pnl_pause_threshold()
     if not ADAPTIVE_PNL_ENABLED or ADAPTIVE_PNL_TRADES_PER_STEP <= 0:
-        return PNL_PAUSE_THRESHOLD
+        return base
     steps = trade_count // ADAPTIVE_PNL_TRADES_PER_STEP
-    threshold = PNL_PAUSE_THRESHOLD - (steps * ADAPTIVE_PNL_STEP)
+    threshold = base - (steps * ADAPTIVE_PNL_STEP)
     return max(threshold, ADAPTIVE_PNL_FLOOR)
 
 
