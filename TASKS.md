@@ -349,9 +349,18 @@ Hedef: UI'da (Telegram butonları / komutlar) kullanıcıya gösterilen ama engi
     - **Tests**: `tests/unit/test_pnl_pause_runtime.py` 8 test (runtime fresh read, default fallback, malformed fallback, adaptive uses runtime base, floor guard, disabled path, ghost-toggle regression). 8/8 PASS.
     - **Regression**: Phase 56 `TestAdaptivePnlThreshold` 8/8 + Epic 5 T5.6 14/14 + T6.1 8/8 = **82/82 ✅**. `tests/test_phase56_engine.py` setUp/tearDown güncellendi — artık `os.environ` patch'liyor.
     - **Touched**: `core/auto_optimizer.py`, `config/env_whitelist.py`, `tests/test_phase56_engine.py`, `tests/unit/test_pnl_pause_runtime.py` (NEW).
-- [ ] **T6.2** `telegram_bot/handlers/settings_handler.py` + `risk_handler.py` + `filters_handler.py` — UI'da değişip engine'e yansımayan değer var mı? — risk: MED
-- [ ] **T6.3** Her ghost param için "UI'dan kaldır" veya "engine'e bağla" kararı — risk: LOW
-- [ ] **T6.4** `core/auto_optimizer.py` kalan module-top env constant'ları (MIN_TRADES_FOR_EVAL, ROLLING_WR_WINDOW, ROLLING_WR_KILL_THRESHOLD, ADAPTIVE_PNL_*) — whitelist'e eklenirse T6.1 pattern ile runtime helper yap — risk: LOW (şu an whitelist'te yok, ghost değil)
+- [x] **T6.2** ✅ 2026-04-21 — Tüm handler dosyalarının (28 handler) kapsamlı ghost audit'i tamamlandı. **Bulgular**:
+    - **3 TRUE GHOST** (UI toggle'ı var, engine hiç okumuyor): `brain_flags['drift_monitor']` (hiç module/reader yok), `brain_flags['autopilot']` (AutoPilot sınıfı flag check etmiyor), `brain_flags['kelly_sizing']` (engine `_kelly_mode` okuyor, flag ayrı).
+    - **1 REVERSE GHOST** (engine okuyor, UI expose etmiyor): `brain_flags['market_recorder']` (engine `mr._enabled` set ediyor ama `valid_features` setinde yok).
+    - **Sonuç**: AI Brain panel toggle'larından 4'ü yanıltıcı; kullanıcı bir şeyi açıp/kapattığını sanıyor ama engine davranışı değişmiyor. → T6.3 fix paketi.
+- [x] **T6.3** AI Brain parity — RED tests + 4 atomik fix — risk: LOW-MED (audit sonrası)
+    - [x] **T6.3a** ✅ 2026-04-21 — `tests/unit/test_brain_flags_parity.py` (276 satır, 12 test) — AST-driven regression baseline. `engine.brain_flags` ↔ `ai_handler.valid_features` set-equality, her flag için engine consumer varlığı (direct `brain_flags[k]` veya sibling-gate `self._enabled` read). Pre-fix: 5 fail (ghost flags) + 7 pass → RED baseline doğru. — commit: `e1924a5`
+    - [x] **T6.3b** ✅ 2026-04-21 — `drift_monitor` ghost kaldırıldı. `core/engine.py` `self.brain_flags` dict'inden sökme + DB boot loader filter (retired flag resurrection koruması) + `ai_handler.py` status text/keyboard/valid_features temizliği. **Önemli**: `core/regime.py::DriftDetector` always-on aktif bir özellik — ghost toggle yanıltıcıydı (kullanıcı "drift detection'ı kapattım" sanıyordu, gerçekte kapanmıyordu). — commit: `1c94141`
+    - [ ] **T6.3c** `autopilot` brain_flag gate — `core/autopilot.py::generate_actions()` başına `if not self.engine.brain_flags.get('autopilot', True): return []` + (opsiyonel) `execute_action()` benzeri gate. Hedef: `test_no_true_ghost_flags[autopilot]` GREEN. — risk: LOW
+    - [ ] **T6.3d** `kelly_sizing` unified toggle — `brain_flags['kelly_sizing']` engine dict'inden sökülür, AI Brain panel Kelly butonu tek kaynağa (`engine._kelly_mode`) retarget. Strategies handler toggle'ı ile aynı state. — risk: LOW
+    - [ ] **T6.3e** `market_recorder` UI exposure — `ai_handler.valid_features` setine eklenir + status text satırı + keyboard button. Engine side (mr._enabled) zaten wired. Reverse ghost temizliği. — risk: LOW
+    - [ ] **T6.3 closure** — parity test suite full GREEN + `test_brain_flags_init_matches_expected_set` pin (6 flag canonical set) + closure memory + Epic 6 kapanış.
+- [ ] **T6.4** `core/auto_optimizer.py` kalan module-top env constant'ları (MIN_TRADES_FOR_EVAL, ROLLING_WR_WINDOW, ROLLING_WR_KILL_THRESHOLD, ADAPTIVE_PNL_*) — whitelist'e eklenirse T6.1 pattern ile runtime helper yap — risk: LOW (şu an whitelist'te yok, ghost değil, backlog)
 
 ---
 
