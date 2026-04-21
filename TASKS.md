@@ -364,7 +364,7 @@ Hedef: UI'da (Telegram butonları / komutlar) kullanıcıya gösterilen ama engi
         - Regression: 43 collect → 41 pass + 2 graceful skip (drift/kelly).
     - [ ] **T6.3 closure** — parity test suite full GREEN + `test_brain_flags_init_matches_expected_set` pin (6 flag canonical set) + closure memory + Epic 6 kapanış.
 - [ ] **T6.4** `core/auto_optimizer.py` kalan module-top env constant'ları (MIN_TRADES_FOR_EVAL, ROLLING_WR_WINDOW, ROLLING_WR_KILL_THRESHOLD, ADAPTIVE_PNL_*) — whitelist'e eklenirse T6.1 pattern ile runtime helper yap — risk: LOW (şu an whitelist'te yok, ghost değil, backlog)
-- [ ] **T6.5** Kelly mode state persistence — `engine._kelly_mode` DB-persist (defect-B, T6.3d sırasında bulundu). Boot loader `engine.kelly_mode` setting'i oku, `/kelly_toggle` + AI Brain 📈 Kelly toggle yaz. Aksi halde restart → sessiz True reset. — risk: LOW, bağımlılık: T6.3 final (setting schema stabil olduktan sonra)
+- [x] **T6.5** ✅ 2026-04-21 — Kelly mode state persistence (defect-B, T6.3d'de bulunan) kapatıldı. `engine.kelly_mode` setting key ("1"/"0"). `engine.start()` boot loader brain_flags load sonrası oku + `self._kelly_mode` assign (missing key → constructor default preserve). `/kelly_toggle` command (strategies.py) + AI Brain panel kelly_sizing branch (ai_handler.py) iki yazıcı aynı key'e persist ediyor. Test: `tests/unit/test_kelly_mode_persistence.py` 11/11 GREEN (5 AST structural + 6 semantic round-trip sim). T6.3 adjacent: 19/21 pass + 2 skip (unchanged). Commits: `567c7cc` RED + `951f405` GREEN.
 
 ---
 
