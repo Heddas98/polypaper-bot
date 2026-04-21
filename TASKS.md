@@ -29,7 +29,7 @@
 - Kök dizinde eski handoff/audit/roadmap dokümanı: ~~26~~ → **0** (22 arşive) ✅ Epic 2
 - Kök dizinde one-shot .py (fix_* + unused): ~~7~~ → **0** (7 arşive) ✅ Epic 2
 - Kök dizin toplam dosya: ~~100+~~ → **19** ✅ Epic 2 (mainnet-ready)
-- `core/` altında bare `except:` yakalama: ~~341~~ → **276** (65 daraltma) ✅ T1.4 Faz 1
+- `core/` altında bare `except Exception:` yakalama: ~~341~~ → **237** ✅ (T1.3 ghost arşiv -57, T1.4 Faz 1 narrow -48 = toplam -104; live audit 2026-04-21)
 - Var olmayan `core.*` modüllerine yapılan import çağrısı: **40** (10 modül)
 - Arşiv klasörü: **8.6 MB** → ~9.2 MB (97 yeni dosya)
 
