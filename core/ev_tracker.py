@@ -14,7 +14,8 @@ Edge Realization Ratio = realized_pnl / expected_ev
   < 0.7 = overfitting/model broken
 """
 import logging
-from typing import Optional
+
+import aiosqlite
 
 logger = logging.getLogger("polypaper.ev_tracker")
 
@@ -145,7 +146,16 @@ class EVTracker:
                 'win_rate': round(wr, 1),
                 'edge_quality': quality,
             }
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+                IndexError, AttributeError) as e:
+            # T1.4 Faz 3: DB fetch + rows[0] unpack + avg_pnl/avg_ev division
+            # + dict build inside one try. Narrow to the realistic failure
+            # modes:
+            #   - aiosqlite.Error: executions table missing / locked / schema
+            #   - ValueError/TypeError: row shape, numeric coercion
+            #   - ArithmeticError: ZeroDivisionError if avg_ev -> 0.0 between
+            #     guard and division (race-free here but covers future edits)
+            #   - IndexError/AttributeError: rows[0] guard skip or db.conn
             logger.error(f"get_strategy_ev_stats failed: {e}")
             return {
                 'trade_count': 0,
@@ -203,6 +213,11 @@ class EVTracker:
                 ))
 
             return summary
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+                IndexError, AttributeError) as e:
+            # T1.4 Faz 3: Same failure surface as get_strategy_ev_stats —
+            # DB fetch + per-row unpack + avg_pnl/avg_ev division + list
+            # append. Empty result is handled by the loop (not raising),
+            # but a malformed row or DB-level failure surfaces here.
             logger.error(f"get_all_strategies_ev_summary failed: {e}")
             return []
