@@ -103,7 +103,11 @@ def _slug_end(slug):
     try:
         return datetime.fromtimestamp(
             int(p[3]) + INTERVAL_SECS.get(p[2], 300), tz=timezone.utc)
-    except Exception:
+    except (ValueError, OverflowError, OSError):
+        # T1.4 Faz 3: int(p[3]) → ValueError on non-numeric slug segments.
+        # datetime.fromtimestamp → ValueError/OverflowError for out-of-range
+        # epochs (e.g. 32-bit clamp on some platforms) or OSError on
+        # Windows for negative epochs. Malformed slug → None (caller skips).
         return None
 
 
@@ -113,7 +117,9 @@ def _slug_start(slug):
         return None
     try:
         return datetime.fromtimestamp(int(p[3]), tz=timezone.utc)
-    except Exception:
+    except (ValueError, OverflowError, OSError):
+        # T1.4 Faz 3: same failure surface as _slug_end — non-numeric
+        # timestamp segment or out-of-range epoch.
         return None
 
 
