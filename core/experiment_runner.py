@@ -17,10 +17,11 @@ ENV:
 
 import logging
 import os
-import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
+
+import aiosqlite
 
 logger = logging.getLogger("polypaper.core.experiment")
 
@@ -141,7 +142,18 @@ class ExperimentRunner:
                         result.recommendation = "neutral"
                         result.details = "Belirgin fark yok. Canlıda test önerilir."
 
-            except Exception as e:
+            except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+                    IndexError, AttributeError) as e:
+                # T1.4 Faz 3: DB fetch (executions) + per-row unpack (r[0]/r[1])
+                # + numeric summing + baseline_pnl division at L130.
+                # Realistic failure modes:
+                #   - aiosqlite.Error: executions missing / locked / schema
+                #   - ValueError/TypeError: row coercion (pnl=None, bad types)
+                #   - ArithmeticError: zero-divide if baseline_pnl guard races
+                #     with a future edit (defensive)
+                #   - IndexError/AttributeError: r[0]/r[1] or db.conn missing
+                # _estimate_impact has its own narrow catch for (ValueError,
+                # TypeError) on float() coercion — won't bubble up here.
                 result.recommendation = "error"
                 result.details = f"Analiz hatası: {e}"
 
