@@ -83,7 +83,12 @@ class MicroWeightTracker:
             logger.info(
                 f"📈 micro_weight: loaded state mult={self._global_mult:.3f}"
             )
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError,
+                AttributeError) as e:
+            # T1.4 Faz 3: read_text (OSError: perm/missing/locked),
+            # json.loads (JSONDecodeError on corrupt state),
+            # float() coerce (ValueError/TypeError on bad values),
+            # data.get chain (AttributeError if JSON root isn't a dict).
             logger.warning(f"micro_weight: load_state failed: {e}")
 
     def _save_state(self):
@@ -93,7 +98,10 @@ class MicroWeightTracker:
                 "global_mult": self._global_mult,
                 "last_update_ts": self._last_update_ts,
             }), encoding="utf-8")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
+            # T1.4 Faz 3: mkdir + write_text (OSError: disk/perm),
+            # json.dumps (TypeError defensive for future field additions;
+            # current payload is float/float64 only).
             logger.debug(f"micro_weight: save_state failed: {e}")
 
     # ── public API ────────────────────────────────────────────────
@@ -103,7 +111,9 @@ class MicroWeightTracker:
             return
         try:
             self._open_boosts[order_key] = float(signed_boost)
-        except Exception:
+        except (ValueError, TypeError):
+            # T1.4 Faz 3: float() coerce only. Silent swallow intentional
+            # — record_open is best-effort stash.
             pass
 
     def record_close(self, order_key: str, asset: str, pnl_usd: float):
@@ -122,7 +132,12 @@ class MicroWeightTracker:
             self._pairs_since_update += 1
             if self._pairs_since_update >= self.update_every:
                 self._recompute()
-        except Exception as e:
+        except (ValueError, TypeError, ArithmeticError, KeyError,
+                AttributeError) as e:
+            # T1.4 Faz 3: pnl_usd comparison (TypeError on non-numeric),
+            # deque append, then _recompute which calls _pearson_like
+            # (ArithmeticError defensive for edge divisions) +
+            # _save_state (OSError absorbed in its own catch).
             logger.debug(f"micro_weight: record_close failed: {e}")
 
     def get_multiplier(self) -> float:
