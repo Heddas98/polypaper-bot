@@ -40,7 +40,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Iterable, Optional
+from typing import Optional
 
 logger = logging.getLogger("polypaper.core.intent_parser")
 
@@ -381,7 +381,17 @@ async def _call_claude(text: str) -> Optional[dict]:
                 json=payload,
             )
             d = r.json()
-    except Exception as e:
+    except (httpx.HTTPError, json.JSONDecodeError, ValueError, KeyError) as e:
+        # T1.4 Faz 3: async with httpx.AsyncClient POST + r.json() inside
+        # one try. httpx is bound as a local from L360's import try that
+        # already handles ImportError separately, so reaching this except
+        # means the client was constructed successfully. Realistic failure
+        # modes:
+        #   - httpx.HTTPError: umbrella for Connect/Timeout/RequestError/
+        #     HTTPStatusError from the Anthropic API call
+        #   - json.JSONDecodeError: r.json() on malformed response body
+        #   - ValueError: response body coercion edge cases
+        #   - KeyError: defensive for unexpected dict shape during parsing
         logger.warning(f"intent parser Claude call failed: {e}")
         return None
     content = d.get("content") or []
