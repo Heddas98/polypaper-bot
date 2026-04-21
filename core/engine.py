@@ -155,11 +155,13 @@ class TradingEngine(
         self._market_open_recorded: set[str] = set()  # Phase 26: track open price per slug
         self._kelly_mode: bool = True  # Phase 27: auto Kelly sizing
         # Phase 35: AI Brain feature toggles
+        # Epic 6 T6.3b: drift_monitor removed — no engine consumer existed
+        # (no core/drift_monitor.py module, no brain_flags['drift_monitor']
+        # read anywhere). UI toggle was purely cosmetic ("silent ghost").
         self.brain_flags = {
             "ai_brain": True,
             "thompson_sampling": True,
             "regime_detection": True,
-            "drift_monitor": True,
             "autopilot": True,
             "kelly_sizing": True,
             "candle_collector": True,
@@ -391,12 +393,22 @@ class TradingEngine(
                 logger.info(f"⚙️ Risk settings loaded from DB ({len(saved)} params)")
 
             # Phase 35: Load brain flags from DB
+            # Epic 6 T6.3b: Only load flags that exist in the canonical
+            # brain_flags dict — prevents retired ghost flags (e.g.
+            # drift_monitor) from resurrecting if they still have a row
+            # in the settings table from an earlier bot version.
             brain_saved = await self.db.get_all_settings("brain_flags.")
             if brain_saved:
+                loaded = 0
                 for key, val in brain_saved.items():
                     feature = key.replace("brain_flags.", "")
-                    self.brain_flags[feature] = val == "1"
-                logger.info(f"🧠 Brain flags loaded from DB ({len(brain_saved)} flags)")
+                    if feature in self.brain_flags:
+                        self.brain_flags[feature] = val == "1"
+                        loaded += 1
+                    else:
+                        logger.debug(
+                            f"🧠 Ignoring retired brain flag from DB: {feature}")
+                logger.info(f"🧠 Brain flags loaded from DB ({loaded} flags)")
 
             # Auto-name unnamed strategies
             unnamed = await self.db.conn.execute_fetchall(

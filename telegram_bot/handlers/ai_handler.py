@@ -315,7 +315,6 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🧠 AI Brain (10dk cycle): {fmt_flag('ai_brain')}\n"
             f"🎯 Thompson Sampling:     {fmt_flag('thompson_sampling')}\n"
             f"🌐 Regime Detection:      {fmt_flag('regime_detection')}\n"
-            f"📊 Signal Drift Monitor:  {fmt_flag('drift_monitor')}\n"
             f"🤖 AutoPilot:            {fmt_flag('autopilot')}\n"
             f"📈 Kelly Sizing:          {fmt_flag('kelly_sizing')}\n"
             f"📊 Candle Collector:      {fmt_flag('candle_collector')}\n\n"
@@ -324,11 +323,14 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💵 Bakiye: ${balance:.2f}\n"
         )
 
+        # Epic 6 T6.3b: drift_monitor button removed (ghost — no engine
+        # consumer). Regime is temporarily alone on its row; T6.3d+e will
+        # do a final layout cleanup once kelly_sizing is retired and
+        # market_recorder gets its own button.
         kb = _BrainKB([
             [_BrainBtn("🧠 Brain", callback_data="brain_toggle_ai_brain"),
              _BrainBtn("🎯 TS", callback_data="brain_toggle_thompson_sampling")],
-            [_BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection"),
-             _BrainBtn("📊 Drift", callback_data="brain_toggle_drift_monitor")],
+            [_BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection")],
             [_BrainBtn("🤖 AutoPilot", callback_data="brain_toggle_autopilot"),
              _BrainBtn("📈 Kelly", callback_data="brain_toggle_kelly_sizing")],
             [_BrainBtn("📊 Candles", callback_data="brain_toggle_candle_collector"),
@@ -367,9 +369,11 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
     feature = "_".join(parts[2:])
 
     try:
+        # Epic 6 T6.3b: drift_monitor removed (ghost). Canonical set below
+        # is single-source-of-truth for which features the UI can toggle.
         valid_features = {
             "ai_brain", "thompson_sampling", "regime_detection",
-            "drift_monitor", "autopilot", "kelly_sizing", "candle_collector",
+            "autopilot", "kelly_sizing", "candle_collector",
         }
         if feature not in valid_features:
             await query.answer(f"Bilinmeyen feature: {feature}", show_alert=True)
