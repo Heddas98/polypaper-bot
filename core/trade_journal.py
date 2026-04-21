@@ -9,6 +9,8 @@ import logging
 import os
 from datetime import datetime, timezone
 
+import aiosqlite
+
 logger = logging.getLogger("polypaper.journal")
 
 JOURNAL_DIR = "data_store"
@@ -42,7 +44,10 @@ def log_trade(event_type: str, data: dict):
     try:
         with open(JOURNAL_FILE, "a") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
+        # T1.4 Faz 3: file append + json.dumps. Realistic modes:
+        # OSError (disk full / permission / FNF), TypeError (non-
+        # serializable record), ValueError (NaN/Infinity).
         logger.debug(f"Journal JSONL: {e}")
 
     # 2. DB (hizli sorgulama)
@@ -53,7 +58,12 @@ def log_trade(event_type: str, data: dict):
             loop.create_task(_write_db(record))
         except RuntimeError:
             pass  # Bot kapaniyorsa JSONL yedek zaten yazildi
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
+            # T1.4 Faz 3: asyncio create_task fallback. Realistic modes:
+            # ImportError (asyncio module — gerçekte olmaz ama sandbox
+            # güvencesi), AttributeError (loop None / closed),
+            # TypeError (create_task coroutine argümanı). RuntimeError
+            # zaten üstteki handler'da yakalı.
             pass  # DB write failure = not critical, JSONL is backup
 
 
@@ -80,7 +90,10 @@ async def _write_db(record: dict):
                                      "price", "amount", "pnl", "fee", "reason", "ts")}),
              record.get("ts", datetime.now(timezone.utc).isoformat())))
         await _db.conn.commit()
-    except Exception as e:
+    except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
+        # T1.4 Faz 3: INSERT + json.dumps(metadata). Realistic modes:
+        # aiosqlite.Error (DB), TypeError/ValueError (json.dumps non-
+        # serializable record values), AttributeError (_db.conn None).
         logger.debug(f"Journal DB: {e}")
 
 
@@ -127,7 +140,9 @@ def log_heartbeat(cycle, strats, positions, markets):
                 "strategies": strats, "positions": positions,
                 "active_markets": len(markets) if isinstance(markets, list) else 0,
             }) + "\n")
-    except Exception:
+    except (OSError, TypeError, ValueError):
+        # T1.4 Faz 3: decisions.jsonl append + json.dumps heartbeat.
+        # Realistic: OSError (FS), TypeError/ValueError (json.dumps).
         pass
 
 
@@ -162,7 +177,10 @@ def log_decision_open(strategy_id, slug, direction, signal_score,
             record["regime"] = regime
         with open(DECISION_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception:
+    except (OSError, TypeError, ValueError):
+        # T1.4 Faz 3: decision OPEN append + round/json coerce.
+        # Realistic: OSError (FS), TypeError/ValueError (round on non-
+        # numeric / json.dumps non-serializable).
         pass
 
 
@@ -188,7 +206,9 @@ def log_decision_skip(strategy_id, slug, reason, signal_score=None,
             record["extra"] = str(extra)[:200]
         with open(DECISION_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception:
+    except (OSError, TypeError, ValueError):
+        # T1.4 Faz 3: decision SKIP append. Realistic: OSError (FS),
+        # TypeError/ValueError (round/str/json coerce).
         pass
 
 
@@ -208,7 +228,9 @@ def log_decision_close(strategy_id, slug, result, pnl, duration_sec=None):
             record["duration_sec"] = int(duration_sec)
         with open(DECISION_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception:
+    except (OSError, TypeError, ValueError):
+        # T1.4 Faz 3: decision CLOSE append + int coerce. Realistic:
+        # OSError (FS), TypeError/ValueError (round/int coerce on None).
         pass
 
 
@@ -226,5 +248,9 @@ def log_decision_cycle_summary(cycle, skip_counts):
                 "skips": skip_counts,  # {"MARKET_HALT": 12, "NO_LIQ": 5, ...}
                 "total": sum(skip_counts.values()),
             }) + "\n")
-    except Exception:
+    except (OSError, TypeError, ValueError, AttributeError):
+        # T1.4 Faz 3: cycle summary append + sum(dict.values()) + json.
+        # Realistic: OSError (FS), TypeError/ValueError (sum non-numeric
+        # / json non-serializable), AttributeError (skip_counts .values
+        # yok, guard üstte ama belt+suspenders).
         pass
