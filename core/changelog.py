@@ -20,6 +20,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import aiosqlite
+
 logger = logging.getLogger("polypaper.core.changelog")
 
 
@@ -52,7 +54,9 @@ async def log_change(db, strategy_id: str, action: str, source: str,
                     (f"{strategy_id}%",))
                 if rows:
                     label = rows[0][0] or strategy_id[:8]
-            except Exception:
+            except (aiosqlite.Error, IndexError, TypeError, AttributeError):
+                # T1.4 Faz 3: DB fetch + rows[0][0] access. aiosqlite.Error
+                # for table/column missing. Fall back to short strategy_id.
                 label = strategy_id[:8] if strategy_id else "?"
 
         now = datetime.now(timezone.utc).isoformat()
@@ -72,7 +76,15 @@ async def log_change(db, strategy_id: str, action: str, source: str,
              wr, pnl, trades,
              now))
         await db.conn.commit()
-    except Exception as e:
+    except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
+        # T1.4 Faz 3: INSERT into strategy_changelog + commit + json.dumps
+        # for old/new. Realistic modes:
+        #   - aiosqlite.Error: table missing (pre-migration), constraint
+        #     violations, or locked DB.
+        #   - TypeError: json.dumps on non-serializable dict value
+        #     (default=str is the shield but defensive catch).
+        #   - ValueError: numeric coerce in rare SQL bind paths.
+        #   - AttributeError: db.conn missing during shutdown.
         # Table might not exist yet (pre-migration) — silently skip
         logger.debug(f"changelog write: {e}")
 
@@ -132,7 +144,13 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                                 changes.append(f"{k}:{old_d.get(k)}→{new_d.get(k)}")
                         if changes:
                             change_str = " " + ", ".join(changes)
-                    except Exception:
+                    except (json.JSONDecodeError, AttributeError,
+                            TypeError, ValueError):
+                        # T1.4 Faz 3: json.loads (JSONDecodeError on
+                        # corrupt old/new JSON), then .keys()/.get()
+                        # (AttributeError if JSON root isn't a dict).
+                        # Silent swallow — formatter is best-effort
+                        # cosmetic, missing change_str is acceptable.
                         pass
 
                 lines.append(
@@ -172,7 +190,14 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                     f"  {label}: {changes} degisiklik, {max_trades or 0}t, "
                     f"{wr_str} {pnl_str} | {chain[:60]}")
 
-    except Exception as e:
+    except (aiosqlite.Error, ValueError, TypeError, IndexError,
+            AttributeError) as e:
+        # T1.4 Faz 3: Two large SELECTs (active + stopped) + per-row
+        # unpack (r[0]..r[10], s[0]..s[7]) + numeric formatting. Realistic
+        # modes: aiosqlite.Error for table missing / column schema drift,
+        # IndexError from row tuple access, TypeError from None numeric
+        # formatting (wr_str, pnl_str already guard None but belt-and-
+        # braces), AttributeError from db.conn access during shutdown.
         logger.debug(f"changelog read: {e}")
 
     return lines
