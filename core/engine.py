@@ -419,6 +419,28 @@ class TradingEngine(
                             f"🧠 Ignoring retired brain flag from DB: {feature}")
                 logger.info(f"🧠 Brain flags loaded from DB ({loaded} flags)")
 
+            # Epic 6 T6.3e-fix-2: Sibling-gate sync. Some brain flags drive
+            # sibling objects via their own `_enabled` attribute (set in
+            # ai_handler's brain_toggle_callback as a side effect). Since
+            # CandleCollector/MarketRecorder constructors default _enabled
+            # to True and the boot loader above only updated the dict,
+            # the runner loops (`if not self._enabled: return`) would
+            # silently run even if the user had toggled the flag OFF.
+            # Sync here so a restart honors the persisted DB state.
+            _sibling_gates = [
+                ("candle_collector", "candle_collector"),
+                ("market_recorder", "market_recorder"),
+            ]
+            for flag_key, attr_name in _sibling_gates:
+                sibling = getattr(self, attr_name, None)
+                if sibling is not None and hasattr(sibling, "_enabled"):
+                    desired = self.brain_flags.get(flag_key, True)
+                    if sibling._enabled != desired:
+                        sibling._enabled = desired
+                        logger.info(
+                            f"🔄 Boot sync: {attr_name}._enabled "
+                            f"← brain_flags['{flag_key}']={desired}")
+
             # Auto-name unnamed strategies
             unnamed = await self.db.conn.execute_fetchall(
                 "SELECT id, asset, timeframe, direction, strategy_type, odds_threshold FROM strategies WHERE label IS NULL OR label=''")
