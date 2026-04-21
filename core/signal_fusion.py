@@ -314,7 +314,18 @@ class SignalFusion:
                 if abs(result.bayesian_edge) > 0.02:
                     _bayes_boost = result.bayesian_edge * 0.15  # 15% weight to Bayesian
                     result.composite_score += _bayes_boost
-            except Exception as _be:
+            except (AttributeError, TypeError, ValueError, ArithmeticError,
+                    KeyError) as _be:
+                # T1.4 Faz 3: BayesianUpdater instantiation + .update/.posterior/
+                # .get_edge chain + abs/round + composite mutations.
+                # Realistic failure modes:
+                #   - AttributeError: bayes.get_edge missing if class refactored
+                #   - TypeError: target_odds None / non-numeric, or signals.get
+                #     returns unexpected type flowing into bayes.update
+                #   - ValueError: round() on NaN/inf
+                #   - ArithmeticError: bayes internal division if signal accuracy
+                #     degenerates (ZeroDivisionError)
+                #   - KeyError: result.signals missing a core-signal key
                 logger.debug(f"BayesianUpdater error: {_be}")
 
         # ═══ Phase 68 Signal 10: Confluence Gate ═══
@@ -355,7 +366,18 @@ class SignalFusion:
                         result.signals["bb_squeeze"] = round(tech.bb.squeeze_strength, 3)
                     if abs(tech.bb.signal) > 0.1:
                         result.signals["bb"] = round(tech.bb.signal, 3)
-            except Exception as _te:
+            except (ImportError, AttributeError, TypeError, ValueError,
+                    ArithmeticError) as _te:
+                # T1.4 Faz 3: in-try `from indicators.technical import
+                # compute_technicals` + deep attribute chain (tech.rsi.signal,
+                # tech.macd.signal, tech.bb.is_squeeze/.signal/.squeeze_strength)
+                # + numeric round/abs + composite_score mutation.
+                # Realistic failure modes:
+                #   - ImportError: indicators.technical missing / syntax error
+                #   - AttributeError: tech.rsi/.macd/.bb None or shape drift
+                #   - TypeError: abs()/round() on None, *= on non-numeric
+                #   - ValueError: round() on NaN/inf
+                #   - ArithmeticError: indicator math degenerate case
                 logger.debug(f"Technical indicators error: {_te}")
 
         # ── Phase 70: MCI gate — reduce size or skip if market poorly calibrated ──
