@@ -161,7 +161,7 @@ from telegram_bot.jobs.db_archive_job import db_archive_job  # Phase 59 DB-01b
 from telegram_bot.jobs.becker_rolling_recal_job import (  # Phase 75+
     becker_rolling_recal_job, schedule_becker_rolling_recal)
 from telegram_bot.jobs.maintenance_jobs import (
-    daily_db_snapshot_job, heartbeat_job,
+    daily_db_snapshot_job, heartbeat_job, wal_checkpoint_job,
 )
 
 logger = logging.getLogger("polypaper.bot")
@@ -670,6 +670,19 @@ class PolyPaperBot:
                 jq.run_repeating(daily_db_snapshot_job, interval=snap_interval,
                                  first=snap_first, name="daily_db_snapshot")
                 logger.info(f"✅ daily_db_snapshot job scheduled (every {snap_interval}s)")
+
+                # Epic 5 T5.5 (2026-04-21): periodic WAL TRUNCATE checkpoint
+                # prevents WAL bloat when long-read connections (backup job,
+                # ro_connect) block autocheckpoint. Default 6h — at 8.8GB DB
+                # with ~20MB/hr write pressure, 6h keeps WAL < 200 MB.
+                wal_ckpt_hours = int(os.getenv("WAL_CHECKPOINT_INTERVAL_HOURS", "6"))
+                wal_ckpt_interval = wal_ckpt_hours * 3600
+                wal_ckpt_first = int(os.getenv("WAL_CHECKPOINT_FIRST_SEC", "1200"))  # 20 min after boot
+                jq.run_repeating(wal_checkpoint_job, interval=wal_ckpt_interval,
+                                 first=wal_ckpt_first, name="wal_checkpoint")
+                logger.info(
+                    f"✅ wal_checkpoint job scheduled (every {wal_ckpt_hours}h, "
+                    f"first in {wal_ckpt_first}s)")
 
                 # Phase 47f.8: DB retention — prune old ob_snapshots/candles nightly
                 ret_interval = int(os.getenv("DB_RETENTION_INTERVAL_SEC", "86400"))
