@@ -89,7 +89,12 @@ class BeckerWeightTracker:
             logger.info(
                 f"📈 becker_weight: loaded state {self._mults}"
             )
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError,
+                AttributeError) as e:
+            # T1.4 Faz 3: read_text (OSError: perm, missing, locked),
+            # json.loads (JSONDecodeError on corrupt state file),
+            # float() coerce (ValueError/TypeError on bad values),
+            # data.get (AttributeError if JSON root isn't a dict).
             logger.warning(f"becker_weight: load_state failed: {e}")
 
     def _save_state(self):
@@ -98,7 +103,11 @@ class BeckerWeightTracker:
             payload = dict(self._mults)
             payload["last_update_ts"] = self._last_update_ts
             self.state_file.write_text(json.dumps(payload), encoding="utf-8")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
+            # T1.4 Faz 3: mkdir + write_text (OSError: disk full, perm),
+            # json.dumps (TypeError on non-serializable values — defensive
+            # for future additions; current payload is all float/float64),
+            # ValueError covers edge-case numeric encoding.
             logger.debug(f"becker_weight: save_state failed: {e}")
 
     # ── public API ───────────────────────────────────────────────────
@@ -108,7 +117,10 @@ class BeckerWeightTracker:
             return
         try:
             self._open_deltas[order_key] = (asset.upper(), float(signed_delta))
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            # T1.4 Faz 3: `asset.upper()` (AttributeError on non-str),
+            # `float(signed_delta)` (ValueError/TypeError on non-numeric).
+            # Silent swallow is intentional — record_open is best-effort.
             pass
 
     def record_close(self, order_key: str, pnl_usd: float):
@@ -127,7 +139,14 @@ class BeckerWeightTracker:
             self._pairs_since_update[asset] += 1
             if self._pairs_since_update[asset] >= self.update_every:
                 self._recompute(asset)
-        except Exception as e:
+        except (ValueError, TypeError, ArithmeticError, KeyError,
+                AttributeError) as e:
+            # T1.4 Faz 3: pnl_usd comparison (TypeError if non-numeric),
+            # deque append, counter increment, then self._recompute which
+            # calls _pearson_like (ArithmeticError on edge divisions) +
+            # _save_state (OSError bubbles from its own catch so won't
+            # reach here). KeyError defensive for _pairs_since_update
+            # race with future _hist mutation.
             logger.debug(f"becker_weight: record_close failed: {e}")
 
     def get_multiplier(self, asset: str) -> float:
