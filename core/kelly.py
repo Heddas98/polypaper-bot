@@ -26,6 +26,8 @@ For binary markets at price p:
 import logging
 import os
 
+import aiosqlite
+
 logger = logging.getLogger("polypaper.core.kelly")
 
 MIN_TRADES_FOR_KELLY = 15  # Need at least 15 trades for reliable WR
@@ -285,7 +287,14 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
             "regime_fraction": fraction,
             "reason": f"WR={wr:.0%} W=${avg_win:.2f} L=${avg_loss:.2f} {frac_label}={regime_kelly:.1%} → ${bet_size:.2f}",
         }
-    except Exception as e:
+    except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+            IndexError, AttributeError) as e:
+        # T1.4 Faz 3: DB fetch + unpack + Kelly math inside one try.
+        # Narrow to the realistic failure modes:
+        #   - aiosqlite.Error: executions table missing / locked / schema
+        #   - ValueError/TypeError: row unpack shape, numeric coercion
+        #   - ArithmeticError: ZeroDivisionError when avg_loss drifts to 0
+        #   - IndexError/AttributeError: rows[0] guard or db.conn missing
         logger.error(f"Kelly calc: {e}")
         return {"size": MIN_BET, "reason": f"Error: {e}", "confidence": "low",
                 "skip": False, "full_kelly_pct": 0, "quarter_kelly_pct": 0}
