@@ -320,6 +320,7 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🧠 AI Brain (10dk cycle): {fmt_flag('ai_brain')}\n"
             f"🎯 Thompson Sampling:     {fmt_flag('thompson_sampling')}\n"
             f"🌐 Regime Detection:      {fmt_flag('regime_detection')}\n"
+            f"📹 Market Recorder:       {fmt_flag('market_recorder')}\n"
             f"🤖 AutoPilot:            {fmt_flag('autopilot')}\n"
             f"📈 Kelly Sizing:          {fmt_flag('kelly_sizing')}\n"
             f"📊 Candle Collector:      {fmt_flag('candle_collector')}\n\n"
@@ -330,12 +331,14 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Epic 6 T6.3b: drift_monitor button removed (ghost — no engine
         # consumer). T6.3d: kelly_sizing button now retargets
-        # engine._kelly_mode directly (virtual flag). T6.3e will add a
-        # market_recorder button and finalize the layout.
+        # engine._kelly_mode directly (virtual flag). T6.3e: market_recorder
+        # button added — now matches brain_flags canonical 6-flag set.
+        # Layout is 4 rows × 2 buttons, balanced.
         kb = _BrainKB([
             [_BrainBtn("🧠 Brain", callback_data="brain_toggle_ai_brain"),
              _BrainBtn("🎯 TS", callback_data="brain_toggle_thompson_sampling")],
-            [_BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection")],
+            [_BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection"),
+             _BrainBtn("📹 Recorder", callback_data="brain_toggle_market_recorder")],
             [_BrainBtn("🤖 AutoPilot", callback_data="brain_toggle_autopilot"),
              _BrainBtn("📈 Kelly", callback_data="brain_toggle_kelly_sizing")],
             [_BrainBtn("📊 Candles", callback_data="brain_toggle_candle_collector"),
@@ -374,11 +377,14 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
     feature = "_".join(parts[2:])
 
     try:
-        # Epic 6 T6.3b: drift_monitor removed (ghost). Canonical set below
-        # is single-source-of-truth for which features the UI can toggle.
+        # Epic 6 T6.3b: drift_monitor removed (ghost). T6.3d: kelly_sizing
+        # kept here as virtual flag (toggle retargets engine._kelly_mode).
+        # T6.3e: market_recorder added — reverse ghost cleared (engine had
+        # flag, UI now exposes it). Canonical UI-toggleable set:
         valid_features = {
             "ai_brain", "thompson_sampling", "regime_detection",
             "autopilot", "kelly_sizing", "candle_collector",
+            "market_recorder",
         }
         if feature not in valid_features:
             await query.answer(f"Bilinmeyen feature: {feature}", show_alert=True)
