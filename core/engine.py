@@ -441,6 +441,21 @@ class TradingEngine(
                             f"🔄 Boot sync: {attr_name}._enabled "
                             f"← brain_flags['{flag_key}']={desired}")
 
+            # Epic 6 T6.5: Kelly mode DB persistence. `self._kelly_mode`
+            # is authoritative runtime state toggled by `/kelly_toggle`
+            # command and the AI Brain panel 📈 Kelly button (virtual
+            # flag — see T6.3d). Prior to T6.5 both writers were
+            # in-memory-only, so a bot restart silently reset Kelly to
+            # the constructor default (True). Now both writers persist
+            # to the `engine.kelly_mode` setting and we read it back
+            # here. Missing key → keep the constructor default.
+            kelly_saved = await self.db.get_setting("engine.kelly_mode")
+            if kelly_saved is not None:
+                self._kelly_mode = (kelly_saved == "1")
+                logger.info(
+                    f"🎯 Kelly mode loaded from DB: "
+                    f"{'ON' if self._kelly_mode else 'OFF'}")
+
             # Auto-name unnamed strategies
             unnamed = await self.db.conn.execute_fetchall(
                 "SELECT id, asset, timeframe, direction, strategy_type, odds_threshold FROM strategies WHERE label IS NULL OR label=''")

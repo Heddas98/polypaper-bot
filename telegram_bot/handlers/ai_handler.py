@@ -392,11 +392,14 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         # Epic 6 T6.3d: kelly_sizing is a virtual flag — retarget to
         # engine._kelly_mode (the authoritative state read by engine_signals
-        # at sizing time). Not persisted to DB — matches /kelly_toggle
-        # command semantics (in-memory only, resets to True on boot).
+        # at sizing time). Epic 6 T6.5: Now persisted to DB via the
+        # canonical `engine.kelly_mode` key, mirroring /kelly_toggle
+        # command. Boot loader in engine.start() restores this on startup.
         if feature == "kelly_sizing":
             new_state = not bool(getattr(engine, "_kelly_mode", True))
             engine._kelly_mode = new_state
+            await db.set_setting(
+                "engine.kelly_mode", "1" if new_state else "0")
         else:
             engine.brain_flags[feature] = not engine.brain_flags.get(feature, True)
             new_state = engine.brain_flags[feature]

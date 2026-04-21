@@ -1300,6 +1300,17 @@ async def kelly_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if not engine:
         return await update.message.reply_text("Engine bulunamadi.")
     engine._kelly_mode = not engine._kelly_mode
+    # Epic 6 T6.5: Persist to DB so Kelly state survives bot restart.
+    # Paired with engine.start() boot loader read of `engine.kelly_mode`.
+    # Also mirrored in AI Brain panel's kelly_sizing virtual-flag branch
+    # (telegram_bot/handlers/ai_handler.py::brain_toggle_callback).
+    try:
+        db = context.bot_data.get("db") or getattr(engine, "db", None)
+        if db is not None:
+            await db.set_setting(
+                "engine.kelly_mode", "1" if engine._kelly_mode else "0")
+    except Exception as e:
+        logger.warning(f"Kelly mode persist failed: {e}")
     status = "✅ AKTIF" if engine._kelly_mode else "⚫ KAPALI"
     await update.message.reply_text(f"🎯 Kelly Modu: {status}")
 
