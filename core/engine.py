@@ -913,6 +913,12 @@ class TradingEngine(
         F-01 hygiene. _pending.clear() was previously lock-free (safe via sync
         atomicity), but that invariant would break silently if this fn ever
         gained an await. Lock acquisition is cheap (rare drop-event path).
+
+        Epic 5 T5.4 (2026-04-21): Also backfills live_prices on reconnect
+        edge via REST /midpoint so we don't miss price movements during the
+        drop gap. Reduces stale-gap from "next WS tick" (2-15s on sparse
+        crypto markets) down to ~500ms REST latency. "Fiyatlar hep güncel
+        olsun, bağlanıcaz diye aradaki hareketi kaçırmayalım."
         """
         ws = self.scanner.ws
         if not ws:
@@ -929,7 +935,53 @@ class TradingEngine(
                     self._pending.clear()
             else:
                 logger.warning(f"🔌 WS dropped (#{self._ws_drop_count}) — no pending to flush")
+        # Epic 5 T5.4: reconnect edge (offline→online) → backfill prices
+        if not self._ws_was_connected and is_connected:
+            await self._backfill_prices_on_reconnect()
         self._ws_was_connected = is_connected
+
+    async def _backfill_prices_on_reconnect(self):
+        """Epic 5 T5.4: On WS reconnect, fetch fresh midpoints for all
+        subscribed tokens via REST /midpoint in parallel. This reduces the
+        price-gap from "wait for next WS tick" (2-15s, worse on sparse
+        5-min crypto markets) to ~500ms (REST latency).
+
+        Non-fatal: per-token None/exception results are skipped; a partial
+        backfill is better than none. Pre-reconnect cache entries remain
+        in live_prices but are already invalidated by _connected_since —
+        backfilled entries have fresh timestamps so get_live_price accepts
+        them. No bloat: dict keys stay the same size.
+        """
+        ws = self.scanner.ws
+        if not ws or not ws.is_connected:
+            return
+        subscribed = list(ws._subscribed)
+        if not subscribed:
+            return
+        client = self.client
+        if not client:
+            return
+        try:
+            results = await asyncio.gather(
+                *(client.get_live_midpoint(tid) for tid in subscribed),
+                return_exceptions=True)
+        except Exception as e:
+            logger.warning(f"WS reconnect backfill failed: {type(e).__name__}: {e}")
+            return
+        now_iso = datetime.now(timezone.utc).isoformat()
+        backfilled = 0
+        for tid, p in zip(subscribed, results):
+            if isinstance(p, Exception) or p is None:
+                continue
+            if not (0.005 < p < 0.995):
+                continue
+            ws.live_prices[tid] = {"price": p, "ts": now_iso}
+            backfilled += 1
+        # Distinguish first-boot online vs real reconnect in the log
+        event = "reconnect" if self._ws_drop_count > 0 else "online"
+        logger.info(
+            f"🔌 WS {event}: backfilled {backfilled}/{len(subscribed)} "
+            f"prices via REST /midpoint")
 
     async def _check_daily_report(self):
         """Phase 24 + Sprint 2 S2-04: Send daily report + save snapshot at UTC 00:00."""
