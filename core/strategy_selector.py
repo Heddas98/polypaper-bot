@@ -14,6 +14,8 @@ import os
 import random
 from dataclasses import dataclass
 
+import aiosqlite
+
 logger = logging.getLogger("polypaper.core.selector")
 
 DECAY = 0.995  # Slowly forget old data (adapts to regime changes)
@@ -161,5 +163,9 @@ class StrategySelector:
                 arm.total_trades = r[1]
                 arm.recent_pnl = r[3]
             logger.info(f"🎰 Thompson Sampling: loaded {len(self._arms)} strategies from history")
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, IndexError,
+                AttributeError) as e:
+            # T1.4 Faz 3: DB fetch + row unpack + Beta prior update. DB
+            # failure is non-fatal (arms keep prior defaults), but the
+            # failure class should surface loudly rather than silently.
             logger.warning(f"TS load: {e}")
