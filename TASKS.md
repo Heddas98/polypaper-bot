@@ -341,9 +341,17 @@ Hedef: `asyncio.Lock` kullanımları, atomik bakiye düşme, WAL locking, WS rec
 
 Hedef: UI'da (Telegram butonları / komutlar) kullanıcıya gösterilen ama engine'in okumadığı ayarları bul.
 
-- [ ] **T6.1** `/env_toggle` whitelisted 23 env — `config/env_whitelist.py` listesini engine okuyan env'lerle kıyasla — risk: LOW
+- [x] **T6.1** `/env_toggle` whitelisted 24 env — `config/env_whitelist.py` listesini engine okuyan env'lerle kıyasla — risk: LOW ✅ 2026-04-21
+    - **Bulgu**: `PNL_PAUSE_THRESHOLD` whitelisted ama `core/auto_optimizer.py` module-top'ta `PNL_PAUSE_THRESHOLD = float(os.getenv(...))` → import-time donmuş. `/env_toggle` `os.environ`'ı patch'lerdi ama engine yine eski değeri kullanırdı = **silent ghost toggle**.
+    - **Ek bulgu**: whitelist default `-3.0`, code default `-8.0` (Sprint 0 loosening sonrası drift). UI'da yanlış default gösteriliyordu.
+    - **Fix (Option A)**: Module-top constant'ı `_get_pnl_pause_threshold()` runtime helper'a çevirdim. `_adaptive_pnl_threshold` artık her çağrıda fresh env okuyor. Malformed env için fallback `-8.0`.
+    - **Default fix**: `config/env_whitelist.py` `PNL_PAUSE_THRESHOLD.default` `-3.0` → `-8.0`.
+    - **Tests**: `tests/unit/test_pnl_pause_runtime.py` 8 test (runtime fresh read, default fallback, malformed fallback, adaptive uses runtime base, floor guard, disabled path, ghost-toggle regression). 8/8 PASS.
+    - **Regression**: Phase 56 `TestAdaptivePnlThreshold` 8/8 + Epic 5 T5.6 14/14 + T6.1 8/8 = **82/82 ✅**. `tests/test_phase56_engine.py` setUp/tearDown güncellendi — artık `os.environ` patch'liyor.
+    - **Touched**: `core/auto_optimizer.py`, `config/env_whitelist.py`, `tests/test_phase56_engine.py`, `tests/unit/test_pnl_pause_runtime.py` (NEW).
 - [ ] **T6.2** `telegram_bot/handlers/settings_handler.py` + `risk_handler.py` + `filters_handler.py` — UI'da değişip engine'e yansımayan değer var mı? — risk: MED
 - [ ] **T6.3** Her ghost param için "UI'dan kaldır" veya "engine'e bağla" kararı — risk: LOW
+- [ ] **T6.4** `core/auto_optimizer.py` kalan module-top env constant'ları (MIN_TRADES_FOR_EVAL, ROLLING_WR_WINDOW, ROLLING_WR_KILL_THRESHOLD, ADAPTIVE_PNL_*) — whitelist'e eklenirse T6.1 pattern ile runtime helper yap — risk: LOW (şu an whitelist'te yok, ghost değil)
 
 ---
 
@@ -431,6 +439,26 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 | T4.9 | **`live_trader.py` + `polymarket_client.py` HTTP çağrılarını `time_call(label)` ile sar** — T4.7 önkoşulu | Epic 4 (T4.3 Faz B) | Sonraki oturum | <30dk |
 
 **Sıralama:** T4.8 + T4.9 → 24h bot çalışması → T4.7 → T4.5 → T4.6 → Epic 11 Go/No-Go.
+
+---
+
+### 📦 Gitignored Kod Sync (sandbox → Windows)
+
+> **Bağlam:** `data/` dizini `.gitignore`'lu (büyük DB + secret risk). Sandbox'ta yapılan fix'lerin Windows production'a elle aktarılması gerekiyor. `git pull` sadece tracked dosyaları getiriyor — aşağıdaki dosyalar kullanıcının manuel kopyalaması gerek. **Aktarım yapılmadan fix'ler devreye girmez.**
+
+| ID | Task | Fix Kaynağı | Sandbox Yolu | Hedef (Windows) | Durum |
+|---|---|---|---|---|---|
+| SYNC.1 | `data/websocket_client.py` kopyala | T5.4 Fix A + T5.6 Fix A/B/C | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/websocket_client.py` | `data/websocket_client.py` | ⏳ manuel bekliyor |
+| SYNC.2 | `data/market_scanner.py` kopyala | T5.6 Fix A (prune wiring) | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/market_scanner.py` | `data/market_scanner.py` | ⏳ manuel bekliyor |
+
+**Doğrulama adımları (Windows'ta):**
+1. İki dosyayı kopyala
+2. `py -3.11 -c "import ast; ast.parse(open('data/websocket_client.py').read()); ast.parse(open('data/market_scanner.py').read()); print('OK')"`
+3. Bot restart (Ctrl+C + yeniden `py -3.11 main.py` veya start script)
+4. `/h` ile WS status kontrol et — yeni alanlar var mı: `cap_hits`, `cap_skipped`, `last_cap_hit_age`
+5. İlk scan cycle log'unda `Scanner pruned N tokens` görmeli (N değişken)
+
+**Test'ler tracked** — `tests/unit/test_ws_reconnect.py` + `tests/unit/test_ws_subscribe_cap.py` `git pull` ile geliyor, kod sync'ten sonra yerel test çalıştırılabilir.
 
 ---
 
