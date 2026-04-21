@@ -230,18 +230,33 @@ class Database:
         await self._db_write(
             "UPDATE wallets SET balance=? WHERE id=?", (new_balance, wallet_id))
 
-    async def atomic_deduct_balance(self, wallet_id: str, amount: float) -> bool:
+    async def atomic_deduct_balance(self, wallet_id: str, amount: float,
+                                    max_retries: int = 3) -> bool:
         """F-02: Atomic deduction. Returns True if successful, False if insufficient.
-        Single SQL with WHERE balance >= amount prevents race conditions."""
-        try:
-            cursor = await self.conn.execute(
-                "UPDATE wallets SET balance = balance - ? WHERE id = ? AND balance >= ?",
-                (amount, wallet_id, amount))
-            await self.conn.commit()
-            return cursor.rowcount > 0  # True if row was updated
-        except Exception as e:
-            logger.error(f"Atomic deduct failed: {e}")
-            return False
+        Single SQL with WHERE balance >= amount prevents race conditions.
+
+        Epic 5 T5.2 (2026-04-21): Added "database is locked" retry loop (100/200/300ms
+        backoff) so that concurrent settlement/fill commits don't silently drop trades.
+        The UPDATE itself stays single-statement atomic — retry only wraps lock errors.
+        Non-lock exceptions still fail-fast and return False.
+        """
+        for attempt in range(max_retries):
+            try:
+                cursor = await self.conn.execute(
+                    "UPDATE wallets SET balance = balance - ? WHERE id = ? AND balance >= ?",
+                    (amount, wallet_id, amount))
+                await self.conn.commit()
+                return cursor.rowcount > 0  # True if row was updated
+            except Exception as e:
+                if "locked" in str(e).lower() and attempt < max_retries - 1:
+                    logger.warning(
+                        f"atomic_deduct locked, retry {attempt+1}/{max_retries} "
+                        f"(wallet={wallet_id[:8]}, amount=${amount:.2f})")
+                    await asyncio.sleep(0.1 * (attempt + 1))
+                else:
+                    logger.error(f"Atomic deduct failed: {e}")
+                    return False
+        return False
 
     async def _db_write(self, sql: str, params: tuple = (), max_retries: int = 3):
         """F-05: Write retry wrapper for SQLite concurrent write resilience."""
