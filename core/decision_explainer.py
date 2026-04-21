@@ -19,7 +19,10 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, List, Dict
+from typing import Optional, List
+
+import aiosqlite
+
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.core.decision_explainer")
@@ -163,7 +166,11 @@ class DecisionExplainer:
                 "ALTER TABLE executions ADD COLUMN reasoning_json TEXT DEFAULT NULL"
             )
             await db.conn.commit()
-        except Exception:
+        except aiosqlite.Error:
+            # T1.4 Faz 3: ALTER TABLE ADD COLUMN is idempotent by design —
+            # sqlite3.OperationalError ("duplicate column name") is the
+            # expected re-run path. aiosqlite.Error covers the whole
+            # sqlite3.Error family (operational, integrity, programming).
             pass  # Column already exists
         logger.info("🔍 Phase 77: Decision Explainer initialized")
 
@@ -199,7 +206,11 @@ class DecisionExplainer:
                 (chain.to_json(), execution_id)
             )
             await self.db.conn.commit()
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError) as e:
+            # T1.4 Faz 3: UPDATE executions + commit + chain.to_json() in
+            # one try. chain.to_json() can raise TypeError/ValueError if a
+            # step holds non-serializable content (defensive — dataclass
+            # enforces str, but shield against future additions).
             logger.debug(f"reasoning persist: {e}")
 
     def get_recent(self, n: int = 5, trades_only: bool = True) -> List[ReasoningChain]:
@@ -242,7 +253,16 @@ class DecisionExplainer:
                 for s in data.get("steps", []):
                     chain.add_step(s["m"], s["a"], s["v"], s.get("i", "neutral"))
                 return chain
-        except Exception as e:
+        except (aiosqlite.Error, json.JSONDecodeError, ValueError,
+                TypeError, KeyError, IndexError) as e:
+            # T1.4 Faz 3: execute_fetchall + json.loads(rows[0][0]) +
+            # dict.get chain + steps loop with s["m"]/s["a"]/s["v"] in
+            # one try. Realistic failure modes:
+            #   - aiosqlite.Error: executions/column missing
+            #   - json.JSONDecodeError: malformed reasoning_json
+            #   - ValueError/TypeError: numeric coerce or dataclass field
+            #   - KeyError: steps[i] missing required 'm'/'a'/'v' keys
+            #   - IndexError: rows[0] guard race (defensive)
             logger.debug(f"reasoning load: {e}")
         return None
 
