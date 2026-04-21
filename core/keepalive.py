@@ -8,10 +8,11 @@ HTTP server on port 8080:
   /api/data   → JSON API for dashboard data
 """
 import asyncio
-import json
 import logging
 import os
 from datetime import datetime, timezone
+
+import aiosqlite
 from aiohttp import web
 
 from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
@@ -153,7 +154,24 @@ class KeepAlive:
                 for d in (decisions or [])
             ]
 
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+                IndexError, AttributeError, KeyError) as e:
+            # T1.4 Faz 3: Large monitoring query block — multiple
+            # execute_fetchall calls, per-row unpack (bal[0][0], at[0][1]),
+            # arithmetic in strategy WR comprehension (s[6]/s[5]*100),
+            # and engine attribute chain (self.engine._cycle, .regime,
+            # .drift, .analyst, .external_feed, .live). Realistic failure
+            # modes:
+            #   - aiosqlite.Error: DB/table/column missing or schema drift
+            #   - ValueError/TypeError: row coercion, None vs int math
+            #   - ArithmeticError: ZeroDivisionError in wr comprehension
+            #     when s[5] guard races with future edits (defensive)
+            #   - IndexError: empty rows[] accessed as rows[0][0]
+            #     (existing `if rows` guards, but belt-and-braces)
+            #   - AttributeError: engine sub-object missing (.analyst,
+            #     .external_feed, .live are optional — defensive for
+            #     partial initialization)
+            #   - KeyError: dict lookups on status dicts
             data["error"] = str(e)
         return web.json_response(data)
 
@@ -168,7 +186,13 @@ class KeepAlive:
             try:
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, self._do_ping)
-            except Exception:
+            except (RuntimeError, OSError):
+                # T1.4 Faz 3: asyncio.get_event_loop() can raise
+                # RuntimeError on unusual shutdown paths; executor can
+                # raise OSError if thread pool is broken. _do_ping has
+                # its own httpx/OSError catch so those won't bubble.
+                # CancelledError intentionally NOT caught — shutdown
+                # must propagate (not in Exception hierarchy on 3.8+).
                 pass
             await asyncio.sleep(SELF_PING_INTERVAL)
 
@@ -178,7 +202,11 @@ class KeepAlive:
             url = os.getenv("REPLIT_DEV_DOMAIN", "")
             target = f"https://{url}/health" if url else f"http://localhost:{PORT}/health"
             _httpx.get(target, timeout=5.0)
-        except Exception:
+        except (_httpx.HTTPError, OSError):
+            # T1.4 Faz 3: self-ping fire-and-forget. httpx.HTTPError
+            # umbrella covers Connect/Timeout/RequestError/
+            # HTTPStatusError. OSError covers low-level socket/DNS
+            # failures that can leak past httpx.
             pass
 
     async def stop(self):
