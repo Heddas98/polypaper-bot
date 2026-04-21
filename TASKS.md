@@ -328,7 +328,7 @@ Hedef: Paper+shadow trading'in canlıya parite vermesi için simülasyon girdile
 
 Hedef: `asyncio.Lock` kullanımları, atomik bakiye düşme, WAL locking, WS reconnect flush — race condition testleri.
 
-- [ ] **T5.1** `_trade_lock` kullanım yerlerini listele; `async with self._trade_lock` atlanan kritik bölüm var mı? — risk: MED
+- [x] **T5.1** ✅ 2026-04-21 — `_trade_lock` audit tamamlandı. 4 acquire site ✅ doğru. 7 `_pending` mutation site denetlendi; 1 lock-free: `engine.py:922 _pending.clear()` in sync `_check_ws_health`. **Option B**: fn `async def`'e çevrildi + `async with self._trade_lock` wrap (commit `270de36`). AST test geçti: TradingEngine 7 async/6 sync, `_check_ws_health` async listede.
 - [ ] **T5.2** `db/database.py::get_and_deduct_balance` — SELECT+UPDATE atomic mi, yoksa read-modify-write race'e açık mı? (WAL + BEGIN IMMEDIATE lazım olabilir) — risk: HIGH
 - [ ] **T5.3** `pending_reserved` balance — engine.py & engine_signals.py'de tutarlı hesaplanıyor mu? — risk: HIGH
 - [ ] **T5.4** WS reconnect flush (F-14): `_ws_drop_count`, `data/websocket_client.py` reconnect sonrası `_subscribed` re-subscribe yapıyor ama live_prices cache eski kalıyor — stale risk — risk: MED
