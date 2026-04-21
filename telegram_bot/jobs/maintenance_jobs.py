@@ -108,6 +108,76 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.exception(f"[snapshot] failed: {e}")
 
 
+async def wal_checkpoint_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Epic 5 T5.5 (2026-04-21) — Periodic WAL TRUNCATE checkpoint.
+
+    `wal_autocheckpoint=5000` PASSIVE hiçbir writer'ı bloke etmez ama
+    readers (daily_db_snapshot_job, ro_connect) checkpoint'i ilerletemez
+    → WAL monotonik büyür (gözlemlenen: 79 MB vs 20 MB threshold).
+
+    Bu job sadece shrink için mevcut: `PRAGMA wal_checkpoint(TRUNCATE)`.
+    TRUNCATE mode:
+      - Tüm committed frames'i ana DB'ye uygula
+      - WAL dosyasını 0 byte'a kısalt (yeni frames için yeniden açılır)
+      - Aktif reader varsa beklemez, partial progress yapar (busy ise
+        busy-count döner ama error throw etmez)
+      - Writer lock'u SADECE WAL'ı truncate ederken kısa bir an alır
+        (~ms mertebesi); engine yazımına mesurable etkisi yok
+
+    Engine DB bağlantısını kullanır (context.application.bot_data["db"]).
+    Ayrı connection açmıyoruz çünkü checkpoint engine'in gördüğü WAL
+    üzerinde çalışmalı — farklı connection farklı snapshot görebilir.
+
+    ENV:
+      ENABLE_WAL_CHECKPOINT        — "false" → job çalışmaz
+      WAL_CHECKPOINT_INTERVAL_HOURS — default 6 (bot.py tarafında)
+    """
+    if os.getenv("ENABLE_WAL_CHECKPOINT", "true").lower() != "true":
+        logger.info("[wal_checkpoint] disabled via ENABLE_WAL_CHECKPOINT=false")
+        return
+
+    db = context.application.bot_data.get("db")
+    if db is None or getattr(db, "conn", None) is None:
+        logger.warning("[wal_checkpoint] DB connection unavailable — skip")
+        return
+
+    try:
+        import time as _time
+        wal_path = DB_PATH.with_name(DB_PATH.name + "-wal")
+        size_before = wal_path.stat().st_size if wal_path.exists() else 0
+
+        t0 = _time.monotonic()
+        # TRUNCATE checkpoint returns (busy, log_pages, checkpointed_pages)
+        # busy=0 → fully succeeded; busy=1 → some readers blocked, partial
+        cur = await db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        row = await cur.fetchone()
+        elapsed_ms = (_time.monotonic() - t0) * 1000
+
+        busy, log_pages, ckpt_pages = 0, 0, 0
+        if row:
+            # SQLite returns a 3-tuple; aiosqlite Row supports index access
+            try:
+                busy = int(row[0]) if row[0] is not None else 0
+                log_pages = int(row[1]) if row[1] is not None else 0
+                ckpt_pages = int(row[2]) if row[2] is not None else 0
+            except (IndexError, TypeError, ValueError):
+                pass
+
+        size_after = wal_path.stat().st_size if wal_path.exists() else 0
+        mb_before = size_before / (1024 * 1024)
+        mb_after = size_after / (1024 * 1024)
+        shrunk = mb_before - mb_after
+
+        status = "OK" if busy == 0 else "PARTIAL"
+        logger.info(
+            f"[wal_checkpoint] {status}: {mb_before:.1f} MB → {mb_after:.1f} MB "
+            f"(shrunk {shrunk:+.1f} MB, log={log_pages}, ckpt={ckpt_pages}, "
+            f"busy={busy}, elapsed={elapsed_ms:.0f}ms)"
+        )
+    except Exception as e:
+        logger.exception(f"[wal_checkpoint] failed: {e}")
+
+
 async def heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lightweight liveness ping. Logs every cycle, sends Telegram only on
     state changes (halt, big PnL drop) to avoid spam."""
