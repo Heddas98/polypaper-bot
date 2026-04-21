@@ -26,8 +26,24 @@ class AutoPilot:
         self.db = db
         self.engine = engine
 
+    def _autopilot_enabled(self) -> bool:
+        """Epic 6 T6.3c — AI Brain panel `brain_flags['autopilot']` gate.
+
+        When the toggle is OFF, AutoPilot MUST NOT generate new proposals
+        nor execute pending ones. If `self.engine` is None (legacy / test
+        harness), default to enabled for backward compatibility.
+        """
+        if self.engine is None:
+            return True
+        flags = getattr(self.engine, "brain_flags", None) or {}
+        return bool(flags.get("autopilot", True))
+
     async def generate_actions(self) -> list[dict]:
         """Analyze all strategies and generate proposed actions."""
+        # Epic 6 T6.3c: brain_flags['autopilot'] gate — OFF → no new proposals
+        if not self._autopilot_enabled():
+            logger.debug("🤖 AutoPilot OFF (brain_flags['autopilot']=False) — skipping proposal generation")
+            return []
         actions = []
         try:
             strats = await self.db.conn.execute_fetchall(
@@ -159,6 +175,10 @@ class AutoPilot:
 
     async def execute_action(self, action_id: str) -> Optional[str]:
         """Execute an approved action."""
+        # Epic 6 T6.3c: brain_flags['autopilot'] gate — OFF → reject even pending
+        if not self._autopilot_enabled():
+            logger.info(f"🤖 AutoPilot OFF — execute denied for {action_id}")
+            return "🚫 AutoPilot kapali (AI Brain panel). Aksiyon execute edilmedi."
         action = await self._get_pending(action_id)
         if not action:
             return "❌ Aksiyon bulunamadi veya suresi doldu."
