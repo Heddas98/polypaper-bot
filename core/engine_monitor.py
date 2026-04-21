@@ -20,6 +20,8 @@ import logging
 import os
 from datetime import datetime, timezone
 
+import aiosqlite
+
 from core.engine_support import _slug_end
 from data.polymarket_client import safe_float
 
@@ -74,13 +76,22 @@ class EngineMonitorMixin:
                 "SELECT * FROM executions WHERE status='bet_placed'") as c:
                 async for row in c:
                     rows.append(dict(row))
-        except Exception:
+        except (aiosqlite.Error, AttributeError, TypeError):
+            # T1.4 Faz 3: DB read + dict(row) iter. Realistic modes:
+            # aiosqlite.Error (SELECT), AttributeError (self.db.conn None),
+            # TypeError (Row→dict cast).
             return
         now = datetime.now(timezone.utc)
         for row in rows:
             try:
                 await self._check(row, now)
-            except Exception as e:
+            except (aiosqlite.Error, AttributeError, KeyError, TypeError,
+                    ValueError, IndexError) as e:
+                # T1.4 Faz 3: _check iç yüzey — DB reads, dict access,
+                # datetime, float arithmetic, slicing. Realistic modes:
+                # aiosqlite.Error (DB), AttributeError (self.client / self.db
+                # None), KeyError (row dict eksik), TypeError/ValueError
+                # (arithmetic on None), IndexError (slug.split slice).
                 logger.error(f"Pos {row['id'][:8]}: {e}")
 
     async def _check(self, row, now):
@@ -132,12 +143,25 @@ class EngineMonitorMixin:
                         _age = (now - _fill_time).total_seconds()
                         if _age < SMART_EXIT_GRACE_SEC:
                             _skip_grace = True
-                except Exception:
+                except (TypeError, ValueError, AttributeError):
+                    # T1.4 Faz 3: datetime.fromisoformat + tzinfo coerce +
+                    # timedelta arithmetic. Realistic modes: ValueError
+                    # (bozuk ISO string), TypeError (_cat int/float ise
+                    # .replace yok → AttributeError yerine str(_cat)
+                    # handling ileri gürbüzlük için dahil), AttributeError
+                    # (_cat int/None durumunda .replace yok).
                     pass
             if not _skip_grace:
                 try:
                     await self._smart_exit_check(row, entry, shares, direction, now, end)
-                except Exception as _se:
+                except (aiosqlite.Error, AttributeError, KeyError, TypeError,
+                        ValueError, IndexError) as _se:
+                    # T1.4 Faz 3: _smart_exit_check — Becker δ, getattr,
+                    # client/scanner calls (network yutuluyor), safe_float.
+                    # Realistic modes: AttributeError (self.settings /
+                    # _becker_poly_curve None), KeyError (row dict),
+                    # TypeError/ValueError (float/arithmetic), IndexError
+                    # (event_slug[:30] slice).
                     logger.debug(f"smart_exit error {row['id'][:8]}: {_se}")
 
         if end and now > end:
@@ -228,7 +252,13 @@ class EngineMonitorMixin:
                         r = await c.fetchone()
                         if r and r["up_odds"]:
                             lu = float(r["up_odds"])
-                except Exception:
+                except (aiosqlite.Error, KeyError, TypeError, ValueError,
+                        AttributeError, IndexError):
+                    # T1.4 Faz 3: odds_history fallback SELECT + named row
+                    # access + float coerce. Realistic modes:
+                    # aiosqlite.Error (DB), KeyError/IndexError (r["up_odds"]
+                    # eksik kolon), TypeError/ValueError (float(None)),
+                    # AttributeError (self.db.conn None).
                     pass
             if lu is not None:
                 await self._settle(row, "up" if lu > 0.5 else "down", shares, lu)
@@ -378,7 +408,13 @@ class EngineMonitorMixin:
                     "UPDATE executions SET max_unrealized_price=? WHERE id=?",
                     (round(cur, 6), exec_id))
                 await self.db.conn.commit()
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: disposition SELECT + UPDATE max_unrealized_price.
+            # Realistic modes: aiosqlite.OperationalError (schema: "no such
+            # column" fresh DB), KeyError (row["id"]/row["direction"]),
+            # TypeError/ValueError (safe_float / round on None),
+            # AttributeError (self.db.conn None).
             # Column might not exist yet — silently skip
             if "no such column" not in str(e).lower():
                 logger.debug(f"disposition tracking: {e}")
