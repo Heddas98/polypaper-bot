@@ -26,9 +26,12 @@ ENV:
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
+
+import aiosqlite
+
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.core.trade_memory")
@@ -158,7 +161,10 @@ class TradeMemory:
                 "CREATE INDEX IF NOT EXISTS idx_tm_created ON trade_memory(created_at)")
             await db.conn.commit()
             logger.info("🧠 Phase 77: Trade Memory initialized")
-        except Exception as e:
+        except (aiosqlite.Error, AttributeError) as e:
+            # T1.4 Faz 3: CREATE TABLE + 2 CREATE INDEX + commit. Realistic
+            # modes: aiosqlite.Error (DDL syntax error, locked DB, disk full),
+            # AttributeError (db.conn missing during shutdown race).
             logger.warning(f"trade_memory init: {e}")
 
     async def record(self, strategy_id: str, slug: str, direction: str,
@@ -200,7 +206,14 @@ class TradeMemory:
             # Invalidate cache for this pattern
             self._cache.pop(pattern_key, None)
 
-        except Exception as e:
+        except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
+            # T1.4 Faz 3: INSERT INTO trade_memory + commit, plus self._mistakes
+            # list mutation. Realistic modes:
+            #   - aiosqlite.Error: INSERT failed (table missing / locked /
+            #     constraint violation).
+            #   - TypeError: numeric bind edge cases (pnl/signal_score None).
+            #   - ValueError: coerce failures on numeric columns.
+            #   - AttributeError: self.db.conn missing during shutdown.
             logger.debug(f"trade_memory.record: {e}")
 
     async def get_pattern(self, strategy_id: str, slug: str,
@@ -261,7 +274,16 @@ class TradeMemory:
             self._last_refresh = time.time()
             return stats
 
-        except Exception as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: SELECT + per-row r[0]/r[1] access + comprehension
+            # sum/aggregate + WR multiplier arithmetic + PatternStats
+            # construct. Realistic modes:
+            #   - aiosqlite.Error: SELECT failed (table missing / locked).
+            #   - IndexError: row shape drift (result, pnl columns dropped).
+            #   - TypeError: None in sum(r[1]) when pnl column is NULL.
+            #   - ValueError: numeric coerce in round/min/max.
+            #   - AttributeError: self.db.conn missing during shutdown.
             logger.debug(f"trade_memory.get_pattern: {e}")
             return None
 
@@ -296,7 +318,16 @@ class TradeMemory:
                     win_rate=round(wr, 1),
                 ))
             return results
-        except Exception as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: SELECT GROUP BY HAVING + tuple unpack
+            # (pk, cnt, wins, tpnl = r) + WR arithmetic + PatternStats.
+            # Realistic modes:
+            #   - aiosqlite.Error: SELECT failed.
+            #   - ValueError: tuple unpack on row shape drift.
+            #   - IndexError: defensive for future column reorder.
+            #   - TypeError: None aritmetik (tpnl/cnt when SUM is NULL).
+            #   - AttributeError: self.db.conn shutdown race.
             logger.debug(f"trade_memory.get_worst: {e}")
             return []
 
@@ -331,7 +362,11 @@ class TradeMemory:
                     win_rate=round(wr, 1),
                 ))
             return results
-        except Exception as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: identical aggregate pattern to get_worst_patterns
+            # (SELECT GROUP BY HAVING, only ORDER BY differs). Exception
+            # surface identical — same narrow tuple.
             logger.debug(f"trade_memory.get_best: {e}")
             return []
 
