@@ -26,6 +26,9 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+import aiosqlite
+
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.core.lifecycle")
@@ -176,7 +179,10 @@ class StrategyLifecycle:
                 "ALTER TABLE strategies ADD COLUMN strategy_params TEXT DEFAULT '{}'")
             await self.db.conn.commit()
             logger.info("✅ Added strategy_params column to strategies table")
-        except Exception:
+        except (aiosqlite.Error, AttributeError):
+            # T1.4 Faz 3: idempotent ALTER TABLE. Realistic modes:
+            # aiosqlite.OperationalError ("duplicate column name"),
+            # AttributeError (self.db.conn henüz bağlı değil).
             pass  # Column already exists
 
     async def get_params(self, strategy_id: str) -> StrategyParams:
@@ -195,7 +201,12 @@ class StrategyLifecycle:
                     params = StrategyParams.from_dict(d)
                 else:
                     params = StrategyParams()  # Default exploration
-        except Exception as e:
+        except (aiosqlite.Error, json.JSONDecodeError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: DB read + JSON decode + StrategyParams.from_dict.
+            # Realistic modes: aiosqlite.Error (DB), JSONDecodeError (row[0]
+            # bozuk), TypeError/ValueError (from_dict tip hatası),
+            # AttributeError (self.db.conn None).
             logger.debug(f"get_params {strategy_id[:8]}: {e}")
             params = StrategyParams()
         self._cache[strategy_id] = params
@@ -209,7 +220,11 @@ class StrategyLifecycle:
                 "UPDATE strategies SET strategy_params=? WHERE id=?",
                 (json.dumps(params.to_dict()), strategy_id))
             await self.db.conn.commit()
-        except Exception as e:
+        except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
+            # T1.4 Faz 3: UPDATE + json.dumps(to_dict()). Realistic modes:
+            # aiosqlite.Error (DB), TypeError (params None / to_dict eksik),
+            # ValueError (json.dumps non-serializable), AttributeError
+            # (self.db.conn None).
             logger.debug(f"save_params {strategy_id[:8]}: {e}")
 
     async def run_lifecycle_check(self):
@@ -222,7 +237,10 @@ class StrategyLifecycle:
         """
         try:
             strategies = await self.db.get_active_strategies()
-        except Exception as e:
+        except (aiosqlite.Error, AttributeError) as e:
+            # T1.4 Faz 3: DB read wrapper. Realistic modes: aiosqlite.Error
+            # (SELECT aktif stratejiler), AttributeError (self.db None ya da
+            # get_active_strategies yok).
             logger.error(f"lifecycle check: {e}")
             return
 
@@ -233,7 +251,14 @@ class StrategyLifecycle:
                 continue
             try:
                 await self._adjust_strategy(s)
-            except Exception as e:
+            except (aiosqlite.Error, AttributeError, KeyError, TypeError,
+                    ValueError, IndexError) as e:
+                # T1.4 Faz 3: _adjust_strategy iç yüzey — phase transition,
+                # stats dict access, WR arithmetic, datetime.now, save_params.
+                # Realistic modes: aiosqlite.Error (DB reads), AttributeError
+                # (s.id / s.strategy_type None), KeyError (stats["trades"]
+                # eksik), TypeError/ValueError (arithmetic on None),
+                # IndexError (s.id[:8] boş string).
                 logger.debug(f"lifecycle adjust {s.id[:8]}: {e}")
 
     async def _adjust_strategy(self, s):
@@ -363,7 +388,13 @@ class StrategyLifecycle:
                 result["rolling_wr"] = result["wr"]
 
             return result
-        except Exception:
+        except (aiosqlite.Error, IndexError, KeyError, TypeError, ValueError,
+                AttributeError):
+            # T1.4 Faz 3: iki SELECT + named/indexed row access + arithmetic.
+            # Realistic modes: aiosqlite.Error (DB), IndexError (r[0] boş
+            # tuple), KeyError (r["trades"] — row_factory değişirse),
+            # TypeError/ValueError (sum/division on None),
+            # AttributeError (self.db.conn None).
             return None
 
     def format_telegram(self) -> str:
