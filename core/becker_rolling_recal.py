@@ -32,13 +32,14 @@ Safety:
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
+
+import aiosqlite
 
 logger = logging.getLogger("polypaper.core.becker_rolling_recal")
 
@@ -81,7 +82,12 @@ class BeckerRollingRecalibrator:
                 f"🔄 Rolling recal loaded: current={list(self.current_curve.keys())}, "
                 f"fallback={list(self.fallback_curve.keys())}"
             )
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError,
+                AttributeError) as e:
+            # T1.4 Faz 3: read_text (OSError: perm/missing/locked),
+            # json.loads (JSONDecodeError on corrupt state), float()
+            # coerce on timestamp (ValueError/TypeError), data.get chain
+            # (AttributeError if JSON root isn't a dict).
             logger.warning(f"Rolling recal load failed: {e}")
 
     def _save_curves(self, curves: Dict, is_current: bool = True):
@@ -94,7 +100,11 @@ class BeckerRollingRecalibrator:
                 "timestamp": time.time(),
             }
             filepath.write_text(json.dumps(payload), encoding="utf-8")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
+            # T1.4 Faz 3: write_text (OSError: disk/perm), json.dumps
+            # (TypeError on non-serializable curve values — curves dict
+            # of list[tuple] should be JSON-safe but defensive for
+            # future field additions).
             logger.warning(f"Rolling recal save failed: {e}")
 
     async def get_rolling_window_stats(
@@ -199,7 +209,17 @@ class BeckerRollingRecalibrator:
                 "total_trades": total_trades,
             }
 
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+                IndexError, AttributeError) as e:
+            # T1.4 Faz 3: execute_fetchall + per-row unpack (row[1]/[2]/[3])
+            # + float() coerce + correlation arithmetic (_pearson_correlation
+            # returns None when variance < 1e-12, but mid-function math in
+            # weighted_corr can ZeroDivisionError if LAMBDA_DECAY mutates
+            # at runtime) + division by total_trades/total_weight.
+            #   - aiosqlite.Error: executions/order_book missing, schema drift
+            #   - ValueError/TypeError: row value coercion, None vs numeric
+            #   - ArithmeticError: ZeroDivisionError guard-race (defensive)
+            #   - IndexError: row tuple access
             logger.error(f"Rolling window stats failed: {e}")
             return {"error": str(e), "recommended_shift_bps": 0.0}
 
@@ -277,7 +297,17 @@ class BeckerRollingRecalibrator:
                 "activated_at": datetime.now().isoformat(),
             }
 
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
+                IndexError, AttributeError, KeyError) as e:
+            # T1.4 Faz 3: per-asset loop calls get_rolling_window_stats
+            # (which has its own narrow catch so DB errors bubble as
+            # {"error": ...} — this outer catch mainly fires for logic
+            # errors in the results dict assembly). Realistic modes:
+            #   - aiosqlite.Error: defensive if stats call path mutates
+            #   - ValueError/TypeError: numeric compare/format
+            #   - ArithmeticError: defensive for future shift calcs
+            #   - KeyError: stats["recent_trades"]/["confidence"] access
+            #   - IndexError/AttributeError: defensive
             logger.error(f"Weekly recalibration job failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
