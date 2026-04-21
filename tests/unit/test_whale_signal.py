@@ -1,6 +1,8 @@
 """Unit tests for WhaleFlowSignal (Phase 60)"""
 
 import asyncio
+
+import aiosqlite
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from core.signals.whale_flow import WhaleFlowSignal
@@ -136,10 +138,17 @@ class TestWhaleFlowSignal:
 
     @pytest.mark.asyncio
     async def test_whale_signal_db_error(self):
-        """Test graceful handling of DB errors."""
+        """Test graceful handling of aiosqlite DB errors.
+
+        T1.4 Faz 3 — compute() now narrows to aiosqlite.Error (the actual
+        exception family raised by aiosqlite). Real-world failures
+        (connection lost, table locked, schema mismatch) all surface as
+        aiosqlite.Error subclasses, so this test exercises the realistic
+        failure path rather than a generic Exception.
+        """
         mock_db = MagicMock()
         mock_db.conn.execute_fetchall = AsyncMock(
-            side_effect=Exception("Database connection failed")
+            side_effect=aiosqlite.Error("Database connection failed")
         )
 
         signal = await self.whale.compute(

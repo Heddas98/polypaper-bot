@@ -13,7 +13,8 @@ entry confidence by +12-18% in backtests.
 import logging
 import os
 import time
-from typing import Optional
+
+import aiosqlite
 
 logger = logging.getLogger("polypaper.core.signals.whale_flow")
 
@@ -119,7 +120,10 @@ class WhaleFlowSignal:
                 """,
                 (f"%{asset}%", cutoff_ms)
             )
-        except Exception as e:
+        except aiosqlite.Error as e:
+            # T1.4 Faz 3: try body is a single aiosqlite fetch — narrow to
+            # DB error. whale_trades table missing / locked => 0.0 signal
+            # (safe default, keeps engine running on fresh installs).
             logger.debug(f"[WHALE] Query error on {slug}: {e}")
             return 0.0
 
