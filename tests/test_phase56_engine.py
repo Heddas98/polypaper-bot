@@ -437,26 +437,33 @@ class TestAdaptivePnlThreshold(unittest.TestCase):
 
     def setUp(self):
         # Import the function and save originals so we can monkey-patch
+        import os
         import core.auto_optimizer as ao
         self.ao = ao
         self._orig_enabled = ao.ADAPTIVE_PNL_ENABLED
         self._orig_step = ao.ADAPTIVE_PNL_STEP
         self._orig_tps = ao.ADAPTIVE_PNL_TRADES_PER_STEP
         self._orig_floor = ao.ADAPTIVE_PNL_FLOOR
-        self._orig_base = ao.PNL_PAUSE_THRESHOLD
+        # Epic 6 T6.1: PNL_PAUSE_THRESHOLD now read at runtime via os.getenv,
+        # not from a module attribute. Patch os.environ instead.
+        self._orig_base_env = os.environ.get("PNL_PAUSE_THRESHOLD")
         # Reset to known defaults
         ao.ADAPTIVE_PNL_ENABLED = True
         ao.ADAPTIVE_PNL_STEP = 0.5
         ao.ADAPTIVE_PNL_TRADES_PER_STEP = 20
         ao.ADAPTIVE_PNL_FLOOR = -10.0
-        ao.PNL_PAUSE_THRESHOLD = -3.0
+        os.environ["PNL_PAUSE_THRESHOLD"] = "-3.0"
 
     def tearDown(self):
+        import os
         self.ao.ADAPTIVE_PNL_ENABLED = self._orig_enabled
         self.ao.ADAPTIVE_PNL_STEP = self._orig_step
         self.ao.ADAPTIVE_PNL_TRADES_PER_STEP = self._orig_tps
         self.ao.ADAPTIVE_PNL_FLOOR = self._orig_floor
-        self.ao.PNL_PAUSE_THRESHOLD = self._orig_base
+        if self._orig_base_env is None:
+            os.environ.pop("PNL_PAUSE_THRESHOLD", None)
+        else:
+            os.environ["PNL_PAUSE_THRESHOLD"] = self._orig_base_env
 
     def test_zero_trades_returns_base(self):
         """0 trades → base threshold -3.0"""
