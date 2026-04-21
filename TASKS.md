@@ -372,7 +372,7 @@ Hedef: UI'da (Telegram butonları / komutlar) kullanıcıya gösterilen ama engi
 
 Hedef: `_archive/` dışındaki dead code ve aynı işi yapan iki modül.
 
-- [ ] **T7.1** `backtest/replay_engine.py` (1030 satır) ve `backtest/replay_engine_v3.py` (199 satır) — v1 hâlâ kullanılıyor mu? — risk: LOW
+- [x] **T7.1** `backtest/replay_engine.py` (1030 satır) ve `backtest/replay_engine_v3.py` (199 satır) — v1 hâlâ kullanılıyor mu? — risk: LOW *(2026-04-21 ✅ Audit tamam — **keep both**. v1 production aktif: `core/strategy_suggester.py:325`, `telegram_bot/handlers/strategy_tester.py:22`, `telegram_bot/handlers/backtest_v2.py:913+968`, `backtest/hyperopt.py:61`. v3 explicit olarak v1'e bağımlı (`replay_engine_v3.py:34: from backtest.replay_engine import ReplayEngine, ReplayConfig`). Header'da "Do NOT delete replay_engine.py — replay_engine_v3 depends on it." guard-note mevcut. İkisi de canlı, silme yok.)*
 - [x] **T7.2** `backtest/simulation/fee_model.py` vs `fee_model_v3.py` — import grep — risk: LOW *(2026-04-21 ✅ Epic 4 T4.1 ile birlikte kapatıldı — fee_model.py → `_archive/fee_consolidation_2026_04_21_T41/fee_model_legacy_v1.py`, 4 import sitesi `FeeCalculatorV3 as FeeCalculator` aliasıyla v3'e taşındı)*
 - [x] **T7.3** `core/fees.py` vs `core/fees_v2.py` (Epic 4 T4.1 ile overlap) — risk: LOW *(2026-04-21 ✅ Yol B agresif silme — `core/fees.py` v1 + `tests/unit/test_fees.py` + `category="legacy"` branch + `test_legacy_category_matches_quadratic` → arşive. **Tek fee oracle kaldı: `core/fees_v2.py`**, live Gamma feeSchedule'a karşı doğrulanmış (rate=0.072 / exp=1 / rebateRate=0.2 crypto). Test: 34/34 passing.)*
 - [ ] **T7.4** `scripts/smoke_*.py` 13 dosya — son 30 günde `py scripts/smoke_*.py` çağrıları hangi smoke hâlâ aktif? — risk: LOW
