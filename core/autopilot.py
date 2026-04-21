@@ -12,6 +12,8 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+import aiosqlite
+
 logger = logging.getLogger("polypaper.core.autopilot")
 
 ACTION_STOP = "ap_stop"
@@ -134,7 +136,17 @@ class AutoPilot:
                             "desc": f"Tune: {label} threshold {threshold}→{new_thr:.2f}",
                         })
 
-        except Exception as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: big JOIN SELECT + per-row tuple unpack (s[0]..s[9])
+            # + WR/EV arithmetic. Realistic modes:
+            #   - aiosqlite.Error: tables/columns missing, locked DB.
+            #   - IndexError: row shape drift if strategies/executions schema
+            #     changes (columns dropped/reordered).
+            #   - TypeError: None → numeric ops (wins/trades, pnl/trades)
+            #     when COALESCE is bypassed or avg_price is NULL.
+            #   - ValueError: round/min/max edge cases.
+            #   - AttributeError: self.db.conn access during shutdown.
             logger.error(f"AutoPilot generate: {e}")
         return actions
 
@@ -149,7 +161,14 @@ class AutoPilot:
                 "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, ?)",
                 (f"ap_pending.{aid}", json.dumps(action), now))
             await self.db.conn.commit()
-        except Exception as e:
+        except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
+            # T1.4 Faz 3: INSERT INTO bot_settings + commit + json.dumps(action).
+            # Realistic modes:
+            #   - aiosqlite.Error: table missing (pre-migration) or locked.
+            #   - TypeError: json.dumps non-serializable dict value — shield
+            #     is default=str, defensive for future action schema changes.
+            #   - ValueError: numeric bind edge cases.
+            #   - AttributeError: self.db.conn missing during shutdown.
             logger.debug(f"AP store: {e}")
         return aid
 
@@ -161,7 +180,14 @@ class AutoPilot:
                 (f"ap_pending.{action_id}",))
             if rows:
                 return json.loads(rows[0][0])
-        except Exception:
+        except (aiosqlite.Error, json.JSONDecodeError, IndexError, TypeError,
+                AttributeError):
+            # T1.4 Faz 3: SELECT + rows[0][0] indexing + json.loads. Realistic
+            # modes: aiosqlite.Error (table missing), JSONDecodeError (corrupt
+            # stored JSON), IndexError (rows[0][0] when row shape changes),
+            # TypeError (None passed to json.loads), AttributeError (db.conn
+            # during shutdown). Silent swallow intentional — caller handles
+            # None as "not found / expired".
             pass
         return None
 
@@ -170,7 +196,12 @@ class AutoPilot:
             await self.db.conn.execute(
                 "DELETE FROM bot_settings WHERE key=?", (f"ap_pending.{action_id}",))
             await self.db.conn.commit()
-        except Exception:
+        except (aiosqlite.Error, AttributeError):
+            # T1.4 Faz 3: DELETE + commit on bot_settings. Realistic modes:
+            #   - aiosqlite.Error: table missing or DB locked.
+            #   - AttributeError: self.db.conn missing during shutdown.
+            # Silent swallow intentional — cleanup is idempotent; missing row
+            # is a no-op, schema drift is handled upstream.
             pass
 
     async def execute_action(self, action_id: str) -> Optional[str]:
@@ -214,7 +245,19 @@ class AutoPilot:
                 await self._remove_pending(action_id)
                 return f"✅ Ayarlandi: {action['label']}\n{field}: {action.get('old_val')}→{action['new_val']}"
             return "❌ Bilinmeyen aksiyon tipi."
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError,
+                AttributeError) as e:
+            # T1.4 Faz 3: UPDATE strategies with f-string field (whitelisted
+            # above) + commit + heavy dict key access on `action` (which was
+            # rehydrated from DB JSON). Realistic modes:
+            #   - aiosqlite.Error: UPDATE failed (locked, table missing,
+            #     constraint violation).
+            #   - KeyError: action dict missing 'type'/'sid'/'new_amount'/
+            #     'old_amount'/'new_val'/'label'/'reason' due to schema drift
+            #     or partial writes from older bot versions.
+            #   - TypeError: numeric coerce in f-string format ({new_amount:.2f}).
+            #   - ValueError: commit-time numeric binding edge cases.
+            #   - AttributeError: self.db.conn missing during shutdown.
             logger.error(f"AutoPilot execute: {e}")
             return f"❌ Hata: {e}"
 
