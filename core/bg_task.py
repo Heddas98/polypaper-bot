@@ -130,7 +130,12 @@ def safe_create_task(
         except asyncio.CancelledError:
             _BG_TASK_REGISTRY[name]["state"] = "cancelled"
             raise
-        except BaseException as e:
+        except BaseException as e:  # noqa: BLE001 - T1.4 Faz 3: module contract
+            # Module philosophy (see module docstring): safe_create_task
+            # exists precisely to intercept ANY uncaught exception from
+            # background coroutines, including KeyboardInterrupt and
+            # SystemExit. Narrowing here would defeat the entire point
+            # of the wrapper. CancelledError is re-raised above at L130.
             tb = traceback.format_exc()
             err_short = f"{type(e).__name__}: {str(e)[:250]}"
             logger.error(
@@ -157,7 +162,13 @@ def safe_create_task(
                 try:
                     tb_snippet = "\n".join(tb.splitlines()[-8:])
                     await _NOTIFY_HANDLER(name, err_short, tb_snippet)
-                except Exception as notify_err:
+                except Exception as notify_err:  # noqa: BLE001 - T1.4 Faz 3: user-supplied handler
+                    # _NOTIFY_HANDLER is set via set_notify_handler() with
+                    # caller-supplied code (telegram bot, slack, etc.).
+                    # Exception types are unknowable at import time; any
+                    # leak here would corrupt the bg_task guard itself.
+                    # Docstring at set_notify_handler explicitly warns
+                    # that exceptions will be swallowed.
                     logger.warning(
                         "bg_task[%s] notify handler failed: %s",
                         name, notify_err
@@ -169,7 +180,12 @@ def safe_create_task(
                     result = on_error(e)
                     if asyncio.iscoroutine(result):
                         await result
-                except Exception as hook_err:
+                except Exception as hook_err:  # noqa: BLE001 - T1.4 Faz 3: user-supplied hook
+                    # `on_error` is caller-provided (e.g. lambda e:
+                    # self.reset()). Types are unknowable; leaking here
+                    # would corrupt the bg_task guard itself after we've
+                    # already handled the original exception. Intentional
+                    # guard-of-guard.
                     logger.warning(
                         "bg_task[%s] on_error hook failed: %s",
                         name, hook_err
@@ -248,7 +264,14 @@ def make_telegram_notify_handler(
                 text=msg[:4000],
                 parse_mode="HTML"
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - T1.4 Faz 3: telegram SDK umbrella
+            # python-telegram-bot's send_message can raise various
+            # telegram.error.TelegramError subclasses (NetworkError,
+            # TimedOut, Forbidden, BadRequest, RetryAfter, etc.) plus
+            # httpx transport errors underneath. Importing telegram.error
+            # at module top would couple bg_task to the telegram SDK,
+            # which other non-telegram callers of this module (e.g.
+            # discord/slack variants) shouldn't need.
             # Never let notify failure bubble up
             logger.warning("telegram notify handler failed: %s", e)
 
