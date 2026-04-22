@@ -622,9 +622,13 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Doğrulama:** upgrade sonrası `pip-audit` → **0 vuln**. `run_full_regression.sh` → **731 pass + 8 skip + 0 fail** (baseline stable, regresyon yok).
   - **Rapor:** `docs/security/T10_3_pip_audit.md` (paket başına 24 CVE applicability matrisi + upgrade + rollback plan).
   - **Forward:** T11.4 `pip-audit` pre-commit hook (quarterly CI gate) + `pip list --outdated` hygiene.
-- [ ] **T10.4** `.env` ↔ `.env.example` senkron denetimi — risk: LOW
-  - .env.example'da olmayan ama .env'de olan değişken var mı (yeni, dokumante edilmemiş)?
-  - .env.example'daki placeholder değerler gerçek değer içeriyor mu (kopya kalıntısı)?
+- [x] **T10.4** `.env` ↔ `.env.example` senkron denetimi — risk: LOW — ✅ **CLOSED (2026-04-22)**
+  - **F1 (CLEAN):** `.env.example` placeholder-contract sağlam — 0 gerçek-değer şekli secret (sk-ant-*, Telegram token, ghp_*, vb.). T10.1 baseline tutuyor.
+  - **F2 (FIXED):** `.env` içinde `.env.example`'da olmayan **4 key** (undocumented-in-prod): `SURFACE_2D_ENABLED`, `SURFACE_2D_WEIGHT`, `SURFACE_2D_CLAMP`, `EDGE_ZONE_5065_MIN`. Yeni "2D Surface Calibration" + "Edge Zone Filter" bölümleriyle `.env.example`'a eklendi (prod default değerleriyle).
+  - **F3 (informational):** `.env.example`'da olup `.env`'de olmayan 72 key — opt-in feature flag'leri (CASCADE, LAG_ARB, MARKOV, WHALE, EXPERIMENT, SENTRY, …). Code-level `os.getenv(K, default)` ile kaplandığı için prod'da override gerekmiyor. Beklenen davranış.
+  - **F4 (informational):** Codebase `os.getenv` scan'i → 148 key `.env.example`'da yok. Kategoriler: (1) platform-supplied (PORT, REPLIT_*), (2) secret alternatives (ADMIN_CHAT_ID, OPENROUTER_API_KEY), (3) safe-default feature flags, (4) job scheduler tuning. Toplu eklemek T10.4 LOW-risk scope'unu aşar — Epic 11 `docs/env_reference.md` backlog.
+  - **Rapor:** `docs/security/T10_4_env_sync.md` (F1-F4 findings + fix patch + verification script).
+  - **Post-fix:** `.env` ⊆ `.env.example` — `comm -23 env example` = empty.
 - [ ] **T10.5** `get_live_price` malformed entry prod davranışı review — risk: MED *(Epic 9 post-audit'ten)*
   - `data/websocket_client.py::get_live_price`: cache entry'de `'ts'` yoksa mevcut kod KeyError'u `try/except Exception` ile yutuyor ve `data.get("price")`'a düşüyor — yani "bilinmeyen tazelik fiyatı serve ediliyor".
   - Bu davranış "fresh > stale" doktrinini ihlal ediyor olabilir. Pin: `tests/integration/test_ws_reconnect_smoke.py::TestFreshnessDoctrine::test_missing_ts_returns_cached_price_no_crash`.
