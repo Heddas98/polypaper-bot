@@ -201,9 +201,12 @@ async def force_settle_command(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         rows = await _fetch_open_rows(db)
     except Exception as e:
+        # Epic 10 T10.7 (2026-04-22): exception detail loglara yazılır,
+        # kullanıcıya generic mesaj döner — DB şeması / tablo isimleri /
+        # SQL parçaları Telegram'a sızmasın.
         logger.exception(f"force_settle fetch_open_rows: {e}")
         return await update.message.reply_text(
-            f"❌ Açık pozisyonlar sorgulanırken hata: <code>{esc(str(e))[:200]}</code>",
+            "❌ Açık pozisyonlar sorgulanamadı. Detay loglarda.",
             parse_mode="HTML")
 
     now = datetime.now(timezone.utc)

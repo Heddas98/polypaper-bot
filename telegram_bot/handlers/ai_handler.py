@@ -349,9 +349,12 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     except Exception as e:
-        logger.error(f"Brain command error: {esc(str(e))}", exc_info=True)
+        # Epic 10 T10.7 (2026-04-22): exception detay loglara, kullanıcıya
+        # generic mesaj — engine.brain_flags / kelly durumu gibi iç durum
+        # string'leri Telegram'a sızmasın.
+        logger.error(f"Brain command error: {e}", exc_info=True)
         await update.message.reply_text(
-            f"❌ <b>Brain Hatasi</b>\n\nDetay: {esc(str(e)[:100])}", parse_mode="HTML")
+            "❌ <b>Brain Hatasi</b>\n\nDetay loglarda.", parse_mode="HTML")
 
 
 async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
