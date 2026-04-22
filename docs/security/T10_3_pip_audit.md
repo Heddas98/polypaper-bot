@@ -12,8 +12,17 @@
   - `pillow 11.0.0` → 2 CVE (fix 12.2.0)
   - `python-dotenv 1.0.1` → 1 CVE (fix 1.2.2)
 - **57 paket temiz** (python-telegram-bot, httpx, pydantic, websockets,
-  pandas, numpy, py-clob-client, pycryptodome, eth-* suite, requests,
-  pytest, …).
+  pandas, numpy, py-clob-client, pycryptodome, eth-account / eth-utils
+  + bunların transitive `eth-hash / eth-keys / eth-abi / eth-typing /
+  eth-rlp` bağımlıları, requests, pytest, …).
+  - **Not (T10.9 düzeltme, 2026-04-22):** Önceki "eth-* suite" ifadesi
+    muğlaktı. Doğru tablo: `requirements.txt` SADECE `py-clob-client==0.18.0`
+    barındırır. py-clob-client 0.18.0 `setup.py` install_requires →
+    `eth-account>=0.13.0` + `eth-utils>=4.1.1` + `poly_eip712_structs` +
+    `py-order-utils` + `python-dotenv` + `requests`. Diğer `eth-*`
+    paketleri (eth-hash, eth-keys, eth-abi, eth-typing, eth-rlp)
+    eth-account / eth-utils üzerinden **transitive** olarak gelir.
+    `pip-audit` bunların her birini ayrı satır olarak tarar — 0 CVE.
 - **Direkt sömürü yüzeyi düşük** — fix'lerin çoğu "sunucu tarafı
   multipart/static route / FITS/PSD decoder / set_key symlink" senaryolarına
   ait ve PolyPaper'ın kullanım modeline uymuyor (aşağıda per-CVE
