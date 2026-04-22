@@ -18,6 +18,8 @@ Pre-mainnet security pass. Target surfaces:
 
 ## Patterns scanned
 
+**Original set (Epic 10 T10.1 baseline, 6 regex):**
+
 | Pattern | Provider | Example shape |
 |---|---|---|
 | `sk-ant-[A-Za-z0-9_-]{20,}` | Anthropic | `sk-ant-api03-...` |
@@ -29,15 +31,43 @@ Pre-mainnet security pass. Target surfaces:
 | `.env`, `*.key`, `credentials` | sensitive filenames | (directly tracked?) |
 | Explicit `api_key=<long>` / `secret=<long>` lines | generic | any provider |
 
+**Epic 10 T10.8 post-audit extension (2026-04-22, +7 regex).** Added to
+cover wider SaaS/LLM ecosystem + bare private-key forms not caught
+by the original `0x`-prefixed pattern:
+
+| Pattern | Provider | Example shape | Result |
+|---|---|---|---|
+| `AKIA[0-9A-Z]{16}` | AWS access key | `AKIAIOSFODNN7EXAMPLE` | 0 match |
+| `hf_[A-Za-z0-9]{34,}` | HuggingFace | `hf_xxxxxxxxxxxx...` | 0 match |
+| `sk-proj-[A-Za-z0-9_-]{20,}` | OpenAI (project-scoped, new format) | `sk-proj-abc...` | 0 match |
+| `sk_live_[A-Za-z0-9]{20,}` | Stripe live key | `sk_live_51ABC...` | 0 match |
+| `sk_test_[A-Za-z0-9]{20,}` | Stripe test key | `sk_test_51ABC...` | 0 match |
+| `\b[a-fA-F0-9]{64}\b` | bare 64-hex (private key w/o `0x`) | raw Ethereum/Polymarket priv | 0 match |
+| `mnemonic` / `seed phrase` / `recovery phrase` keyword + 12-word lowercase sequence heuristic | BIP-39 wallet seed | 12/24-word mnemonic | 0 real match (only TASKS.md self-reference + 1 English-comment false positive; neither is a BIP-39 seed) |
+
+Rationale for each addition: each represents a secret format that, if
+accidentally committed, constitutes immediate compromise. AWS, Stripe,
+OpenAI-project, HuggingFace and BIP-39 seeds have all appeared in
+public GitHub scanner reports at scale. Bare 64-hex catches a raw
+private key that was logged / pasted without the `0x` prefix — the
+original `0x[a-fA-F0-9]{64}` pattern would miss it.
+
 ## Findings
 
 ### Tracked files (HEAD)
-All 6 LLM/crypto patterns: **0 matches**. Checked:
+Original 6 LLM/crypto patterns: **0 matches**. Checked:
 - `core/`, `telegram_bot/`, `scripts/`, `tests/`, `data/`, `docs/`,
   `config/`, repo root `.py`/`.md`/`.yml`/`.txt`/`.json`.
 
+T10.8 extended 7 patterns (AKIA / hf_ / sk-proj- / sk_live_ /
+sk_test_ / bare 64-hex / BIP-39): **0 real matches** (one TASKS.md
+self-reference to "seed phrase patterns" in this exact doc's scope
+description, one English-comment false positive in
+`telegram_bot/handlers/strategies.py` that is not a mnemonic).
+
 ### Git history (all branches, all commits)
-- `git log -p --all` across 6 secret patterns: **0 matches**
+- `git log -p --all` across original 6 secret patterns: **0 matches**
+- `git log -p --all` across T10.8 extended 7 patterns: **0 matches**
 - Filename filter (`.env`, `*.key`, `credentials.json`): **0 hits** —
   no sensitive file was EVER added, even briefly.
 
@@ -46,6 +76,7 @@ All 6 LLM/crypto patterns: **0 matches**. Checked:
 - `reports/becker_deep_analysis.html` — **clean**.
 - `backups/polypaper_pre_phase82b_2026 0Fr.db` — SQLite binary; pattern
   scan across text pattern: no match.
+- T10.8 extended 7 patterns across `logs/ reports/ backups/`: **0 matches**.
 
 ### `.env` vs `.env.example` hygiene
 - `.env` is gitignored (verified via `git check-ignore .env`).
@@ -101,17 +132,48 @@ directories contain no API keys or private keys.
 ## Verification commands (for Windows re-run)
 
 ```bash
-# Tracked-files scan
+# Tracked-files scan — original 6
 git grep -E "sk-ant-|sk-or-v1-|gsk_[A-Za-z0-9]{20}|AIza[A-Za-z0-9_-]{30}"
 git grep -E "\b[0-9]{9,10}:[A-Za-z0-9_-]{35}\b"
 git grep -E "0x[a-fA-F0-9]{64}"
 
+# Tracked-files scan — T10.8 extended 7
+git grep -IE "AKIA[0-9A-Z]{16}"
+git grep -IE "hf_[A-Za-z0-9]{34,}"
+git grep -IE "sk-proj-[A-Za-z0-9_-]{20,}"
+git grep -IE "sk_live_[A-Za-z0-9]{20,}"
+git grep -IE "sk_test_[A-Za-z0-9]{20,}"
+git grep -IE "\b[a-fA-F0-9]{64}\b"
+git grep -IEn "mnemonic|seed[[:space:]]*phrase|recovery[[:space:]]*phrase" \
+  -- '*.py' '*.md' '*.yml' '*.txt' '*.json'
+
 # Git history scan
-git log --all -p | grep -E "sk-ant-|sk-or-v1-|gsk_"
+git log --all -p | grep -E "sk-ant-|sk-or-v1-|gsk_|AKIA[0-9A-Z]{16}|hf_[A-Za-z0-9]{34}|sk-proj-|sk_live_|sk_test_"
 git log --all --diff-filter=A --name-only | grep -E "^\.env$|\.key$"
 
 # Ephemeral filesystem
-grep -rE "sk-ant-|sk-or-v1-|gsk_" logs/ reports/ backups/ 2>/dev/null
+grep -rIE "sk-ant-|sk-or-v1-|gsk_|AKIA[0-9A-Z]{16}|hf_[A-Za-z0-9]{34}|sk-proj-|sk_live_|sk_test_|\b[a-fA-F0-9]{64}\b" \
+  logs/ reports/ backups/ 2>/dev/null
 ```
 
-All should return empty (as of 2026-04-22 T10.1 closure).
+All should return empty (as of 2026-04-22 T10.1 closure, re-verified
+2026-04-22 T10.8 with extended pattern set).
+
+## T10.8 post-audit closure (2026-04-22)
+
+Extended the original 6-regex pattern set with 7 more (AKIA, hf_,
+sk-proj-, sk_live_, sk_test_, bare 64-hex, BIP-39 heuristic) covering
+AWS / HuggingFace / OpenAI-project / Stripe / raw private keys /
+wallet seeds. Re-ran all 3 scopes (tracked files / git history /
+ephemeral filesystem):
+
+- **Tracked files:** 0 real matches. Two advisory matches reviewed:
+  `TASKS.md:596` is the scan's own scope description (self-reference);
+  `telegram_bot/handlers/strategies.py` line matching 12-word
+  heuristic is an English comment about pagination, not a mnemonic.
+- **Git history:** 0 matches.
+- **Ephemeral filesystem:** 0 matches.
+
+Epic 11 T11.4 `detect-secrets` / `gitleaks` baseline will bake in
+all 13 patterns (6 original + 7 T10.8) as its starting config so the
+pre-commit hook enforces the same surface.
