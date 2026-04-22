@@ -492,16 +492,21 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
     4. `tests/unit/test_whale_signal.py` — **CRITICAL fix**: `importlib.reload()` kaldırıldı (FLAKY_AUDIT CRITICAL), DI pattern (`SignalFusion(weights=SignalWeights(whale_flow=0.10))`) + autouse fixture.
     5. `tests/test_phase56_engine.py` — `asyncio.get_event_loop().run_until_complete()` → `asyncio.run()` (Python 3.10+ compat, pytest-randomly order-dep bulmuştu).
   - Doktrin: ENV + module-flag state leak'ine karşı autouse monkeypatch fixture + DI pattern. Bulgu D (Task #44) bu commit'te closed.
-- [ ] **T9.6** Critical-path regression coverage fill — risk: MED, bağımlılık: T9.2
-  - Öncelik sırası (coverage raporuna göre güncellenir):
-    1. `risk_manager.py` — RiskState mutations, per_asset_flat round-trip (T3.4 var), concurrent update race, DB restart rehydration.
-    2. `live_trader.py` — LIVE_MAX_DAILY_LOSS trip, LIVE_MIN_SIGNAL/LIVE_MIN_ODDS gate, T7.6 A5 ENV-override runtime read (whitelist var, test yok).
-    3. `engine_fills.py` + `engine_settlement.py` — order lifecycle state machine, TAKER stuck timeout (Sprint 5 hotfix v6), settlement resolution notify.
-    4. `ai_brain.py` — LLM rate-limit helpers (T8.2 7 test ✅), `LLM_RATELIMIT_*` runtime toggle (yeni T6.1 helpers için 1 test ekle: override → immediate effect).
-    5. `auto_optimizer.py` — ADAPTIVE_PNL math, ROLLING_WR window edge (test var), PROTECTED_STRATEGY_TYPES skip.
-    6. `engine_signals.py` — fusion composite, whale weight (T9.3.d-f sonrası), MCI score clamp.
-    7. `bg_task.py` — ✅ 7 test B6 (GC survival, done-callback release). Tamam.
-  - Her modül için `tests/unit/test_<module>_coverage.py` ekle. Mocking: in-memory SQLite + httpx MockTransport.
+- [x] **T9.6** Critical-path regression coverage fill ✅ **CLOSED 2026-04-22** (commits `57aa699` `a5703d5` `e5cc9b1` `cba44f1` `8f37580` `48aafa5` `1b91603` `34ec38c`)
+  - 8 yeni test dosyası × 160 test eklendi. Pure-logic + ENV-helper surface hedef alındı; DB/async/network-heavy yollar T9.8 integration smoke'a devredildi.
+  - Baseline vs exit coverage (critical-path):
+    1. `risk_manager.py` — 62.1% (T3.4 + prior work yeterli, yeni test yok).
+    2. `live_trader.py` — 0% → **39.0%** (27 test: ENV helpers, is_enabled, daily reset, whitelist, maybe_mirror_rejections, check_settlement).
+    3. `engine_fills.py` — 0% → **30.3%** (26 test: snap_to_tick, ob_imbalance, queue_ahead_usd, taker_fee, slippage, on_real_trade).
+    3b. `engine_settlement.py` — 8.1% (5 test: _get_settle_lock Phase 54 P0-05 race-free kontrak pinlendi).
+    4. `ai_brain.py` — 6.0% → **7.5%** (21 test: T8.2 rate-limit helpers runtime re-read, _parse_retry_after, _rate_limit_active).
+    5. `auto_optimizer.py` — 9.2% → **11.8%** (24 test: PNL_PAUSE/ROLLING_WR runtime helpers, _is_protected_type, _adaptive_pnl_threshold).
+    6. `engine_signals.py` — 4.7% → **5.4%** (29 test: _parse_zones, _in_allowed_zone, _classic_free_mode, _compute_pending_reserved, _get_brier_bin).
+    7. `bg_task.py` — 57.0% ✅ (T9.6 öncesi T9.6 kapsam dışı).
+    8. `engine_monitor.py` — 0% → **9.9%** (16 test: _track_max_moves Phase 60, _pop_max_moves, _smart_exit_enabled/_remaining_edge_min runtime).
+    9. `kill_switch.py` — 0% → **93.8%** (12 test: 3-channel emergency stop, deactivate cleanup, status dict).
+  - **Exit state:** 662 pass + 8 skip + 0 fail, TOTAL coverage 17.5% → **21.2%**. Critical-path 9.7% → ~24% (7 modül avg).
+  - Pattern: Mixin harness class `FillsHarness(EngineFillsMixin)` pure-logic unit-test enabler. ENV runtime-read guard'ları her helper için 2 sequential `monkeypatch.setenv` ile doğrulandı (T6.1/T7.6 A5 doktrini).
 - [ ] **T9.7** Ghost module / invariant drift guards — risk: MED
   - T6.3 brain_flags parity ✅ mevcut. Genişletme:
     - `/env_toggle` whitelist runtime-readiness guard (T6.4 closing test ✅ `test_whitelist_runtime_readiness.py`). +Test: yeni knob eklendiğinde runtime helper yoksa test RED olsun (import-time `os.getenv` sabiti için AST taraması).
