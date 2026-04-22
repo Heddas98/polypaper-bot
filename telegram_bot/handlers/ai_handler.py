@@ -18,6 +18,7 @@ the extracted args directly to the mapped handler.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Awaitable, Callable
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -354,8 +355,18 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle brain feature toggle buttons."""
+    """Handle brain feature toggle buttons.
+
+    Epic 10 T10.2 (C2): admin gate — without it, any Telegram user
+    who reaches a brain_toggle_* / brain_refresh callback_data can
+    disable ai_brain, autopilot, kelly_sizing and other flags that
+    govern live trading decisions.
+    """
     query = update.callback_query
+    admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
+    if admin_id and str(update.effective_user.id) != str(admin_id):
+        await query.answer("⛔ Admin only", show_alert=True)
+        return
     engine = context.bot_data.get("engine")
     db = context.bot_data.get("db")
 

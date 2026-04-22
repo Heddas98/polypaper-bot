@@ -3,6 +3,7 @@ PolyPaper Bot - /strategies Handler (v7)
 ALL buttons work including Edit with full detail view.
 """
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -12,6 +13,29 @@ from telegram_bot.banners import banner_strategies
 from telegram_bot.templates.safe_html import esc  # Phase 51 P51-03 Faz-2 Cluster E
 
 logger = logging.getLogger("polypaper.handlers.strategies")
+
+
+def _is_admin_call(update: Update) -> bool:
+    """Epic 10 T10.2 (C3): admin gate for state-mutating callbacks.
+
+    Returns True if ADMIN_TELEGRAM_ID / ADMIN_CHAT_ID is unset (dev
+    mode) or if the caller matches. Returns False for non-admin user
+    in single-admin production deployment.
+    """
+    admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
+    if not admin_id:
+        return True  # dev mode — no admin configured, allow
+    user = update.effective_user
+    if user is None:
+        return False
+    return str(user.id) == str(admin_id)
+
+
+async def _deny_callback(update: Update) -> None:
+    """Respond to non-admin callback with a standard refusal popup."""
+    q = update.callback_query
+    if q is not None:
+        await q.answer("⛔ Admin only", show_alert=True)
 
 
 async def strategies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,6 +163,10 @@ async def strategies_page_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def start_strategy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Epic 10 T10.2 (C3): admin gate — sid comes verbatim from
+    # callback_data; without this, any caller can flip any strategy.
+    if not _is_admin_call(update):
+        return await _deny_callback(update)
     q = update.callback_query
     sid = q.data.replace("start_strat_", "")
     db: Database = context.bot_data["db"]
@@ -150,6 +178,9 @@ async def start_strategy_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def stop_strategy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Epic 10 T10.2 (C3): admin gate.
+    if not _is_admin_call(update):
+        return await _deny_callback(update)
     q = update.callback_query
     sid = q.data.replace("stop_strat_", "")
     db: Database = context.bot_data["db"]
@@ -167,7 +198,13 @@ async def delete_strategy_callback(update: Update, context: ContextTypes.DEFAULT
       delete_strat_<sid>           → first tap: show confirm dialog
       delete_strat_confirm_<sid>   → user confirms: actually delete
       delete_strat_cancel_<sid>    → user cancels: dismiss dialog
+
+    Epic 10 T10.2 (C3): admin gate — without it, any Telegram user who
+    reaches a delete_strat_* callback can delete any strategy by id.
     """
+    # Gate before reading any callback_data.
+    if not _is_admin_call(update):
+        return await _deny_callback(update)
     q = update.callback_query
     raw = q.data.replace("delete_strat_", "")
     db: Database = context.bot_data["db"]
@@ -218,6 +255,9 @@ async def delete_strategy_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def start_all_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Epic 10 T10.2 (C3): admin gate.
+    if not _is_admin_call(update):
+        return await _deny_callback(update)
     q = update.callback_query
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
@@ -236,6 +276,9 @@ async def start_all_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def stop_all_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Epic 10 T10.2 (C3): admin gate.
+    if not _is_admin_call(update):
+        return await _deny_callback(update)
     q = update.callback_query
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)

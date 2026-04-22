@@ -598,10 +598,18 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Sonuç:** 6 LLM/crypto regex × (tracked files + git history + ephemeral fs) = **0 match**. `.env` hiç commit edilmemiş; `.env.example` placeholder-only; `.gitignore` coverage (.env + .env.* + *.key + secrets/ + *.db + backups/ + logs/ + reports/) ile `!.env.example` allowlist doğru. Rotation / `git filter-repo` gerekmiyor.
   - **Rapor:** `docs/security/T10_1_secret_leak_scan.md` (8 pattern tablosu + 4 scope kanıtı + Windows re-run komutları).
   - **Forward:** T11.4'te `detect-secrets` veya `gitleaks` pre-commit hook — baseline commit + yeni detection fail.
-- [ ] **T10.2** Telegram input sanitization denetimi — risk: HIGH
-  - `telegram_bot/handlers/*.py` içinde `update.message.text`, callback_data, update.effective_user.id alan fonksiyonlar → `_trim`, HTML escape, SQL parametreli query kullanılıyor mu?
-  - Admin komutları (`/force_settle`, `/env_toggle`, `/kill`) için ADMIN_TELEGRAM_ID kontrolü **her** handler başında var mı?
-  - `re.compile` kullanan regex'lerin ReDoS'a karşı kontrolü
+- [x] **T10.2** Telegram input sanitization denetimi — risk: HIGH — ✅ **Batch 1 CLOSED (2026-04-22)**
+  - **Audit kapsamı:** 28 handlers + bot.py + 11 jobs. HTML escape (esc), SQL param `?`, ReDoS, admin gate, callback_data parsing, shell/eval/os.system, user-text exception leak.
+  - **Sonuç:** Baseline solid (HTML escape uniform, SQL param 100+ call doğru, regex static-len, 0 eval/shell). **3 CRITICAL + 2 LOW** bulundu:
+    - **C1** `filters_callback` → os.environ + DB mutation without admin gate (sibling `filters_command` HAS gate). Fixed.
+    - **C2** `brain_toggle_callback` → engine.brain_flags + engine._kelly_mode mutation without admin gate. Fixed.
+    - **C3** `start/stop/delete_strategy_callback` + `start_all`/`stop_all` → sid from callback_data, no admin gate, no ownership check. Fixed via `_is_admin_call()` + `_deny_callback()` helper.
+    - **L1** `force_settle_handler:206`, **L2** `ai_handler:351-353` — exception str echoed (escaped) to user; Batch 2 backlog (mainnet-non-blocker).
+  - **Rapor:** `docs/security/T10_2_telegram_input_sanitization.md` (findings + safe patterns + fix batches + verification commands).
+  - **Regression:** `tests/unit/test_callback_admin_gate.py` 8 test — AST-based (sandbox-safe), pin 7 callback admin gate invariant.
+  - **Full suite:** 723 → **731 pass + 8 skip + 0 fail** (+8 new).
+  - **Forward (Batch 2):** L1/L2 generic user-message refactor → Epic 10 sonrası nice-to-have.
+  - **Forward (Batch 3, Epic 11):** Application-level global `TypeHandler` admin pre-check olarak defense-in-depth.
 - [ ] **T10.3** Dependency CVE scan — risk: MED
   - `pip install pip-audit --break-system-packages` → `pip-audit -r requirements.txt`
   - py-clob-client, httpx, websockets, aiosqlite, python-telegram-bot, optuna için bilinen CVE varsa upgrade planı

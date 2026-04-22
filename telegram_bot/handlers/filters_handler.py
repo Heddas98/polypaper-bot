@@ -376,8 +376,18 @@ async def filters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def filters_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle all flt:* callback queries."""
+    """Handle all flt:* callback queries.
+
+    Epic 10 T10.2 (C1): admin gate — callback mirrors filters_command's
+    admin check (L368-371). Without this, any Telegram user who reaches
+    a callback_data="flt:*" payload can mutate runtime filter state
+    (os.environ + bot_settings DB).
+    """
     query = update.callback_query
+    admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
+    if admin_id and str(update.effective_user.id) != str(admin_id):
+        await query.answer("⛔ Admin only", show_alert=True)
+        return
     await query.answer()
     data = query.data  # e.g. "flt:toggle:parity_gate"
 
