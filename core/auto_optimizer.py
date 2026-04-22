@@ -44,8 +44,27 @@ def _get_pnl_pause_threshold() -> float:
 
 
 LOSS_STREAK_LIMIT = 5          # Consecutive losses to trigger pause
-ROLLING_WR_WINDOW = int(os.getenv("ROLLING_WR_WINDOW", "20"))        # Phase 52
-ROLLING_WR_KILL_THRESHOLD = float(os.getenv("ROLLING_WR_KILL", "40.0"))  # Phase 52: WR% below this → pause
+
+# T7.6 B8 (2026-04-22): Phase 52 rolling-WR gates were module-top constants
+# and therefore frozen at import. Same ghost-toggle class as T6.1 / T6.4 —
+# a ``/env_toggle`` patch of ``ROLLING_WR_WINDOW`` or ``ROLLING_WR_KILL``
+# would not take effect until restart. Helpers re-read on every call.
+def _get_rolling_wr_window() -> int:
+    """``ROLLING_WR_WINDOW`` — sample size for rolling WR check (default 20)."""
+    try:
+        return int(os.getenv("ROLLING_WR_WINDOW", "20"))
+    except (TypeError, ValueError):
+        return 20
+
+
+def _get_rolling_wr_kill_threshold() -> float:
+    """``ROLLING_WR_KILL`` — WR%% below this → pause (default 40.0)."""
+    try:
+        return float(os.getenv("ROLLING_WR_KILL", "40.0"))
+    except (TypeError, ValueError):
+        return 40.0
+
+
 TYPES_TO_WATCH = {"momentum", "scalper", "contrarian", "martingale"}  # Extra scrutiny
 
 # ═══════════════════════════════════════════════════════════════════
@@ -235,7 +254,9 @@ class AutoOptimizer:
         PNL_PAUSE_THRESHOLD but are actively bleeding on recent trades.
         The rolling window (default 20) is env-tunable via ROLLING_WR_WINDOW.
         """
-        if ROLLING_WR_WINDOW < 10:
+        rolling_window = _get_rolling_wr_window()
+        kill_threshold = _get_rolling_wr_kill_threshold()
+        if rolling_window < 10:
             return  # Safety: need a meaningful window
         try:
             strategies = await self.db.get_active_strategies()
@@ -248,33 +269,33 @@ class AutoOptimizer:
                         """SELECT pnl FROM executions
                            WHERE strategy_id=? AND result IS NOT NULL
                            ORDER BY closed_at DESC LIMIT ?""",
-                        (s.id, ROLLING_WR_WINDOW))
+                        (s.id, rolling_window))
                 except Exception:
                     continue
-                if len(rows) < ROLLING_WR_WINDOW:
+                if len(rows) < rolling_window:
                     continue  # Not enough recent data
                 wins = sum(1 for r in rows if r[0] > 0)
                 wr = wins / len(rows) * 100
-                if wr < ROLLING_WR_KILL_THRESHOLD:
+                if wr < kill_threshold:
                     from db.models import StrategyStatus
                     await self.db.update_strategy_status(s.id, StrategyStatus.STOPPED)
                     stype = getattr(s, 'strategy_type', 'fusion') or 'fusion'
                     logger.warning(
                         f"⚠️ Rolling WR kill: {s.id[:8]} [{stype}] "
                         f"{s.asset.value}/{s.timeframe.value}: "
-                        f"WR={wr:.0f}% (last {len(rows)}t) < {ROLLING_WR_KILL_THRESHOLD}%")
+                        f"WR={wr:.0f}% (last {len(rows)}t) < {kill_threshold}%")
                     try:
                         from core.changelog import log_change
                         await log_change(self.db, s.id, "ROLLING_WR_KILL", "adaptive_optimizer",
                                          old={"status": "active"}, new={"status": "stopped"},
-                                         reason=f"WR={wr:.0f}% < {ROLLING_WR_KILL_THRESHOLD}% (last {len(rows)}t)",
+                                         reason=f"WR={wr:.0f}% < {kill_threshold}% (last {len(rows)}t)",
                                          label=getattr(s, 'label', ''), wr=wr)
                     except Exception:
                         pass
                     await self._notify_paused(
                         [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
                          f"WR={wr:.0f}% (last {len(rows)}t)"],
-                        f"Rolling WR &lt; {ROLLING_WR_KILL_THRESHOLD:.0f}%")
+                        f"Rolling WR &lt; {kill_threshold:.0f}%")
         except Exception as e:
             logger.error(f"Rolling WR check: {e}")
 

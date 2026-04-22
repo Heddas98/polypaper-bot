@@ -132,6 +132,19 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "group": "risk",
         "desc": "Auto-optimizer PnL pause esigi (USD, negatif) — Sprint 0 -8.0",
     },
+    # T7.6 B8: Phase 52 rolling-WR gates — now runtime-read via
+    # ``core.auto_optimizer._get_rolling_wr_window`` /
+    # ``_get_rolling_wr_kill_threshold``.
+    "ROLLING_WR_WINDOW": {
+        "type": "int", "default": "20", "min": 10, "max": 1000,
+        "group": "risk",
+        "desc": "Rolling WR kontrol icin sample sayisi (Phase 52)",
+    },
+    "ROLLING_WR_KILL": {
+        "type": "float", "default": "40.0", "min": 0.0, "max": 100.0,
+        "group": "risk",
+        "desc": "Rolling WR%% bunun altindaysa pause (Phase 52)",
+    },
     # ── Live (shadow-mirror) safety limits — T7.6 A5 ─────────────────────
     # core/live_trader.py reads these at runtime on every maybe_mirror().
     "LIVE_MAX_TRADE": {

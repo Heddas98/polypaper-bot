@@ -21,10 +21,15 @@ assignment. Scripts and tests are exempt (they run one-shot, not inside
 the always-running engine).
 
 Auto-optimizer module-top constants that are NOT in whitelist (e.g.
-MIN_TRADES_BEFORE_PAUSE, ROLLING_WR_WINDOW, ROLLING_WR_KILL, ADAPTIVE_PNL_*)
-are fine — they're configured via .env + bot restart, which is standard
-Python practice. The guard below only fires if someone adds one of these
-to the whitelist without first adding a `_get_*()` runtime helper.
+MIN_TRADES_BEFORE_PAUSE, ADAPTIVE_PNL_*) are fine — they're configured via
+.env + bot restart, which is standard Python practice. The guard below
+only fires if someone adds one of these to the whitelist without first
+adding a `_get_*()` runtime helper.
+
+T7.6 B8 (2026-04-22): ``ROLLING_WR_WINDOW`` and ``ROLLING_WR_KILL`` have
+been migrated to runtime helpers (``_get_rolling_wr_window`` /
+``_get_rolling_wr_kill_threshold``) and added to the whitelist. They are
+no longer pinned on the AUTO_OPTIMIZER_MODULE_TOP_ENV_VARS list.
 
 This prevents future Epic-6-style audits from re-discovering the same
 pattern: one catch-all test replaces the ad-hoc grep/audit cycle.
@@ -161,8 +166,7 @@ def test_pnl_pause_threshold_has_helper():
 # list here so the intent is explicit and reviewable.
 AUTO_OPTIMIZER_MODULE_TOP_ENV_VARS = {
     "MIN_TRADES_BEFORE_PAUSE",
-    "ROLLING_WR_WINDOW",
-    "ROLLING_WR_KILL",
+    # ROLLING_WR_WINDOW, ROLLING_WR_KILL — migrated to runtime helpers in T7.6 B8
     "ADAPTIVE_PNL_ENABLED",
     "ADAPTIVE_PNL_STEP",
     "ADAPTIVE_PNL_TRADES_PER_STEP",
