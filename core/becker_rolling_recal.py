@@ -314,26 +314,14 @@ class BeckerRollingRecalibrator:
     def _pearson_correlation(
         self, pairs: List[Tuple[float, float]]
     ) -> Optional[float]:
-        """Pearson correlation between deltas and PnL signs."""
-        if len(pairs) < 2:
-            return None
+        """Pearson correlation between deltas and PnL signs.
 
-        xs = [p[0] for p in pairs]
-        ys = [p[1] for p in pairs]
-        n = len(xs)
-
-        mx = sum(xs) / n
-        my = sum(ys) / n
-
-        cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / n
-        vx = sum((x - mx) ** 2 for x in xs) / n
-        vy = sum((y - my) ** 2 for y in ys) / n
-
-        if vx <= 1e-12 or vy <= 1e-12:
-            return None
-
-        corr = cov / (vx * vy) ** 0.5
-        return float(corr)
+        T7.6 B2 (2026-04-22): canonical implementation moved to
+        ``core.stats_utils.pearson_like``. This method is kept as a thin
+        shim because existing callers use ``self._pearson_correlation``.
+        """
+        from core.stats_utils import pearson_like
+        return pearson_like(pairs)
 
     async def get_status(self) -> Dict[str, any]:
         """Current status for /becker_recal_status command."""

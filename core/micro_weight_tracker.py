@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import time
 from collections import deque
 from pathlib import Path
@@ -198,22 +197,7 @@ class MicroWeightTracker:
         self._save_state()
 
 
-def _pearson_like(pairs) -> Optional[float]:
-    """Pearson correlation between boost magnitudes and pnl signs.
-
-    Returns None if either series has zero variance (e.g. all pnls are
-    losses or all boosts are equal).
-    """
-    if len(pairs) < 2:
-        return None
-    xs = [p[0] for p in pairs]
-    ys = [p[1] for p in pairs]
-    n = len(xs)
-    mx = sum(xs) / n
-    my = sum(ys) / n
-    cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / n
-    vx = sum((x - mx) ** 2 for x in xs) / n
-    vy = sum((y - my) ** 2 for y in ys) / n
-    if vx <= 1e-12 or vy <= 1e-12:
-        return None
-    return cov / math.sqrt(vx * vy)
+# T7.6 B2: extracted to core.stats_utils — see module for canonical impl.
+# Preserving module-local binding so call sites ``_pearson_like(all_pairs)``
+# continue to work without touching every caller.
+from core.stats_utils import pearson_like as _pearson_like  # noqa: E402
