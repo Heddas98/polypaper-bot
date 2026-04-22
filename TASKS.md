@@ -610,9 +610,18 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Full suite:** 723 → **731 pass + 8 skip + 0 fail** (+8 new).
   - **Forward (Batch 2):** L1/L2 generic user-message refactor → Epic 10 sonrası nice-to-have.
   - **Forward (Batch 3, Epic 11):** Application-level global `TypeHandler` admin pre-check olarak defense-in-depth.
-- [ ] **T10.3** Dependency CVE scan — risk: MED
-  - `pip install pip-audit --break-system-packages` → `pip-audit -r requirements.txt`
-  - py-clob-client, httpx, websockets, aiosqlite, python-telegram-bot, optuna için bilinen CVE varsa upgrade planı
+- [x] **T10.3** Dependency CVE scan — risk: MED — ✅ **CLOSED (2026-04-22)**
+  - **Bulgu:** `pip-audit -r requirements.txt` → **24 CVE** / 3 paket.
+    - `aiohttp 3.10.0` → 20 CVE (server-side multipart/static/header/smuggling, client redirect cookie leak). Uygulanabilirlik LOW-MED: dashboard GET-only, C-ext parser, static route + multipart + POST yok.
+    - `pillow 11.0.0` → 2 CVE (PSD OOB write + FITS decompression bomb). Uygulanabilirlik N/A: sadece `Image.new()` ile CREATE, `open()` yok.
+    - `python-dotenv 1.0.1` → 1 CVE (`set_key/unset_key` symlink attack). Uygulanabilirlik N/A: sadece `load_dotenv`, write-path yok.
+  - **Karar:** pre-mainnet hygiene için üçünü de upgrade.
+    - `aiohttp 3.10.0 → 3.13.4`
+    - `Pillow 11.0.0 → 12.2.0`
+    - `python-dotenv 1.0.1 → 1.2.2`
+  - **Doğrulama:** upgrade sonrası `pip-audit` → **0 vuln**. `run_full_regression.sh` → **731 pass + 8 skip + 0 fail** (baseline stable, regresyon yok).
+  - **Rapor:** `docs/security/T10_3_pip_audit.md` (paket başına 24 CVE applicability matrisi + upgrade + rollback plan).
+  - **Forward:** T11.4 `pip-audit` pre-commit hook (quarterly CI gate) + `pip list --outdated` hygiene.
 - [ ] **T10.4** `.env` ↔ `.env.example` senkron denetimi — risk: LOW
   - .env.example'da olmayan ama .env'de olan değişken var mı (yeni, dokumante edilmemiş)?
   - .env.example'daki placeholder değerler gerçek değer içeriyor mu (kopya kalıntısı)?
