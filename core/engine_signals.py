@@ -17,10 +17,14 @@ threads context through, so each helper has all state from prior steps.
 from __future__ import annotations
 
 import asyncio
+import json  # Epic 8 T8.1: narrow json.JSONDecodeError in reasoning/lifecycle parse
 import math
 import os
 import time
 from datetime import datetime, timezone
+
+import aiosqlite  # Epic 8 T8.1: narrow DB exception handling (brier/trade_memory)
+import httpx  # Epic 8 T8.1: narrow HTTP exception handling (orderbook fetches)
 
 from core.engine_support import (
     INTERVAL_SECS,
@@ -183,7 +187,8 @@ class EngineSignalsMixin:
             self._brier_cache = cache
             self._brier_cache_time = now
             logger.debug(f"Brier cache refreshed: {len(cache)} bins")
-        except Exception as _be:
+        except (aiosqlite.Error, ValueError, TypeError, KeyError, IndexError) as _be:
+            # Epic 8 T8.1: narrow — DB read + row unpack + float cast
             logger.debug(f"Brier cache load failed (non-critical): {_be}")
             self._brier_cache = {}
 
@@ -239,7 +244,11 @@ class EngineSignalsMixin:
             return cached[1]
         try:
             data = await self.client.get_orderbook(token_id)
-        except Exception as _oe:
+        except Exception as _oe:  # noqa: BLE001 — Epic 8 T8.1: KEEP umbrella.
+            # Cache MUST swallow arbitrary fetch errors (third-party client may
+            # raise custom types); downstream eval path short-circuits on None.
+            # Contract enforced by tests/test_phase82_metadata.py
+            # ::test_cache_swallows_fetch_errors.
             logger.debug(f"_get_ob_cached fetch failed for {token_id[:16]}…: {_oe}")
             return None
         if data:
@@ -254,8 +263,12 @@ class EngineSignalsMixin:
         # ── Phase 74b: Load per-strategy lifecycle params ──
         try:
             _lc_params = await self.lifecycle.get_params(s.id)
-        except Exception:
+        except Exception as _lcp_err:  # noqa: BLE001 — Epic 8 T8.1: umbrella intentional;
+            # lifecycle.get_params aggregates DB+JSON parse; ANY failure must yield
+            # safe global defaults (trade cycle MUST continue). Narrow per-layer
+            # guards already inside lifecycle module.
             from core.strategy_lifecycle import StrategyParams
+            logger.debug(f"lifecycle.get_params fallback for {s.id[:8]}: {_lcp_err}")
             _lc_params = StrategyParams()  # Global defaults as fallback
 
         # ── Step 1: Market & dedup checks ──
@@ -376,8 +389,9 @@ class EngineSignalsMixin:
                 if not _classic_free and (minutes_remaining < mbe or minutes_remaining < 0):
                     self.skips.record("TOO_LATE")
                     return None
-            except Exception:
-                pass
+            except (ValueError, TypeError, AttributeError) as _fiso:
+                # Epic 8 T8.1: narrow — market end_date malformed; continue without TOO_LATE gate
+                logger.debug(f"market end_date parse failed: {_fiso}")
 
         threshold = safe_float(s.odds_threshold)
         if not threshold:
@@ -472,8 +486,9 @@ class EngineSignalsMixin:
                     _elapsed = total_minutes - (minutes_remaining or 0)
                     plugin_meta["time_pct"] = round(
                         max(0.0, min(1.0, _elapsed / total_minutes)), 4)
-            except Exception:
-                pass
+            except (TypeError, ValueError, AttributeError) as _tme:
+                # Epic 8 T8.1: narrow — datetime/arithmetic fallback; plugin_meta optional
+                logger.debug(f"plugin_meta time err: {_tme}")
 
             # 2. POLYMARKET ORDERBOOK — UP token
             real_best_bid = 0.48
@@ -492,7 +507,8 @@ class EngineSignalsMixin:
                         plugin_meta["up_spread"] = round(real_best_ask - real_best_bid, 4)
                     plugin_meta["up_bid_depth"] = sum(float(sz) for _px, sz in _bids[:5])
                     plugin_meta["up_ask_depth"] = sum(float(sz) for _px, sz in _asks[:5])
-            except Exception as _obe:
+            except (TypeError, ValueError, KeyError, IndexError, AttributeError) as _obe:
+                # Epic 8 T8.1: narrow — orderbook shape parse
                 logger.debug(f"plugin_meta up_ob err: {_obe}")
 
             # 3. POLYMARKET ORDERBOOK — DOWN token
@@ -509,7 +525,8 @@ class EngineSignalsMixin:
                             float(_dasks[0][0]) - float(_dbids[0][0]), 4)
                     plugin_meta["down_bid_depth"] = sum(float(sz) for _px, sz in _dbids[:5])
                     plugin_meta["down_ask_depth"] = sum(float(sz) for _px, sz in _dasks[:5])
-            except Exception as _obe:
+            except (TypeError, ValueError, KeyError, IndexError, AttributeError) as _obe:
+                # Epic 8 T8.1: narrow — orderbook shape parse
                 logger.debug(f"plugin_meta down_ob err: {_obe}")
 
             # 4. SPOT + MOMENTUM (external_feed)
@@ -537,7 +554,8 @@ class EngineSignalsMixin:
                             _bmove = (_btc_mom.get("latest_price", 0.0)
                                       - _btc_mom.get("oldest_price", 0.0))
                             plugin_meta["btc_move_usd"] = round(_bmove, 4)
-            except Exception as _se:
+            except (TypeError, ValueError, KeyError, AttributeError) as _se:
+                # Epic 8 T8.1: narrow — external_feed momentum dict parse
                 logger.debug(f"plugin_meta spot err: {_se}")
 
             # 5. BINANCE MICROSTRUCTURE (multistream)
@@ -554,7 +572,8 @@ class EngineSignalsMixin:
                         plugin_meta["binance_trade_count_60s"] = _mf.get("trade_count_60s")
                         plugin_meta["funding_rate"] = _mf.get("funding_rate")
                         plugin_meta["mark_price"] = _mf.get("mark_price")
-            except Exception as _me:
+            except (TypeError, ValueError, KeyError, AttributeError) as _me:
+                # Epic 8 T8.1: narrow — binance_multistream features dict parse
                 logger.debug(f"plugin_meta micro err: {_me}")
 
             # 6. PRE-COMPUTED DIVERGENCE (spot vs odds)
@@ -566,7 +585,8 @@ class EngineSignalsMixin:
                         plugin_meta["divergence_signal"] = _div.get("signal")
                         plugin_meta["divergence_confidence"] = _div.get("confidence")
                         plugin_meta["divergence_active"] = _div.get("divergence")
-            except Exception as _de:
+            except (TypeError, ValueError, KeyError, AttributeError) as _de:
+                # Epic 8 T8.1: narrow — external_feed.get_divergence dict parse
                 logger.debug(f"plugin_meta div err: {_de}")
 
             # 7. STRATEGY-SPECIFIC (martingale)
@@ -586,18 +606,20 @@ class EngineSignalsMixin:
                     _pme = getattr(_rs, "per_market_exposure", None) or {}
                     if slug in _pme:
                         plugin_meta["market_exposure"] = _pme[slug]
-            except Exception as _re:
+            except (TypeError, AttributeError, KeyError) as _re:
+                # Epic 8 T8.1: narrow — RiskState attribute access
                 logger.debug(f"plugin_meta risk err: {_re}")
 
             # 9. LIFECYCLE PHASE (per-strategy adaptive)
             try:
-                import json as _json
                 _pjson = getattr(s, "strategy_params", None)
                 if _pjson:
-                    _params = _json.loads(_pjson) if isinstance(_pjson, str) else _pjson
+                    _params = json.loads(_pjson) if isinstance(_pjson, str) else _pjson
                     plugin_meta["strategy_phase"] = _params.get("phase", "unknown")
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError, AttributeError,
+                    KeyError) as _lpe:
+                # Epic 8 T8.1: narrow — strategy_params JSON + dict access
+                logger.debug(f"plugin_meta lifecycle err: {_lpe}")
 
             snap = MarketSnapshot(
                 up_odds=up or 0.5, down_odds=down or 0.5,
@@ -615,7 +637,10 @@ class EngineSignalsMixin:
             # observed after Phase 82a deploy).
             try:
                 psig = self.plugins.evaluate(stype, snap)
-            except Exception as _pe:
+            except Exception as _pe:  # noqa: BLE001 — Epic 8 T8.1: KEEP umbrella.
+                # Third-party/user-authored plugin isolation boundary; a crashing
+                # plugin must NOT propagate into engine main loop. Full exception
+                # is logged (Phase 82a hotfix root cause comment above).
                 logger.warning(
                     f"  [{sid}] ⚠️ PLUGIN_ERROR [{stype}]: {type(_pe).__name__}: {_pe}"
                 )
@@ -852,13 +877,16 @@ class EngineSignalsMixin:
             try:
                 from config.settings import Settings as _SettingsCls46
                 _settings_46 = _SettingsCls46()
-            except Exception:
+            except (ImportError, AttributeError, TypeError) as _sie:
+                # Epic 8 T8.1: narrow — settings import/construct fallback
+                logger.debug(f"Settings fallback: {_sie}")
                 _settings_46 = None
 
         if bms is not None and trade_direction:
             try:
                 micro_features = bms.features(asset.upper()) if hasattr(bms, "features") else None
-            except Exception as _be:
+            except (AttributeError, TypeError, ValueError, KeyError) as _be:
+                # Epic 8 T8.1: narrow — multistream features dict build
                 logger.debug(f"  [{sid}] micro_features_error: {_be}")
                 micro_features = None
 
@@ -873,7 +901,8 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(f"  [{sid}] ❌ ORACLE_PARITY: Δ={delta_bps:.1f}bps")
                     return None
-            except Exception as _pe:
+            except (AttributeError, TypeError, ValueError, KeyError) as _pe:
+                # Epic 8 T8.1: narrow — chainlink oracle parity math; non-fatal
                 logger.debug(f"  [{sid}] parity_gate_error: {_pe}")
 
         # ── Microstructure boost ──
@@ -885,7 +914,8 @@ class EngineSignalsMixin:
                 if getattr(self, "micro_weight", None) is not None:
                     try:
                         weight *= float(self.micro_weight.get_multiplier())
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError):
+                        # Epic 8 T8.1: narrow — micro_weight optional multiplier
                         pass
                 micro = float(micro_features.get("microprice") or 0.0)
                 mid = float(micro_features.get("mid") or 0.0)
@@ -906,7 +936,8 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(f"  [{sid}] 🔬 micro={boost:+.3f} "
                                     f"(tilt={micro_tilt:+.2f} imb={ob_imb:+.2f} flow={tflow:+.2f})")
-            except Exception as _me:
+            except (AttributeError, TypeError, ValueError, KeyError) as _me:
+                # Epic 8 T8.1: narrow — micro boost math on feature dict
                 logger.debug(f"  [{sid}] micro_boost_error: {_me}")
 
         # ── Funding rate tilt ──
@@ -926,7 +957,8 @@ class EngineSignalsMixin:
                         signal_reason += f" | fr={fr_val*100:+.3f}%→{tilt:+.2f}"
                         if verbose:
                             logger.info(f"  [{sid}] 💸 funding={fr_val*100:+.3f}% tilt={tilt:+.2f}")
-            except Exception as _fe:
+            except (AttributeError, TypeError, ValueError, KeyError) as _fe:
+                # Epic 8 T8.1: narrow — funding rate arithmetic on dict
                 logger.debug(f"  [{sid}] funding_tilt_error: {_fe}")
 
         # ── Phase 70: 2D Calibration Surface C(K,τ) or 1D Becker δ(p) boost ──
@@ -946,7 +978,8 @@ class EngineSignalsMixin:
                     if getattr(self, "becker_weight", None) is not None:
                         try:
                             bboost *= float(self.becker_weight.get_multiplier(asset))
-                        except Exception:
+                        except (AttributeError, TypeError, ValueError):
+                            # Epic 8 T8.1: narrow — becker_weight optional multiplier
                             pass
                     if abs(bboost) > 1e-4:
                         signal_score = max(min(signal_score + bboost, 1.0), -1.0)
@@ -963,7 +996,9 @@ class EngineSignalsMixin:
                                 f"conf={_surf_result.confidence:.2f} "
                                 f"→ boost={bboost:+.3f}"
                                 f"{' ⚠️antisym' if not _surf_result.antisym_ok else ''}")
-            except Exception as _s2e:
+            except (AttributeError, TypeError, ValueError, KeyError,
+                    ImportError) as _s2e:
+                # Epic 8 T8.1: narrow — calibration.surface_2d import + math
                 logger.debug(f"  [{sid}] surface_2d_error: {_s2e}")
 
         # ── Becker δ(p) calibration boost (1D fallback when 2D not used) ──
@@ -993,7 +1028,8 @@ class EngineSignalsMixin:
                     if getattr(self, "becker_weight", None) is not None:
                         try:
                             bweight *= float(self.becker_weight.get_multiplier(asset))
-                        except Exception:
+                        except (AttributeError, TypeError, ValueError):
+                            # Epic 8 T8.1: narrow — becker_weight optional multiplier
                             pass
                     bclamp = float(getattr(self.settings, "BECKER_CALIB_CLAMP", 0.15))
                     bboost = max(min(delta * bweight, bclamp), -bclamp)
@@ -1007,7 +1043,8 @@ class EngineSignalsMixin:
                                 f"(poly={delta_poly:+.3f}"
                                 f"{', kalshi=%+.3f' % delta_kalshi if delta_kalshi is not None else ''}) "
                                 f"→ boost={bboost:+.3f}")
-            except Exception as _de:
+            except (AttributeError, TypeError, ValueError, KeyError) as _de:
+                # Epic 8 T8.1: narrow — becker delta computation on curve
                 logger.debug(f"  [{sid}] becker_delta_error: {_de}")
 
         # ── Becker decision-mode (veto / flip) ──
@@ -1056,7 +1093,9 @@ class EngineSignalsMixin:
                             token_id = new_tok
                             best_ask = new_ask
                             signal_reason += f" | flip(δ={delta_d:+.3f})"
-                except Exception as _ed:
+                except (AttributeError, TypeError, ValueError, KeyError,
+                        httpx.HTTPError, asyncio.TimeoutError) as _ed:
+                    # Epic 8 T8.1: narrow — becker decision + live price fetch
                     logger.debug(f"  [{sid}] becker_decision_error: {_ed}")
 
         # ── Probability Gap log (observation only) ──
@@ -1071,8 +1110,9 @@ class EngineSignalsMixin:
                         f"  [{sid}] 📊 PROB_GAP: δ={_pg_delta:+.4f} ({_gap_bps:+.1f}bps) "
                         f"model_wr={best_ask + _pg_delta:.3f} crowd={best_ask:.3f} "
                         f"→ {_gap_dir} | dir={trade_direction}")
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError, KeyError) as _pge:
+                # Epic 8 T8.1: narrow + observability fix (was silent pass)
+                logger.debug(f"prob_gap log err: {_pge}")
 
         # T1.3 Commit 1 (2026-04-20): Phase 60 Cascade/LagArb/Whale + Phase 71
         # Spread + Phase 76 Markov boost blokları silindi — hepsi ghost modüllere
@@ -1095,7 +1135,9 @@ class EngineSignalsMixin:
                         logger.info(f"  [{sid}] 🧠 MEMORY: {_pattern.pattern_key} "
                                     f"wr={_pattern.win_rate:.0f}% n={_pattern.total_trades} "
                                     f"adj={_mem_adj:+.3f}")
-            except Exception as _tme:
+            except (AttributeError, TypeError, ValueError, KeyError,
+                    aiosqlite.Error) as _tme:
+                # Epic 8 T8.1: narrow — trade_memory DB/parse fallback
                 logger.debug(f"  [{sid}] trade_memory_error: {_tme}")
 
         # T1.3 Commit 1 (2026-04-20): Phase 71 EventWaves market-quality gate
@@ -1194,7 +1236,9 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(f"  [{sid}] ❌ {reason}")
                     return None
-            except Exception as _be:
+            except (aiosqlite.Error, ValueError, TypeError, KeyError,
+                    AttributeError) as _be:
+                # Epic 8 T8.1: narrow — brier cache reload + bin lookup
                 logger.debug(f"brier alarm check failed (non-critical): {_be}")
 
         # Phase 66: UNSELLABLE TOKEN CHECK (pre-entry liquidity gate)
@@ -1221,7 +1265,9 @@ class EngineSignalsMixin:
                     self.skips.record("UNSELLABLE")
                     logger.info(f"  [{sid}] ❌ {unsellable.reason}")
                     return None
-            except Exception as _ue:
+            except (AttributeError, TypeError, ValueError, KeyError) as _ue:
+                # Epic 8 T8.1: narrow — unsellable risk check is fail-open by design
+                # (a parse error must NOT block trading; gate only firm rejects).
                 logger.debug(f"unsellable check: {_ue}")
 
         # RISK CHECK
@@ -1233,7 +1279,10 @@ class EngineSignalsMixin:
         effective_balance = max(wallet.balance - pending_reserved, 0.0)
         try:
             verdict = self.risk.check_trade(s.trade_amount, slug, effective_balance, strategy_id=s.id)
-        except Exception as _risk_err:
+        except Exception as _risk_err:  # noqa: BLE001 — Epic 8 T8.1: KEEP umbrella.
+            # RiskManager.check_trade composes ~20 sub-gates (DB, state math, ENV).
+            # ANY failure must FAIL-CLOSED: skip the trade, record, and continue.
+            # logger.warning already captures type+msg; caller records RISK_ERROR.
             logger.warning(f"  [{sid}] ❌ RISK_ERROR: {type(_risk_err).__name__}: {_risk_err}")
             self.skips.record("RISK_ERROR")
             return None
@@ -1333,8 +1382,10 @@ class EngineSignalsMixin:
                     if trade_amount != old_amt:
                         logger.info(f"  🎯 [{sid}] KELLY: ${old_amt:.2f}→${trade_amount:.2f} "
                                     f"({kelly['quarter_kelly_pct']:.1f}% QK, {kelly['confidence']})")
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError, KeyError,
+                    aiosqlite.Error) as _ke:
+                # Epic 8 T8.1: narrow + observability fix (was silent pass)
+                logger.debug(f"  [{sid}] kelly_sizing err: {_ke}")
 
         # Event calendar sizing
         _event_sizing_mult = 1.0
@@ -1347,8 +1398,9 @@ class EngineSignalsMixin:
                         logger.info(
                             f"  [{sid}] 📅 EVENT: {ev_alert.name} in {ev_alert.hours_until:.1f}h "
                             f"(sev={ev_alert.severity:.2f}) → size×{_event_sizing_mult:.2f}")
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError, KeyError) as _eve:
+                # Epic 8 T8.1: narrow + observability fix (was silent pass)
+                logger.debug(f"  [{sid}] event_monitor err: {_eve}")
 
         # Conviction-based sizing
         _conv_enabled = os.getenv("CONVICTION_ENABLED", "true").lower() == "true"
@@ -1383,7 +1435,8 @@ class EngineSignalsMixin:
                         f"  🎯 [{sid}] CONVICTION: {conviction:.2f} "
                         f"${pre_conv:.2f}→${trade_amount:.2f} "
                         f"(sig={_sig_norm:.2f} conf={_conf} zone={_zone_mult:.2f})")
-            except Exception as _conv_err:
+            except (AttributeError, TypeError, ValueError, KeyError) as _conv_err:
+                # Epic 8 T8.1: narrow — conviction math on kelly dict + env
                 logger.debug(f"Conviction calc: {_conv_err}")
 
         # Event sizing reduction
@@ -1443,7 +1496,9 @@ class EngineSignalsMixin:
                 _ev_tracker = getattr(self, "_ev_tracker", None)
                 if _ev_tracker:
                     _ev_tracker.record(ev_result)
-            except Exception as _ev_err:
+            except (AttributeError, TypeError, ValueError, KeyError,
+                    ImportError) as _ev_err:
+                # Epic 8 T8.1: narrow — compute_ev import + math; fail-open
                 logger.debug(f"ev_threshold: {_ev_err}")
 
         # Canary sizing cap
@@ -1458,7 +1513,8 @@ class EngineSignalsMixin:
                 if trade_amount != pre_cap and verbose:
                     logger.info(
                         f"  🕯 [{sid}] CANARY: ${pre_cap:.2f}→${trade_amount:.2f} (×{canary_mult})")
-        except Exception as _ce:
+        except (AttributeError, TypeError, ValueError) as _ce:
+            # Epic 8 T8.1: narrow — canary env-mult float cast
             logger.debug(f"canary cap: {_ce}")
 
         # Phase 74b: Lifecycle trade_amount_mult for proven winners
@@ -1489,7 +1545,9 @@ class EngineSignalsMixin:
                         trade_amount = 1.0
                     if verbose:
                         logger.info(f"  [{sid}] 💰 CAPITAL_CAP: ${pre_ca:.2f}→${trade_amount:.2f}")
-            except Exception as _cae:
+            except (AttributeError, TypeError, ValueError, KeyError,
+                    aiosqlite.Error) as _cae:
+                # Epic 8 T8.1: narrow — capital_allocator DB/dict access
                 logger.debug(f"capital_allocator check: {_cae}")
 
         ctx.update({
@@ -1674,7 +1732,10 @@ class EngineSignalsMixin:
                 ob_q = await asyncio.wait_for(
                     self.client.get_orderbook(token_id), timeout=2.0)
                 queue_ahead_usd = self._compute_queue_ahead_usd(ob_q, limit, side="BUY")
-            except Exception:
+            except (httpx.HTTPError, asyncio.TimeoutError, AttributeError,
+                    TypeError, ValueError, KeyError, IndexError) as _qee:
+                # Epic 8 T8.1: narrow + observability fix (was silent pass)
+                logger.debug(f"queue_ahead_usd fetch err: {_qee}")
                 queue_ahead_usd = 0.0
 
         # REST submit latency
@@ -1739,7 +1800,6 @@ class EngineSignalsMixin:
             _reasoning = None
             if os.getenv("TRADE_REASONING_LOG", "true").lower() == "true":
                 try:
-                    import json as _json
                     _rdata = {
                         "signals": {
                             "composite": round(signal_score, 4),
@@ -1754,7 +1814,8 @@ class EngineSignalsMixin:
                     }
                     try:
                         _rdata["conviction"] = round(ctx.get("_conviction", 0), 3)
-                    except Exception:
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        # Epic 8 T8.1: narrow — ctx conviction cast
                         _rdata["conviction"] = None
                     try:
                         _rdata["kelly"] = {
@@ -1762,11 +1823,13 @@ class EngineSignalsMixin:
                             "confidence": kelly.get("confidence"),
                             "qk_pct": kelly.get("quarter_kelly_pct", 0),
                         }
-                    except Exception:
+                    except (TypeError, AttributeError, KeyError):
+                        # Epic 8 T8.1: narrow — kelly dict access
                         _rdata["kelly"] = None
-                    _reasoning = _json.dumps(_rdata, default=str)
-                except Exception:
-                    pass
+                    _reasoning = json.dumps(_rdata, default=str)
+                except (TypeError, ValueError, AttributeError) as _rje:
+                    # Epic 8 T8.1: narrow + observability fix (was silent pass)
+                    logger.debug(f"reasoning JSON build err: {_rje}")
 
             self._pending.append(VirtualOrder(
                 strategy_id=s.id, slug=slug, token_id=token_id,
@@ -1790,8 +1853,9 @@ class EngineSignalsMixin:
             _regime = getattr(self.regime, "regime", "unknown") if hasattr(self, "regime") else "unknown"
             log_decision_open(s.id, slug, direction.value, signal_score,
                               signal_reason, limit, trade_amount, fee, regime=_regime)
-        except Exception:
-            pass
+        except (ImportError, AttributeError, TypeError, ValueError, OSError) as _lde:
+            # Epic 8 T8.1: narrow + observability fix (was silent pass)
+            logger.debug(f"log_decision_open err: {_lde}")
 
         # Phase 47a: micro boost tracker
         if getattr(self, "micro_weight", None) is not None and abs(micro_boost_value) > 1e-4:
@@ -1799,7 +1863,8 @@ class EngineSignalsMixin:
                 self.micro_weight.record_open(
                     order_key=f"{s.id}:{slug}", asset=ctx["asset"].upper(),
                     signed_boost=micro_boost_value)
-            except Exception as _mwo:
+            except (AttributeError, TypeError, ValueError, KeyError) as _mwo:
+                # Epic 8 T8.1: narrow — micro_weight tracker record
                 logger.debug(f"micro_weight.record_open: {_mwo}")
         # Phase 48: Becker δ tracker
         if getattr(self, "becker_weight", None) is not None and abs(becker_delta_value) > 1e-4:
@@ -1807,7 +1872,8 @@ class EngineSignalsMixin:
                 self.becker_weight.record_open(
                     order_key=f"{s.id}:{slug}", asset=ctx["asset"].upper(),
                     signed_delta=becker_delta_value)
-            except Exception as _bwo:
+            except (AttributeError, TypeError, ValueError, KeyError) as _bwo:
+                # Epic 8 T8.1: narrow — becker_weight tracker record
                 logger.debug(f"becker_weight.record_open: {_bwo}")
 
         mode = "MAKER" if is_maker else "TAKER"
