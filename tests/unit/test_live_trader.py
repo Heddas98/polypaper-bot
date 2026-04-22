@@ -27,6 +27,7 @@ import pytest
 from core.live_trader import (
     LIVE_STRATEGIES,
     LiveTrader,
+    _get_live_budget,
     _get_max_daily_loss,
     _get_max_trade,
     _get_min_odds,
@@ -79,6 +80,84 @@ class TestEnvHelpers:
         second = _get_max_trade()
         assert first == 1.00
         assert second == 3.14  # fresh read, not frozen
+
+
+# ═══ T11.2 [B]: LIVE_BUDGET runtime re-read (ghost-toggle class) ═══════
+
+class TestLiveBudgetRuntime:
+    """``LIVE_BUDGET`` was ctor-fixed on ``self._budget`` pre-T11.2 [B].
+    An operator tightening the cap via ``/envt LIVE_BUDGET 0.50`` would
+    patch os.environ but the trader kept spending up to the old ceiling.
+
+    These tests pin:
+      1. ``_get_live_budget`` default + override + invalid fallback.
+      2. ``_get_live_budget`` runtime re-read (no module-top freeze).
+      3. ``LiveTrader._budget`` property delegates to the helper — i.e.
+         the ``/envt`` update is visible at the instance level without
+         re-instantiating or restarting the bot.
+    """
+
+    def test_default_is_phase48_deposit(self, monkeypatch):
+        """Default = 1.49 — matches the $1.49 USDC in the derived-L2 wallet."""
+        monkeypatch.delenv("LIVE_BUDGET", raising=False)
+        assert _get_live_budget() == 1.49
+
+    def test_explicit_override(self, monkeypatch):
+        monkeypatch.setenv("LIVE_BUDGET", "5.00")
+        assert _get_live_budget() == 5.00
+
+    def test_malformed_falls_back(self, monkeypatch):
+        """Garbage env → silent fallback to default (do NOT crash the
+        mirror loop over a typo in /envt)."""
+        monkeypatch.setenv("LIVE_BUDGET", "not-a-number")
+        assert _get_live_budget() == 1.49
+
+    def test_runtime_reread_no_freeze(self, monkeypatch):
+        """Ghost-toggle guard — two sequential calls see the fresh value."""
+        monkeypatch.setenv("LIVE_BUDGET", "1.49")
+        assert _get_live_budget() == 1.49
+        monkeypatch.setenv("LIVE_BUDGET", "3.00")
+        assert _get_live_budget() == 3.00
+
+    def test_instance_property_tracks_env(self, monkeypatch):
+        """The ``lt._budget`` property must reflect every env flip
+        immediately — this is the whole point of T11.2 [B]. A single
+        LiveTrader instance, two env flips, three distinct reads."""
+        monkeypatch.setenv("LIVE_BUDGET", "1.49")
+        lt = LiveTrader()
+        assert lt._budget == 1.49
+        monkeypatch.setenv("LIVE_BUDGET", "2.50")
+        assert lt._budget == 2.50
+        monkeypatch.setenv("LIVE_BUDGET", "0.75")
+        assert lt._budget == 0.75
+
+    def test_property_is_readonly(self):
+        """T11.2 [B]: ``_budget`` is intentionally read-only.
+
+        No ``@<prop>.setter`` is defined, so direct attr write raises
+        ``AttributeError``. This pins the "env-is-the-source-of-truth"
+        invariant — anyone needing to mutate the cap at runtime MUST
+        go through the env (``/envt LIVE_BUDGET ...``), which keeps an
+        audit trail; silent in-process mutation would bypass that.
+        """
+        lt = LiveTrader()
+        with pytest.raises(AttributeError):
+            lt._budget = 99.0  # type: ignore[misc]
+
+    def test_get_status_budget_tracks_env(self, monkeypatch):
+        """/live status reads ``budget`` + ``remaining`` from the dict.
+        Both fields must reflect the current env, not a frozen snapshot."""
+        monkeypatch.setenv("LIVE_BUDGET", "1.49")
+        lt = LiveTrader()
+        lt._total_spent = 0.25
+        s1 = lt.get_status()
+        assert s1["budget"] == 1.49
+        assert s1["remaining"] == pytest.approx(1.24)
+        # Operator raises the cap mid-session
+        monkeypatch.setenv("LIVE_BUDGET", "5.00")
+        s2 = lt.get_status()
+        assert s2["budget"] == 5.00
+        assert s2["remaining"] == pytest.approx(4.75)
 
 
 # ═══ is_enabled AND-gate ═══════════════════════════════════════════════
@@ -221,11 +300,13 @@ def active_trader(monkeypatch):
     monkeypatch.setenv("LIVE_MAX_DAILY_LOSS", "1.00")
     monkeypatch.setenv("LIVE_MIN_SIGNAL", "0.75")
     monkeypatch.setenv("LIVE_MIN_ODDS", "0.75")
+    # T11.2 [B]: `lt._budget` is now a read-only @property backed by
+    # env. Pin LIVE_BUDGET via monkeypatch instead of direct attr write.
+    monkeypatch.setenv("LIVE_BUDGET", "1.49")
     lt = LiveTrader()
     lt._enabled = True
     lt._paused = False
     lt._auth_verified = True
-    lt._budget = 1.49
     lt._total_spent = 0.0
     lt._daily_pnl = 0.0
     return lt

@@ -70,6 +70,20 @@ def _get_min_odds() -> float:
     except (TypeError, ValueError):
         return 0.75
 
+
+def _get_live_budget() -> float:
+    """``LIVE_BUDGET`` — lifetime budget cap for shadow live trading
+    (default 1.49, matches the $1.49 USDC deposited into the Phase 48
+    derived-L2 wallet). Runtime re-read per call so an admin
+    ``/envt LIVE_BUDGET 5.00`` takes effect immediately on the next
+    ``maybe_mirror`` budget gate check — same ghost-toggle class as
+    T6.1 PNL_PAUSE and T6.4 rolling-WR knobs (T11.2 [B] 2026-04-22).
+    """
+    try:
+        return float(os.getenv("LIVE_BUDGET", "1.49"))
+    except (TypeError, ValueError):
+        return 1.49
+
 # LIVE_STRATEGIES: whitelist of paper strategies that may mirror to
 # real-money ($1/trade) via py-clob-client. Selection criterion: proven
 # WR + positive EV in paper.
@@ -108,11 +122,25 @@ class LiveTrader:
         self._open: Optional[dict] = None
         self._total_spent = 0.0
         self._total_pnl = 0.0
-        self._budget = float(os.getenv("LIVE_BUDGET", "1.49"))
+        # T11.2 [B] (2026-04-22): `self._budget` is now a @property that
+        # re-reads ``LIVE_BUDGET`` on every access (see below). The
+        # previous ctor-fixed assignment froze the budget at bot-start
+        # time, so ``/envt LIVE_BUDGET 5.00`` patched os.environ but the
+        # trader kept using the old ceiling — same ghost-toggle class as
+        # T6.1 PNL_PAUSE and T6.4 rolling-WR knobs.
         self._trade_count = 0
         # Phase 49 A-01: derived L2 credentials cache (derived from POLYGON_PRIVATE_KEY)
         self._api_creds = None  # type: Optional[object]
         self._auth_verified = False
+
+    # T11.2 [B] (2026-04-22): T6.1 parity property — read ``LIVE_BUDGET``
+    # from env on every access so ``/envt LIVE_BUDGET <X>`` takes effect
+    # at runtime. Read-only; ``_total_spent`` is the only mutable
+    # counterpart. DB-persisted state (see _save_state) stores
+    # total_spent / total_pnl / trade_count — budget is a pure env knob.
+    @property
+    def _budget(self) -> float:
+        return _get_live_budget()
 
     async def start(self):
         """
