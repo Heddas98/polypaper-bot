@@ -39,13 +39,33 @@ MAX_BUDGET = 15.0
 # and returned None, which caller treated as "try next provider" and also
 # did NOT charge _spent. Under a 429 storm the AI cycle would hammer the
 # API every cycle without advancing the budget counter — effectively
-# bypassing MAX_BUDGET. This constant block fixes that:
+# bypassing MAX_BUDGET. The runtime helpers below fix that:
 #   - LLM_RATELIMIT_BACKOFF_SEC: cooldown after a 429 (no retry until then)
 #   - LLM_RATELIMIT_MIN_COST: charged to _spent per 429 so we can't loop
 #     forever. Small (0.001) but strictly positive, so MAX_BUDGET wins
 #     eventually even when every call rate-limits.
-LLM_RATELIMIT_BACKOFF_SEC = float(os.getenv("LLM_RATELIMIT_BACKOFF_SEC", "60"))
-LLM_RATELIMIT_MIN_COST = float(os.getenv("LLM_RATELIMIT_MIN_COST", "0.001"))
+#
+# Epic 8 post-closure (2026-04-22): Both knobs are now runtime-read via
+# `_get_llm_ratelimit_backoff()` / `_get_llm_ratelimit_min_cost()` and
+# whitelisted in ``config/env_whitelist.py`` (group ``llm``). The old
+# module-top ``LLM_RATELIMIT_*`` constants were frozen at import, which
+# meant a ``/env_toggle`` patch of these keys would not take effect
+# until a full bot restart (ghost-toggle class — same family as T6.1 /
+# T6.4 / T7.6 B8). Helpers re-read ``os.getenv`` on every call.
+def _get_llm_ratelimit_backoff() -> float:
+    """``LLM_RATELIMIT_BACKOFF_SEC`` — cooldown (s) after a 429 (default 60)."""
+    try:
+        return float(os.getenv("LLM_RATELIMIT_BACKOFF_SEC", "60"))
+    except (TypeError, ValueError):
+        return 60.0
+
+
+def _get_llm_ratelimit_min_cost() -> float:
+    """``LLM_RATELIMIT_MIN_COST`` — $ charged per 429 (default 0.001)."""
+    try:
+        return float(os.getenv("LLM_RATELIMIT_MIN_COST", "0.001"))
+    except (TypeError, ValueError):
+        return 0.001
 
 
 class LLMRateLimitError(RuntimeError):
@@ -1773,11 +1793,12 @@ CONSENSUS KURALI:
     def _parse_retry_after(self, header_val, default=None):
         """Epic 8 T8.2: parse Retry-After header → float seconds.
         Providers send either seconds ("30") or an HTTP-date. We only need a
-        conservative number; if parse fails we fall back to the module-level
-        LLM_RATELIMIT_BACKOFF_SEC.
+        conservative number; if parse fails we fall back to the runtime
+        ``_get_llm_ratelimit_backoff()`` helper (re-reads env each call so
+        ``/env_toggle`` changes take effect immediately).
         """
         if default is None:
-            default = LLM_RATELIMIT_BACKOFF_SEC
+            default = _get_llm_ratelimit_backoff()
         if not header_val:
             return default
         try:
@@ -1794,13 +1815,18 @@ CONSENSUS KURALI:
         Charging a non-zero amount on each 429 guarantees MAX_BUDGET wins
         even in a pathological rate-limit storm; backoff prevents immediate
         retry for the next `retry_after` seconds.
+
+        Post-closure (2026-04-22): ``MIN_COST`` is read fresh via
+        ``_get_llm_ratelimit_min_cost()`` so the `/env_toggle` knob applies
+        to the very next 429 (not after restart).
         """
         self._rate_limited_until[provider] = time.time() + retry_after
-        self._spent += LLM_RATELIMIT_MIN_COST
+        min_cost = _get_llm_ratelimit_min_cost()
+        self._spent += min_cost
         await self._save_budget()
         logger.warning(
             f"🧠 {provider} 429 rate-limit: backoff {retry_after:.1f}s, "
-            f"charged ${LLM_RATELIMIT_MIN_COST:.3f} (spent=${self._spent:.3f})"
+            f"charged ${min_cost:.3f} (spent=${self._spent:.3f})"
         )
 
     async def _call_claude(self, system, user, model="claude-sonnet-4-6"):

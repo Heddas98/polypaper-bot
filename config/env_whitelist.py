@@ -145,6 +145,20 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "group": "risk",
         "desc": "Rolling WR%% bunun altindaysa pause (Phase 52)",
     },
+    # ── LLM rate-limit (Epic 8 T8.2) ─────────────────────────────────────
+    # Read at runtime via
+    # ``core.ai_brain._get_llm_ratelimit_backoff`` / ``_get_llm_ratelimit_min_cost``
+    # (T6.1 pattern). Module-top constants were frozen at import pre-2026-04-22.
+    "LLM_RATELIMIT_BACKOFF_SEC": {
+        "type": "float", "default": "60", "min": 1.0, "max": 3600.0,
+        "group": "llm",
+        "desc": "LLM 429 sonrasi cooldown (sn) — retry kilidi",
+    },
+    "LLM_RATELIMIT_MIN_COST": {
+        "type": "float", "default": "0.001", "min": 0.0, "max": 10.0,
+        "group": "llm",
+        "desc": "Her 429'da budget'e yazilan min cost ($) — loop koruyucu",
+    },
     # ── Live (shadow-mirror) safety limits — T7.6 A5 ─────────────────────
     # core/live_trader.py reads these at runtime on every maybe_mirror().
     "LIVE_MAX_TRADE": {
