@@ -51,6 +51,9 @@ from backtest.hyperopt_ipc import (
 )
 # Phase 82e Sprint 1.3: shared graceful-kill helper
 from backtest.hyperopt_launcher import _terminate_subprocess
+# Epic 10 T10.6 (2026-04-22): admin gate helpers for state-mutating callbacks.
+# hyperopt_apply_callback UPDATE'i yaptığı için T10.2 pattern'ine tabi.
+from telegram_bot.handlers.strategies import _is_admin_call, _deny_callback
 
 logger = logging.getLogger("polypaper.handler.hyperopt")
 
@@ -946,7 +949,17 @@ def _classify_param(param: str, strategy_type: str, registry) -> str:
 
 
 async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle hyperopt_apply / hyperopt_reject inline buttons."""
+    """Handle hyperopt_apply / hyperopt_reject inline buttons.
+
+    Epic 10 T10.6 (2026-04-22): admin gate eklendi. Bu callback,
+    `strategies` tablosunu ve `hyperopt_results` tablosunu UPDATE eder
+    (best_params apply + applied=2 reject). Gate yok iken herhangi bir
+    Telegram user callback_data crafting ile state mutasyonu
+    tetikleyebilirdi. T10.2 pattern'iyle (C3 strategy callbacks) aynı
+    _is_admin_call()+_deny_callback() helper'ı kullanılıyor.
+    """
+    if not _is_admin_call(update):
+        return await _deny_callback(update)
     q = update.callback_query
     await q.answer()
     chat_id = update.effective_chat.id
