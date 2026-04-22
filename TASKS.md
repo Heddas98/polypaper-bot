@@ -629,10 +629,14 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **F4 (informational):** Codebase `os.getenv` scan'i → 148 key `.env.example`'da yok. Kategoriler: (1) platform-supplied (PORT, REPLIT_*), (2) secret alternatives (ADMIN_CHAT_ID, OPENROUTER_API_KEY), (3) safe-default feature flags, (4) job scheduler tuning. Toplu eklemek T10.4 LOW-risk scope'unu aşar — Epic 11 `docs/env_reference.md` backlog.
   - **Rapor:** `docs/security/T10_4_env_sync.md` (F1-F4 findings + fix patch + verification script).
   - **Post-fix:** `.env` ⊆ `.env.example` — `comm -23 env example` = empty.
-- [ ] **T10.5** `get_live_price` malformed entry prod davranışı review — risk: MED *(Epic 9 post-audit'ten)*
-  - `data/websocket_client.py::get_live_price`: cache entry'de `'ts'` yoksa mevcut kod KeyError'u `try/except Exception` ile yutuyor ve `data.get("price")`'a düşüyor — yani "bilinmeyen tazelik fiyatı serve ediliyor".
-  - Bu davranış "fresh > stale" doktrinini ihlal ediyor olabilir. Pin: `tests/integration/test_ws_reconnect_smoke.py::TestFreshnessDoctrine::test_missing_ts_returns_cached_price_no_crash`.
-  - Karar: (a) malformed entry → None (stricter) mi, yoksa (b) mevcut defensive fallback mı? Karar dayalı olarak test assertion'ı güncellenecek.
+- [x] **T10.5** `get_live_price` malformed entry prod davranışı review — risk: MED — ✅ **CLOSED (2026-04-22)**
+  - **Bulgu:** `get_live_price` içindeki `try/except Exception: pass` malformed cache entry'sinde (`'ts'` yok, parse edilemez ISO, int epoch, vs.) freshness check'i yutup `data.get("price")`'a düşüyordu. Fresh > stale doktrini ihlali.
+  - **Karar:** (a) **tighten to None** — bilinmeyen freshness varken trade için price serve etmek yerine no-trade (None) fail-safe modu. Epic 5 T5.4'ün reconnect-invalidate dalı zaten aynı ilkeyi uygulamıştı; artık malformed-entry dalı da tutarlı.
+  - **Fix (`data/websocket_client.py:363-405`):** `except Exception: pass` → dar `(KeyError, ValueError, TypeError, AttributeError)` + `logger.debug` breadcrumb + `return None`.
+  - **Normal flow etkisi:** 0 — 3 cache-write site'ında `'ts'` her zaman set ediliyor (`_handle_message` L333, L344, L353). Yeni davranış ancak corruption / future refactor bug / test fixture'ında tetiklenir.
+  - **Regression:** eski `test_missing_ts_returns_cached_price_no_crash` pini güncellendi + 2 yeni test (malformed ISO string, non-string ts) = 3 test toplam. Suite: **731 → 733 pass + 8 skip + 0 fail**.
+  - **Rapor:** `docs/security/T10_5_get_live_price_fresh_over_stale.md` (pre/post pattern + Decision matrisi + doktrin pointer).
+  - **Forward:** Epic 11 — aynı pattern'i orderbook / regime / signal cache'lerine genişletme + `except Exception: pass` pre-commit grep'i.
 
 ---
 

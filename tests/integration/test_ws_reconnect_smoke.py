@@ -182,27 +182,44 @@ class TestFreshnessDoctrine:
         # 600s >> any reasonable WS_STALE_SEC → must be None
         assert ws.get_live_price("tok_x") is None
 
-    def test_missing_ts_returns_cached_price_no_crash(self):
-        """Malformed cache entry (no 'ts' key) must NOT raise.
+    def test_missing_ts_returns_none_fresh_over_stale(self):
+        """Malformed cache entry (no 'ts' key) must return None.
 
-        Current production behaviour (data/websocket_client.py
-        get_live_price): a missing 'ts' raises KeyError inside the
-        try/except, which is swallowed, and the method falls through
-        to ``return data.get("price")`` — i.e. 0.50 is served despite
-        unknown freshness.
+        Epic 10 T10.5 (2026-04-22): tightened from prior defensive
+        fallback (which served the price despite unknown freshness).
 
-        This test pins that defensive no-crash path exactly. It does
-        NOT endorse the behaviour — serving an unknown-freshness price
-        arguably violates the 'fresh > stale' doctrine. Flagged for
-        production-behaviour review in Epic 10+ (see TASKS.md 'Epic 9
-        post-audit backlog').
+        All 3 WS cache-write sites in _handle_message always set
+        'ts' alongside 'price', so a missing 'ts' can only occur via
+        corruption, a future refactor bug, or a hand-constructed
+        fixture. In those cases None (no-trade) is the safe fail mode,
+        matching the project's "fresh > stale" doctrine.
         """
         ws = PolymarketWebSocket()
         ws._connected_since = 0.0
         ws.live_prices["tok_x"] = {"price": 0.50}  # no 'ts'
         result = ws.get_live_price("tok_x")
-        # Pin the current defensive fallback exactly. If the production
-        # code is later tightened to return None on malformed entries,
-        # this assertion will catch the behaviour change and force an
-        # intentional update here.
-        assert result == 0.50
+        # Epic 10 T10.5: malformed entry → None (was 0.50 pre-T10.5).
+        assert result is None
+
+    def test_malformed_ts_string_returns_none(self):
+        """Epic 10 T10.5: un-parseable ISO string → None.
+
+        Prior behavior swallowed ValueError from fromisoformat and
+        served the raw cached price. Post-T10.5: any freshness-check
+        failure → None, to honour fresh > stale.
+        """
+        ws = PolymarketWebSocket()
+        ws._connected_since = 0.0
+        ws.live_prices["tok_y"] = {"price": 0.75, "ts": "not-an-iso-date"}
+        assert ws.get_live_price("tok_y") is None
+
+    def test_non_string_ts_returns_none(self):
+        """Epic 10 T10.5: non-string 'ts' (e.g. int epoch) → None.
+
+        int.replace() does not exist — AttributeError — post-T10.5
+        this returns None instead of serving the stale price.
+        """
+        ws = PolymarketWebSocket()
+        ws._connected_since = 0.0
+        ws.live_prices["tok_z"] = {"price": 0.25, "ts": 1234567890}
+        assert ws.get_live_price("tok_z") is None
