@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -31,6 +32,34 @@ logger = logging.getLogger("polypaper.core.ai_brain")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
 MAX_BUDGET = 15.0
+
+# Epic 8 T8.2: LLM rate-limit guard
+# -----------------------------------------------------------------
+# Before T8.2: the sync `_do_*` helpers swallowed 429 via umbrella except
+# and returned None, which caller treated as "try next provider" and also
+# did NOT charge _spent. Under a 429 storm the AI cycle would hammer the
+# API every cycle without advancing the budget counter — effectively
+# bypassing MAX_BUDGET. This constant block fixes that:
+#   - LLM_RATELIMIT_BACKOFF_SEC: cooldown after a 429 (no retry until then)
+#   - LLM_RATELIMIT_MIN_COST: charged to _spent per 429 so we can't loop
+#     forever. Small (0.001) but strictly positive, so MAX_BUDGET wins
+#     eventually even when every call rate-limits.
+LLM_RATELIMIT_BACKOFF_SEC = float(os.getenv("LLM_RATELIMIT_BACKOFF_SEC", "60"))
+LLM_RATELIMIT_MIN_COST = float(os.getenv("LLM_RATELIMIT_MIN_COST", "0.001"))
+
+
+class LLMRateLimitError(RuntimeError):
+    """Epic 8 T8.2: raised by `_do_*` helpers when the LLM API returns 429.
+
+    Carries the server-provided retry-after (seconds) so the async wrapper
+    can populate `_rate_limited_until` accurately instead of using the
+    fallback backoff constant.
+    """
+
+    def __init__(self, provider: str, retry_after: float):
+        super().__init__(f"{provider} rate-limited, retry_after={retry_after}s")
+        self.provider = provider
+        self.retry_after = retry_after
 
 # Phase 32: Tighter safety + 10min cycle
 # Phase 75+: CHANGED to 6 hour cooldown + 50 trade minimum (GPT recommendation)
@@ -211,6 +240,11 @@ class AIBrain:
         self._spent = 0.0
         self._last_run = ""
         self._cycle_count = 0
+        # Epic 8 T8.2: per-provider rate-limit cooldown (unix timestamps).
+        # When `time.time() < self._rate_limited_until[provider]`, the async
+        # wrapper early-returns None without hitting the API. Updated from
+        # the 429 Retry-After header inside the LLMRateLimitError catch.
+        self._rate_limited_until = {"claude": 0.0, "groq": 0.0, "openrouter": 0.0}
         # Phase 66: Brier Score tracker for prediction calibration
         self._brier_tracker = None
         try:
@@ -1736,8 +1770,44 @@ CONSENSUS KURALI:
             logger.warning(f"_save_budget failed, _spent not persisted: {_sb_err}")
 
     # ═══ LLM ═══
+    def _parse_retry_after(self, header_val, default=None):
+        """Epic 8 T8.2: parse Retry-After header → float seconds.
+        Providers send either seconds ("30") or an HTTP-date. We only need a
+        conservative number; if parse fails we fall back to the module-level
+        LLM_RATELIMIT_BACKOFF_SEC.
+        """
+        if default is None:
+            default = LLM_RATELIMIT_BACKOFF_SEC
+        if not header_val:
+            return default
+        try:
+            return max(1.0, float(header_val))
+        except (TypeError, ValueError):
+            return default
+
+    def _rate_limit_active(self, provider: str) -> bool:
+        """Epic 8 T8.2: True if provider is still in cooldown window."""
+        return time.time() < self._rate_limited_until.get(provider, 0.0)
+
+    async def _handle_rate_limit(self, provider: str, retry_after: float):
+        """Epic 8 T8.2: update cooldown state + charge MIN_COST to budget.
+        Charging a non-zero amount on each 429 guarantees MAX_BUDGET wins
+        even in a pathological rate-limit storm; backoff prevents immediate
+        retry for the next `retry_after` seconds.
+        """
+        self._rate_limited_until[provider] = time.time() + retry_after
+        self._spent += LLM_RATELIMIT_MIN_COST
+        await self._save_budget()
+        logger.warning(
+            f"🧠 {provider} 429 rate-limit: backoff {retry_after:.1f}s, "
+            f"charged ${LLM_RATELIMIT_MIN_COST:.3f} (spent=${self._spent:.3f})"
+        )
+
     async def _call_claude(self, system, user, model="claude-sonnet-4-6"):
         if not ANTHROPIC_API_KEY: return None
+        # Epic 8 T8.2: short-circuit if still in cooldown.
+        if self._rate_limit_active("claude"):
+            return None
         payload = json.dumps({
             "model": model, "max_tokens": 2000,
             "system": [{"type":"text","text":system,"cache_control":{"type":"ephemeral"}}],
@@ -1753,11 +1823,14 @@ CONSENSUS KURALI:
                 await self._save_budget()
                 logger.info(f"🧠 Claude OK (${self._spent:.3f}/{MAX_BUDGET})")
             return r
+        except LLMRateLimitError as rl:
+            # Epic 8 T8.2: explicit 429 — update cooldown + charge MIN_COST.
+            await self._handle_rate_limit("claude", rl.retry_after)
+            return None
         except Exception:  # noqa: BLE001
             # Epic 8 T8.1 audit: run_in_executor surfaces arbitrary worker
             # exceptions (httpx errors, cancellation, any downstream bug in
             # _do_claude). Brain cycle tolerates None and falls back to Groq.
-            # TODO T8.2: detect 429 / budget overflow explicitly.
             return None
 
     def _do_claude(self, payload):
@@ -1768,28 +1841,44 @@ CONSENSUS KURALI:
                          "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
                 content=payload, timeout=60.0)
+            # Epic 8 T8.2: detect 429 before json-parsing. Raising a typed
+            # exception lets the async wrapper update cooldown state; any
+            # non-429 error keeps the existing soft-None semantics.
+            if r.status_code == 429:
+                retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
+                raise LLMRateLimitError("claude", retry_after)
             d = r.json()
             if "content" in d and d["content"]: return d["content"][0].get("text","")
             if "error" in d: logger.warning(f"Claude: {d['error'].get('message','')[:100]}")
             return None
+        except LLMRateLimitError:
+            # Epic 8 T8.2: re-raise typed rate-limit so async wrapper sees it.
+            raise
         except Exception:  # noqa: BLE001
             # Epic 8 T8.1 audit: sync HTTP call — httpx.HTTPError, TimeoutError,
             # ConnectionError, JSONDecodeError. Caller treats None as soft
-            # failure. T8.2 will replace this with explicit 429 handling.
+            # failure (429 now handled explicitly above).
             return None
 
     async def _call_groq(self, system, user):
         if not GROK_API_KEY: return None
+        # Epic 8 T8.2: short-circuit if still in cooldown.
+        if self._rate_limit_active("groq"):
+            return None
         payload = json.dumps({"model":"llama-3.3-70b-versatile",
             "messages":[{"role":"system","content":system},{"role":"user","content":user}],
             "max_tokens":1500,"temperature":0.3})
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._do_groq, payload)
+        except LLMRateLimitError as rl:
+            # Epic 8 T8.2: explicit 429 — update cooldown + charge MIN_COST.
+            await self._handle_rate_limit("groq", rl.retry_after)
+            return None
         except Exception:  # noqa: BLE001
             # Epic 8 T8.1 audit: executor exceptions — any worker failure
             # degrades to None, caller (brain cycle / two-agent) chooses
-            # next provider. T8.2: add 429 rate-limit detection.
+            # next provider.
             return None
 
     def _do_groq(self, payload):
@@ -1799,12 +1888,18 @@ CONSENSUS KURALI:
                 headers={"Authorization": f"Bearer {GROK_API_KEY}",
                          "Content-Type": "application/json"},
                 content=payload, timeout=30.0)
+            # Epic 8 T8.2: 429 — raise typed so wrapper records cooldown.
+            if r.status_code == 429:
+                retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
+                raise LLMRateLimitError("groq", retry_after)
             d = r.json()
             ch = d.get("choices",[])
             return ch[0].get("message",{}).get("content","") if ch else None
+        except LLMRateLimitError:
+            raise
         except Exception:  # noqa: BLE001
             # Epic 8 T8.1 audit: sync HTTP — httpx.HTTPError, TimeoutError,
-            # JSONDecodeError. None is soft failure. T8.2: 429 handling.
+            # JSONDecodeError. None is soft failure.
             return None
 
     # ═══ Phase 69: OpenRouter SDK ═══
@@ -1812,6 +1907,9 @@ CONSENSUS KURALI:
                                model: str = "meta-llama/llama-3.3-70b-instruct:free"):
         """Call OpenRouter API — supports 100+ models, free tier available."""
         if not OPENROUTER_API_KEY:
+            return None
+        # Epic 8 T8.2: short-circuit if still in cooldown.
+        if self._rate_limit_active("openrouter"):
             return None
         payload = json.dumps({
             "model": model,
@@ -1825,9 +1923,13 @@ CONSENSUS KURALI:
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._do_openrouter, payload)
+        except LLMRateLimitError as rl:
+            # Epic 8 T8.2: explicit 429 — update cooldown + charge MIN_COST.
+            await self._handle_rate_limit("openrouter", rl.retry_after)
+            return None
         except Exception:  # noqa: BLE001
             # Epic 8 T8.1 audit: executor exceptions — tertiary provider,
-            # degrade silently. T8.2: add 429 handling + backoff.
+            # degrade silently.
             return None
 
     def _do_openrouter(self, payload):
@@ -1841,13 +1943,18 @@ CONSENSUS KURALI:
                     "X-Title": "PolyPaper Bot",
                 },
                 content=payload, timeout=45.0)
+            # Epic 8 T8.2: 429 — raise typed so wrapper records cooldown.
+            if r.status_code == 429:
+                retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
+                raise LLMRateLimitError("openrouter", retry_after)
             d = r.json()
             ch = d.get("choices", [])
             return ch[0].get("message", {}).get("content", "") if ch else None
+        except LLMRateLimitError:
+            raise
         except Exception:  # noqa: BLE001
             # Epic 8 T8.1 audit: sync HTTP — OpenRouter free tier is flaky.
             # httpx.HTTPError / TimeoutError / JSONDecodeError all normal.
-            # T8.2 will add explicit rate-limit detection.
             return None
 
     # ═══ PER-TRADE ═══
