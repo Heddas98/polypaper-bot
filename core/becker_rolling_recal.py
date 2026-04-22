@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 
@@ -356,8 +356,8 @@ class BeckerRollingRecalibrator:
 
     @staticmethod
     def _next_sunday_00_utc() -> datetime:
-        """Calculate next Sunday 00:00 UTC."""
-        now = datetime.utcnow()
+        """Calculate next Sunday 00:00 UTC. Returns a tz-aware UTC datetime."""
+        now = datetime.now(timezone.utc)
         days_until_sunday = (6 - now.weekday()) % 7
         if days_until_sunday == 0 and now.hour > 0:
             days_until_sunday = 7
