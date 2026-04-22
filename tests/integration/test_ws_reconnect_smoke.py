@@ -40,14 +40,25 @@ def _iso(dt: datetime) -> str:
 # ═══ Fixture: 3-market seed ═════════════════════════════════════════════
 
 @pytest.fixture
-def ws_with_three_markets():
-    """Returns a WS client with 3 markets cached fresh + connected_since=now.
+def ws_with_three_markets(monkeypatch):
+    """Returns a WS client with 3 markets cached fresh + connected_since in
+    the recent past.
 
     Simulates the state right after a successful WS connect + 3 book-update
     events.
+
+    Hardening (Epic 9 T9.10):
+      * Pin ``WS_STALE_SEC=60`` so a prior test that leaked a low
+        override cannot cause ``get_live_price`` to return None.
+      * Offset ``_connected_since`` 1s into the past so a microsecond
+        clock race (where ``time.time()`` and ``datetime.now().timestamp()``
+        land on the same tick after ISO roundtrip) cannot make
+        ``entry_dt.timestamp() < _connected_since`` falsely True.
     """
+    monkeypatch.setenv("WS_STALE_SEC", "60")
     ws = PolymarketWebSocket()
-    ws._connected_since = time.time()
+    # 1s cushion: guarantees entry_ts > _connected_since after roundtrip.
+    ws._connected_since = time.time() - 1.0
     now = datetime.now(timezone.utc)
     ws.live_prices["btc-up"] = {"price": 0.52, "ts": _iso(now)}
     ws.live_prices["btc-dn"] = {"price": 0.48, "ts": _iso(now)}
