@@ -67,11 +67,14 @@ if %PYTEST_EXIT%==0 (
     echo  Baseline: 723 pass + 8 skip + 0 fail ^(2026-04-22 T9.10 closure^)
 ) else (
     echo  pytest exit code: %PYTEST_EXIT%
-    echo  Beklenen pre-existing skip:
-    echo    - test_phase82b optuna ^(sandbox deprecated^)
-    echo    - test_phase77 python-telegram-bot
-    echo    - test_brain_flags_parity kelly_sizing ^& drift_monitor intentional
-    echo  Yeni fail varsa paylas.
+    echo  Beklenen pre-existing skip ^(8 toplam, sandbox env^):
+    echo    - test_brain_flags_parity kelly_sizing ^(intentional^)
+    echo    - test_brain_flags_parity drift_monitor ^(intentional^)
+    echo    - test_phase82b optuna ^(not installed^)
+    echo    - test_phase82b telegram handler x2
+    echo    - test_phase77 python-telegram-bot ^(not installed^)
+    echo    - test_phase67 telegram x2 ^(not installed^)
+    echo  Yeni fail veya farkli skip set varsa paylas.
 )
 echo ============================================================
 pause

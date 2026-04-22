@@ -65,11 +65,14 @@ if [ "$exit_code" -eq 0 ]; then
     echo " Baseline: 723 pass + 8 skip + 0 fail (2026-04-22 T9.10 closure)"
 else
     echo " pytest exit code: $exit_code"
-    echo " Expected pre-existing skips:"
-    echo "   - test_phase82b optuna (sandbox deprecated)"
-    echo "   - test_phase77 python-telegram-bot"
-    echo "   - test_brain_flags_parity kelly_sizing & drift_monitor intentional"
-    echo " If new failures: report."
+    echo " Expected pre-existing skips (8 total, sandbox environment):"
+    echo "   - test_brain_flags_parity kelly_sizing (intentional)"
+    echo "   - test_brain_flags_parity drift_monitor (intentional)"
+    echo "   - test_phase82b optuna (not installed)"
+    echo "   - test_phase82b telegram handler x2"
+    echo "   - test_phase77 python-telegram-bot (not installed)"
+    echo "   - test_phase67 telegram x2 (not installed)"
+    echo " If new failures or different skip set: report."
 fi
 echo "============================================================"
 

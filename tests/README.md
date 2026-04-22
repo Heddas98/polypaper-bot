@@ -29,15 +29,16 @@ tests/
 │   ├── test_whitelist_runtime_readiness.py
 │   ├── test_ws_reconnect.py
 │   ├── test_phase*.py          # historical phase-frozen invariants
-│   └── ... (~28 files, ~600 tests)
+│   └── ... (31 files, ~670 tests)
 │
 ├── integration/                # Epic 9 T9.8 smoke suite (auto-marked)
 │   ├── conftest.py             # auto-applies @pytest.mark.integration
 │   ├── test_engine_boot_smoke.py
 │   ├── test_paper_shadow_divergence.py
-│   └── test_ws_reconnect_smoke.py
+│   └── test_ws_reconnect_smoke.py (3 files, 50 tests)
 │
-└── smoke_phase*.py             # legacy phase smoke (being phased out)
+├── test_phase*.py              # 6 legacy phase-era suites at repo root
+└── smoke_phase*.py             # 2 legacy standalone smoke scripts
 ```
 
 ## Quick commands
@@ -167,11 +168,17 @@ requires touching all five layers — regression-guarded by
 
 ## Current baseline (2026-04-22)
 
-- **Total:** 723 pass + 8 skip + 0 fail (31 files, ~731 items collected)
+- **Total:** 723 pass + 8 skip + 0 fail (42 test files — 31 unit + 3 integration
+  + 6 phase-era root + 2 legacy smoke; ~731 items collected)
 - **Critical-path coverage:** ~24% avg across 7 modules (was 9.7% pre-T9.6)
 - **TOTAL `core/` coverage:** 21.2% (was 17.5% pre-T9.6)
 - **Determinism:** GREEN across seeds 42, 1337, 9001
 - **Runtime:** ~42s full suite, ~1.3s integration-only
+- **Skips breakdown (8):** 2 intentional brain-flag parity exclusions
+  (kelly_sizing, drift_monitor), 3 `test_phase82b` (optuna + 2 telegram
+  handler), 1 `test_phase77` (python-telegram-bot), 2 `test_phase67`
+  (telegram). All sandbox-environment skips; GREEN on Windows with full
+  deps.
 
 ## Epic 9 closure artifacts
 

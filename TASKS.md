@@ -564,6 +564,14 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
   - **Race fix (4a06ea5):** seed 1337 transient fail'i (`get_live_price == None`) `ws_with_three_markets` fixture'da iki kaynakta çözüldü: (a) `WS_STALE_SEC=60` pin via `monkeypatch.setenv` (env-independent), (b) `_connected_since = time.time() - 1.0` cushion (ISO roundtrip microsecond race-independent). Doctrine (FLAKY_AUDIT.md addendum): env-readable gate'lere bağlı integration fixture'lar ilgili ENV'i kendi içinde pin ETMELİ.
   - CI gate önerisi (Epic 10+11 için): coverage < 60% fail, yeni eklenen core/ fonksiyonlar için test zorunlu (pre-commit hook notu). **→ Epic 11 T11.x olarak bıraktık, Epic 9 dışı.**
 
+### Post-closure audit (2026-04-22) — kapanıştan sonra
+
+- [x] **Epic 9 comprehensive audit** — 3 paralel general-purpose agent + source verification. **0 CRITICAL**, 4 HIGH, 9 MEDIUM, 5 LOW bulgu. Tümü test-kalitesi / doc-doğruluğu (prod bug yok).
+  - **Batch A — Test correctness (commit `d2cb442`):** 5 dosya: `test_engine_fills.py` (`test_rounds_up` → `test_rounds_to_nearest` — isim yanlış), `test_auto_optimizer_helpers.py` (unused `import importlib`), `test_ws_reconnect_smoke.py` (`test_missing_ts_returns_none` davranışı yanlış — prod "KeyError → fallback price" pattern'ini 0.50 pin ederek belgeleyen yeni test), `test_paper_shadow_divergence.py` (same-seed RNG tautological assertion kaldırıldı), `test_live_trader.py` (`get_status.test_keys_present` subset → exact match — rename'i yakalamıyordu).
+  - **Batch B — Doc accuracy:** `tests/README.md` (file count 28→42, skip breakdown 8 listeli), `tests/COVERAGE_REPORT.md` (T9.2 sonrası refresh section eklendi — 17.5→21.2%), `tests/INVENTORY.md` (T9.1 snapshot note), `run_full_regression.{sh,bat}` (skip message 4→8 tam liste), `tests/FLAKY_AUDIT.md` (addendum 4→5 dosya), memory `project_epic9_t910_closure.md` (28→42 gerçek sayı).
+  - **Regression pinleme:** 723 pass + 8 skip + 0 fail (pre- ve post-audit identical). Yeni regresyon yok.
+  - **Forward work (Epic 10+ / Epic 11'e devredildi):** T11.4 (coverage CI gate), T11.5 (raw `os.environ[]` → `monkeypatch.setenv` hygiene pass), T10.5 (`get_live_price` malformed 'ts' prod behaviour review) — aşağıda tanımlı.
+
 ### Exit kriterleri
 
 - 504+ pass / 0 fail (6 skip kalabilir — marker'lı intentional)
@@ -598,6 +606,10 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 - [ ] **T10.4** `.env` ↔ `.env.example` senkron denetimi — risk: LOW
   - .env.example'da olmayan ama .env'de olan değişken var mı (yeni, dokumante edilmemiş)?
   - .env.example'daki placeholder değerler gerçek değer içeriyor mu (kopya kalıntısı)?
+- [ ] **T10.5** `get_live_price` malformed entry prod davranışı review — risk: MED *(Epic 9 post-audit'ten)*
+  - `data/websocket_client.py::get_live_price`: cache entry'de `'ts'` yoksa mevcut kod KeyError'u `try/except Exception` ile yutuyor ve `data.get("price")`'a düşüyor — yani "bilinmeyen tazelik fiyatı serve ediliyor".
+  - Bu davranış "fresh > stale" doktrinini ihlal ediyor olabilir. Pin: `tests/integration/test_ws_reconnect_smoke.py::TestFreshnessDoctrine::test_missing_ts_returns_cached_price_no_crash`.
+  - Karar: (a) malformed entry → None (stricter) mi, yoksa (b) mevcut defensive fallback mı? Karar dayalı olarak test assertion'ı güncellenecek.
 
 ---
 
@@ -606,6 +618,14 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 - [ ] **T11.1** Tüm Epic 0-10 kapandığında final audit rapor
 - [ ] **T11.2** `LIVE_ENABLED=true` öncesi: kill switch, budget guard, daily loss, paper-shadow divergence monitor aktif mi
 - [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
+- [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
+  - GitHub Actions (veya local `pre-commit-config.yaml`): `core/` coverage < 60% → CI fail. Eşik başlangıçta `21.2%` baseline, her PR'da düşüşe izin verme (ratchet).
+  - Yeni `core/` fonksiyon + test yoksa → warning; 30 gün sonra hard fail.
+  - Pre-commit hook: eklenen/değiştirilen `core/*.py` dosyası için karşılığında `tests/**/test_*.py` diff var mı? Yoksa uyarı.
+- [ ] **T11.5** Test env-leak hygiene pass — risk: LOW *(Epic 9 post-audit'ten)*
+  - 5 dosya raw `os.environ[KEY] = val` kullanıyor (pnl_pause_runtime, phase70, whale_signal, whitelist_runtime_readiness, ws_subscribe_cap). Hepsi `monkeypatch.setenv` pattern'ine taşınacak.
+  - Motivasyon: T9.10 seed 1337 race'inin kaynağı aynı sınıf env-leak riskiydi. Fixture'lar içinde pin eklemek semptom tedavisi; asıl temizlik bu.
+  - Lint rule öneri: `tests/` altında raw `os.environ[X] = ` kullanımı flake8/ruff ile yakalansın.
 
 ---
 

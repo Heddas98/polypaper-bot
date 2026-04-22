@@ -5,6 +5,13 @@
 **Toplam pytest case:** 510 (498 pass + 6 skip + 6 pre-existing fail)
 **Amaç:** Her test dosyasının hangi faz/modül için yazıldığını belgelemek, "hâlâ anlamlı mı?" sorusuna karar vermek. T9.6'da coverage fill yaparken hangi alanın zaten örtülü olduğunu bilmek için kanonik başvuru.
 
+> **⚠️ Snapshot note (2026-04-22 post-audit):** Bu envanter T9.1 anındaki
+> kapsamı dondurur. T9.5-T9.10 sonrası gerçek durum `tests/README.md`
+> "Current baseline" bölümünde: **42 test dosyası, 723 pass + 8 skip + 0
+> fail**. Aşağıdaki 510-case tablosu T9.6 coverage fill öncesi başlangıç
+> snapshot'ı olarak saklanır — her "LIVE CURRENT" etiketi hâlâ doğru ama
+> yeni eklenen dosyalar bu tabloda yok.
+
 ---
 
 ## Özet Tablo

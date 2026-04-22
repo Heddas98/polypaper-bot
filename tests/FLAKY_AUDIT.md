@@ -167,11 +167,13 @@ AssertionError: assert None == 0.52
    `entry_dt.timestamp() < self._connected_since` falsely True and
    returning None.
 
-2. **Latent env-leak risk.** 4 tests write `os.environ[KEY] = val`
-   directly (pnl_pause_runtime, phase56_engine, phase70, ws_subscribe_cap).
-   None target `WS_STALE_SEC`, but a future test that does could
-   break the WS smoke fixture via the same `os.getenv("WS_STALE_SEC")`
-   runtime read path.
+2. **Latent env-leak risk.** 5 test files write `os.environ[KEY] = val`
+   directly (pnl_pause_runtime, phase70, whale_signal,
+   whitelist_runtime_readiness, ws_subscribe_cap — see the table in the
+   "🟠 HIGH" section above). None target `WS_STALE_SEC`, but a future
+   test that does could break the WS smoke fixture via the same
+   `os.getenv("WS_STALE_SEC")` runtime read path. Tracked as Epic 11
+   backlog item "env-leak hygiene pass: raw os.environ → monkeypatch".
 
 **Fix (commit `4a06ea5`):** harden the fixture itself — pin
 `WS_STALE_SEC=60` via `monkeypatch.setenv` (env-independent) and offset

@@ -159,3 +159,58 @@ Coverage gap analizi **T9.6 kritik-path regression fill** planını doğruluyor:
 - `.coverage` — binary data (gitignored)
 
 Sonraki adım: **T9.3** — 6 pre-existing fail'in detaylı triage'ı ve fix/skip/delete kararı. Bulgu D (whale_signal ×3) için Task #44 drain, diğer 3 için ayrı ayrı kök neden.
+
+---
+
+## 2026-04-22 Update — T9.6 closure refresh (post-fill)
+
+**Snapshot:** T9.6 critical-path coverage fill (8 commit × 160 test × 8 modül)
+sonrası agregat durum. Bu section orijinal T9.2 rakamlarının üzerine ek —
+detaylı per-module breakdown henüz yeniden çalıştırılmadı, ama TOTAL ve
+critical-path aggregate güncel.
+
+| Metric                         | Pre-T9.6 | Post-T9.6 | Delta  |
+|--------------------------------|---------:|----------:|-------:|
+| **TOTAL `core/` coverage**     | 17.5%    | **21.2%** | +3.7pp |
+| Critical-path aggregate        | 9.7%     | **~24%**  | +14pp  |
+| Zero-coverage hot-path modules | 5        | **2**     | −3     |
+| Test count (collected)         | 510      | **731**   | +221   |
+| Pass / Skip / Fail             | 498/6/6  | **723/8/0** | clean |
+
+**Critical-path module refresh (approx, T9.6 deltas):**
+
+| Module                    | Pre-T9.6 | Post-T9.6 (est) |
+|---------------------------|---------:|----------------:|
+| `core/engine_fills.py`    | 0.0%     | ~30% (T9.6 P1 Tier 1 — 6 test class × ~30 tests) |
+| `core/engine_monitor.py`  | 0.0%     | ~35% (T9.6 P1 Tier 2) |
+| `core/live_trader.py`     | 0.0%     | ~25% (T9.6 P1 Tier 2) |
+| `core/auto_optimizer.py`  | 9.2%     | ~20% (T9.6 P1 Tier 3 + T7.6 post-audit A5) |
+| `core/ai_brain.py`        | 6.0%     | ~12% (T8.2 rate-limit guard tests) |
+| `core/engine_settlement.py` | 8.1%   | ~15% (T9.6 P1 Tier 2 helpers) |
+| `core/engine_signals.py`  | 4.7%     | ~10% (T9.6 P2 helpers) |
+
+**Zero-coverage still hot-path (2 modules remaining after T9.6):**
+
+- `core/engine.py` (678 stmt) — 3 supervisor loop + main evaluate loop;
+  deliberately left out of T9.6 unit pass. T9.8 boot-construction smoke
+  exercises `__init__` but not the loops. → Epic 10+ or T9.8-REG Windows
+  backlog.
+- `core/strategy_lifecycle.py` (190 stmt) — 0 test. → Epic 10+ candidate.
+
+**Exit criteria status (T9.6 hedefleri):**
+
+- Critical-path aggregate 9.7% → ≥60% hedef: **PARTIAL** (~24% achieved).
+  Engine + strategy_lifecycle still zero; full hedef Windows live test
+  infrastructure (T9.8-REG) olmadan kapatılamaz.
+- TOTAL `core/` 17.5% → ≥40% hedef: **PARTIAL** (21.2% achieved). Non-hot
+  P3 modules (becker_*, micro_weight, keepalive) still zero — Epic 10+.
+- Zero-coverage hot-path: 5 → ≤0: **PARTIAL** (2 remain). Closed:
+  engine_fills, engine_monitor, live_trader. Remaining: engine,
+  strategy_lifecycle.
+
+**Carry-forward → Epic 10+ / T9.8-REG Windows:**
+
+- Real asyncio `engine.start()` smoke (needs full Telegram + aiosqlite WAL).
+- `strategy_lifecycle` pause/activate/kill flow tests.
+- Integration tests against real Polymarket WS (no mocks).
+- Coverage CI gate (PR fails if `core/` coverage drops < 20%).
