@@ -98,6 +98,8 @@ class TradingEngine(
         self._open_positions: set[str] = set()
         self._settled_slugs: dict[str, datetime] = {}
         self._cooldowns: dict[str, datetime] = {}
+        # Sprint 2 S2-03: max move tracker (per-instance, was class-attr bug)
+        self._max_moves: dict[str, tuple[float, float]] = {}
         # Phase 47f.8: env overrides for risk limits (MAX_DAILY_LOSS, MAX_LOSS_STREAK, etc.)
         _rlimits = RiskLimits()
         import os

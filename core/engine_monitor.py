@@ -49,10 +49,13 @@ SMART_EXIT_GRACE_SEC = int(os.getenv("SMART_EXIT_GRACE_SEC", "60"))
 
 
 class EngineMonitorMixin:
-    """Open-position monitor + TP/SL + oracle settle methods for TradingEngine."""
+    """Open-position monitor + TP/SL + oracle settle methods for TradingEngine.
 
-    # Sprint 2 S2-03: In-memory max move tracker {exec_id: (max_fav, max_adv)}
-    _max_moves: dict = {}
+    Sprint 2 S2-03: ``self._max_moves`` max-move tracker is initialized on the
+    concrete ``TradingEngine`` in ``core/engine.py``'s ``__init__``. Previously
+    declared as a class-level ``dict = {}`` here which leaked state across
+    instances (test fixtures, multi-restart).
+    """
 
     def _track_max_moves(self, exec_id: str, entry: float, cur: float):
         """Track max favorable and max adverse price moves for an open position."""
