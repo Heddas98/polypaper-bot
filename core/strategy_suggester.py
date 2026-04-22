@@ -259,7 +259,11 @@ class StrategySuggester:
             # Bilinçli şemsiye.
             logger.error(f"Strategy Suggester error: {e}", exc_info=True)
 
-    # Class-level storage for pending approval
+    # Class-level storage for pending approval.
+    # INTENTIONAL singleton — Telegram callback handlers access via
+    # ``StrategySuggester._pending_suggest`` (see ai_handler.py:712,719,734).
+    # Writes go through ``self.__class__._pending_suggest = ...`` at L235.
+    # Do NOT convert to instance-attr; callbacks are class-bound not instance.
     _pending_suggest: dict = {}
 
     async def _discover_niches(self) -> str:
