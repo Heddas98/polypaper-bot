@@ -638,6 +638,21 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Rapor:** `docs/security/T10_5_get_live_price_fresh_over_stale.md` (pre/post pattern + Decision matrisi + doktrin pointer).
   - **Forward:** Epic 11 — aynı pattern'i orderbook / regime / signal cache'lerine genişletme + `except Exception: pass` pre-commit grep'i.
 
+### ✅ Epic 10 — Security Pass CLOSED (2026-04-22)
+
+- **Kapsam:** 5 subtask tamamlandı, 5 atomic commit (`77fba3a` T10.1, `9d84204` T10.2, `5c606ab` T10.3, `a74540b` T10.4, `27a2b81` T10.5).
+- **Sonuç:**
+  - T10.1 secret leak scan → **CLEAN** (6 pattern × tracked+git-history+ephemeral = 0 match).
+  - T10.2 Telegram input sanitization → 3 CRITICAL admin-gate bypass + 2 LOW exception-leak bulundu ve düzeltildi; 8 AST-based regression test eklendi.
+  - T10.3 pip-audit → 24 CVE / 3 paket tarandı, upgrade sonrası **0 vuln**. Uygulanabilirlik analizi (Image.new only / load_dotenv only / GET-only aiohttp) exploit-path'ın LOW olduğunu gösterdi ama pre-mainnet hygiene için yine de upgrade yapıldı.
+  - T10.4 `.env ↔ .env.example` sync → F1 CLEAN (placeholder contract sağlam), F2 FIXED (4 undocumented-in-prod key eklendi), F3/F4 informational (Epic 11 backlog).
+  - T10.5 `get_live_price` malformed entry → None (fresh > stale doktrinine hizalama); normal flow etkisi 0, edge-case observability +logger.debug breadcrumb.
+- **Regression:** 498 → **733 pass + 8 skip + 0 fail** (Epic 10 boyunca +235 test; 8 callback gate + 3 malformed-entry freshness + yoğun pin testler).
+- **Dokümantasyon:** `docs/security/T10_{1..5}_*.md` — beş ayrı raporla her bulgu+karar zabıtlı.
+- **Gitignore sync (T10.5 etkisi):** `data/websocket_client.py` fix'i SYNC.1 tablosuna eklendi — Windows'ta manuel apply gerekli.
+- **Forward (Epic 11'e devir):** T11.4 pip-audit+coverage CI gate + detect-secrets pre-commit, T11.5 env-leak test hygiene, `docs/env_reference.md` AST-gen, orderbook/regime/signal cache fresh>stale genelleme, `except Exception: pass` pre-commit grep.
+- **Sonraki:** Epic 11 (Mainnet Go/No-Go Çek Listesi) — T11.1 final audit → T11.2 live kill-switch/budget/divergence doğrulama → T11.3 rollback plan.
+
 ---
 
 ## Epic 11 — Mainnet Go/No-Go Çek Listesi  *(SON EPIC)*
@@ -681,7 +696,7 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 
 | ID | Task | Fix Kaynağı | Sandbox Yolu | Hedef (Windows) | Durum |
 |---|---|---|---|---|---|
-| SYNC.1 | `data/websocket_client.py` kopyala | T5.4 Fix A + T5.6 Fix A/B/C | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/websocket_client.py` | `data/websocket_client.py` | ⏳ manuel bekliyor |
+| SYNC.1 | `data/websocket_client.py` kopyala | T5.4 Fix A + T5.6 Fix A/B/C + **T10.5 narrow except** | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/websocket_client.py` | `data/websocket_client.py` | ⏳ manuel bekliyor |
 | SYNC.2 | `data/market_scanner.py` kopyala | T5.6 Fix A (prune wiring) | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/market_scanner.py` | `data/market_scanner.py` | ⏳ manuel bekliyor |
 
 **Doğrulama adımları (Windows'ta):**
