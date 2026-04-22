@@ -719,6 +719,12 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Windows prosedürü:** `.env` + `/env_toggle` ile her guard ayrı ayrı tetiklenir (gerçek emir yok — `LIVE_ENABLED=false` kalır). Her G# başlığında `☐ PASS / ☐ FAIL` kutusu + kanıt dolduruldukça işaretlenir. 6/6 ✅ → T11.2 kapanır.
   - **Öneri:** Shadow live ($1.49 USDC, $1/trade) üzerinde 48h controlled test + Telegram alert validation. Sandbox'ta yapılamaz.
   - **Template'in çıkardığı ek iş önerileri (opsiyonel):** `scripts/trigger_pnl_divergence.py` (test kolaylığı), `LIVE_BUDGET` runtime re-read helper (`_get_live_budget()` — T6.1 doktrin paritesi; şu an `LiveTrader._budget` module-top constant), WS stale `skip_reason` string standardization, `/live_guards` admin cmd (6 guard threshold özet).
+  - **Sandbox'ta otomatize edilmiş kanıt scriptleri (2026-04-22):**
+    - `scripts/t11_2_g1_file_kill_switch.bat` — G1 file-channel kill switch test (touch `polypaper.stop` → bekle → log grep → sil → resume kontrol → `evidence/t11_2_g1_<TS>.txt` output).
+    - `scripts/t11_2_g4_divergence_probe.py` — G4 standalone probe. 48h beklemeden pnl_divergence_job SQL'ini ayna eder, exit-code 0/1/2 (OK/ALERT/INSUFFICIENT). `--json` flag JSON output. DB'yi read-only açar (bot çalışırken güvenli).
+    - `scripts/t11_2_g5_wr_kill_historical.py` — G5 historical evidence query. `strategy_changelog WHERE action='ROLLING_WR_KILL'` → geçmişte guard tetiklenme kaydı. exit-code 0/1 (GUARD_HAS_FIRED / NEVER_FIRED).
+    - Smoke test: 3/3 script Unix'te synthetic DB üzerinde doğrulandı (G4 verdict=ALERT_RED on 66.67% divergence; G5 verdict=GUARD_HAS_FIRED on 1-row fixture).
+    - **G2/G3/G6 manual only:** live order cycle / in-process state gerekir — template'teki `/env_toggle` + log grep prosedürü uygulanır.
 - [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
   - **Gerekli:** `rollback_*.bat` envanteri + senaryo → .bat karar matrisi + dry-run kanıtı. `data/` gitignored sync yolu dokümante edilmiş olmalı (T10.5 fix Windows'a manuel kopya hâlâ bekliyor → SYNC.1).
 - [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
