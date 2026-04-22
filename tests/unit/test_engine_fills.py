@@ -50,7 +50,9 @@ class TestSnapToTick:
     def test_exact_tick_passthrough(self):
         assert FillsHarness._snap_to_tick(0.55) == 0.55
 
-    def test_rounds_up(self):
+    def test_rounds_to_nearest(self):
+        # 0.554 → 0.55 (rounds DOWN, not up). 0.556 → 0.56 (rounds UP).
+        # The name captures the actual behaviour: round-to-nearest tick.
         assert FillsHarness._snap_to_tick(0.554) == 0.55
         assert FillsHarness._snap_to_tick(0.556) == 0.56
 

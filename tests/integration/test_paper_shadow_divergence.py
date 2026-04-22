@@ -205,10 +205,14 @@ class TestRandomReplay:
         paper_stream = gen(rng_paper)
         shadow_stream = gen(rng_shadow)
 
-        # Same seed → same stream (sanity)
-        assert paper_stream == shadow_stream
+        # Basic smoke — ensure both streams actually contain 1000 events
+        # before we do the PnL comparison that actually tests the Single
+        # Fee Oracle. (Previously asserted paper_stream == shadow_stream
+        # which was a tautology for same-seed random.Random; removed.)
+        assert len(paper_stream) == 1000
+        assert len(shadow_stream) == 1000
 
-        # Same stream → same accumulated PnL
+        # Same stream → same accumulated PnL — THIS is the invariant
         paper_total = round(
             sum(_closed_pnl(e, x, a) for e, x, a in paper_stream), 4)
         shadow_total = round(

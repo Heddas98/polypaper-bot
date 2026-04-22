@@ -182,11 +182,27 @@ class TestFreshnessDoctrine:
         # 600s >> any reasonable WS_STALE_SEC → must be None
         assert ws.get_live_price("tok_x") is None
 
-    def test_missing_ts_returns_none(self):
-        """Malformed cache entry (no 'ts' key) → None, not crash."""
+    def test_missing_ts_returns_cached_price_no_crash(self):
+        """Malformed cache entry (no 'ts' key) must NOT raise.
+
+        Current production behaviour (data/websocket_client.py
+        get_live_price): a missing 'ts' raises KeyError inside the
+        try/except, which is swallowed, and the method falls through
+        to ``return data.get("price")`` — i.e. 0.50 is served despite
+        unknown freshness.
+
+        This test pins that defensive no-crash path exactly. It does
+        NOT endorse the behaviour — serving an unknown-freshness price
+        arguably violates the 'fresh > stale' doctrine. Flagged for
+        production-behaviour review in Epic 10+ (see TASKS.md 'Epic 9
+        post-audit backlog').
+        """
         ws = PolymarketWebSocket()
         ws._connected_since = 0.0
         ws.live_prices["tok_x"] = {"price": 0.50}  # no 'ts'
         result = ws.get_live_price("tok_x")
-        # Either None or some defensive default — must not raise
-        assert result is None or isinstance(result, float)
+        # Pin the current defensive fallback exactly. If the production
+        # code is later tightened to return None on malformed entries,
+        # this assertion will catch the behaviour change and force an
+        # intentional update here.
+        assert result == 0.50

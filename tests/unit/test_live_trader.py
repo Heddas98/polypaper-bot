@@ -171,7 +171,17 @@ class TestGetStatus:
             "daily_trades", "trade_count", "open", "open_detail",
             "budget", "remaining",
         }
-        assert expected_keys <= set(s.keys())
+        actual_keys = set(s.keys())
+        # Epic 9 post-audit tightening: exact-match pin (replaces prior
+        # subset check). Subset let additive growth pass silently, but a
+        # rename (drop old + add new) also slipped through because test
+        # owners would update expected_keys to match without catching the
+        # handler-side breakage. Exact match forces an intentional
+        # review whenever the status shape changes.
+        assert actual_keys == expected_keys, (
+            f"get_status shape drift — missing: {expected_keys - actual_keys}, "
+            f"unexpected: {actual_keys - expected_keys}"
+        )
         # Wallet display: first6 + '...' + last4
         assert s["wallet"] == "0xabcd...6789"
 

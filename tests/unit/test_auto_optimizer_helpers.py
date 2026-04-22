@@ -19,7 +19,6 @@ Out-of-scope (→ T9.8):
 """
 from __future__ import annotations
 
-import importlib
 from types import SimpleNamespace
 
 import pytest
