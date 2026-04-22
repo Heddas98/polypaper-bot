@@ -72,10 +72,18 @@ class EVTracker:
             realized_pnl: Actual PnL from trade
 
         Returns:
-            Ratio: realized / expected (1.0 = perfect, <0.7 = bad)
+            Ratio: realized / expected (1.0 = perfect, <0.7 = bad).
+            When ``expected_ev <= 0`` the ratio is undefined — we fall back
+            to the same sentinel used by ``get_strategy_ev_stats`` (L127-129):
+            ``1.0`` if realised PnL is non-negative, else ``0.0``. This keeps
+            the single-trade calculation consistent with the aggregate stats.
+
+        Note:
+            Currently no in-tree callers; reserved public API (T7.6 audit A3).
         """
         if expected_ev <= 0:
-            return 1.0  # Can't evaluate negative EV trades
+            # Align with aggregate logic: non-negative realised → "good", else "bad".
+            return 1.0 if realized_pnl >= 0 else 0.0
 
         ratio = realized_pnl / expected_ev
         return round(ratio, 3)
