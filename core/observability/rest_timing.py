@@ -62,7 +62,13 @@ _samples: dict[str, deque] = defaultdict(lambda: deque(maxlen=_BUFFER_SIZE))
 
 
 def enabled() -> bool:
-    """Cache + return whether telemetry is on. ENV is read once per process."""
+    """Cache + return whether telemetry is on. ENV is read once per process.
+
+    Cache is intentional — ``record_ms`` is a hot path; re-reading os.getenv
+    on every sample would waste cycles. Boot-time configuration only.
+    Tests that need to flip the toggle mid-process must call
+    :func:`_reset_cache` (see T7.6 B5).
+    """
     global _ENABLED, _BUFFER_SIZE
     if _ENABLED is None:
         _ENABLED = os.getenv("REST_TIMING_TELEMETRY", "false").lower() == "true"
@@ -74,6 +80,18 @@ def enabled() -> bool:
             logger.info(
                 f"REST timing telemetry ENABLED (buffer={_BUFFER_SIZE}/label)")
     return _ENABLED
+
+
+def _reset_cache() -> None:
+    """Test-only: clear the ENV cache so the next :func:`enabled` call re-reads.
+
+    T7.6 B5 (2026-04-22): added to let test suites that mutate
+    ``REST_TIMING_TELEMETRY`` between tests actually observe the new value
+    without tearing down the process. Not part of the public API; do NOT
+    call from production code.
+    """
+    global _ENABLED
+    _ENABLED = None
 
 
 def record_ms(label: str, elapsed_ms: float) -> None:
