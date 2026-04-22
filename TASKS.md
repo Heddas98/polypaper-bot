@@ -451,11 +451,90 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
 
 ---
 
-## Epic 9 — Test Kaplaması
+## Epic 9 — Test Kaplaması *(tam kapsamlı, mainnet öncesi test altyapısını sağlama al)*
 
-- [ ] **T9.1** `tests/` klasörü envanteri, hangi test hangi faz için, hangi hâlâ anlamlı — risk: LOW
-- [ ] **T9.2** `pytest` tam koşu — kaç tanesi yeşil, kaç tanesi sarı — risk: LOW
-- [ ] **T9.3** Risk manager, balance deduction, ghost module regression testleri yaz — risk: MED, bağımlılık: Epic 1,3,5
+**Hedef:** Epic 0-8 boyunca büyüyen core/ kod tabanını (38 modül, ~13 K satır) güvenilir bir test ağının altına almak. 510 toplanan case, 498 pass + 6 skip + 6 pre-existing fail — pre-existing fail'lerin triyajı ilk faz; sonra coverage boşluklarını kapatıp mainnet için critical path'i regression guard'la kilitleyeceğiz.
+
+**Temel prensip (Epic 7 B3 dersi):** Yeni test yazmadan önce mevcut 28 test dosyasının anlamlı olup olmadığını doğrula. Stale test = false confidence.
+
+**Giriş koşulları (envanter — 2026-04-22):**
+- 28 test dosyası (5 repo root altında + 23 `tests/unit/`). 510 case.
+- **Pass:** 498 / **Skip:** 6 / **Fail:** 6 (hepsi pre-existing, T1.4 → Epic 8 genel tarama boyunca sabit)
+- **Pre-existing 6 fail:**
+  1. `tests/test_phase77.py::TestHandlerImports::test_phase77_handler` — muhtemel handler yolu drift'i
+  2. `tests/unit/test_phase66.py::TestSignalFusionBayesian::test_bayesian_added_to_result` — bayesian ENV default drift
+  3. `tests/unit/test_phase82b.py::TestHyperOptPipelineMutex::test_pipeline_optimize_bails_when_lock_held` — optuna dep yok veya lock timing
+  4-6. `tests/unit/test_whale_signal.py` × 3 — `SignalWeights.whale_flow=0.0` vs test `>0` bekliyor (Task #44 / Bulgu D)
+
+### Faz 1 — Diagnostic (fundament)
+
+- [ ] **T9.1** Test envanteri — 28 dosya × phase/feature mapping — risk: LOW
+  - Her test dosyasının başındaki docstring + ilk `import` satırlarıyla hangi core/ modülü/faz'ı için yazıldığını çıkar.
+  - Çıktı: `tests/INVENTORY.md` (veya `docs/TEST_MAP.md`) — dosya → modül → faz → "hâlâ anlamlı mı?" karar sütunu.
+  - Stale kriterleri: (a) import ettiği modül arşive taşınmış (örn: fees v1, replay_engine_v2), (b) test ettiği faz davranışı sonraki faz tarafından değiştirilmiş ve test güncellenmemiş.
+- [ ] **T9.2** Coverage gap analysis — `coverage.py` ile core/ satır kapsamı — risk: LOW
+  - `pip install coverage --break-system-packages`, `coverage run -m pytest tests/`, `coverage report --include='core/*'`, `coverage html -d htmlcov/`.
+  - Hedef matris: her core/ modülü için `%<50` / `50-70` / `>70` bucket'a yerleştir.
+  - Kritik yoldaki (engine, risk_manager, live_trader, auto_optimizer, ai_brain, engine_fills, engine_settlement, engine_signals) coverage < 60% olan dosyalar T9.6'ya input.
+- [ ] **T9.3** 6 pre-existing fail triage — her biri için fix/skip/delete kararı — risk: LOW
+  - T9.3.a `test_phase77_handler` — ModuleNotFoundError mi yoksa logic fail mi? Handler dosyası Epic 2 cleanup'ta yer değiştirdiyse test yolu güncelle; gerçek regresyon ise ayrı commit.
+  - T9.3.b `test_phase66 bayesian` — ENV knob drift (muhtemelen `BAYESIAN_ENABLED` default değişti veya SIGNAL_W_* ağırlıkları). Test'in beklediği env'i conftest'te set et ya da test'i güncelle.
+  - T9.3.c `test_phase82b hyperopt mutex` — optuna yok diye fail ediyorsa `pytest.importorskip("optuna")` ekle; lock timing ise `asyncio` event-loop race'i narrow et.
+  - T9.3.d-f `test_whale_signal` × 3 → **Task #44 Bulgu D**: `SignalWeights().whale_flow=0.0` kasıtlı mı (Epic 9 T9.3'te karar) yoksa regresyon mu? Git blame + phase history + `core/signal_fusion.py` `whale_signal` kullanım tarama → ya test update (stale) ya da weight restore (regression).
+- [ ] **T9.4** Flaky / environment-dependent test audit — risk: LOW
+  - Wall-clock kullanan (datetime.utcnow/now) testleri listele — freezegun veya monkeypatch.
+  - DB path'i hard-code eden testleri listele — `tmp_path` fixture'a geçir.
+  - ENV default'a bağımlı testleri listele (T9.3.b gibi) — `monkeypatch.setenv` ile izole.
+  - Çıktı: `tests/FLAKY_AUDIT.md` + her biri için commit plan'ı.
+
+### Faz 2 — Remediation
+
+- [ ] **T9.5** 6 pre-existing fail temizliği — T9.3 kararlarını uygula — risk: MED, bağımlılık: T9.3
+  - Atomic commit per-test. Test fix ise commit message "test(phase66): …", gerçek kod fix ise "fix(signal_fusion): …".
+  - Hedef: green baseline → 504 pass + 6 skip + 0 fail (ya da karar verilen `xfail` kategorisinde).
+- [ ] **T9.6** Critical-path regression coverage fill — risk: MED, bağımlılık: T9.2
+  - Öncelik sırası (coverage raporuna göre güncellenir):
+    1. `risk_manager.py` — RiskState mutations, per_asset_flat round-trip (T3.4 var), concurrent update race, DB restart rehydration.
+    2. `live_trader.py` — LIVE_MAX_DAILY_LOSS trip, LIVE_MIN_SIGNAL/LIVE_MIN_ODDS gate, T7.6 A5 ENV-override runtime read (whitelist var, test yok).
+    3. `engine_fills.py` + `engine_settlement.py` — order lifecycle state machine, TAKER stuck timeout (Sprint 5 hotfix v6), settlement resolution notify.
+    4. `ai_brain.py` — LLM rate-limit helpers (T8.2 7 test ✅), `LLM_RATELIMIT_*` runtime toggle (yeni T6.1 helpers için 1 test ekle: override → immediate effect).
+    5. `auto_optimizer.py` — ADAPTIVE_PNL math, ROLLING_WR window edge (test var), PROTECTED_STRATEGY_TYPES skip.
+    6. `engine_signals.py` — fusion composite, whale weight (T9.3.d-f sonrası), MCI score clamp.
+    7. `bg_task.py` — ✅ 7 test B6 (GC survival, done-callback release). Tamam.
+  - Her modül için `tests/unit/test_<module>_coverage.py` ekle. Mocking: in-memory SQLite + httpx MockTransport.
+- [ ] **T9.7** Ghost module / invariant drift guards — risk: MED
+  - T6.3 brain_flags parity ✅ mevcut. Genişletme:
+    - `/env_toggle` whitelist runtime-readiness guard (T6.4 closing test ✅ `test_whitelist_runtime_readiness.py`). +Test: yeni knob eklendiğinde runtime helper yoksa test RED olsun (import-time `os.getenv` sabiti için AST taraması).
+    - 5 ghost sınıfı doktrini (drift_monitor, autopilot brain-flag gate, kelly_sizing unified toggle, market_recorder UI, handler UI↔engine parity): her biri için ayrı parity test dosyası (4 var ✅; market_recorder için eksik → ekle).
+- [ ] **T9.8** Integration & smoke — risk: MED
+  - Engine boot smoke: `asyncio` event-loop'ta Engine.start() → 5s → Engine.stop(), DB migration + WS handshake mock, 0 exception.
+  - Paper↔shadow divergence monitor: aynı fill event simülasyonu, paper ve shadow state karşılaştır, PnL delta tolerance (< $0.10) assert.
+  - WS reconnect replay: T5.4 fix senaryosu — websocket drop → reconnect → live_prices cache staleness reset.
+
+### Faz 3 — Infrastructure
+
+- [ ] **T9.9** pytest marker taxonomy + conftest refactor — risk: LOW
+  - Marker ekle: `slow` (>1s test'ler), `integration` (DB + asyncio event-loop), `network` (gerçek httpx — yok etmeye çalış), `windows_only` (py-clob-client yüklü varsayan).
+  - `pyproject.toml` veya `pytest.ini`'de `markers` deklare et.
+  - `conftest.py`'de tmp_path + monkeypatch fixture'ları tek yerde topla (duplication azalt).
+- [ ] **T9.10** Test execution plan — risk: LOW
+  - `tests/README.md` yaz: how to run full suite, unit vs integration subset, hangi marker ne zaman.
+  - `run_full_regression.bat` (Windows) + `run_full_regression.sh` (sandbox) — aynı command surface.
+  - CI gate önerisi (Epic 10+11 için): coverage < 60% fail, yeni eklenen core/ fonksiyonlar için test zorunlu (pre-commit hook notu).
+
+### Exit kriterleri
+
+- 504+ pass / 0 fail (6 skip kalabilir — marker'lı intentional)
+- core/ critical path coverage ≥ 60% (öncelikli 6 modül: risk_manager, live_trader, engine*, auto_optimizer, ai_brain)
+- `tests/INVENTORY.md` + `tests/FLAKY_AUDIT.md` + `tests/README.md` hazır
+- Task #44 (Bulgu D whale_signal) karar altında (fix ya da doğru şekilde xfail/skip)
+- Epic 10 (Security Pass) başlayabilir durumda
+
+### Çıkmazlar & riskler
+
+- **Sandbox limiti:** optuna + bazı telemetry dep'leri sandbox'ta yok. Windows full regression T9.10 `run_full_regression.bat` ile yapılmalı. T7.6-REG gibi "yerel Windows backlog"a giden maddeler olabilir.
+- **Tarihsel faz-bazlı testler:** phase66/phase67/... isimli dosyalar dönemin davranışını dondurmuş. Modernize ederken regression anlamını kaybetme — her test "hangi invariant'ı koruyor?" sorusuyla güncellenmeli.
+- **T9.6 scope creep:** Coverage raporu ürpertici gelebilir (ai_brain 2199 satır, muhtemel <30%). Faz 2'yi "6 modül × 5-10 kritik test" scope'unda tut; derinleme her modül Epic 11 sonrası iş.
 
 ---
 
