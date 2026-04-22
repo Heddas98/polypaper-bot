@@ -305,6 +305,7 @@ class EngineFillsMixin:
                 # WS orderbook, scanner odds, settings. A single order's
                 # failure must not abort the whole cycle. Surface the type
                 # so silent drops get noticed in logs.
+                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.warning(
                     f"  [{o.strategy_id[:8]}] check_pending order {o.slug}: "
                     f"{type(e).__name__}: {e}")
@@ -472,6 +473,7 @@ class EngineFillsMixin:
                 # live.maybe_mirror chains: DB label lookup, CLOB REST,
                 # telegram notify. Broad on purpose; emit full traceback so
                 # mainnet shadow mirror issues surface cleanly.
+                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.exception(f"Live mirror failed [{type(e).__name__}]: {e}")
 
         parts = o.slug.split("-")
