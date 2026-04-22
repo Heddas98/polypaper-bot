@@ -132,6 +132,28 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "group": "risk",
         "desc": "Auto-optimizer PnL pause esigi (USD, negatif) — Sprint 0 -8.0",
     },
+    # ── Live (shadow-mirror) safety limits — T7.6 A5 ─────────────────────
+    # core/live_trader.py reads these at runtime on every maybe_mirror().
+    "LIVE_MAX_TRADE": {
+        "type": "float", "default": "1.00", "min": 0.10, "max": 100.0,
+        "group": "live",
+        "desc": "Live trade basi max $ tutari (shadow)",
+    },
+    "LIVE_MAX_DAILY_LOSS": {
+        "type": "float", "default": "1.00", "min": 0.10, "max": 1000.0,
+        "group": "live",
+        "desc": "Live gunluk zarar durdurma esigi (abs $)",
+    },
+    "LIVE_MIN_SIGNAL": {
+        "type": "float", "default": "0.75", "min": 0.0, "max": 1.0,
+        "group": "live",
+        "desc": "Live mirror min signal_score",
+    },
+    "LIVE_MIN_ODDS": {
+        "type": "float", "default": "0.75", "min": 0.0, "max": 1.0,
+        "group": "live",
+        "desc": "Live mirror min odds",
+    },
 }
 
 

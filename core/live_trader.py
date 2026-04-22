@@ -30,12 +30,45 @@ except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
 
 logger = logging.getLogger("polypaper.core.live")
 
-# ═══ SAFETY LIMITS ═══
-MAX_TRADE = 1.00
-MAX_DAILY_LOSS = 1.00
-MAX_CONCURRENT = 1
-MIN_SIGNAL = 0.75
-MIN_ODDS = 0.75
+# ═══ SAFETY LIMITS (ENV-override, runtime re-read via /env_toggle) ═══
+# T7.6 A5 (2026-04-22): module-top floats caused the same ghost-toggle
+# defect as T6.1 PNL_PAUSE / T6.4 auto_optimizer — hot-tunes via
+# ``/env_toggle`` would patch ``os.environ`` but the constants, imported
+# once, never re-read. These helpers re-read on every call, so operator
+# tightens/loosens take effect immediately on the next ``maybe_mirror``.
+#
+# ``MAX_CONCURRENT`` removed — dead constant; concurrency is enforced by
+# ``if self._open:`` single-slot guard at ``maybe_mirror`` (L223).
+def _get_max_trade() -> float:
+    """``LIVE_MAX_TRADE`` — max $ per live trade (default 1.00)."""
+    try:
+        return float(os.getenv("LIVE_MAX_TRADE", "1.00"))
+    except (TypeError, ValueError):
+        return 1.00
+
+
+def _get_max_daily_loss() -> float:
+    """``LIVE_MAX_DAILY_LOSS`` — daily loss cutoff in abs $ (default 1.00)."""
+    try:
+        return float(os.getenv("LIVE_MAX_DAILY_LOSS", "1.00"))
+    except (TypeError, ValueError):
+        return 1.00
+
+
+def _get_min_signal() -> float:
+    """``LIVE_MIN_SIGNAL`` — min signal_score to mirror (default 0.75)."""
+    try:
+        return float(os.getenv("LIVE_MIN_SIGNAL", "0.75"))
+    except (TypeError, ValueError):
+        return 0.75
+
+
+def _get_min_odds() -> float:
+    """``LIVE_MIN_ODDS`` — min odds to mirror (default 0.75)."""
+    try:
+        return float(os.getenv("LIVE_MIN_ODDS", "0.75"))
+    except (TypeError, ValueError):
+        return 0.75
 
 # LIVE_STRATEGIES: whitelist of paper strategies that may mirror to
 # real-money ($1/trade) via py-clob-client. Selection criterion: proven
@@ -211,13 +244,13 @@ class LiveTrader:
             return None
         if strategy_label not in LIVE_STRATEGIES:
             return None
-        if signal_score < MIN_SIGNAL:
+        if signal_score < _get_min_signal():
             return None
-        if odds < MIN_ODDS:
+        if odds < _get_min_odds():
             return None
 
         self._maybe_reset_daily()
-        if self._daily_pnl <= -MAX_DAILY_LOSS:
+        if self._daily_pnl <= -_get_max_daily_loss():
             logger.info(f"  🔴 LIVE HALT: daily loss ${self._daily_pnl:.2f}")
             return None
         if self._open:
@@ -228,7 +261,7 @@ class LiveTrader:
             logger.info("  🔴 LIVE: Budget exhausted")
             return None
 
-        amount = min(MAX_TRADE, remaining)
+        amount = min(_get_max_trade(), remaining)
         return await self._place(token_id, direction, amount, odds, slug, strategy_label, signal_score)
 
     async def _place(self, token_id, direction, amount, odds, slug, strategy, signal) -> Optional[dict]:
