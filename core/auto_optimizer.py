@@ -302,12 +302,24 @@ class AutoOptimizer:
                         f"⚠️ Rolling WR kill: {s.id[:8]} [{stype}] "
                         f"{s.asset.value}/{s.timeframe.value}: "
                         f"WR={wr:.0f}% (last {len(rows)}t) < {kill_threshold}%")
+                    # T11.2 [E]: also persist cumulative pnl + trades to
+                    # changelog. Previously only wr_at_time was set; pnl/
+                    # trades_at_time were NULL (see G5 probe output where
+                    # column showed "N/A"). Structured fields enable faster
+                    # forensics and AI Brain summary rendering without
+                    # parsing reason string. Cumulative stats fetched via
+                    # existing _get_strategy_stats helper. `None` fallback
+                    # if stats lookup fails — log_change accepts None.
+                    cum_stats = await self._get_strategy_stats(s.id)
+                    cum_pnl = cum_stats["pnl"] if cum_stats else None
+                    cum_trades = cum_stats["trades"] if cum_stats else None
                     try:
                         from core.changelog import log_change
                         await log_change(self.db, s.id, "ROLLING_WR_KILL", "adaptive_optimizer",
                                          old={"status": "active"}, new={"status": "stopped"},
                                          reason=f"WR={wr:.0f}% < {kill_threshold}% (last {len(rows)}t)",
-                                         label=getattr(s, 'label', ''), wr=wr)
+                                         label=getattr(s, 'label', ''),
+                                         wr=wr, pnl=cum_pnl, trades=cum_trades)
                     except (ImportError, AttributeError, aiosqlite.Error) as _ce:
                         # T8.1: import (ImportError on partial deploy),
                         # getattr(s,'label','') shouldn't raise but keep
