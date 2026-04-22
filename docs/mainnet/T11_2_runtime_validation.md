@@ -454,15 +454,37 @@ Test sırasında karşılaşılabilecek gap'ler — bulgu raporu olarak T11.2
 commit'ine eklenir, düzeltmesi Epic 11 T11.x olabilir:
 
 1. **`scripts/trigger_pnl_divergence.py`** (Seçenek B kolaylığı için) —
-   `pnl_divergence_job(ctx)` manuel çağrı. Yoksa yaz.
+   `pnl_divergence_job(ctx)` manuel çağrı. Yoksa yaz. **[A] ✅
+   2026-04-22** — script eklendi.
 2. **`LIVE_BUDGET` runtime re-read helper** (T6.1 doktrin paritesi).
    `_get_live_budget()` helper + `LiveTrader._budget` → `@property`.
+   **[B] ✅ 2026-04-22** — `core/live_trader.py` helper + read-only
+   property; 7 regresyon testi + fixture adaptasyonu.
 3. **WS stale skip_reason string standardize** — `engine_signals`
    pipeline'ında `skip_reason="stale_price"` tutarlı mı (`/diagnose
-   skips` ile doğrula).
+   skips` ile doğrula). **[C] ✅ 2026-04-22** — doc↔code drift
+   kapatıldı; `WS_STALE_SEC` legacy fallback kanıtı `data/websocket_client.py`.
 4. **`/live_guards` komut önerisi** — tüm 6 guard'ın runtime
    threshold'larını tek output'ta listeleyen bir admin cmd. T11.2 test
    süresini kısaltır; mainnet sonrası kalıcı ops aracı olur.
+   **[D] ✅ 2026-04-22** — `telegram_bot/handlers/live_guards_handler.py`
+   (`/live_guards` + `/lg`), 5 regresyon testi (admin gate, content
+   shape, runtime env re-read, engine-absent fallback). T6.1 doktrini
+   UI katmanına taşındı.
+
+**Ek bulgu (sandbox ekstraksiyonu sırasında tespit edildi):**
+
+5. **[E] strategy_changelog cumulative stats persist** —
+   `auto_optimizer._check_rolling_wr`'nin ROLLING_WR_KILL path'i
+   `log_change`'e sadece `wr` geçiyordu; `pnl_at_time` / `trades_at_time`
+   NULL kalıyordu. T11.2 Windows G5 probe (2026-04-22 23:09) 7 tarihi
+   satırı doğruladı. **[E] ✅ 2026-04-22** — `_get_strategy_stats`
+   pre-fetch + 3 regresyon testi (happy path / empty stats / protected
+   bypass).
+6. **[F] T11.3 rollback matrix prep doc** —
+   `docs/mainnet/T11_3_rollback_plan.md` mainnet öncesi final dry-run
+   için env matrisi. **[F] ✅ 2026-04-22** (sandbox scope). Windows
+   dry-run: Heddas, T11.3 closure.
 
 ---
 
