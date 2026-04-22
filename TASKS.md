@@ -507,10 +507,18 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
     9. `kill_switch.py` — 0% → **93.8%** (12 test: 3-channel emergency stop, deactivate cleanup, status dict).
   - **Exit state:** 662 pass + 8 skip + 0 fail, TOTAL coverage 17.5% → **21.2%**. Critical-path 9.7% → ~24% (7 modül avg).
   - Pattern: Mixin harness class `FillsHarness(EngineFillsMixin)` pure-logic unit-test enabler. ENV runtime-read guard'ları her helper için 2 sequential `monkeypatch.setenv` ile doğrulandı (T6.1/T7.6 A5 doktrini).
-- [ ] **T9.7** Ghost module / invariant drift guards — risk: MED
+- [x] **T9.7** Ghost module / invariant drift guards — risk: MED — **CLOSED 2026-04-22**
   - T6.3 brain_flags parity ✅ mevcut. Genişletme:
-    - `/env_toggle` whitelist runtime-readiness guard (T6.4 closing test ✅ `test_whitelist_runtime_readiness.py`). +Test: yeni knob eklendiğinde runtime helper yoksa test RED olsun (import-time `os.getenv` sabiti için AST taraması).
-    - 5 ghost sınıfı doktrini (drift_monitor, autopilot brain-flag gate, kelly_sizing unified toggle, market_recorder UI, handler UI↔engine parity): her biri için ayrı parity test dosyası (4 var ✅; market_recorder için eksik → ekle).
+    - `/env_toggle` whitelist runtime-readiness guard (T6.4 closing test ✅ `test_whitelist_runtime_readiness.py`).
+    - 5 ghost sınıfı doktrini (drift_monitor, autopilot brain-flag gate, kelly_sizing unified toggle, market_recorder UI, handler UI↔engine parity).
+  - **Artifact:** `3435032` test(market_recorder): T9.7 explicit UI↔engine toggle parity.
+  - `tests/unit/test_market_recorder_parity.py` (11 test × 5 class):
+    1. TestUiLayer (3) — `brain_toggle_market_recorder` callback_data, `📹 Recorder` label, `fmt_flag('market_recorder')` status line.
+    2. TestHandlerAllowList (1) — AST extract `valid_features` set, `market_recorder` içinde.
+    3. TestSiblingPropagation (2) — regex branch pattern `if feature == "market_recorder": ... mr._enabled = new_state` + DB key template `f"brain_flags.{feature}"`.
+    4. TestEngineInit (1) — `core/engine.py` init dict seeds `'market_recorder': True`.
+    5. TestToggleSim (4) — `_StubMarketRecorder` + `_StubEngine` + `_run_toggle_once()` semantic simulation: first→False, second→True, DB persistence key/value, missing recorder tolerated.
+  - **Exit state:** 673 pass + 8 skip + 0 fail (662 + 11 new, 3 seed deterministic GREEN). Pre-T6.3e "silent ghost" regresyonu kalıcı guard altına alındı.
 - [ ] **T9.8** Integration & smoke — risk: MED
   - Engine boot smoke: `asyncio` event-loop'ta Engine.start() → 5s → Engine.stop(), DB migration + WS handshake mock, 0 exception.
   - Paper↔shadow divergence monitor: aynı fill event simülasyonu, paper ve shadow state karşılaştır, PnL delta tolerance (< $0.10) assert.
