@@ -43,9 +43,9 @@ if not exist evidence (
     mkdir evidence
 )
 
-REM --- Timestamp + evidence dosyasi ---
-for /f "tokens=2 delims==" %%a in ('wmic OS Get localdatetime /value 2^>nul ^| find "="') do set DT=%%a
-set TS=%DT:~0,8%_%DT:~8,6%
+REM --- Timestamp + evidence dosyasi (Windows 11: wmic kaldırıldı) ---
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"`) do set TS=%%a
+if "%TS%"=="" set TS=notimestamp
 set EVID=evidence\t11_2_g1_%TS%.txt
 
 echo [T11.2 G1 Kill Switch File-Channel Test] > %EVID%

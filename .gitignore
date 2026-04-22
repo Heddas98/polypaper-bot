@@ -58,6 +58,9 @@ coverage.xml
 coverage.json
 pytest-cache-files-*/
 
+# ── T11.2 runtime validation evidence (local-only) ───────────────
+evidence/
+
 # ── Phase 82e addendum — GitHub public-ready hygiene ─────────────
 # Large data stores (DO NOT COMMIT — 195GB+ total)
 data_store/

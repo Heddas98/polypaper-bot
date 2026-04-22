@@ -249,24 +249,48 @@ Bulgu: LIVE_BUDGET runtime re-read __eksik__ mi (evet/hayır, yan rapor):
 
 ### Kanıt
 
+**[2026-04-22 23:09 local / 20:09 UTC] Seçenek D — standalone probe (read-only):**
+
+Komut: `py -3.11 scripts\t11_2_g4_divergence_probe.py`
+Wrapper: `scripts\run_t11_2_readonly_probes.bat` → `evidence\t11_2_g4_20260422_230940.txt`
+
 ```
-[YYYY-MM-DD HH:MM:SS] /env_toggle patch kanıtı:
-<... yapıştır ...>
+[T11.2 G4 PnL Divergence Probe] INSUFFICIENT
+============================================================
+Probe time       : 2026-04-22 20:09 UTC
+DB               : data_store/polypaper.db
+Window           : 24.0h
+Alert threshold  : 5.0%
+Min trades       : 5
 
-[YYYY-MM-DD HH:MM:SS] pnl_divergence log satırı:
-<... yapıştır ...>
+Paper   :    0t | WR   0.0% | PnL $+0.00
+Shadow  :    0t | WR   0.0% | PnL $+0.00
 
-Telegram alert raw metin:
-<... yapıştır ...>
+PnL delta        : $0.0000
+Divergence       : 0.00%  (threshold: 5.0%)
+WR delta         : 0.00pp   (threshold: 10pp)
 
-Alert ekran görüntüsü: screenshots/T11_2_G4_alert.png
-
-(Opsiyonel C kolu) "insufficient data" log satırı:
-<... yapıştır ...>
+Verdict          : INSUFFICIENT
+Has enough data  : False
 ```
 
-**Ek iş (sandbox):** Seçenek B için `scripts/trigger_pnl_divergence.py`
-yazmak gerekirse T11.2 kapsamına girer. Bkz. "Ek iş önerileri" bölümü sonunda.
+**Yorum:** Probe son 24 saatlik `executions` (paper) ve `live_trades` (shadow)
+tablolarını okudu, her iki bucket da 0 — yani 2026-04-21T20:09 UTC sonrası
+kayıtlı paper/shadow trade yok (bot bu pencerede ayakta değildi). Job canlı
+koşarken `pnl_divergence: insufficient data (paper=0, shadow=0)` log'lar ve
+alert göndermez — bu Seçenek C happy-path'i. INSUFFICIENT bu koşulda
+**beklenen** davranıştır; guard hatalı değildir.
+
+**Gerçek alert kanıtı için (Seçenek B) hâlâ gerekli:** bot ayakta + 5+ paper
+& shadow trade + `/env_toggle PNL_DIVERGENCE_ALERT_PCT 0.01` + next daily tick.
+Şu an shadow-live koşuyor ama cron henüz tetiklenmedi (FIRST_SEC=3600, window
+24h). 24h pencerede 5 shadow trade birikene kadar bekle veya
+`scripts/trigger_pnl_divergence.py` (ek iş) ile manuel tick et.
+
+**Verdict:** ☒ PARTIAL — probe INSUFFICIENT kolunu doğruladı (SQL + math
+canlı kod ile 1:1). Seçenek B canlı tick Windows backlog'a yazıldı.
+
+Alert ekran görüntüsü: (pending — Seçenek B)
 
 ---
 
@@ -306,22 +330,53 @@ yazmak gerekirse T11.2 kapsamına girer. Bkz. "Ek iş önerileri" bölümü sonu
 
 ### Kanıt
 
+**[2026-04-22 23:09 local / 20:09 UTC] Seçenek D — historical DB evidence (read-only):**
+
+Komut: `py -3.11 scripts\t11_2_g5_wr_kill_historical.py`
+Wrapper: `scripts\run_t11_2_readonly_probes.bat` → `evidence\t11_2_g5_20260422_230940.txt`
+
 ```
-[YYYY-MM-DD HH:MM:SS] /env_toggle ROLLING_WR_KILL 99.0 kanıtı:
-<... yapıştır ...>
+[T11.2 G5 Rolling WR Kill - Historical Evidence]
+============================================================
+Probe time       : 2026-04-22 20:09 UTC
+DB               : data_store/polypaper.db
+Window           : all history
+Total ROLLING_WR_KILL (ever)    : 7
+In window count                 : 7
+Distinct strategies ever killed : 7
+Verdict          : GUARD_HAS_FIRED
 
-[YYYY-MM-DD HH:MM:SS] Auto-optimizer PAUSE log satırı:
-<... yapıştır ...>
-
-[YYYY-MM-DD HH:MM:SS] /changelog output (ROLLING_WR_KILL entry):
-<... yapıştır ...>
-
-[YYYY-MM-DD HH:MM:SS] /active_strategies — paused strateji görünümü:
-<... yapıştır ...>
-
-[YYYY-MM-DD HH:MM:SS] Restore: /env_toggle ROLLING_WR_KILL 40.0
-<... yapıştır ...>
+created_at (UTC)       strat             wr%      pnl    n  reason
+----------------------------------------------------------------------------------------------------
+2026-04-17T09:37:46.80 faf209fc-9aa     35.0      N/A  N/A  WR=35% < 40.0% (last 20t)
+2026-04-17T09:37:46.55 91b26127-56f     35.0      N/A  N/A  WR=35% < 40.0% (last 20t)
+2026-04-17T09:37:46.33 954fdcbc-3a6     30.0      N/A  N/A  WR=30% < 40.0% (last 20t)
+2026-04-17T09:37:46.12 40180825-bf9     30.0      N/A  N/A  WR=30% < 40.0% (last 20t)
+2026-04-17T09:37:45.93 c9333ea0-25a     30.0      N/A  N/A  WR=30% < 40.0% (last 20t)
+2026-04-17T09:37:45.73 75f09040-52c     30.0      N/A  N/A  WR=30% < 40.0% (last 20t)
+2026-04-17T09:37:45.40 64076dfc-6c9     30.0      N/A  N/A  WR=30% < 40.0% (last 20t)
 ```
+
+**Yorum:** `strategy_changelog` tablosunda `action='ROLLING_WR_KILL'` 7 satır
+var — yani guard canlı ortamda **ATEŞLENDİ**. 2026-04-17 09:37:45-46 UTC
+aralığında tek bir auto-optimizer cycle'ında 7 farklı strateji (UUID
+prefix'leri listede) %30-35 WR ile 40% eşiğini geçemedi → otomatik PAUSE.
+Reason formatı: "WR=X% < 40.0% (last 20t)" — bu `core/auto_optimizer.py`
+L267-310 enforcement satırıyla bire-bir eşleşir. 7 distinct strategy_id,
+7 distinct changelog row → idempotent değil, her strateji kendi satırını
+aldı (doğru davranış).
+
+**Verdict:** ☒ PASS — guard canlı ortamda ateşlendi, changelog kaydı var,
+enforcement SQL path'i production'da çalışıyor.
+
+**Notlar:**
+- `wr_at_time` / `pnl_at_time` / `trades_at_time` kolonları `N/A` —
+  changelog migration v13'de bu kolonlar nullable; kill satırı yazan kod
+  o sırada bu metrikleri persist etmiyormuş (enhancement fırsatı, T11.2
+  bloklamaz). Reason string'i WR bilgisini zaten içeriyor.
+- Auto-resume yok — kasıtlı; manuel `/start_strategy X` gerekir (line 304).
+- /env_toggle ROLLING_WR_KILL 60 forced trigger (Seçenek B) canlı test
+  Windows backlog'ta — shadow live koşarken /changelog ile doğrulanabilir.
 
 ---
 
