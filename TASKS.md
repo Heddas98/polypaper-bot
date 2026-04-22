@@ -719,6 +719,13 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Windows prosedürü:** `.env` + `/env_toggle` ile her guard ayrı ayrı tetiklenir (gerçek emir yok — `LIVE_ENABLED=false` kalır). Her G# başlığında `☐ PASS / ☐ FAIL` kutusu + kanıt dolduruldukça işaretlenir. 6/6 ✅ → T11.2 kapanır.
   - **Öneri:** Shadow live ($1.49 USDC, $1/trade) üzerinde 48h controlled test + Telegram alert validation. Sandbox'ta yapılamaz.
   - **Template'in çıkardığı ek iş önerileri (opsiyonel):** `scripts/trigger_pnl_divergence.py` (test kolaylığı), `LIVE_BUDGET` runtime re-read helper (`_get_live_budget()` — T6.1 doktrin paritesi; şu an `LiveTrader._budget` module-top constant), WS stale `skip_reason` string standardization, `/live_guards` admin cmd (6 guard threshold özet).
+  - **Ek iş kapanışı (2026-04-22, sandbox batch — 6 commit):**
+    - `[A] ✅` — `scripts/trigger_pnl_divergence.py` yazıldı (G4 Seçenek B kolaylığı).
+    - `[B] ✅` — `core/live_trader.py::_get_live_budget()` helper + read-only `@property _budget`; 7 regresyon testi (`tests/unit/test_live_trader.py::TestLiveBudgetRuntime`). T6.1 doktrin paritesi (PNL_PAUSE + T6.4 rolling-WR ile aynı sınıf).
+    - `[C] ✅` — `data/websocket_client.py::get_live_price()` legacy `WS_STALE_SEC` env fallback (doc→code drift).
+    - `[D] ✅` — `telegram_bot/handlers/live_guards_handler.py` (`/live_guards` + `/lg` alias); 5 regresyon testi. Admin gate + content shape + runtime env re-read + engine-absent fallback invariantları pinlendi (`bc87f42`).
+    - `[E] ✅` — `auto_optimizer._check_rolling_wr` ROLLING_WR_KILL path'i `_get_strategy_stats` pre-fetch + `log_change(wr, pnl, trades)` kwargs; 3 regresyon testi (`tests/unit/test_rolling_wr_changelog_persist.py`). T11.2 Windows G5 probe'un tespit ettiği NULL pnl/trades alanları kapatıldı.
+    - `[F] ✅` — `docs/mainnet/T11_3_rollback_plan.md` (sandbox scope). Windows dry-run T11.3 kapanışına bağlı.
   - **Sandbox'ta otomatize edilmiş kanıt scriptleri (2026-04-22):**
     - `scripts/t11_2_g1_file_kill_switch.bat` — G1 file-channel kill switch test (touch `polypaper.stop` → bekle → log grep → sil → resume kontrol → `evidence/t11_2_g1_<TS>.txt` output).
     - `scripts/t11_2_g4_divergence_probe.py` — G4 standalone probe. 48h beklemeden pnl_divergence_job SQL'ini ayna eder, exit-code 0/1/2 (OK/ALERT/INSUFFICIENT). `--json` flag JSON output. DB'yi read-only açar (bot çalışırken güvenli).
