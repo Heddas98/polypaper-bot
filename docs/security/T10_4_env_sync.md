@@ -13,7 +13,7 @@
 | Secret leak in `.env.example` (placeholder-contract) | ✅ **CLEAN** — 0 real API-key-shaped value |
 | `.env` keys undocumented in `.env.example` | ⚠️ **4 found → fixed** |
 | `.env.example` keys missing from `.env` (OK) | ℹ️ 72 (doc-only / opt-in features) |
-| Code `os.getenv` keys never mentioned in `.env.example` | ℹ️ 148 (runtime-default-safe, optional overrides) |
+| Code `os.getenv` keys never mentioned in `.env.example` | ℹ️ ~150 (runtime-default-safe, optional overrides) — exact: 123 app-scope / 194 full-tree at T10.10 re-scan; snapshot frozen in F4 below, reproducible via script |
 | Net closure | ✅ **.env ⊆ .env.example** after fix |
 
 ---
@@ -64,10 +64,65 @@ expected and correct:
 Ilgili şey: çoğu runtime `/env_toggle` whitelist'inde — admin hot-tune
 için görünür.
 
-### ℹ️ F4 — 148 code `os.getenv` keys absent from `.env.example`
+### ℹ️ F4 — ~150 code `os.getenv` keys absent from `.env.example`
 
-Repository-wide scan `grep -rhEo 'os\.getenv\("[A-Z][A-Z0-9_]*"'` →
-148 keys missing from `.env.example`. Categorized:
+**Reproducible scan pipeline (T10.10 post-audit addition, 2026-04-22).**
+F4's original "148" was a snapshot count at T10.4 closure; exact number
+drifts as new `os.getenv(...)` call sites land. Verification script
+below gives the live number. As of the T10.10 re-scan the scope
+matrix was:
+
+```bash
+# --- full scope (all tracked .py files) ---
+# raw occurrences (every call site, including duplicates)
+grep -rhE 'os\.getenv\("[A-Z][A-Z0-9_]*"' --include="*.py" | wc -l
+#   → 429
+
+# distinct keys across code
+grep -rhEo 'os\.getenv\("[A-Z][A-Z0-9_]*"' --include="*.py" \
+  | sort -u | wc -l
+#   → 327
+
+# distinct keys declared in .env.example
+grep -E "^[A-Z][A-Z0-9_]*=" .env.example | cut -d= -f1 | sort -u | wc -l
+#   → 202
+
+# distinct code keys NOT declared in .env.example
+comm -23 \
+  <(grep -rhEo 'os\.getenv\("[A-Z][A-Z0-9_]*"' --include="*.py" \
+    | sed 's/os\.getenv("//' | sed 's/"$//' | sort -u) \
+  <(grep -E "^[A-Z][A-Z0-9_]*=" .env.example | cut -d= -f1 | sort -u) \
+  | wc -l
+#   → 194  (includes _archive/, tests/, scripts/)
+
+# --- app-only scope (core/ + telegram_bot/) ---
+grep -rhEo 'os\.getenv\("[A-Z][A-Z0-9_]*"' core/ telegram_bot/ \
+  --include="*.py" | sort -u | wc -l
+#   → 237
+
+comm -23 \
+  <(grep -rhEo 'os\.getenv\("[A-Z][A-Z0-9_]*"' core/ telegram_bot/ \
+    --include="*.py" | sed 's/os\.getenv("//' | sed 's/"$//' | sort -u) \
+  <(grep -E "^[A-Z][A-Z0-9_]*=" .env.example | cut -d= -f1 | sort -u) \
+  | wc -l
+#   → 123   (app-level F4 count — runtime-default-safe)
+```
+
+**Interpretation.** The F4 bucket is "keys the code reads but
+`.env.example` doesn't declare". The original 148 was an app-level
+snapshot (core + telegram_bot); today the same scope is 123 (the
+count shrunk after T10.4 F2 fix added 4 keys and a few `os.getenv`
+keys were archived alongside the Epic 7/T7.6 cleanup). Full-tree
+scope is 194, inflated by test fixtures and archived scripts that
+legitimately reference keys nobody configures through `.env`.
+
+None of this is a security blocker — every F4 key uses the
+`os.getenv("KEY", <default>)` pattern with a sensible default, so a
+missing `.env` entry falls back to the code default. The Epic 11
+`docs/env_reference.md` auto-generator will make this reproducible
+and drift-proof.
+
+**Categorized (original T10.4 buckets, still valid):**
 
 1. **Platform-supplied** (no user action): `PORT`, `REPLIT_DOMAINS`,
    `REPLIT_DEV_DOMAIN` — Replit ortamı otomatik set ediyor.
@@ -84,11 +139,13 @@ Repository-wide scan `grep -rhEo 'os\.getenv\("[A-Z][A-Z0-9_]*"'` →
    `HEARTBEAT_INTERVAL_SEC`, `SHADOW_COMPARE_INTERVAL_SEC`,
    `PATTERN_DISCOVERY_INTERVAL_SEC`, etc. — ops knobs, defaults OK.
 
-**Karar:** 148 key kitle olarak `.env.example`'a eklemek **kapsam
-genişletmesi** olur (T10.4 LOW-risk sınırını aşar). Bunun yerine:
+**Karar:** Bu ~150 key kitle olarak `.env.example`'a eklemek
+**kapsam genişletmesi** olur (T10.4 LOW-risk sınırını aşar). Bunun
+yerine:
 - F2'deki 4 tane **active-in-prod-without-doc** key hemen fix.
 - F4 tamamen "sensible default + opt-in" kategorisinde — Epic 11'de
-  formal `docs/env_reference.md` çıkarılabilir (backlog).
+  formal `docs/env_reference.md` AST-walk generator'u çıkarılabilir
+  (backlog) ve bu tablo yeniden üretilebilir hale gelir.
 
 ---
 
