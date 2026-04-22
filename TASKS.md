@@ -592,10 +592,12 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
 
 Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor. Telegram kullanıcı girdileri SQL/shell injection'a kapalı. Bağımlılıklar güncel ve bilinen CVE yok.
 
-- [ ] **T10.1** Log + git history secret leak taraması — risk: HIGH
+- [x] **T10.1** Log + git history secret leak taraması — risk: HIGH — ✅ **CLEAN (2026-04-22)**
   - `logs/*.log`, `reports/*.md`, `backups/*.db` dosyalarında `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `CLOB_SECRET`, `POLYMARKET_*`, `OPENROUTER_*`, `GROQ_*`, `GEMINI_*`, `sk-ant-`, `sk-or-`, `gsk_`, seed phrase patterns grep
   - `git log -p --all` içinde aynı pattern'ler
-  - Bulunursa: rotate + `.gitignore` güçlendir + gerekirse `git filter-repo`
+  - **Sonuç:** 6 LLM/crypto regex × (tracked files + git history + ephemeral fs) = **0 match**. `.env` hiç commit edilmemiş; `.env.example` placeholder-only; `.gitignore` coverage (.env + .env.* + *.key + secrets/ + *.db + backups/ + logs/ + reports/) ile `!.env.example` allowlist doğru. Rotation / `git filter-repo` gerekmiyor.
+  - **Rapor:** `docs/security/T10_1_secret_leak_scan.md` (8 pattern tablosu + 4 scope kanıtı + Windows re-run komutları).
+  - **Forward:** T11.4'te `detect-secrets` veya `gitleaks` pre-commit hook — baseline commit + yeni detection fail.
 - [ ] **T10.2** Telegram input sanitization denetimi — risk: HIGH
   - `telegram_bot/handlers/*.py` içinde `update.message.text`, callback_data, update.effective_user.id alan fonksiyonlar → `_trim`, HTML escape, SQL parametreli query kullanılıyor mu?
   - Admin komutları (`/force_settle`, `/env_toggle`, `/kill`) için ADMIN_TELEGRAM_ID kontrolü **her** handler başında var mı?
