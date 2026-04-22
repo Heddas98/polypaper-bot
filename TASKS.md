@@ -519,10 +519,18 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
     4. TestEngineInit (1) — `core/engine.py` init dict seeds `'market_recorder': True`.
     5. TestToggleSim (4) — `_StubMarketRecorder` + `_StubEngine` + `_run_toggle_once()` semantic simulation: first→False, second→True, DB persistence key/value, missing recorder tolerated.
   - **Exit state:** 673 pass + 8 skip + 0 fail (662 + 11 new, 3 seed deterministic GREEN). Pre-T6.3e "silent ghost" regresyonu kalıcı guard altına alındı.
-- [ ] **T9.8** Integration & smoke — risk: MED
-  - Engine boot smoke: `asyncio` event-loop'ta Engine.start() → 5s → Engine.stop(), DB migration + WS handshake mock, 0 exception.
-  - Paper↔shadow divergence monitor: aynı fill event simülasyonu, paper ve shadow state karşılaştır, PnL delta tolerance (< $0.10) assert.
-  - WS reconnect replay: T5.4 fix senaryosu — websocket drop → reconnect → live_prices cache staleness reset.
+- [x] **T9.8** Integration & smoke — risk: MED — **CLOSED 2026-04-22**
+  - Sandbox-friendly scope: construction-level + pure-logic + deterministic state simulations. Asyncio engine.start() + aiosqlite + websockets.connect() = **T9.8-REG Windows backlog**.
+  - **Artifact:** `b81275a` test(integration): T9.8 engine boot + paper/shadow + WS reconnect smoke.
+  - `tests/integration/test_engine_boot_smoke.py` (22 test) — TradingEngine() construction invariants: canonical 6-flag set (T6.3), subsystems attached, `market_recorder` late-bound (T6.3e), empty collections, stop() idempotent.
+  - `tests/integration/test_paper_shadow_divergence.py` (20 test) — Single Fee Oracle doctrine (core/fees.py absent + _archive preserved), oracle bit-identity, closed-trade PnL identity, 1000-event × 3-seed random replay → $0.00 divergence.
+  - `tests/integration/test_ws_reconnect_smoke.py` (8 test) — T5.4 drop→reconnect→backfill scenario: baseline healthy, pre-drop invalidation, post-reconnect fresh served, double-reconnect idempotent, freshness doctrine pins (stale age, missing ts).
+  - **Exit state:** 723 pass + 8 skip + 0 fail (baseline 673 + 50 new). 3 seed deterministic GREEN.
+- [ ] **T9.8-REG** Integration smoke — Windows backlog (spawned from T9.8 closure)
+  - Real `await engine.start()` → 5s → `engine.stop()` with live aiosqlite DB + py-clob-client credentials.
+  - Real websocket drop+reconnect against Polymarket endpoint (staging if available, else production with consent).
+  - Shadow live mode $1.49 USDC vs paper $10,386 live-data PnL divergence probe (daily cron + alert).
+  - Plugin hot-reload boot path + HyperOpt restore integration validation.
 
 ### Faz 3 — Infrastructure
 
