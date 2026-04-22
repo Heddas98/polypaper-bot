@@ -38,7 +38,29 @@ logger = logging.getLogger("polypaper.core.risk")
 
 @dataclass
 class RiskLimits:
-    """Configurable risk parameters. Persisted to DB via bot_settings."""
+    """Configurable risk parameters. Persisted to DB via bot_settings.
+
+    Per-asset & per-market tiered limits — initialization pattern notes
+    ===================================================================
+    `per_asset_limits` uses ``field(default_factory=lambda: {...})`` rather
+    than a bare ``= {...}`` default. This is the canonical dataclass
+    idiom for per-instance mutable defaults — a bare ``= {...}`` would
+    share ONE dict across every ``RiskLimits()`` instance (the classic
+    "mutable default argument" bug), so modifying ``lim1.per_asset_limits``
+    would silently mutate ``lim2.per_asset_limits`` too.
+
+    Baseline (Phase 36): BTC=$500, ETH=$300, SOL/XRP=$200. Unrecognized
+    assets fall through ``per_asset_limits.get(asset_upper) is None`` →
+    approved by default (see ``check_asset_exposure`` at L156+). Add a
+    new asset via DB ``risk.per_asset.<ASSET>=<limit>`` — `from_dict`
+    at L76+ flattens ``risk.per_asset.*`` keys back into the dict, and
+    `to_dict` at L62+ reverses it for persistence.
+
+    Round-trip invariant: ``RiskLimits.from_dict(lim.to_dict()) == lim``
+    for any `lim` with known-numeric asset values (verified by Epic 3
+    T3.4 regression tests). Stringified floats are re-parsed via the
+    ``type_map[attr](val)`` coercion path at L95.
+    """
     max_position_size: float = 10.0
     max_open_positions: int = 5
     max_total_exposure: float = 100.0
@@ -47,7 +69,8 @@ class RiskLimits:
     max_loss_streak: int = 10
     min_balance_floor: float = 100.0
     max_single_market_exposure: float = 20.0
-    # Phase 36: Tiered limits (per-asset and per-market)
+    # Phase 36: Tiered limits (per-asset and per-market) — see class docstring
+    # above for the `field(default_factory=...)` rationale (NOT a bare `{}`).
     per_asset_limits: dict = field(default_factory=lambda: {
         "BTC": 500.0,
         "ETH": 300.0,
