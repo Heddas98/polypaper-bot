@@ -640,17 +640,23 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 
 ### ✅ Epic 10 — Security Pass CLOSED (2026-04-22)
 
-- **Kapsam:** 5 subtask tamamlandı, 5 atomic commit (`77fba3a` T10.1, `9d84204` T10.2, `5c606ab` T10.3, `a74540b` T10.4, `27a2b81` T10.5).
-- **Sonuç:**
+- **Kapsam:** 5 subtask + 5 post-audit alt-bulgu kapandı, 10 atomic commit (`77fba3a` T10.1, `9d84204` T10.2, `5c606ab` T10.3, `a74540b` T10.4, `27a2b81` T10.5, `03377db` closure banner, `6998f6f` T10.6 CRIT post-audit, `a9cbc89` T10.7 MED, `bdff7ff` T10.8 MED, `0cf35b3` T10.9 LOW, `9006853` T10.10 LOW).
+- **Sonuç (T10.1-T10.5):**
   - T10.1 secret leak scan → **CLEAN** (6 pattern × tracked+git-history+ephemeral = 0 match).
   - T10.2 Telegram input sanitization → 3 CRITICAL admin-gate bypass + 2 LOW exception-leak bulundu ve düzeltildi; 8 AST-based regression test eklendi.
   - T10.3 pip-audit → 24 CVE / 3 paket tarandı, upgrade sonrası **0 vuln**. Uygulanabilirlik analizi (Image.new only / load_dotenv only / GET-only aiohttp) exploit-path'ın LOW olduğunu gösterdi ama pre-mainnet hygiene için yine de upgrade yapıldı.
   - T10.4 `.env ↔ .env.example` sync → F1 CLEAN (placeholder contract sağlam), F2 FIXED (4 undocumented-in-prod key eklendi), F3/F4 informational (Epic 11 backlog).
   - T10.5 `get_live_price` malformed entry → None (fresh > stale doktrinine hizalama); normal flow etkisi 0, edge-case observability +logger.debug breadcrumb.
-- **Regression:** 498 → **733 pass + 8 skip + 0 fail** (Epic 10 boyunca +235 test; 8 callback gate + 3 malformed-entry freshness + yoğun pin testler).
-- **Dokümantasyon:** `docs/security/T10_{1..5}_*.md` — beş ayrı raporla her bulgu+karar zabıtlı.
+- **Post-audit (T10.6-T10.10, 2026-04-22):** Epic 10 kapanışından sonra 3 paralel Explore agent full verification — 5 gerçek bulgu yakalandı (3 false positive ayrıldı). Hepsi kapatıldı:
+  - **T10.6 CRIT** (`6998f6f`) — `hyperopt_apply_callback` admin gate eksikti (T10.2 original audit 7 callback taramıştı, 85 var — `hyperopt_handler.py` kapsam kaçağı). `strategies._is_admin_call()` + `_deny_callback()` import edildi + gate eklendi + 2 AST regression test.
+  - **T10.7 MED** (`a9cbc89`) — T10.2 Batch 2 exception leak (2 site: `force_settle_handler:206` + `ai_handler:354`) — generic user message + logger.exception trace korundu. Wider `esc(str(e))` sweep Epic 11 T11.x'e bırakıldı.
+  - **T10.8 MED** (`bdff7ff`) — T10.1 secret pattern coverage 6 → 13 regex (AKIA/hf_/sk-proj-/sk_live_/sk_test_/bare-64-hex/BIP-39). Re-scan: 0 match, tracked+git+ephemeral tüm kapsamda temiz.
+  - **T10.9 LOW** (`0cf35b3`) — T10.3 "eth-* suite" ifadesi belirsizdi: `py-clob-client 0.18.0` DİREKT `eth-account` + `eth-utils` istiyor; diğer eth-* paketleri transitive. Doc tablosu doğru topolojiyi yansıtacak şekilde düzeltildi.
+  - **T10.10 LOW** (`9006853`) — T10.4 F4 "148 key" sayısına reproducible grep script eklendi. Live re-scan: 327 distinct kod keyi / 202 `.env.example` keyi / 194 full-tree F4 / 123 app-scope F4. Sayı koddaki evolution ile drift ediyor; Epic 11'de `docs/env_reference.md` AST-gen bunu sabitleyecek.
+- **Regression:** 498 → **735 pass + 8 skip + 0 fail** (Epic 10 boyunca +237 test; 8 callback gate + 2 hyperopt post-audit + 3 malformed-entry freshness + yoğun pin testler).
+- **Dokümantasyon:** `docs/security/T10_{1..5,7}_*.md` — altı ayrı raporla her bulgu+karar zabıtlı. T10_1 raporu T10.8 extension'ını içeriyor; T10_3/T10_4 raporları T10.9/T10.10 düzeltmelerini içeriyor; T10_7 rapor ayrı dosya.
 - **Gitignore sync (T10.5 etkisi):** `data/websocket_client.py` fix'i SYNC.1 tablosuna eklendi — Windows'ta manuel apply gerekli.
-- **Forward (Epic 11'e devir):** T11.4 pip-audit+coverage CI gate + detect-secrets pre-commit, T11.5 env-leak test hygiene, `docs/env_reference.md` AST-gen, orderbook/regime/signal cache fresh>stale genelleme, `except Exception: pass` pre-commit grep.
+- **Forward (Epic 11'e devir):** T11.4 pip-audit+coverage CI gate + detect-secrets pre-commit (13 pattern baseline), T11.5 env-leak test hygiene, `docs/env_reference.md` AST-gen, orderbook/regime/signal cache fresh>stale genelleme, `except Exception: pass` pre-commit grep, **yeni:** "user-facing exception render policy" — wider `esc(str(e))` sweep (T10.7 narrow scope'un genelleştirilmesi).
 - **Sonraki:** Epic 11 (Mainnet Go/No-Go Çek Listesi) — T11.1 final audit → T11.2 live kill-switch/budget/divergence doğrulama → T11.3 rollback plan.
 
 ---
