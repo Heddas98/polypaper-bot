@@ -1,21 +1,61 @@
 # PolyPaper Cleanup Backlog
 
-> **Durum:** 2026-04-20 oluşturuldu (ilk tarama). Son commit sync: **2026-04-21**. Sahibi: Claude (Baş Geliştirici/Denetçi).
+> **Durum:** 2026-04-20 oluşturuldu (ilk tarama). Son commit sync: **2026-04-22 (Epic 10 + post-audit CLOSED, 12 commit)**. Sahibi: Claude (Baş Geliştirici/Denetçi).
 > **Kural:** Bu dosya her oturumun başında okunur. Bitenler `[x]`, yeni iş eklenir. Bir Epic bitmeden sıradakine geçilmez.
 > **Mod:** STRICT CLEANUP — spekülasyon yok. Her iddia: dosya + satır.
 > **Protected:** `core/ai_brain.py::PROTECTED_STRATEGIES` ve `PROTECTED_STRATEGY_TYPES={"classic"}` dokunulmaz.
 
 ---
 
-## 🗓️ Son Commit Sync — 2026-04-21
+## 🧭 Checkpoint — Epic 11'e hazır (2026-04-22)
+
+**Toplu durum (Epic 0 → Epic 10 tamamlandı, Epic 11 sırada):**
+
+- **Epic 0 (Baseline):** ✅ 5 subtask
+- **Epic 1 (Ghost Modules):** ✅ kapalı
+- **Epic 2 (Root Cleanup):** ✅ 100+ dosya → 19, 97 arşive
+- **Epic 3 (Classic Bypass Audit):** ✅ 5 subtask
+- **Epic 4 (Simulator Doğruluğu):** ✅ T4.1-T4.4 sandbox; T4.5-T4.9 yerel Windows backlog
+- **Epic 5 (Atomicity/State):** ✅ T5.1-T5.6 (WS cap + WAL + pending_reserved + reconnect flush)
+- **Epic 6 (UI↔Engine Ghost Audit):** ✅ T6.1-T6.5 (5 ghost sınıfı doktrini)
+- **Epic 7 (Dead Code + Duplicate):** ✅ T7.1-T7.6 (A+B Aşama + post-audit); T7.6 Aşama C HIGH-risk Windows final
+- **Epic 8 (Bare Except HIGH + LLM guard):** ✅ T8.1 + T8.2 + genel tarama
+- **Epic 9 (Test Infrastructure):** ✅ T9.1-T9.10 + post-audit; 17.5%→21.2% coverage
+- **Epic 10 (Security Pass + post-audit):** ✅ T10.1-T10.10 (10 commit, Batch 2 exc-leak + secret regex 6→13 + hyperopt admin gate kapsam kaçağı yakalandı)
+
+**Test baseline:** 498 → **735 pass + 8 skip + 0 fail** (3-seed deterministic 42/1337/9001).
+**Security baseline:** admin gate 7+1 callback, secret scan 13 pattern × 3 scope = 0 match, pip-audit 0 vuln, esnek/katı narrow except tüm `core/`.
+**Mainnet bloklayan:** 0 known pre-mainnet security veya test item.
+**Kalan pre-mainnet gate:** Epic 11 T11.1-T11.3 (final audit + live kill-switch/budget/divergence doğrulaması + rollback plan). T4.5-T4.9 ve T11.4-T11.8 backlog (blocker değil, defense-in-depth).
+
+---
+
+## 🗓️ Son Commit Sync — 2026-04-22 (Epic 10 + post-audit, 12 commit)
+
+| Commit | Mesaj | Kapsam |
+|---|---|---|
+| `77fba3a` | docs(security): close T10.1 — log + git history secret leak scan CLEAN | T10.1 ilk 6-pattern baseline taraması |
+| `9d84204` | security(telegram): close T10.2 — admin gate on 7 state-mutating callbacks | filters_callback + brain_toggle_callback + 5 strategy callbacks + 8 AST test |
+| `5c606ab` | Epic 10 T10.3: pip-audit CVE scan + 3 dependency upgrade | aiohttp/Pillow/python-dotenv upgrade → 0 vuln |
+| `a74540b` | Epic 10 T10.4: .env ↔ .env.example sync audit CLOSED | F2 4-key fix, F1/F3/F4 informational |
+| `27a2b81` | Epic 10 T10.5: get_live_price malformed entry → None (fresh > stale) | sandbox; SYNC.1 ile Windows'a elle apply |
+| `03377db` | Epic 10 Security Pass CLOSED (T10.1-T10.5) | TASKS.md + memory landmark banner |
+| `6998f6f` | security(telegram): T10.6 hyperopt_apply_callback admin gate (post-audit CRIT) | _is_admin_call + _deny_callback helpers + 2 AST test (post-audit scope genişletme) |
+| `a9cbc89` | Epic 10 T10.7 — MED Batch 2 exception leak closed (2 sites) | force_settle_handler:206 + ai_handler:354 generic msg |
+| `bdff7ff` | Epic 10 T10.8 — secret leak scan pattern coverage +7 regex | AKIA/hf_/sk-proj-/sk_live_/sk_test_/bare 64-hex/BIP-39 → 0 match |
+| `0cf35b3` | Epic 10 T10.9 — T10.3 doc precision: eth-* suite ambiguity clarified | py-clob-client direkt vs transitive eth-* topoloji |
+| `9006853` | Epic 10 T10.10 — T10.4 F4 count reproducible grep script + live numbers | 429 raw / 327 distinct / 202 .env.example / 123 app-scope F4 |
+| `e37aa8b` | Epic 10 post-audit CLOSED — TASKS.md banner + forward work | Bu tabloyu ve Epic 11 forward work'ü ekledi |
+
+**Toplam Epic 10 commit altına alınan dosya:** ~25 (kod + 6 security rapor + TASKS.md + memory). Uncommitted kalan: `BUGUN_NE_YAPACAGIM.md` (günlük working note, kasıtlı) + `.hyperopt.lock` (runtime state).
+
+### Önceki commit sync — 2026-04-21
 
 | Commit | Mesaj | Dosya | Kapsam |
 |---|---|---|---|
 | `34494f1` | chore: add backlog artifacts (analysis/, cleanup plan, smoke tests) | 8 | `analysis/` edge-discovery tooling + `TEMIZLEME_PLANI_2026-04-20.md` + `scripts/smoke_ws_stale_threshold.py` + `tests/test_risk_limits_roundtrip.py` (Epic 3 T3.4) |
 | `e9fe9bc` | chore: backlog sync — Epic 2 cleanup + Sprint 5/6 + T1.4 Faz 1 | 28 | Epic 2 (root .bat/py deletions), Sprint 5 HOTFIX v6 Classic fill, Sprint 6 `/env_toggle`, T1.4 Faz 1 bare except (8 core dosya) |
 | `3264add` | epic4(audit): fee oracle consolidation + slippage/latency honesty pass | 11 | T4.1 single fee oracle (`core/fees_v2.py`), T4.2 Faz A ENV-overridable slippage, T4.3 Faz A REST latency docstring honesty + `core/observability/rest_timing.py` helper |
-
-**Toplam commit altına alınan dosya:** 47 (11 + 28 + 8). Uncommitted kalan: yalnız `BUGUN_NE_YAPACAGIM.md` (günlük working note, kasıtlı) + `.hyperopt.lock` (runtime state).
 
 **WSL quirks:** `.git/config` ghost-bug + bulk `git add` index corruption → atomic tek-komut `git add ... && git commit` pattern'i kullanıldı. Detay: `/sessions/happy-confident-cannon/mnt/.auto-memory/reference_wsl_git_quirks.md`.
 
@@ -32,6 +72,10 @@
 - `core/` altında bare `except Exception:` yakalama: ~~341~~ → **237** ✅ (T1.3 ghost arşiv -57, T1.4 Faz 1 narrow -48 = toplam -104; live audit 2026-04-21)
 - Var olmayan `core.*` modüllerine yapılan import çağrısı: **40** (10 modül)
 - Arşiv klasörü: **8.6 MB** → ~9.2 MB (97 yeni dosya)
+- Pytest baseline (tests/unit): ~~498~~ → **735 pass + 8 skip + 0 fail** ✅ (Epic 9 T9.6-T9.10 +225, Epic 10 T10.2+T10.5+T10.6 +12; 2026-04-22)
+- Secret leak regex pattern seti: ~~6~~ → **13** ✅ (T10.8: +AKIA/hf_/sk-proj-/sk_live_/sk_test_/bare-64hex/BIP-39)
+- pip-audit CVE: ~~24 (3 paket)~~ → **0** ✅ (T10.3: aiohttp 3.10→3.13.4, Pillow 11→12.2, dotenv 1.0→1.2.2)
+- Telegram admin-gate eksik callback: ~~8~~ → **0** ✅ (T10.2 ×7 + T10.6 hyperopt_apply_callback ×1)
 
 ---
 
@@ -663,8 +707,10 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 
 ## Epic 11 — Mainnet Go/No-Go Çek Listesi  *(SON EPIC)*
 
-- [ ] **T11.1** Tüm Epic 0-10 kapandığında final audit rapor
-- [ ] **T11.2** `LIVE_ENABLED=true` öncesi: kill switch, budget guard, daily loss, paper-shadow divergence monitor aktif mi
+**Pre-mainnet gate (zorunlu):** T11.1-T11.3. **Post-audit forward work (defense-in-depth, mainnet'e bloklayıcı değil):** T11.4-T11.8.
+
+- [ ] **T11.1** Tüm Epic 0-10 kapandığında final audit rapor — risk: MED
+- [ ] **T11.2** `LIVE_ENABLED=true` öncesi: kill switch, budget guard, daily loss, paper-shadow divergence monitor aktif mi — risk: HIGH
 - [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
 - [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
   - GitHub Actions (veya local `pre-commit-config.yaml`): `core/` coverage < 60% → CI fail. Eşik başlangıçta `21.2%` baseline, her PR'da düşüşe izin verme (ratchet).
@@ -674,6 +720,18 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - 5 dosya raw `os.environ[KEY] = val` kullanıyor (pnl_pause_runtime, phase70, whale_signal, whitelist_runtime_readiness, ws_subscribe_cap). Hepsi `monkeypatch.setenv` pattern'ine taşınacak.
   - Motivasyon: T9.10 seed 1337 race'inin kaynağı aynı sınıf env-leak riskiydi. Fixture'lar içinde pin eklemek semptom tedavisi; asıl temizlik bu.
   - Lint rule öneri: `tests/` altında raw `os.environ[X] = ` kullanımı flake8/ruff ile yakalansın.
+- [ ] **T11.6** User-facing exception render policy — risk: MED *(Epic 10 T10.7 post-audit'ten)*
+  - **Motivasyon:** T10.7 dar scope ile sadece 2 site kapattı (`force_settle_handler:206` + `ai_handler:354`). Grep ile tespit edilen ~20 site × 12 handler dosyasında hâlâ `reply_text(f"... {esc(str(e))}", parse_mode="HTML")` pattern'i var — exception detayı Telegram'a sızıyor (DB şeması, iç state, SQL parça).
+  - **Kapsam:** Tüm `telegram_bot/handlers/*.py` taraması. Her site için karar matrisi: (a) admin-only + diagnostic ise `str(e)` kalabilir (operator visibility), (b) public/tüm-kullanıcı ise generic mesaj + `logger.exception` traceback. Helper öner: `esc_exc_for_user(e, admin_only=False)`.
+  - **Çıktı:** `docs/security/T11_6_exception_render_policy.md` (policy + audit tablosu) + yaklaşık 15-20 handler edit.
+- [ ] **T11.7** `docs/env_reference.md` AST-gen — risk: LOW *(Epic 10 T10.10 post-audit'ten)*
+  - **Motivasyon:** T10.10 F4 count (194 full-tree / 123 app-scope) drift problemi — her yeni `os.getenv("K", default)` ekleme sayıyı değiştiriyor, doc ile kod senkronize kalmıyor. T10.4 F4 buckets (platform-supplied / secret-alternatives / feature-flags / job-scheduler) manual kategorize.
+  - **Çıktı:** `scripts/gen_env_reference.py` — AST walk tüm `.py` dosyalarda `os.getenv(...)` call site'ı + default + reader module + runtime-whitelist status. Output: `docs/env_reference.md` markdown tablo. Pre-commit hook: her yeni `os.getenv` için `docs/env_reference.md` regen zorunlu (veya CI fail).
+  - **Bonus:** `.env.example` linter — yeni `os.getenv` için `.env.example`'da yorumlu entry olmalı (placeholder-doc contract).
+- [ ] **T11.8** `except Exception: pass` pre-commit grep — risk: LOW *(T1.4 + T7.6 + T10.5 doktrin paritesi)*
+  - **Motivasyon:** T1.4 Faz 1 (65 blok) + T7.6 Aşama A/B (37+23 blok) + T10.5 (1 malformed entry) toplam 126+ bare except narrow. Yeni kod eklenirken aynı anti-pattern'e dönmek kolay. T1.4 doktrin: "swallow ≥ specific tuple + logger.debug + return value explicit".
+  - **Çıktı:** `.pre-commit-config.yaml` local hook: `grep -nE 'except (Exception|BaseException)?:\s*pass' --include="*.py"` → commit reject. False positive için `# noqa: bare-except-ok — <gerekçe>` escape hatch (T7.6 Aşama A 4 noqa pattern paritesi).
+  - **Bonus:** Fresh > stale doktrinini orderbook / regime_detector / signal cache sınıflarına genelleme + `stats_utils`-style helper consolidation (T10.5 WS-cache pattern reuse).
 
 ---
 
