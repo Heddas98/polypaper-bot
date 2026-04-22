@@ -445,7 +445,7 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
 - [x] **Bulgu A — noqa annotations** ✅ **CLOSED 2026-04-22** (commit `990d234`) — `core/engine.py` 3 üst-seviye umbrella catch (L674 stall_watchdog, L954 per-strategy eval isolation, L985 Engine main loop wrapper) `# noqa: BLE001 - T8.1 KEEP` + niyet açıklaması yorum eklendi. Supervisor loop'ların kasıtlı umbrella catch olduğu netleşti; gelecek agent sweep FP'sini önler.
 - [x] **Bulgu B — LLM_RATELIMIT_* runtime helpers** ✅ **CLOSED 2026-04-22** (commit `69553c4`) — `core/ai_brain.py` L47-48 modül-üstü `LLM_RATELIMIT_BACKOFF_SEC` / `LLM_RATELIMIT_MIN_COST` sabitleri T6.1 pattern'iyle runtime helper'lara (`_get_llm_ratelimit_backoff()` / `_get_llm_ratelimit_min_cost()`) dönüştürüldü. T8.2'de yazılan whitelist entry'leri bu helper'lar olmadan "ghost toggle" idi — `/env_toggle` `os.environ`'u patch eder ama 429 handler ya import-zamanı değeri kullanırdı. 3 call-site update (L1780 `_parse_retry_after`, L1799+L1803 `_handle_rate_limit`). `config/env_whitelist.py` yeni `llm` grubu (2 entry, min/max bound'lu). Smoke: runtime override anında devreye giriyor.
 - [x] **Bulgu C — /diagnose bg_task live count** ✅ **CLOSED 2026-04-22** (commit `990d234`) — `telegram_bot/handlers/diagnose_handler.py::_build_bg_tasks_section` Epic 7 B6'da eklenen `get_live_task_count()` API'sini kullanacak şekilde güncellendi. Admin artık `(N tracked · M live strong-ref)` iki sayıyı görüyor — metadata dict (observability) ile strong-ref set (GC survival) arasındaki ayrımı UI'da görünür kılar.
-- [ ] **Bulgu D — whale_signal fusion test beklentisi** ⏳ **Task #44'e devredildi** — `tests/unit/test_whale_signal.py` × 3 fail pre-existing. `SignalWeights().whale_flow = 0.0` default (T1.4/Epic 6/7/8 süresince sabit) ama test `0.1` ya da >0 bekliyor. Composite skorlarda whale=0.5 vs whale=0.0 aynı (`0.16959...`) — whale sıfır ağırlıklı. Stale test mi gerçek regresyon mu? Epic 9 veya backlog'da dedike inceleme.
+- [x] **Bulgu D — whale_signal fusion test beklentisi** ✅ **CLOSED 2026-04-22** (commit `5a73c7e`) — Epic 9 T9.5 kapsamında çözüldü. Git blame + phase history taraması: `c820906` Phase 79b rebalance "OLD whale=0.10 → NEW whale=0.00" kasıtlı. Test stale'di (fizik regresyon değil). Fix: Dependency Injection pattern — `SignalFusion(weights=SignalWeights(whale_flow=0.10))` ile test kendi weight'ini veriyor, production ENV default'u (0.00) koruyor. `importlib.reload()` state-leak'i de bu commit'le kaldırıldı (FLAKY_AUDIT.md CRITICAL bulgusu). 3/3 whale test GREEN.
 
 **Regression (Epic 8 genel tarama):** 498 pass + 6 skip + 6 pre-existing fail (phase66, phase77, phase82b, whale_signal ×3). 0 yeni regresyon. A+C tek commit `990d234`, B atomik commit `69553c4`.
 
@@ -468,30 +468,30 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
 
 ### Faz 1 — Diagnostic (fundament)
 
-- [ ] **T9.1** Test envanteri — 28 dosya × phase/feature mapping — risk: LOW
-  - Her test dosyasının başındaki docstring + ilk `import` satırlarıyla hangi core/ modülü/faz'ı için yazıldığını çıkar.
-  - Çıktı: `tests/INVENTORY.md` (veya `docs/TEST_MAP.md`) — dosya → modül → faz → "hâlâ anlamlı mı?" karar sütunu.
-  - Stale kriterleri: (a) import ettiği modül arşive taşınmış (örn: fees v1, replay_engine_v2), (b) test ettiği faz davranışı sonraki faz tarafından değiştirilmiş ve test güncellenmemiş.
-- [ ] **T9.2** Coverage gap analysis — `coverage.py` ile core/ satır kapsamı — risk: LOW
-  - `pip install coverage --break-system-packages`, `coverage run -m pytest tests/`, `coverage report --include='core/*'`, `coverage html -d htmlcov/`.
-  - Hedef matris: her core/ modülü için `%<50` / `50-70` / `>70` bucket'a yerleştir.
-  - Kritik yoldaki (engine, risk_manager, live_trader, auto_optimizer, ai_brain, engine_fills, engine_settlement, engine_signals) coverage < 60% olan dosyalar T9.6'ya input.
-- [ ] **T9.3** 6 pre-existing fail triage — her biri için fix/skip/delete kararı — risk: LOW
-  - T9.3.a `test_phase77_handler` — ModuleNotFoundError mi yoksa logic fail mi? Handler dosyası Epic 2 cleanup'ta yer değiştirdiyse test yolu güncelle; gerçek regresyon ise ayrı commit.
-  - T9.3.b `test_phase66 bayesian` — ENV knob drift (muhtemelen `BAYESIAN_ENABLED` default değişti veya SIGNAL_W_* ağırlıkları). Test'in beklediği env'i conftest'te set et ya da test'i güncelle.
-  - T9.3.c `test_phase82b hyperopt mutex` — optuna yok diye fail ediyorsa `pytest.importorskip("optuna")` ekle; lock timing ise `asyncio` event-loop race'i narrow et.
-  - T9.3.d-f `test_whale_signal` × 3 → **Task #44 Bulgu D**: `SignalWeights().whale_flow=0.0` kasıtlı mı (Epic 9 T9.3'te karar) yoksa regresyon mu? Git blame + phase history + `core/signal_fusion.py` `whale_signal` kullanım tarama → ya test update (stale) ya da weight restore (regression).
-- [ ] **T9.4** Flaky / environment-dependent test audit — risk: LOW
-  - Wall-clock kullanan (datetime.utcnow/now) testleri listele — freezegun veya monkeypatch.
-  - DB path'i hard-code eden testleri listele — `tmp_path` fixture'a geçir.
-  - ENV default'a bağımlı testleri listele (T9.3.b gibi) — `monkeypatch.setenv` ile izole.
-  - Çıktı: `tests/FLAKY_AUDIT.md` + her biri için commit plan'ı.
+- [x] **T9.1** Test envanteri — 28 dosya × phase/feature mapping ✅ **CLOSED 2026-04-22** (commit `1106508`)
+  - Çıktı: `tests/INVENTORY.md` — 27 pytest + 1 standalone, kategori A/B/C/D + 38-modül reverse coverage index.
+- [x] **T9.2** Coverage gap analysis — `coverage.py` ile core/ satır kapsamı ✅ **CLOSED 2026-04-22** (commit `3f71c92`)
+  - `.coveragerc` (source=core, branch=True) + `.gitignore` coverage.json + `tests/COVERAGE_REPORT.md`.
+  - Sonuç: TOTAL 17.5%, critical-path 9.7%. 40 modül bucket'landı (21 uncovered / 6 low / 6 medium / 5 good / 2 excellent). Hot-path zeros: engine, engine_fills, engine_monitor, live_trader, kill_switch.
+  - T9.6 için P1 Tier 1/2 priority ordering hazır.
+- [x] **T9.3** 6 pre-existing fail triage — her biri için fix/skip/delete kararı ✅ **CLOSED 2026-04-22** (commit `5cdf4fe`)
+  - Çıktı: `tests/TRIAGE_MATRIX.md` — karar: 2 SKIP (phase77 telegram-dep, phase82b optuna-dep) + 4 FIX (phase66 bayesian + whale × 3).
+  - Git blame onayı: `c820906` Phase 79b whale default rebalance 0.10 → 0.00 kasıtlı.
+- [x] **T9.4** Flaky / environment-dependent test audit ✅ **CLOSED 2026-04-22** (commit `9eb2bdb`)
+  - Çıktı: `tests/FLAKY_AUDIT.md` — 1 CRITICAL (test_whale_signal.py `importlib.reload` state-leak) + 5 HIGH (raw os.environ[] files).
+  - pytest-randomly seed=None + seed=42 her ikisinde de aynı 6 fail = deterministic (order-independent).
 
 ### Faz 2 — Remediation
 
-- [ ] **T9.5** 6 pre-existing fail temizliği — T9.3 kararlarını uygula — risk: MED, bağımlılık: T9.3
-  - Atomic commit per-test. Test fix ise commit message "test(phase66): …", gerçek kod fix ise "fix(signal_fusion): …".
-  - Hedef: green baseline → 504 pass + 6 skip + 0 fail (ya da karar verilen `xfail` kategorisinde).
+- [x] **T9.5** 6 pre-existing fail temizliği — T9.3 kararlarını uygula ✅ **CLOSED 2026-04-22** (commit `5a73c7e`)
+  - **Entry:** 498 pass + 6 skip + 6 fail. **Exit:** 502 pass + 8 skip + 0 fail ✅ (3 pytest-randomly seed: default/12345/99999 deterministic GREEN).
+  - 5 dosya edit (173+/50-):
+    1. `tests/test_phase77.py` — `HAS_TELEGRAM` module-top guard + `@pytest.mark.skipif` (PROD Windows bot kurulu, sandbox skip mantıklı).
+    2. `tests/unit/test_phase82b.py` — `HyperOptPipeline(DummyDB())` ctor ImportError try/except wrap (optuna sandbox yok).
+    3. `tests/unit/test_phase66.py` — `test_no_direction_no_bayesian` → `test_bayesian_neutral_on_equal_odds` rename + autouse ENV+module-flag isolation fixture.
+    4. `tests/unit/test_whale_signal.py` — **CRITICAL fix**: `importlib.reload()` kaldırıldı (FLAKY_AUDIT CRITICAL), DI pattern (`SignalFusion(weights=SignalWeights(whale_flow=0.10))`) + autouse fixture.
+    5. `tests/test_phase56_engine.py` — `asyncio.get_event_loop().run_until_complete()` → `asyncio.run()` (Python 3.10+ compat, pytest-randomly order-dep bulmuştu).
+  - Doktrin: ENV + module-flag state leak'ine karşı autouse monkeypatch fixture + DI pattern. Bulgu D (Task #44) bu commit'te closed.
 - [ ] **T9.6** Critical-path regression coverage fill — risk: MED, bağımlılık: T9.2
   - Öncelik sırası (coverage raporuna göre güncellenir):
     1. `risk_manager.py` — RiskState mutations, per_asset_flat round-trip (T3.4 var), concurrent update race, DB restart rehydration.
