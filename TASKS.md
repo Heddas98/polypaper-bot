@@ -725,6 +725,13 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
     - `scripts/t11_2_g5_wr_kill_historical.py` — G5 historical evidence query. `strategy_changelog WHERE action='ROLLING_WR_KILL'` → geçmişte guard tetiklenme kaydı. exit-code 0/1 (GUARD_HAS_FIRED / NEVER_FIRED).
     - Smoke test: 3/3 script Unix'te synthetic DB üzerinde doğrulandı (G4 verdict=ALERT_RED on 66.67% divergence; G5 verdict=GUARD_HAS_FIRED on 1-row fixture).
     - **G2/G3/G6 manual only:** live order cycle / in-process state gerekir — template'teki `/env_toggle` + log grep prosedürü uygulanır.
+  - **Windows gerçek run kanıtı (2026-04-22 23:09 local / 20:09 UTC):**
+    - `scripts/run_t11_2_readonly_probes.bat` File Explorer double-click ile çalıştırıldı → `evidence/t11_2_g4_20260422_230940.{txt,json}` + `evidence/t11_2_g5_20260422_230940.{txt,json}` üretildi.
+    - **G4 verdict = INSUFFICIENT** (Paper 0t + Shadow 0t — son 24h bot offline; Seçenek C happy-path doğrulandı). **☒ PARTIAL** — canlı alert kanıtı için Seçenek B (bot ayakta + 5+ trade + `/env_toggle PNL_DIVERGENCE_ALERT_PCT 0.01`) Windows backlog.
+    - **G5 verdict = GUARD_HAS_FIRED** (strategy_changelog'ta 7 `ROLLING_WR_KILL` satırı; 2026-04-17 09:37 UTC; 7 distinct strateji, WR %30-35 < %40 eşik). **☒ PASS** — guard canlı ortamda gerçekten ateşlendi.
+    - Kanıt çıktıları `docs/mainnet/T11_2_runtime_validation.md` G4/G5 slot'larına paste edildi.
+    - **wmic→PowerShell fix:** Windows 11'de wmic kaldırıldığı için bat timestamp'i bozuktu (`~0,8DT`). `Get-Date -Format 'yyyyMMdd_HHmmss'` pattern'ine migrate edildi (run + G1 bat).
+    - **Kapanan:** G4 PARTIAL + G5 PASS = 2/6. Kalan G1/G2/G3/G6 canlı bot uptime + Telegram gerektirir (user Windows-only).
 - [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
   - **Gerekli:** `rollback_*.bat` envanteri + senaryo → .bat karar matrisi + dry-run kanıtı. `data/` gitignored sync yolu dokümante edilmiş olmalı (T10.5 fix Windows'a manuel kopya hâlâ bekliyor → SYNC.1).
 - [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
