@@ -714,8 +714,11 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Sonuç:** Bilinen mainnet bloklayan security veya test item'ı YOK. 735/8/0 test, 0 pip-audit CVE, 13 secret regex × 0 match, 0 admin-gate eksik.
   - **Koşul:** Bu rapor tek başına mainnet açmaz — T11.2 (canlı kill-switch/budget/divergence kanıtı) ve T11.3 (rollback plan dry-run) tamamlanmadan Go verilmez.
 - [ ] **T11.2** `LIVE_ENABLED=true` öncesi: kill switch, budget guard, daily loss, paper-shadow divergence monitor aktif mi — risk: HIGH
+  - **Şablon (sandbox'ta hazır):** `docs/mainnet/T11_2_runtime_validation.md` (~435 satır) — 6 guard (G1 Kill Switch / G2 Budget Guard / G3 Daily Loss / G4 PnL Divergence / G5 Rolling WR Kill / G6 WS Stale) × her biri için kod kancası ref (file:line) + tetikleme prosedürü (Seçenek A/B/C) + beklenen davranış + kanıt slotu (log satır + Telegram ekran görüntüsü + timestamp).
   - **Gerekli runtime kanıt (T11.1 Bölüm 8 referansı):** `/stop_all` force-settle + yeni trade block, `LIVE_BUDGET` cap guard, `LIVE_MAX_DAILY_LOSS` tetiklenme, paper-shadow divergence alert, `ROLLING_WR_KILL` auto-pause, `WS_STALE_SEC` fresh>stale block.
+  - **Windows prosedürü:** `.env` + `/env_toggle` ile her guard ayrı ayrı tetiklenir (gerçek emir yok — `LIVE_ENABLED=false` kalır). Her G# başlığında `☐ PASS / ☐ FAIL` kutusu + kanıt dolduruldukça işaretlenir. 6/6 ✅ → T11.2 kapanır.
   - **Öneri:** Shadow live ($1.49 USDC, $1/trade) üzerinde 48h controlled test + Telegram alert validation. Sandbox'ta yapılamaz.
+  - **Template'in çıkardığı ek iş önerileri (opsiyonel):** `scripts/trigger_pnl_divergence.py` (test kolaylığı), `LIVE_BUDGET` runtime re-read helper (`_get_live_budget()` — T6.1 doktrin paritesi; şu an `LiveTrader._budget` module-top constant), WS stale `skip_reason` string standardization, `/live_guards` admin cmd (6 guard threshold özet).
 - [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
   - **Gerekli:** `rollback_*.bat` envanteri + senaryo → .bat karar matrisi + dry-run kanıtı. `data/` gitignored sync yolu dokümante edilmiş olmalı (T10.5 fix Windows'a manuel kopya hâlâ bekliyor → SYNC.1).
 - [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
