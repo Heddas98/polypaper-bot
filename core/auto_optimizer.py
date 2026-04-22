@@ -22,6 +22,10 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
+# T8.1: narrow DB exception handling — aiosqlite.Error is the canonical
+# async-sqlite base class, used across core/ (see trade_journal, engine_*).
+import aiosqlite
+
 logger = logging.getLogger("polypaper.core.optimizer")
 
 # Thresholds for auto-pause
@@ -91,7 +95,10 @@ def _is_protected_type(s) -> bool:
     """
     try:
         stype = (getattr(s, "strategy_type", "") or "").lower()
-    except Exception:
+    except AttributeError:
+        # T8.1: non-str `strategy_type` (e.g., mocked value) would fail
+        # `.lower()`. False-negative here means a bugged strategy could
+        # slip into auto-pause; accept the risk — narrow is deliberate.
         return False
     return stype in PROTECTED_STRATEGY_TYPES
 
@@ -171,7 +178,9 @@ class AutoOptimizer:
                     ) as c:
                         total_row = await c.fetchone()
                     total = total_row[0] if total_row else 0
-                except Exception:
+                except (aiosqlite.Error, TypeError):
+                    # T8.1: DB execute (aiosqlite.Error) or total_row[0]
+                    # subscript if row shape is unexpected (TypeError).
                     total = -1
                 logger.warning(
                     f"⚠️ STARTUP: zero active strategies (total in DB={total}). "
@@ -217,7 +226,11 @@ class AutoOptimizer:
                 await self._notify_paused(paused, "Startup Health Check")
             else:
                 logger.info("✅ Startup health check: all strategies healthy")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: umbrella guard for startup health-check.
+            # Inner blocks already narrow aiosqlite/ImportError paths; this
+            # catches anything unexpected so a single bad strategy row can't
+            # abort the entire startup sequence. Log and continue.
             logger.error(f"Startup health: {e}")
 
     # ═══ PNL-BASED AUTO-PAUSE ═══
@@ -243,7 +256,10 @@ class AutoOptimizer:
                         [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
                          f"PnL={stats['pnl']:+.2f} WR={stats['wr']:.0f}%"],
                         "PnL Health Check")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: periodic-job umbrella. Inner `_get_strategy_stats`
+            # + update_strategy_status narrows aiosqlite.Error; this outer
+            # guard keeps the run_check cycle alive on unexpected exceptions.
             logger.error(f"PnL check: {e}")
 
     # ═══ Phase 52: ROLLING WIN-RATE AUTO-KILL ═══
@@ -270,7 +286,9 @@ class AutoOptimizer:
                            WHERE strategy_id=? AND result IS NOT NULL
                            ORDER BY closed_at DESC LIMIT ?""",
                         (s.id, rolling_window))
-                except Exception:
+                except aiosqlite.Error:
+                    # T8.1: pure DB read. Per-strategy continue so one bad
+                    # row doesn't break the rolling-WR sweep for others.
                     continue
                 if len(rows) < rolling_window:
                     continue  # Not enough recent data
@@ -290,13 +308,21 @@ class AutoOptimizer:
                                          old={"status": "active"}, new={"status": "stopped"},
                                          reason=f"WR={wr:.0f}% < {kill_threshold}% (last {len(rows)}t)",
                                          label=getattr(s, 'label', ''), wr=wr)
-                    except Exception:
-                        pass
+                    except (ImportError, AttributeError, aiosqlite.Error) as _ce:
+                        # T8.1: import (ImportError on partial deploy),
+                        # getattr(s,'label','') shouldn't raise but keep
+                        # AttributeError defensively, aiosqlite.Error for
+                        # the DB write inside log_change. Non-fatal audit
+                        # trail — strategy is already stopped by L281.
+                        logger.debug(f"rolling_wr changelog failed: {_ce}")
                     await self._notify_paused(
                         [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
                          f"WR={wr:.0f}% (last {len(rows)}t)"],
                         f"Rolling WR &lt; {kill_threshold:.0f}%")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: periodic-job umbrella. Inner blocks narrow
+            # aiosqlite.Error + changelog import/DB chain; this outer guard
+            # keeps the 300-cycle tick alive on truly unexpected errors.
             logger.error(f"Rolling WR check: {e}")
 
     async def _get_strategy_stats(self, sid: str) -> Optional[dict]:
@@ -315,7 +341,11 @@ class AutoOptimizer:
                     w = r["wins"]
                     return {"trades": t, "wins": w, "losses": r["losses"],
                             "pnl": r["pnl"], "wr": w / t * 100 if t > 0 else 0}
-        except Exception:
+        except (aiosqlite.Error, KeyError, TypeError, ZeroDivisionError):
+            # T8.1: DB execute (aiosqlite.Error), r["col"] indexing if the
+            # row shape drifted (KeyError), type coercion in w/t arithmetic
+            # (TypeError if None), defensive ZeroDivisionError even though
+            # the `if t > 0` guard should prevent it.
             pass
         return None
 
@@ -339,7 +369,10 @@ class AutoOptimizer:
                         [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
                          f"{LOSS_STREAK_LIMIT} consecutive losses"],
                         "Loss Streak")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: periodic-job umbrella. Inner `_get_recent_results`
+            # + update_strategy_status narrow aiosqlite.Error; this outer guard
+            # keeps the 300-cycle tick alive on unexpected errors.
             logger.error(f"Streak check: {e}")
 
     async def _get_recent_results(self, strategy_id: str, limit: int) -> list:
@@ -351,7 +384,10 @@ class AutoOptimizer:
                 (strategy_id, limit)) as c:
                 async for row in c:
                     results.append(row["result"])
-        except Exception:
+        except aiosqlite.Error:
+            # T8.1: pure DB read (cursor + async iteration). Silent return
+            # of partial/empty list is intentional — caller treats empty
+            # as "not enough data".
             pass
         return results
 
@@ -409,13 +445,19 @@ class AutoOptimizer:
                         f"♻️ Auto-resumed: {sid[:8]} [{stype}] "
                         f"PnL={stats['pnl']:+.2f} WR={stats['wr']:.0f}%"
                     )
-                except Exception as e:
+                except (ImportError, AttributeError, aiosqlite.Error) as e:
+                    # T8.1: `from db.models import StrategyStatus` (ImportError
+                    # on partial deploy), update_strategy_status (aiosqlite.Error
+                    # on DB failure), defensive AttributeError if db shape drifts.
                     logger.warning(f"auto-resume {sid[:8]} failed: {e}")
 
             if resumed:
                 logger.info(f"♻️ Auto-resumed {len(resumed)} strategies on startup")
                 await self._notify_paused(resumed, "Auto-Resume (Phase 49)")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: startup umbrella. Inner per-strategy block
+            # narrows ImportError/AttributeError/aiosqlite.Error; this outer
+            # guard prevents one rogue row from blocking startup auto-resume.
             logger.error(f"startup auto-resume: {e}")
 
     # ═══ Phase 65: TRADE MILESTONE MONITOR ═══
@@ -469,8 +511,11 @@ class AutoOptimizer:
                             strat_lines.append(
                                 f"  {emoji} [{st['stype']}] {st['label'] or '?'}: "
                                 f"{st['t']}t {st_wr:.0f}% WR {st['p']:+.2f}$")
-                    except Exception:
-                        pass
+                    except aiosqlite.Error as _me:
+                        # T8.1: pure DB read for top-5 strategy breakdown.
+                        # Empty strat_lines handled by the caller below
+                        # ("(veri yok)" fallback).
+                        logger.debug(f"milestone top-5 fetch failed: {_me}")
 
                     # Wallet balance
                     bal_text = ""
@@ -481,8 +526,10 @@ class AutoOptimizer:
                             w = await c.fetchone()
                             if w:
                                 bal_text = f"\n💰 Bakiye: <b>${w['balance']:.2f}</b>"
-                    except Exception:
-                        pass
+                    except aiosqlite.Error as _we:
+                        # T8.1: pure DB read for primary wallet balance.
+                        # Missing bal_text falls through to empty string.
+                        logger.debug(f"milestone wallet fetch failed: {_we}")
 
                     # Verdict
                     if wr >= 55:
@@ -508,7 +555,10 @@ class AutoOptimizer:
                     logger.info(f"🏆 Milestone {m}: WR={wr:.1f}% PnL={pnl:+.2f}")
                     await self._send_admin_message(text)
                     break  # Only send one milestone per check
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: periodic-job umbrella. Outer sum-aggregation
+            # query + row[*] access; inner breakdown/wallet blocks narrow
+            # aiosqlite.Error. Non-fatal — milestones are informational.
             logger.debug(f"milestone check: {e}")
 
     async def _send_admin_message(self, text: str):
@@ -526,7 +576,13 @@ class AutoOptimizer:
                     if user:
                         await self.engine.bot_app.bot.send_message(
                             chat_id=user["telegram_id"], text=text, parse_mode="HTML")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: telegram send + DB fallback umbrella.
+            # telegram.error.* hierarchy varies by ptb version (NetworkError,
+            # RetryAfter, TimedOut, BadRequest, Forbidden) — catch-all is
+            # safer than binding to ptb's internal types. Also covers the
+            # int(admin_id) ValueError + aiosqlite.Error from the fallback
+            # query. Non-fatal — notifications are best-effort.
             logger.debug(f"send_admin_message: {e}")
 
     async def _notify_paused(self, items: list, reason: str):
@@ -545,8 +601,13 @@ class AutoOptimizer:
                 if user:
                     await self.engine.bot_app.bot.send_message(
                         chat_id=user["telegram_id"], text=text, parse_mode="HTML")
-        except Exception:
-            pass
+        except Exception as _ne:  # noqa: BLE001
+            # T8.1 Faz 3 audit: telegram send + DB fetch umbrella.
+            # Same rationale as _send_admin_message — ptb exception
+            # hierarchy varies and aiosqlite.Error covers the DB side.
+            # Upgraded from silent `pass` to debug log so audit trail
+            # exists when notifications silently drop.
+            logger.debug(f"notify_paused failed: {_ne}")
 
     # ═══ DAILY SUMMARY ═══
     async def generate_daily_summary(self, user_id: str) -> str:
@@ -624,7 +685,11 @@ class AutoOptimizer:
 
             return text
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: user-facing report umbrella. Three DB
+            # queries + wallet fetch + f-string assembly; narrow here
+            # would hide partial-failure scenarios. Return-as-error
+            # string is user-visible, so keep catch-all + log.
             logger.error(f"Daily summary: {e}")
             return f"Error generating summary: {e}"
 
@@ -680,8 +745,10 @@ class AutoOptimizer:
                                          new={"status": "stopped"},
                                          reason=f"thr={threshold:.2f} WR={wr:.0f}% — unreachable",
                                          label=label, wr=wr)
-                    except Exception:
-                        pass
+                    except (ImportError, AttributeError, aiosqlite.Error) as _ce:
+                        # T8.1: import + DB write inside log_change. Already
+                        # stopped above so failure is audit-trail only.
+                        logger.debug(f"adaptive_dead changelog failed: {_ce}")
                     # Telegram notification
                     try:
                         if hasattr(self, 'engine') and self.engine and hasattr(self.engine, 'analyst'):
@@ -691,8 +758,11 @@ class AutoOptimizer:
                                     f"💀 <b>Strateji Otomatik Durduruldu</b>\n"
                                     f"{label or sid[:8]} [{stype}]\n"
                                     f"Threshold {threshold:.2f} + WR {wr:.0f}% = kurtarilamaz")
-                    except Exception:
-                        pass
+                    except AttributeError as _ae:
+                        # T8.1: `self.engine.analyst._send` attribute chain
+                        # narrowed. Telegram send errors propagate from ptb
+                        # and bubble up to the outer # noqa: BLE001 umbrella.
+                        logger.debug(f"adaptive_dead notify attr-miss: {_ae}")
                     continue
 
                 if wr < 55 and threshold < _MAX_THR:
@@ -720,7 +790,13 @@ class AutoOptimizer:
                                          old={"odds_threshold": old_thr}, new={"odds_threshold": round(threshold, 2)},
                                          reason=f"WR={wr:.0f}% → threshold {_dir}",
                                          label=label, wr=wr)
-                    except Exception:
-                        pass
-        except Exception as e:
+                    except (ImportError, AttributeError, aiosqlite.Error) as _ce:
+                        # T8.1: import + DB write inside log_change. Threshold
+                        # was already persisted above; this is audit-trail only.
+                        logger.debug(f"adaptive_threshold changelog failed: {_ce}")
+        except Exception as e:  # noqa: BLE001
+            # T8.1 Faz 3 audit: adaptive threshold umbrella (`exc_info=True`
+            # preserved). execute_fetchall + per-strategy update_strategy_status
+            # + changelog — inner blocks narrow, this outer guard keeps the
+            # optimizer cycle alive on unexpected errors.
             logger.error(f"Adaptive threshold FAILED: {e}", exc_info=True)
