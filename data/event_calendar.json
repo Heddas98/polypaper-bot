@@ -1,0 +1,19 @@
+{
+  "_comment": "Phase 59: Macro event calendar. UTC times. Add events manually or via API.",
+  "_format": "Each event: name, datetime (UTC ISO), type, impact (high/medium/low), pre_hours (volatility window before event)",
+  "recurring": [
+    {"name": "FOMC Rate Decision", "cron": "6th Wed of month cycle", "type": "monetary_policy", "impact": "high", "pre_hours": 4},
+    {"name": "US CPI Release", "cron": "~13th of month 12:30 UTC", "type": "inflation", "impact": "high", "pre_hours": 2},
+    {"name": "US NFP (Jobs)", "cron": "1st Fri of month 12:30 UTC", "type": "employment", "impact": "high", "pre_hours": 2},
+    {"name": "US PPI Release", "cron": "~15th of month 12:30 UTC", "type": "inflation", "impact": "medium", "pre_hours": 1},
+    {"name": "ECB Rate Decision", "cron": "periodic", "type": "monetary_policy", "impact": "medium", "pre_hours": 2}
+  ],
+  "upcoming": [
+    {"name": "FOMC Minutes", "datetime": "2026-04-15T18:00:00Z", "type": "monetary_policy", "impact": "medium", "pre_hours": 2},
+    {"name": "US CPI April", "datetime": "2026-04-10T12:30:00Z", "type": "inflation", "impact": "high", "pre_hours": 2},
+    {"name": "US Retail Sales", "datetime": "2026-04-16T12:30:00Z", "type": "consumer", "impact": "medium", "pre_hours": 1},
+    {"name": "ECB Rate Decision", "datetime": "2026-04-17T12:15:00Z", "type": "monetary_policy", "impact": "medium", "pre_hours": 2},
+    {"name": "US NFP May", "datetime": "2026-05-02T12:30:00Z", "type": "employment", "impact": "high", "pre_hours": 2},
+    {"name": "FOMC Decision May", "datetime": "2026-05-07T18:00:00Z", "type": "monetary_policy", "impact": "high", "pre_hours": 4}
+  ]
+}

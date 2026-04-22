@@ -48,14 +48,21 @@ def ws_with_three_markets(monkeypatch):
     events.
 
     Hardening (Epic 9 T9.10):
-      * Pin ``WS_STALE_SEC=60`` so a prior test that leaked a low
+      * Pin ``WS_STALE_THRESHOLD=60`` so a prior test that leaked a low
         override cannot cause ``get_live_price`` to return None.
+        (T11.2 [C]: renamed from WS_STALE_SEC — canonical env name,
+        websocket_client.py falls back to legacy WS_STALE_SEC for
+        backward-compat with older .env files.)
       * Offset ``_connected_since`` 1s into the past so a microsecond
         clock race (where ``time.time()`` and ``datetime.now().timestamp()``
         land on the same tick after ISO roundtrip) cannot make
         ``entry_dt.timestamp() < _connected_since`` falsely True.
     """
-    monkeypatch.setenv("WS_STALE_SEC", "60")
+    monkeypatch.setenv("WS_STALE_THRESHOLD", "60")
+    # Defensive: clear the legacy alias so a leaked stale override via the
+    # old name cannot override our pin (fallback order in
+    # websocket_client.py: WS_STALE_THRESHOLD > WS_STALE_SEC > 60).
+    monkeypatch.delenv("WS_STALE_SEC", raising=False)
     ws = PolymarketWebSocket()
     # 1s cushion: guarantees entry_ts > _connected_since after roundtrip.
     ws._connected_since = time.time() - 1.0

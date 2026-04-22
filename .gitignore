@@ -64,11 +64,21 @@ evidence/
 # ── Phase 82e addendum — GitHub public-ready hygiene ─────────────
 # Large data stores (DO NOT COMMIT — 195GB+ total)
 data_store/
-data/
 becker_raw/
 becker_rolling/
 data_store/backups/
 data_store/backup_phase82e/
+
+# T11.2 [C] (2026-04-22): `data/` klasörü production Python paketidir
+# (data/websocket_client.py vb. main.py'den import edilir). Phase 82e
+# hygiene sırasında `data/` toptan ignore edilmişti — ghost bug. Artık
+# sadece runtime artifact subpath'leri ignore ediliyor.
+data/__pycache__/
+data/archive/
+data/locks/
+data/*.db
+data/*.db-wal
+data/*.db-shm
 
 # Deployment execution logs (local-only runtime artifacts)
 deploy_*_log.txt

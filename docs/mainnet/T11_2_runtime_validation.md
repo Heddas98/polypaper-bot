@@ -380,12 +380,13 @@ enforcement SQL path'i production'da çalışıyor.
 
 ---
 
-## G6 — WS Stale Guard (`WS_STALE_SEC`) — ☐ PASS / ☐ FAIL
+## G6 — WS Stale Guard (`WS_STALE_THRESHOLD`) — ☐ PASS / ☐ FAIL
 
 ### Kod kancası
 
-- **ENV:** `WS_STALE_SEC` (default bot'a göre değişir — `/env` panel'de oku; T10.5 + T5.4 referansı)
-- **Engine check:** `core/engine.py:851` her cycle `await self._check_ws_health()`
+- **ENV:** `WS_STALE_THRESHOLD` (default 60s; whitelist'te, `/envt`-tunable)
+  - Legacy `WS_STALE_SEC` fallback: `data/websocket_client.py::get_live_price()` önce `WS_STALE_THRESHOLD` okur, yoksa `WS_STALE_SEC` (eski `.env` geriye uyum). T11.2 [C] (2026-04-22).
+- **Engine check:** `core/engine.py:851` her cycle `await self._check_ws_health()` — `_is_ws_fresh()` `WS_STALE_THRESHOLD` okur.
 - **Cache staleness:** `data/websocket_client.py::get_live_price()` — T10.5 fix: malformed/stale entry → `None` (fresh > stale doctrine)
 - **Reconnect flush:** T5.4 — reconnect sırasında `_connected_since` set edilir; eski entry invalid olur.
 
@@ -394,14 +395,14 @@ enforcement SQL path'i production'da çalışıyor.
 **Seçenek A — gerçek network drop:**
 1. Windows'ta Ethernet/Wi-Fi'yı 5-10 saniye devre dışı bırak (adapter disable).
 2. WS client reconnect denemesi başlamalı: log `WS reconnecting...` + `WS connected` pair.
-3. `_connected_since` güncellenir; eski cache entry'leri `WS_STALE_SEC` kontrolünden geçmez → `get_live_price()` `None` döner.
+3. `_connected_since` güncellenir; eski cache entry'leri `WS_STALE_THRESHOLD` kontrolünden geçmez → `get_live_price()` `None` döner.
 4. Network'ü geri aç.
 5. Yeni tick gelene kadar trade açılmaz (log: ilgili sinyalde `skip_reason` veya `stale_price` benzeri).
 
 **Seçenek B — kısa yol (test harness):**
-1. `/env_toggle WS_STALE_SEC 1` (1 saniye — neredeyse her cache entry stale olacak).
+1. `/env_toggle WS_STALE_THRESHOLD 1` (1 saniye — neredeyse her cache entry stale olacak).
 2. Bir kaç cycle bekle; log: yoğun `stale_price` skip'leri veya `WS not fresh` WARNING.
-3. Restore: `/env_toggle WS_STALE_SEC <default>`.
+3. Restore: `/env_toggle WS_STALE_THRESHOLD 60`.
 4. **Not:** B yolu agresif — trade flow'u önemli ölçüde blocklar. 5 dakika içinde restore et.
 
 ### Beklenen davranış
@@ -475,7 +476,7 @@ Test sırasında yapılan `/env_toggle` patch'lerinin hepsi **restore** et:
 /env_toggle PNL_DIVERGENCE_ALERT_PCT 5.0
 /env_toggle PNL_DIVERGENCE_MIN_TRADES 5
 /env_toggle ROLLING_WR_KILL 40.0
-/env_toggle WS_STALE_SEC <original>
+/env_toggle WS_STALE_THRESHOLD 60
 ```
 
 **Shadow bakiye güvenliği:** `LIVE_ENABLED=false` TÜM test boyunca
