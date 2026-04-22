@@ -534,10 +534,16 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
 
 ### Faz 3 — Infrastructure
 
-- [ ] **T9.9** pytest marker taxonomy + conftest refactor — risk: LOW
-  - Marker ekle: `slow` (>1s test'ler), `integration` (DB + asyncio event-loop), `network` (gerçek httpx — yok etmeye çalış), `windows_only` (py-clob-client yüklü varsayan).
-  - `pyproject.toml` veya `pytest.ini`'de `markers` deklare et.
-  - `conftest.py`'de tmp_path + monkeypatch fixture'ları tek yerde topla (duplication azalt).
+- [x] **T9.9** pytest marker taxonomy + conftest refactor — risk: LOW — **CLOSED 2026-04-22**
+  - **Artifact:** `7af7b98` test(config): T9.9 pytest marker taxonomy + integration auto-marker.
+  - `pytest.ini` (yeni, kök): 4 marker (integration, slow, network, windows_only), `--strict-markers`, `-ra`, `testpaths=tests`, DeprecationWarning filtresi (pkg_resources + google noise).
+  - `tests/integration/conftest.py` (yeni): `pytest_collection_modifyitems` hook ile tests/integration/ altındaki her item'a `@pytest.mark.integration` otomatik eklenir. **Convention: location = marker.**
+  - Subset run ergonomisi:
+    - `pytest` → 723 pass + 8 skip (full)
+    - `pytest -m integration` → 50 pass + 681 deselected (smoke-only)
+    - `pytest -m "not integration"` → 673 pass + 8 skip + 50 deselected (unit-only, fast)
+  - `slow`/`network`/`windows_only` şu an boş — T9.8-REG Windows backlog için rezerve.
+  - conftest fixture dedup: mevcut `tests/conftest.py` zaten minimal (path bootstrap + env secrets). Ek duplikasyon yok — fixture topolojisi temiz.
 - [ ] **T9.10** Test execution plan — risk: LOW
   - `tests/README.md` yaz: how to run full suite, unit vs integration subset, hangi marker ne zaman.
   - `run_full_regression.bat` (Windows) + `run_full_regression.sh` (sandbox) — aynı command surface.
