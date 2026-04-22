@@ -20,6 +20,14 @@ DECISION_LOG = os.path.join(JOURNAL_DIR, "decisions.jsonl")
 # Global DB reference — set by engine at startup
 _db = None
 
+# T7.6 B1 (2026-04-22): Keep strong references to in-flight _write_db tasks.
+# ``loop.create_task()`` only keeps a weak reference; if the caller discards
+# the Task, CPython is free to garbage-collect (and cancel) the coroutine
+# mid-flight. We add each task to this set and remove it on done-callback,
+# so the DB write is guaranteed to run to completion even if the outer
+# journal call has returned.
+_pending_db_tasks: set = set()
+
 
 def set_db(db):
     """Set DB reference for dual-write. Called by engine on startup."""
@@ -55,16 +63,21 @@ def log_trade(event_type: str, data: dict):
         try:
             import asyncio
             loop = asyncio.get_running_loop()   # BUG-08 fix: get_event_loop() deprecated
-            loop.create_task(_write_db(record))
-        except RuntimeError:
-            pass  # Bot kapaniyorsa JSONL yedek zaten yazildi
-        except (ImportError, AttributeError, TypeError):
+            # T7.6 B1: keep strong ref so task is not GC'd mid-write.
+            task = loop.create_task(_write_db(record))
+            _pending_db_tasks.add(task)
+            task.add_done_callback(_pending_db_tasks.discard)
+        except RuntimeError as e:
+            # Event loop closed/unavailable (bot shutdown). JSONL backup already written.
+            logger.debug(f"Journal DB skip (loop closed): {e}")  # T7.6 B4
+        except (ImportError, AttributeError, TypeError) as e:
             # T1.4 Faz 3: asyncio create_task fallback. Realistic modes:
             # ImportError (asyncio module — gerçekte olmaz ama sandbox
             # güvencesi), AttributeError (loop None / closed),
             # TypeError (create_task coroutine argümanı). RuntimeError
             # zaten üstteki handler'da yakalı.
-            pass  # DB write failure = not critical, JSONL is backup
+            # T7.6 B4: add debug log so silent failures leave an audit trail.
+            logger.debug(f"Journal DB task create: {e}")
 
 
 async def _write_db(record: dict):
