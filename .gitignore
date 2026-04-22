@@ -55,6 +55,7 @@ Thumbs.db
 .coverage
 htmlcov/
 coverage.xml
+coverage.json
 pytest-cache-files-*/
 
 # ── Phase 82e addendum — GitHub public-ready hygiene ─────────────

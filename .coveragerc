@@ -1,0 +1,25 @@
+[run]
+source = core
+branch = True
+omit =
+    */tests/*
+    */_archive/*
+    */__pycache__/*
+    */dead_code_nuke/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    def __repr__
+    \.\.\.
+precision = 1
+show_missing = False
+sort = Cover
+skip_empty = True
+
+[html]
+directory = htmlcov
+title = PolyPaper Bot — core/ Coverage (T9.2)
