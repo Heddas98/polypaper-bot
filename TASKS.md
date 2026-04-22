@@ -451,7 +451,19 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
 
 ---
 
-## Epic 9 — Test Kaplaması *(tam kapsamlı, mainnet öncesi test altyapısını sağlama al)*
+## Epic 9 — Test Kaplaması *(tam kapsamlı, mainnet öncesi test altyapısını sağlama al)* — **CLOSED 2026-04-22** ✅
+
+**Kapanış özeti:**
+- **T9.1 → T9.10 tümü ✅.** 10/10 subtask commit'li ve regresyon-kontrollü kapandı.
+- **Baseline:** 723 pass + 8 skip + 0 fail (öncesi 498 + 6 + 6). Net +225 test, -6 fail.
+- **Critical-path coverage:** ~24% ortalama (7 modül), TOTAL `core/` 21.2% (öncesi 17.5%).
+- **Determinizm:** seed 42 / 1337 / 9001 → 3× green sweep.
+- **Yeni altyapı:** `tests/integration/` (50 smoke), `pytest.ini` (4 marker), `tests/README.md` (doktrin kılavuzu), `run_full_regression.bat` + `run_full_regression.sh` (aynı command surface).
+- **Ghost doctrine tamam:** drift_monitor + autopilot + kelly_sizing + market_recorder + brain_flags parity — hepsi ayrı pin test'e bağlı.
+- **Backlog → T9.8-REG:** real asyncio engine.start + live WS + shadow-paper live divergence probe + plugin hot-reload. Windows PC Epic 11 öncesi.
+- **Sonraki:** Epic 10 (Security Pass) başlamaya hazır.
+
+
 
 **Hedef:** Epic 0-8 boyunca büyüyen core/ kod tabanını (38 modül, ~13 K satır) güvenilir bir test ağının altına almak. 510 toplanan case, 498 pass + 6 skip + 6 pre-existing fail — pre-existing fail'lerin triyajı ilk faz; sonra coverage boşluklarını kapatıp mainnet için critical path'i regression guard'la kilitleyeceğiz.
 
@@ -544,10 +556,13 @@ Hedef: `core/ai_brain.py` (1932 satır, proje içindeki en büyük dosya) ve `co
     - `pytest -m "not integration"` → 673 pass + 8 skip + 50 deselected (unit-only, fast)
   - `slow`/`network`/`windows_only` şu an boş — T9.8-REG Windows backlog için rezerve.
   - conftest fixture dedup: mevcut `tests/conftest.py` zaten minimal (path bootstrap + env secrets). Ek duplikasyon yok — fixture topolojisi temiz.
-- [ ] **T9.10** Test execution plan — risk: LOW
-  - `tests/README.md` yaz: how to run full suite, unit vs integration subset, hangi marker ne zaman.
-  - `run_full_regression.bat` (Windows) + `run_full_regression.sh` (sandbox) — aynı command surface.
-  - CI gate önerisi (Epic 10+11 için): coverage < 60% fail, yeni eklenen core/ fonksiyonlar için test zorunlu (pre-commit hook notu).
+- [x] **T9.10** Test execution plan — risk: LOW — **CLOSED 2026-04-22**
+  - **Artifact:** `dbf81c2` docs(regression): T9.10 regression runner scripts + tests/README. `4a06ea5` test(integration): T9.10 WS smoke fixture isolation hardening.
+  - `tests/README.md` (170 sat): layout diagram, Quick commands table (Windows + sandbox), marker docs, 6-point doctrine (3 test layers / ENV runtime re-read / pytest.approx / seed determinism / Single Fee Oracle / 5-ghost), Writing a new test 7-step checklist, baseline 723 pass + 8 skip.
+  - `run_full_regression.bat` (Windows, py -3.11 + pause) + `run_full_regression.sh` (sandbox/WSL, python + exit code). Ortak mode surface: `(default)` full / `unit` / `integration` / `seed <N>`. Env stabilizasyon: DATABASE_PATH=:memory:, TELEGRAM_BOT_TOKEN=test-token, ADMIN_CHAT_ID=0. **Deliberately NOT** SIGNAL_W_WHALE — stale T7.6 runner'da vardı, Phase 79b default ile çakışıyordu.
+  - **Determinizm sweep:** seed 42 / 1337 / 9001 — hepsi 723 pass + 8 skip + 0 fail.
+  - **Race fix (4a06ea5):** seed 1337 transient fail'i (`get_live_price == None`) `ws_with_three_markets` fixture'da iki kaynakta çözüldü: (a) `WS_STALE_SEC=60` pin via `monkeypatch.setenv` (env-independent), (b) `_connected_since = time.time() - 1.0` cushion (ISO roundtrip microsecond race-independent). Doctrine (FLAKY_AUDIT.md addendum): env-readable gate'lere bağlı integration fixture'lar ilgili ENV'i kendi içinde pin ETMELİ.
+  - CI gate önerisi (Epic 10+11 için): coverage < 60% fail, yeni eklenen core/ fonksiyonlar için test zorunlu (pre-commit hook notu). **→ Epic 11 T11.x olarak bıraktık, Epic 9 dışı.**
 
 ### Exit kriterleri
 

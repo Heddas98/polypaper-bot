@@ -144,3 +144,44 @@ T9.4 complete when:
 - [x] T9.5/T9.9 önerileri concrete action item
 
 Sonraki adım: **T9.5** — T9.3+T9.4 kararlarını uygula.
+
+---
+
+## 📝 Addendum — T9.10 seed 1337 WS smoke race (2026-04-22)
+
+**Discovery:** Epic 9 T9.10 3-seed determinism check (`./run_full_regression.sh seed 1337`) caught a transient 1-test fail **on first run only**:
+
+```
+tests/integration/test_ws_reconnect_smoke.py::TestBaselineHealthy::test_all_three_served
+assert ws.get_live_price("btc-up") == 0.52
+AssertionError: assert None == 0.52
+```
+
+**Root cause (dual):**
+
+1. **Microsecond clock race.** The fixture `ws_with_three_markets` set
+   `_connected_since = time.time()` then seeded live_prices with
+   `datetime.now(timezone.utc)`. After ISO roundtrip through
+   `datetime.fromisoformat(...).timestamp()`, the float values could
+   collide on the same tick, making the gate
+   `entry_dt.timestamp() < self._connected_since` falsely True and
+   returning None.
+
+2. **Latent env-leak risk.** 4 tests write `os.environ[KEY] = val`
+   directly (pnl_pause_runtime, phase56_engine, phase70, ws_subscribe_cap).
+   None target `WS_STALE_SEC`, but a future test that does could
+   break the WS smoke fixture via the same `os.getenv("WS_STALE_SEC")`
+   runtime read path.
+
+**Fix (commit `4a06ea5`):** harden the fixture itself — pin
+`WS_STALE_SEC=60` via `monkeypatch.setenv` (env-independent) and offset
+`_connected_since` 1s into the past (race-independent).
+
+**Verification:** 3-seed green sweep post-fix:
+- seed 42 — 723 pass + 8 skip + 0 fail
+- seed 1337 — 723 pass + 8 skip + 0 fail
+- seed 9001 — 723 pass + 8 skip + 0 fail
+
+**Doctrine:** integration fixtures that depend on env-readable gates
+SHOULD pin the relevant env via `monkeypatch.setenv` inside the fixture
+rather than rely on suite-level env hygiene.
