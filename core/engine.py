@@ -671,7 +671,10 @@ class TradingEngine(
                     last_change = now
         except asyncio.CancelledError:
             logger.info("stall_watchdog: cancelled, exiting")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - T8.1 KEEP
+            # Background supervisor loop — must survive any exception from
+            # its watched task. Narrowing would defeat the point (this is
+            # the *watchdog*, not the watched loop). Full traceback logged.
             logger.error(
                 f"stall_watchdog: crashed: {type(e).__name__}: {e}\n"
                 f"{traceback.format_exc()}")
@@ -951,9 +954,12 @@ class TradingEngine(
                 for s in strats:
                     try:
                         await self._evaluate(s, verbose)
-                    except Exception as e:
-                        # Phase 82a hotfix: include full traceback — previously
-                        # only the exception message was logged, masking root cause.
+                    except Exception as e:  # noqa: BLE001 - T8.1 KEEP
+                        # Per-strategy eval isolation: ONE strategy must
+                        # never be able to crash the whole eval loop and
+                        # freeze all other strategies. Phase 82a hotfix:
+                        # include full traceback — previously only the
+                        # exception message was logged, masking root cause.
                         logger.error(
                             f"Eval {s.id[:8]} ({getattr(s, 'strategy_type', '?')}): "
                             f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -982,7 +988,12 @@ class TradingEngine(
             except asyncio.CancelledError:
                 logger.info(f"Engine loop: cycle {self._cycle} cancelled")
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - T8.1 KEEP
+                # Engine main loop wrapper — must keep the loop alive
+                # across transient failures (DB locks, WS blips, LLM
+                # timeouts). Fatal exceptions (MemoryError / SystemExit /
+                # KeyboardInterrupt) re-raise at L1000 so the watchdog
+                # can restart the process cleanly.
                 # Phase 82a hotfix: traceback + keep loop alive. Previously
                 # `logger.error(f"Engine: {e}")` hid the root cause. If the
                 # exception type is fatal (MemoryError, SystemExit), re-raise

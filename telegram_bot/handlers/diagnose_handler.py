@@ -34,11 +34,23 @@ def _build_bg_tasks_section() -> str:
     same block without duplicating code.
     """
     try:
-        from core.bg_task import get_registry_snapshot, get_recent_errors
+        # Epic 7 B6 (2026-04-22): get_live_task_count() surfaces the
+        # strong-ref set size — distinct from `snap` length which counts
+        # metadata-registered tasks (including completed/failed). `live`
+        # = tasks currently held by _BG_TASK_OBJECTS + GC-protected.
+        from core.bg_task import (
+            get_registry_snapshot,
+            get_recent_errors,
+            get_live_task_count,
+        )
         snap = get_registry_snapshot()
         errs = get_recent_errors(5)
+        live = get_live_task_count()
 
-        out = f"<b>Background Tasks</b> ({len(snap)} tracked)\n"
+        out = (
+            f"<b>Background Tasks</b> ({len(snap)} tracked · "
+            f"{live} live strong-ref)\n"
+        )
         if snap:
             failed = [(n, i) for n, i in snap.items() if i.get("state") == "failed"]
             running = [(n, i) for n, i in snap.items() if i.get("state") == "running"]
