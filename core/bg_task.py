@@ -59,6 +59,19 @@ _RECENT_ERRORS: Deque[dict] = deque(
 _NOTIFY_COOLDOWN: dict[str, float] = {}
 _NOTIFY_HANDLER: Optional[Callable[[str, str, str], Awaitable[None]]] = None
 _NOTIFY_ENABLED = os.getenv("BG_TASK_NOTIFY_ENABLED", "1") in ("1", "true", "True", "yes", "on")
+# Epic 7 B6 (2026-04-22): strong-reference container for every running task.
+# Python's event loop keeps only WEAK references to tasks via `_all_tasks`
+# (CPython 3.11 `asyncio.tasks._all_tasks` is a WeakSet). That means a
+# fire-and-forget `safe_create_task(..., name="x")` whose return value the
+# caller discards can be garbage-collected mid-execution — yielding the
+# exact "Task was destroyed but it is pending!" RuntimeWarning and silent
+# death that `_BG_TASK_REGISTRY` was built to prevent. The registry stored
+# metadata DICTS, not the task objects, so it didn't actually protect tasks
+# from GC. `_BG_TASK_OBJECTS` holds the asyncio.Task itself; the
+# `add_done_callback(_BG_TASK_OBJECTS.discard)` line inside `safe_create_task`
+# releases the reference once the coroutine finishes or raises.
+# See Python docs: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+_BG_TASK_OBJECTS: set[asyncio.Task] = set()
 
 
 def set_notify_handler(
@@ -201,6 +214,13 @@ def safe_create_task(
                 reg["completed_at"] = time.time()
 
     task = asyncio.create_task(_wrapped(), name=name)
+    # Epic 7 B6 (2026-04-22): hold a strong ref so fire-and-forget callers
+    # don't lose their task to GC. Discarded automatically when the task
+    # finishes (done-callback runs exactly once per task, CancelledError
+    # included). This is independent of `_BG_TASK_REGISTRY` which tracks
+    # metadata dicts for /diagnose observability.
+    _BG_TASK_OBJECTS.add(task)
+    task.add_done_callback(_BG_TASK_OBJECTS.discard)
     # Pre-populate registry so /diagnose can see "pending" tasks
     _BG_TASK_REGISTRY.setdefault(name, {}).update({
         "name": name,
@@ -236,6 +256,17 @@ def clear_registry() -> None:
     _BG_TASK_REGISTRY.clear()
     _RECENT_ERRORS.clear()
     _NOTIFY_COOLDOWN.clear()
+    # Epic 7 B6: test helper — also drop strong-ref container. Only safe
+    # when no tasks are in-flight; pytest fixtures call this between tests.
+    _BG_TASK_OBJECTS.clear()
+
+
+def get_live_task_count() -> int:
+    """Epic 7 B6 (2026-04-22): debuggability helper — how many
+    `safe_create_task`-created tasks are still alive (strongly ref'd).
+    Equal to `_BG_TASK_OBJECTS` size; exposed as a function so tests and
+    /diagnose can snapshot without leaking the internal set."""
+    return len(_BG_TASK_OBJECTS)
 
 
 # ── Default Telegram notify handler (factory) ─────────────────────────
