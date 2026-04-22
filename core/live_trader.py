@@ -146,9 +146,10 @@ class LiveTrader:
                 signature_type=0,  # EOA
                 funder=wallet,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — py-clob-client ctor can raise ValueError,
             # TypeError, or network errors from dependency libs. Emit type for triage.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             return (False, f"client init failed ({type(e).__name__}): {e}")
 
         # Try derive first
@@ -159,9 +160,10 @@ class LiveTrader:
             detail_derived = (
                 f"derived key={str(getattr(derived, 'api_key', ''))[:8]}..."
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — derive path wraps HTTP + signature
             # internals from py-clob-client. Fallback path below is intentional.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             # Fallback: stored triplet (may be stale — will be logged)
             stored_key = os.getenv("POLYMARKET_API_KEY", "").strip()
             stored_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
@@ -177,8 +179,9 @@ class LiveTrader:
                 client.set_api_creds(creds)
                 self._api_creds = creds
                 detail_derived = f"fallback stored key={stored_key[:8]}... (derive err: {type(e).__name__}: {e})"
-            except Exception as e2:
+            except Exception as e2:  # noqa: BLE001
                 # T1.4 Faz 1: catch-all kept — both derive and stored-creds failed.
+                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 return (False, f"both derive ({type(e).__name__}: {e}) and fallback ({type(e2).__name__}: {e2}) failed")
 
         # Verify with a cheap authenticated call (get_trades with limit)
@@ -186,8 +189,9 @@ class LiveTrader:
             from py_clob_client.clob_types import TradeParams
             _ = client.get_trades(TradeParams())
             return (True, detail_derived)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — get_trades can raise HTTP/auth/network.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             return (False, f"{detail_derived} | verify failed ({type(e).__name__}): {e}")
 
     def is_enabled(self) -> bool:
@@ -270,9 +274,10 @@ class LiveTrader:
                 logger.warning(f"  ⚠️ LIVE FAIL: {slug} — {status}")
                 return None
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — _place body spans CLOB exec + DB write +
             # telegram notify. Use logger.exception to capture traceback for triage.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"Live place failed ({type(e).__name__}): {e}")
             return None
 
@@ -379,8 +384,9 @@ class LiveTrader:
                         f"  🔑 derived L2 creds on demand key="
                         f"{str(getattr(creds, 'api_key', ''))[:8]}..."
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     # T1.4 Faz 1: catch-all kept — on-demand derive wraps HTTP + sig.
+                    # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                     return {"id": "", "status": f"error:derive failed ({type(e).__name__}): {e}"}
 
             client.set_api_creds(creds)
@@ -402,9 +408,10 @@ class LiveTrader:
         except ImportError:
             logger.warning("py-clob-client not installed — mock order")
             return {"id": f"MOCK_{token_id[:8]}", "status": "mock"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — _sync_order body spans CLOB signature,
             # HTTP post_order, and response parsing. Use logger.exception for traceback.
+            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"CLOB order failed ({type(e).__name__}): {e}")
             return {"id": "", "status": f"error ({type(e).__name__}):{e}"}
 
