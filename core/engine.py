@@ -19,6 +19,7 @@ BUG-03: FIXED in Phase 56 — verdict None guard + try/except in engine_signals.
 Phase 56: Balance race fix — pending_reserved subtracted from effective_balance.
 """
 import asyncio
+import json  # Epic 8 T8.1: narrow JSONDecodeError in startup restore
 import logging
 import math
 import os
@@ -27,6 +28,15 @@ import time
 import traceback  # Phase 82a hotfix: full traceback for silent death diagnostics
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+import aiosqlite  # Epic 8 T8.1: narrow DB exception handling
+import httpx  # Epic 8 T8.1: narrow HTTP exception handling
+
+try:
+    from telegram.error import TelegramError  # Epic 8 T8.1
+except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
+    class TelegramError(Exception):  # type: ignore[no-redef]
+        ...
 
 from config.settings import Settings
 from core.kill_switch import KillSwitch
@@ -122,7 +132,8 @@ class TradingEngine(
                 _rlimits.max_position_size = float(os.getenv("MAX_POSITION_SIZE"))
             if os.getenv("MIN_BALANCE_FLOOR"):
                 _rlimits.min_balance_floor = float(os.getenv("MIN_BALANCE_FLOOR"))
-        except Exception as _re:
+        except (ValueError, TypeError) as _re:
+            # Epic 8 T8.1: env override parse — float/int cast failures only
             logger.warning(f"risk env override parse failed: {_re}")
         self.risk = RiskManager(_rlimits)
         self.kill_switch = KillSwitch()
@@ -187,7 +198,8 @@ class TradingEngine(
             self.micro_weight = MicroWeightTracker(
                 enabled=getattr(settings, "ADAPTIVE_MICRO_WEIGHT_ENABLED", False)
             )
-        except Exception as _mwe:
+        except Exception as _mwe:  # noqa: BLE001
+            # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init failures
             logger.warning(f"micro_weight init failed: {_mwe}")
             self.micro_weight = None
         # Phase 48: Adaptive per-asset Becker weight tracker (opt-in).
@@ -199,7 +211,8 @@ class TradingEngine(
             self.becker_weight = BeckerWeightTracker(
                 enabled=getattr(settings, "ADAPTIVE_BECKER_WEIGHT_ENABLED", False)
             )
-        except Exception as _bwe:
+        except Exception as _bwe:  # noqa: BLE001
+            # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init failures
             logger.warning(f"becker_weight init failed: {_bwe}")
             self.becker_weight = None
 
@@ -208,7 +221,8 @@ class TradingEngine(
             from data.event_monitor import EventMonitor
             self._event_monitor = EventMonitor()
             logger.info("📅 Event calendar monitor initialized")
-        except Exception as _eme:
+        except Exception as _eme:  # noqa: BLE001
+            # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init failures
             logger.debug(f"event_monitor init: {_eme}")
             self._event_monitor = None
 
@@ -237,7 +251,8 @@ class TradingEngine(
                                      for r in rows if r and r[0] is not None]
                             curve.sort(key=lambda x: x[0])
                             setattr(self, holder_attr, curve)
-                        except Exception as _ce:
+                        except (aiosqlite.Error, ValueError, TypeError, IndexError) as _ce:
+                            # Epic 8 T8.1: DB read / numeric cast / empty row slicing
                             logger.warning(f"becker {src_name} curve load: {_ce}")
                     logger.info(
                         f"📈 Phase 47f: Becker δ(p) loaded "
@@ -246,14 +261,17 @@ class TradingEngine(
                     )
                 else:
                     logger.info("📈 Phase 47f: Becker calib DB not present — δ(p) disabled")
-            except Exception as _be:
+            except (ImportError, AttributeError, aiosqlite.Error, OSError) as _be:
+                # Epic 8 T8.1: outer bootstrap — loader import / DB open / FS errors
                 logger.warning(f"becker curve init failed: {_be}")
 
         # Phase 70: EV Threshold Tracker
         try:
             from calibration.ev_threshold import EVTracker
             self._ev_tracker = EVTracker()
-        except Exception:
+        except Exception as _eve:  # noqa: BLE001
+            # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init
+            logger.debug(f"ev_tracker init: {_eve}")
             self._ev_tracker = None
 
         # T1.3 Commit 1 (2026-04-20): Phase 76 markov_estimator + capital_allocator
@@ -267,7 +285,8 @@ class TradingEngine(
                 from core.trade_memory import get_trade_memory
                 self._trade_memory = get_trade_memory()
                 logger.info("🧠 Phase 77: Trade Memory initialized")
-            except Exception as _tme:
+            except Exception as _tme:  # noqa: BLE001
+                # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init
                 logger.debug(f"trade_memory init: {_tme}")
 
         # Phase 77: Decision Explainer (reasoning chains for every trade)
@@ -277,7 +296,8 @@ class TradingEngine(
                 from core.decision_explainer import get_decision_explainer
                 self._explainer = get_decision_explainer()
                 logger.info("🔍 Phase 77: Decision Explainer initialized")
-            except Exception as _dee:
+            except Exception as _dee:  # noqa: BLE001
+                # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init
                 logger.debug(f"decision_explainer init: {_dee}")
 
         # Phase 77: Experiment Runner (safe parameter testing)
@@ -287,7 +307,8 @@ class TradingEngine(
                 from core.experiment_runner import get_experiment_runner
                 self._experiment = get_experiment_runner()
                 logger.info("🧪 Phase 77: Experiment Runner initialized")
-            except Exception as _ere:
+            except Exception as _ere:  # noqa: BLE001
+                # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init
                 logger.debug(f"experiment init: {_ere}")
 
         # Phase 70: 2D Calibration Surface C(K,τ) — extends 1D δ(p) with time dimension
@@ -307,7 +328,8 @@ class TradingEngine(
                     )
                 else:
                     logger.info("📊 Phase 70: 2D Surface — no data, using 1D fallback")
-            except Exception as _s2e:
+            except Exception as _s2e:  # noqa: BLE001
+                # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init
                 logger.debug(f"surface_2d init: {_s2e}")
 
     @property
@@ -345,7 +367,10 @@ class TradingEngine(
                     sp = _json.loads(sp_raw)
                     if not isinstance(sp, dict):
                         continue
-                except Exception:
+                except (json.JSONDecodeError, ValueError, TypeError) as _pe:
+                    # Epic 8 T8.1: corrupt strategy_params JSON — skip quietly
+                    # but leave a breadcrumb for audit (previously silent pass).
+                    logger.debug(f"HyperOpt restore: skip sid={sid[:8]} bad JSON: {_pe}")
                     continue
                 plugin_params = sp.get("plugin_params") or {}
                 if not plugin_params:
@@ -363,14 +388,16 @@ class TradingEngine(
                             logger.warning(
                                 f"HyperOpt restore: set_config rejected "
                                 f"{stype}.{param}={value}")
-                    except Exception as _e:
+                    except (ValueError, TypeError, AttributeError, KeyError) as _e:
+                        # Epic 8 T8.1: plugin config cast / missing attr / bad key
                         logger.warning(
                             f"HyperOpt restore {stype}.{param}: {_e}")
             if applied_count > 0:
                 logger.info(
                     f"🔧 HyperOpt plugin params restored: {applied_count} "
                     f"param(s) across {len(seen_types)} strategy type(s)")
-        except Exception as _e:
+        except (aiosqlite.Error, AttributeError) as _e:
+            # Epic 8 T8.1: DB fetchall / connection down / db.conn missing
             logger.warning(f"HyperOpt startup restore failed: {_e}")
 
         # T1.3 Commit 1 (2026-04-20): capital_allocator.initialize() kaldırıldı
@@ -380,19 +407,22 @@ class TradingEngine(
         if self._trade_memory is not None:
             try:
                 await self._trade_memory.initialize(self.db)
-            except Exception as _tmi:
+            except (aiosqlite.Error, AttributeError) as _tmi:
+                # Epic 8 T8.1: CREATE TABLE / initialize() contract
                 logger.warning(f"trade_memory db init: {_tmi}")
 
         if self._explainer is not None:
             try:
                 await self._explainer.initialize(self.db)
-            except Exception as _dei:
+            except (aiosqlite.Error, AttributeError) as _dei:
+                # Epic 8 T8.1: CREATE TABLE / initialize() contract
                 logger.warning(f"decision_explainer db init: {_dei}")
 
         if self._experiment is not None:
             try:
                 await self._experiment.initialize(self.db)
-            except Exception as _eri:
+            except (aiosqlite.Error, AttributeError) as _eri:
+                # Epic 8 T8.1: CREATE TABLE / initialize() contract
                 logger.warning(f"experiment db init: {_eri}")
 
         # ══ Phase 22: Load persistent settings from DB ══
@@ -503,7 +533,10 @@ class TradingEngine(
                     logger.warning(f"🛡️ THRESHOLD RESTORE: {label} {cur[0][0]}→{orig_thr}")
             # Store guards for continuous enforcement
             self._threshold_guards = threshold_guards
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1: omnibus startup settings block (DB / RiskLimits.from_dict /
+            # brain_flags dict hydration / threshold UPDATE / auto-name loop).
+            # Keep umbrella — any single failure here must NOT stop engine boot.
             logger.warning(f"Startup settings: {e}")
 
         self.optimizer.engine = self
@@ -628,7 +661,8 @@ class TradingEngine(
                                     parse_mode="HTML"),
                                     name="engine_stall_alert",
                                     notify=False)  # already an alert — no loop
-                    except Exception as _pe:
+                    except (TelegramError, ValueError, AttributeError) as _pe:
+                        # Epic 8 T8.1: TG send failure / int(admin_id) cast / bot_app missing
                         logger.debug(f"stall push failed: {_pe}")
                     # Force-cancel hung task so _on_engine_done kicks restart
                     if self._task and not self._task.done():
@@ -661,8 +695,10 @@ class TradingEngine(
                 await _stall
             except asyncio.CancelledError:
                 pass
-            except Exception:
-                pass
+            except Exception as _stall_err:  # noqa: BLE001
+                # Epic 8 T8.1: watchdog may crash with anything — we are
+                # shutting down, so a breadcrumb is enough (previously silent).
+                logger.debug(f"stall_watchdog cleanup: {_stall_err}")
         if self._task:
             self._task.cancel()
             try:
@@ -693,8 +729,10 @@ class TradingEngine(
                         age_min = (datetime.now(timezone.utc) - t0).total_seconds() / 60
                         if age_min > 15:  # 5m market + 10min buffer
                             is_orphan = True
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as _age_err:
+                        # Epic 8 T8.1: malformed created_at string — skip orphan
+                        # age check (was silent pass — now observable in debug).
+                        logger.debug(f"orphan age parse: {_age_err} (created={created!r})")
 
                 if is_orphan:
                     # Phase 79b: Try to resolve via API first, then fallback to last odds
@@ -708,8 +746,11 @@ class TradingEngine(
                     resolved = None
                     try:
                         resolved = await self.client.check_market_resolved(slug)
-                    except Exception:
-                        pass
+                    except (httpx.HTTPError, asyncio.TimeoutError, AttributeError,
+                            KeyError, ValueError) as _mres_err:
+                        # Epic 8 T8.1: API lookup failure — fall through to
+                        # odds-based fallback (was silent pass — now observable).
+                        logger.debug(f"market_resolution API: {_mres_err}")
 
                     if resolved:
                         # API told us the actual result
@@ -767,7 +808,8 @@ class TradingEngine(
                 # Credit wallet for orphans (they lost, so debit was already done at open)
                 logger.info(f"🧹 Cleaned up {orphan_count} orphan position(s) on startup")
 
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, OSError) as e:
+            # Epic 8 T8.1: DB fetchall / row-dict access / FS I/O
             logger.error(f"Load: {e}")
 
     async def _run(self):
@@ -841,8 +883,10 @@ class TradingEngine(
                         _sc = self.skips.get_counts()
                         if _sc:
                             log_decision_cycle_summary(self._cycle, _sc)
-                    except Exception:
-                        pass
+                    except (ImportError, AttributeError, OSError) as _dcs_err:
+                        # Epic 8 T8.1: journal import / skips API / disk I/O —
+                        # previously silent pass masked observability bug.
+                        logger.debug(f"decision_cycle_log: {_dcs_err}")
                     self.skips.reset()  # Reset after reporting
 
                     # Phase 49 P0-04: strats=0 watchdog
@@ -869,7 +913,8 @@ class TradingEngine(
                                                 parse_mode="HTML"),
                                                 name="engine_strats_zero_alert",
                                                 notify=False)
-                                except Exception as _push_e:
+                                except (TelegramError, ValueError, AttributeError) as _push_e:
+                                    # Epic 8 T8.1: TG send / int(admin_id) / bot_app missing
                                     logger.debug(f"strats_zero push failed: {_push_e}")
                         else:
                             # Recovery: reset watchdog state
@@ -877,7 +922,9 @@ class TradingEngine(
                                 logger.info(f"✅ STRATS_ZERO cleared: {len(strats)} strategies active again")
                             self._strats_zero_since = None
                             self._strats_zero_alerted = False
-                    except Exception as _wd_e:
+                    except Exception as _wd_e:  # noqa: BLE001
+                        # Epic 8 T8.1: watchdog wrapper — env parse / datetime /
+                        # dict access — must never crash main loop.
                         logger.debug(f"strats_zero watchdog error: {_wd_e}")
 
                 # Phase 34: Continuous threshold protection (every ~5min)
@@ -891,8 +938,10 @@ class TradingEngine(
                                     "UPDATE strategies SET odds_threshold=? WHERE label=?", (orig_thr, label))
                                 await self.db.conn.commit()
                                 logger.warning(f"🛡️ GUARD: {label} {cur[0][0]}→{orig_thr}")
-                        except Exception:
-                            pass
+                        except (aiosqlite.Error, IndexError, TypeError) as _tg_err:
+                            # Epic 8 T8.1: DB fetch / UPDATE / empty row slice —
+                            # previously silent pass masked threshold drift bugs.
+                            logger.debug(f"threshold_guard: {_tg_err}")
 
                 # ══ F-01: All pending/trade ops under lock ══
                 async with self._trade_lock:
@@ -918,7 +967,9 @@ class TradingEngine(
                 if self._cycle % 300 == 0 and self._cycle > 0:
                     try:
                         await self.lifecycle.run_lifecycle_check()
-                    except Exception as _lc_err:
+                    except (aiosqlite.Error, AttributeError, RuntimeError,
+                            ValueError) as _lc_err:
+                        # Epic 8 T8.1: DB ops / lifecycle contract / value guards
                         logger.debug(f"lifecycle check: {_lc_err}")
 
                 # ══ Phase 26: Adaptive threshold every ~10 min ══
@@ -1025,7 +1076,10 @@ class TradingEngine(
             results = await asyncio.gather(
                 *(client.get_live_midpoint(tid) for tid in subscribed),
                 return_exceptions=True)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1: gather() with return_exceptions=True rarely raises at
+            # the top level — this is a defensive catch for coroutine-build
+            # failures (AttributeError on client method, etc.). Keep umbrella.
             logger.warning(f"WS reconnect backfill failed: {type(e).__name__}: {e}")
             return
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -1096,7 +1150,8 @@ class TradingEngine(
                          datetime.now(timezone.utc).isoformat()))
                     await self.db.conn.commit()
                     logger.info(f"📸 Daily snapshot saved: {yesterday}")
-                except Exception as _se:
+                except (aiosqlite.Error, ValueError, TypeError) as _se:
+                    # Epic 8 T8.1: INSERT / commit / numeric cast failures
                     logger.debug(f"Snapshot save: {_se}")
 
                 text = (
@@ -1109,10 +1164,19 @@ class TradingEngine(
                 # Send to admin
                 admin_id = self.settings.ADMIN_TELEGRAM_ID
                 if admin_id and self.bot_app:
-                    await self.bot_app.bot.send_message(
-                        chat_id=admin_id, text=text, parse_mode="HTML")
-                    logger.info(f"📊 Daily report sent: {t}t {wr:.0f}% {pnl:+.2f}")
-        except Exception as e:
+                    # Epic 8 T8.1 ALARM 7: Telegram send must not abort the
+                    # surrounding analytics block if TG backoff/network hiccups.
+                    # Wrap in its own narrow guard rather than letting the
+                    # outer except eat it silently.
+                    try:
+                        await self.bot_app.bot.send_message(
+                            chat_id=admin_id, text=text, parse_mode="HTML")
+                        logger.info(f"📊 Daily report sent: {t}t {wr:.0f}% {pnl:+.2f}")
+                    except (TelegramError, ValueError, AttributeError) as _tg_err:
+                        logger.warning(f"daily report TG send: {_tg_err}")
+        except (aiosqlite.Error, KeyError, IndexError, TypeError, ValueError) as e:
+            # Epic 8 T8.1: DB fetchall / row-slice / numeric cast — outer guard
+            # only covers analytics SELECTs, not the TG send above.
             logger.debug(f"Daily report: {e}")
 
     def _cleanup(self):
@@ -1128,8 +1192,10 @@ class TradingEngine(
                         if isinstance(m, dict):
                             active_slugs.add(m.get("slug", ""))
             self._market_open_recorded = self._market_open_recorded & active_slugs
-        except Exception:
-            pass
+        except (AttributeError, TypeError) as _mct_err:
+            # Epic 8 T8.1: scanner/active_markets missing or unexpected shape —
+            # previously silent pass masked scanner API drift.
+            logger.debug(f"market cache trim: {_mct_err}")
 
     # ═══ PENDING ORDERS — Phase 38c: VWAP + signal→fill slippage + partial fill ═══
     # Phase 38c adds:
