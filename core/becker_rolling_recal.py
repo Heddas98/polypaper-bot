@@ -37,7 +37,7 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import Any, Optional, Tuple, Dict, List
 
 import aiosqlite
 
@@ -109,7 +109,7 @@ class BeckerRollingRecalibrator:
 
     async def get_rolling_window_stats(
         self, market_group: str, days: int = 21
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Analyze last N days of trades grouped by week.
         market_group: 'BTC' or 'ETH' or 'SOL' or 'XRP'
@@ -223,7 +223,7 @@ class BeckerRollingRecalibrator:
             logger.error(f"Rolling window stats failed: {e}")
             return {"error": str(e), "recommended_shift_bps": 0.0}
 
-    async def weekly_recalibration_job(self) -> Dict[str, any]:
+    async def weekly_recalibration_job(self) -> Dict[str, Any]:
         """
         Scheduled job: Sunday 00:00 UTC. Rebuild calibration curves
         with rolling window weighting.
@@ -323,7 +323,7 @@ class BeckerRollingRecalibrator:
         from core.stats_utils import pearson_like
         return pearson_like(pairs)
 
-    async def get_status(self) -> Dict[str, any]:
+    async def get_status(self) -> Dict[str, Any]:
         """Current status for /becker_recal_status command."""
         if not self.enabled:
             return {"enabled": False}
