@@ -30,6 +30,49 @@
 
 ---
 
+## 🧭 Sıradaki İşler (2026-04-23 — sandbox batch sonrası)
+
+> **Durum:** T11.2 Ek İş batch kapandı (6 commit: [A][B][C][D][E][F] + [Z]). 755 pass + 3 skip + 0 fail. 15 yeni regresyon testi. `/live_guards` + `/lg` admin cmd canlı. **Mainnet bloklayan sandbox item: 0.** Aşağıdaki iş listesi ne kaldığını ve nerede tamamlanacağını netleştirir.
+
+### 1) 🪟 Windows (user elle — bot açıkken)
+
+T11.2 kapanışı için hâlâ canlı kanıt bekleyen guard'lar. Yeni `/live_guards` komutu [D] her testten önce/sonra snapshot almak için direkt kullanılır.
+
+- [ ] **T11.2 G1 Kill Switch — file-channel canlı kanıt** (~3 dk). Bot ayakta → `scripts/t11_2_g1_file_kill_switch.bat` → `data_store/polypaper.stop` sentinel → halt log + Telegram uyarı + dosyayı sil → resume log.
+- [ ] **T11.2 G2 Live Budget cap** — shadow mirror + `/envt LIVE_BUDGET 0.01` → sonraki trade'de budget-exceeded log grep. `/live_guards` ile önce/sonra threshold doğrula.
+- [ ] **T11.2 G3 Daily Loss halt** — shadow mirror loss streak + `/envt LIVE_MAX_DAILY_LOSS 0.10` → halt log + `/live_guards` `halted=true` görünmesi.
+- [ ] **T11.2 G6 WS Stale skip** — `/envt WS_STALE_THRESHOLD 5` + WS disable/pause → stale_price skip log + `/live_guards` ws_age > threshold rendering.
+- [ ] **T11.3 Rollback dry-run** — `docs/mainnet/T11_3_rollback_plan.md` senaryolarını gerçek Windows ortamında test (ENV rollback + killswitch sentinel + process teardown).
+- [ ] **SYNC.1** — `data/websocket_client.py` sandbox→Windows kopya (T10.5 malformed entry guard + [C] WS_STALE_SEC legacy fallback).
+- [ ] **SYNC.2** — `data/market_scanner.py` sandbox→Windows kopya (gitignored runtime sync).
+- [ ] **T4.5** — Empirical slippage calibration (trade_log_sim vs gerçek fill delta, 24h kanıt).
+- [ ] **T4.6** — Simülatör↔gerçek PnL parity smoke (Single Fee Oracle identity × 3 trade class).
+- [ ] **T4.7** — REST RTT 24h telemetry calibration (`REST_TIMING_ENABLED=true` + grafana-free csv dump).
+- [ ] **T4.8** — `/dump_rest_timing` admin cmd (<30 dk — `rest_timing.get_stats()` → esc'd HTML table).
+- [ ] **T4.9** — `core/observability/rest_timing.time_call()` wrap: `live_trader.py` + `polymarket_client.py` HTTP call-site'ları (<30 dk).
+- [ ] **T9.8-REG** — Integration smoke Windows regression (real asyncio start + live WS cycle).
+- [ ] **T7.6-REG** — T7.6 Aşama A full regression (Windows, ~5 dk) — sandbox zaten 323 pass/6 skip/2 pre-existing fail.
+
+### 2) 🧰 Sandbox-doable (defense-in-depth — mainnet blocker DEĞİL)
+
+Hepsi sandbox'ta uygulanabilir, user PC'de zamanı olduğunda batch-onaylı açılır. Bloklamaz ama Epic 11 T11.8 öncesi kapatılması önerilir.
+
+- [ ] **T11.4 Coverage CI gate + pre-commit hook** — `pytest --cov=core --cov-fail-under=21` + `pre-commit` yaml. Baseline 21.2%, ratchet mekaniği.
+- [ ] **T11.5 Test env-leak hygiene pass** — 5 dosya (`tests/unit/test_pnl_pause_runtime.py` + `test_phase70_*` + `test_whale_signal.py` + `test_whitelist_runtime_readiness.py` + `test_ws_subscribe_cap.py`): raw `os.environ[X]=` → `monkeypatch.setenv` çevrimi. Teardown leak riski.
+- [ ] **T11.6 User-facing exception render policy** — `docs/security/T11_6_exception_render_policy.md` + ~15-20 handler edit (generic msg + DEBUG_SHOW_EXC ENV opt-in). Batch 2'den sonraki kalan leak yüzeyini kapatır.
+- [ ] **T11.7 `docs/env_reference.md` AST-gen** — `scripts/gen_env_reference.py` (ast.walk → `os.getenv(...)` çağrıları + default + whitelist işareti). `.env.example` vs kod drift'i otomatik.
+- [ ] **T11.8 `except Exception: pass` pre-commit grep hook** — regex ban + `# noqa: BLE-OK reason=...` escape hatch. T7.6 doktrinini CI'ya kilitler.
+
+### 3) 🧹 Housekeeping
+
+- [ ] **TASKS.md L810-812 arşiv** — 3 stale "Yeni İş Kuyruğu" referansı artık kapalı:
+  - Version drift (T0.2) → Epic 0 altında kapalı
+  - Engine ghost modules → Epic 1 altında kapalı
+  - engine_signals classic bypass → Epic 3 altında kapalı
+  Satırlar `## Ertelenenler` bloğuna taşınıp "ℹ️ Artık kapalı (Epic X)" notu ile etiketlenmeli.
+
+---
+
 ## 🗓️ Son Commit Sync — 2026-04-22 (Epic 10 + post-audit, 12 commit)
 
 | Commit | Mesaj | Kapsam |
