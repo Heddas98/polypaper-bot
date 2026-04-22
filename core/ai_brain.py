@@ -22,6 +22,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+import aiosqlite  # Epic 8 T8.1: narrow DB exception handling
+
 from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
 
 logger = logging.getLogger("polypaper.core.ai_brain")
@@ -214,7 +216,9 @@ class AIBrain:
         try:
             from utils.brier_tracker import BrierTracker
             self._brier_tracker = BrierTracker(db)
-        except Exception as _bt_err:
+        except (ImportError, AttributeError) as _bt_err:
+            # Epic 8 T8.1: narrow — BrierTracker is optional; skip if module
+            # missing or db API shape mismatches, everything else must bubble.
             logger.debug(f"BrierTracker init: {_bt_err}")
 
     async def start(self):
@@ -264,11 +268,13 @@ class AIBrain:
                     "ALTER TABLE executions ADD COLUMN reasoning_json TEXT")
                 await self.db.conn.commit()
                 logger.info("🧠 Added reasoning_json column to executions")
-            except Exception:
-                pass  # Column already exists
+            except aiosqlite.Error:
+                pass  # Epic 8 T8.1: narrow — "duplicate column" OperationalError expected
             await self.db.conn.commit()
-        except Exception:
-            pass
+        except aiosqlite.Error as _et_err:
+            # Epic 8 T8.1: narrow — DDL is idempotent; log if we hit an actual
+            # sqlite failure (e.g. permission, corruption) instead of swallowing.
+            logger.debug(f"_ensure_tables: {_et_err}")
 
     # ═══ SCHEDULER ═══
     async def _scheduler(self):
@@ -288,8 +294,11 @@ class AIBrain:
                     self._cycle_count += 1
                     await self.run_brain_cycle()
                     self._last_run = cycle_key
-            except Exception as e:
-                logger.error(f"AI Brain: {e}")
+            except Exception as e:  # noqa: BLE001
+                # Epic 8 T8.1 KEEP: scheduler is infinite-loop supervisor —
+                # any exception leak kills AI cycles until restart. Must
+                # catch-all and log. Do not narrow. 2026-04-22 audit.
+                logger.error(f"AI Brain: {e}", exc_info=True)
             await asyncio.sleep(CYCLE_INTERVAL)
 
     # ═══ MAIN BRAIN CYCLE ═══
@@ -391,7 +400,10 @@ class AIBrain:
         if optimist_resp:
             try:
                 optimist = json.loads(self._extract_json(optimist_resp))
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: LLM responses are arbitrary text — JSON
+                # repair may raise ValueError/KeyError/RecursionError. Fall
+                # back to a best-effort stub rather than killing the cycle.
                 optimist = {"bullish_case": optimist_resp[:200], "conviction": 0.5}
             logger.info(f"🟢 Optimist: conv={optimist.get('conviction', '?')}")
 
@@ -402,7 +414,9 @@ class AIBrain:
         if critic_resp:
             try:
                 critic = json.loads(self._extract_json(critic_resp))
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: see optimist above — LLM JSON repair is
+                # best-effort; keep catch-all to avoid cycle abort.
                 critic = {"bearish_case": critic_resp[:200], "risk_score": 0.5}
             logger.info(f"🔴 Critic: risk={critic.get('risk_score', '?')}")
 
@@ -575,7 +589,10 @@ CONSENSUS KURALI:
                                 "SELECT label FROM strategies WHERE id=?", (sid,))
                             if r and r[0][0]:
                                 label = r[0][0]
-                        except Exception:
+                        except (aiosqlite.Error, IndexError, TypeError):
+                            # Epic 8 T8.1: narrow — lifecycle label lookup is
+                            # cosmetic; fall back to truncated sid on DB or
+                            # row-shape errors. Any other error bubbles.
                             pass
                         lines.append(
                             f"  {label} [{p.phase}] comp={p.min_composite:.2f} "
@@ -584,7 +601,11 @@ CONSENSUS KURALI:
                         )
                         if p.adjustment_reason:
                             lines.append(f"    └ {p.adjustment_reason}")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: lifecycle cache may raise AttributeError
+                # (missing engine.lifecycle), TypeError (stale _cache dict),
+                # or aiosqlite.Error mid-loop. Block is best-effort context —
+                # partial LLM prompt is acceptable, cycle must continue.
                 pass
 
             # Phase 75: Recent trade journal — per-strategy why won/lost
@@ -608,7 +629,10 @@ CONSENSUS KURALI:
                         sig = j[4] or 0
                         reason = (j[5] or "")[:60]
                         lines.append(f"  {icon} {label} pnl={pnl:+.2f} @{price:.2f} sig={sig:.2f} {reason}")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: SQL + row iteration can raise aiosqlite.Error,
+                # TypeError (None arithmetic), IndexError (short rows).
+                # Best-effort LLM context — fall through with partial data.
                 pass
 
             # ═══ Phase 79b: STRATEJI DEGISIKLIK GECMISI ═══
@@ -617,7 +641,10 @@ CONSENSUS KURALI:
                 changelog_lines = await get_changelog_for_ai(self.db)
                 if changelog_lines:
                     lines.extend(changelog_lines)
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: changelog import/query is optional LLM
+                # context. ImportError + aiosqlite.Error + TypeError all
+                # possible; skip block on any failure.
                 pass
 
             # ═══ Phase 79b: ZENGINLESTIRILMIS VERI BLOKLARI ═══
@@ -645,7 +672,10 @@ CONSENSUS KURALI:
                                 price = ext_feed.get_price(asset)
                                 if price:
                                     lines.append(f"  {asset} spot: ${price:,.0f} (momentum verisi yok)")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: scanner/ext_feed shape is fluid across
+                # engine versions — AttributeError, KeyError, TypeError all
+                # possible. Block is LLM context only; skip on failure.
                 pass
 
             # ── BLOK 2: Bot Konfigurasyonu (aktif sinyaller + agirliklar) ──
@@ -667,7 +697,10 @@ CONSENSUS KURALI:
                 lines.append(f"  ALLOWED_ZONES: {os.getenv('ALLOWED_ZONES','(tumu)')}")
                 lines.append(f"  ADAPTIVE_MAX_THRESHOLD: {os.getenv('ADAPTIVE_MAX_THRESHOLD','0.85')}")
                 lines.append(f"  Regime: {self.engine.regime.regime if hasattr(self.engine, 'regime') else '?'}")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: os.getenv + self.engine.regime attr —
+                # AttributeError / TypeError possible. Block prints static
+                # config; partial output OK for LLM.
                 pass
 
             # ── BLOK 3: Skip Breakdown (neden trade acilmiyor) ──
@@ -690,7 +723,10 @@ CONSENSUS KURALI:
                             lines.append("  ⚠️ SORUN: EMA_BLOCK → EMA yonu sinyal yonuyle uyusmuyor")
                         if skip_counts.get("ZONE_BLOCKED", 0) > total * 0.2:
                             lines.append("  ⚠️ SORUN: ZONE_BLOCKED → fiyat izin verilen zone'da degil")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: engine.skips API varies; AttributeError
+                # on missing methods, ZeroDivisionError on empty counts.
+                # Block is advisory LLM context; skip on any failure.
                 pass
 
             # ── BLOK 4: Trade Detayları (TP/SL/fee/duration/entry-exit) ──
@@ -726,7 +762,10 @@ CONSENSUS KURALI:
                             f"  {icon} {label} {direction.upper()} @{entry:.3f} "
                             f"pnl={pnl:+.3f} fee=${fee:.3f}({fee_pct:.1f}%) "
                             f"sig={sig:.2f} sure={dur_str} {fav_str} {adv_str}")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: SQL + tuple unpacking — aiosqlite.Error,
+                # TypeError (None formatting), IndexError all possible.
+                # Best-effort block for LLM context.
                 pass
 
             # ── BLOK 5: Strateji Bazli Performans Ozeti ──
@@ -766,7 +805,9 @@ CONSENSUS KURALI:
                             f"fees=${fees:.2f}({fee_ratio:.1f}%) "
                             f"settle_win={settle_w} tp={tp_exits} sl={sl_exits} "
                             f"avg_dur={avg_dur:.0f}sn")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: heavy aggregate SQL — aiosqlite.Error,
+                # ZeroDivisionError on empty trades. Best-effort for LLM.
                 pass
 
             # ── BLOK 6: Saatlik/Gunluk Performans Trendi ──
@@ -786,7 +827,9 @@ CONSENSUS KURALI:
                         wr = (h[2] / h[1] * 100) if h[1] > 0 else 0
                         tag = " ← EN IYI" if h == best_hour else (" ← EN KOTU" if h == worst_hour else "")
                         lines.append(f"  {h[0]}:00 UTC: {h[1]}t WR={wr:.0f}% PnL={h[3]}{tag}")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: strftime + aggregate — aiosqlite.Error,
+                # ValueError possible. Best-effort LLM context.
                 pass
 
             # ── BLOK 7: Fee Analizi ──
@@ -807,7 +850,9 @@ CONSENSUS KURALI:
                     lines.append(f"  Fee/PnL orani: {f[4]}% ← {'SORUNLU (>50%)' if (f[4] or 0) > 50 else 'kabul edilebilir'}")
                     if (f[4] or 0) > 100:
                         lines.append("  ⚠️ KRITIK: Fee'ler kazanctan fazla! Daha yuksek edge gereken trade'ler ac.")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: NULLIF + division — aiosqlite.Error,
+                # ZeroDivisionError, TypeError all possible. Best-effort.
                 pass
 
             # ── BLOK 8: Onemli Uyarilar ──
@@ -831,7 +876,9 @@ CONSENSUS KURALI:
                 remaining = MAX_BUDGET - self._spent
                 if remaining < 3:
                     lines.append(f"  ⚠️ AI BUTCE AZALIYOR: ${remaining:.2f} kaldi (${MAX_BUDGET} toplam)")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: engine.risk + set comprehension —
+                # AttributeError, KeyError, TypeError possible. Best-effort.
                 pass
 
             # ── BLOK 9: Son HyperOpt Sonuclari ──
@@ -860,12 +907,18 @@ CONSENSUS KURALI:
                     lines.append("  APPLY_HYPEROPT action ile bekleyen sonucu uygulayabilirsin.")
                 else:
                     lines.append("\n═══ HYPEROPT: Son 7 gunde sonuc yok. OPTIMIZE action kullan. ═══")
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Epic 8 T8.1 audit: hyperopt_results SQL — aiosqlite.Error,
+                # TypeError on None formatting. Best-effort LLM context.
                 pass
 
             return "\n".join(lines)
-        except Exception as e:
-            logger.error(f"Gather: {e}")
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1 KEEP: outer _gather_data supervisor — 16 nested
+            # blocks already guarded; this catches anything that escapes
+            # (e.g. global memoryerror, unexpected type from engine state).
+            # Returning None triggers safe "No data" path in run_brain_cycle.
+            logger.error(f"Gather: {e}", exc_info=True)
             return None
 
     async def _get_binance(self) -> str:
@@ -881,10 +934,15 @@ CONSENSUS KURALI:
                             price = float(d.get("lastPrice", 0))
                             change = float(d.get("priceChangePercent", 0))
                             lines.append(f"  {name}: ${price:,.0f} 24h:{change:+.1f}%")
-                    except Exception:
+                    except Exception:  # noqa: BLE001
+                        # Epic 8 T8.1 audit: per-symbol fetch — HTTPError,
+                        # TimeoutError, ValueError (json parse) all possible.
+                        # Skip symbol, try next.
                         pass
             return "\n".join(lines) if lines else "  unavailable"
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: AsyncClient construction / import errors —
+            # rare but we degrade gracefully to "error" string for LLM.
             return "  error"
 
     # ═══ PARSE (Phase 79b: robust JSON recovery) ═══
@@ -1000,7 +1058,9 @@ CONSENSUS KURALI:
                     # Fix trailing commas in array
                     actions_str = re.sub(r',\s*\]', ']', actions_str)
                     result["actions"] = json.loads(actions_str)
-                except Exception:
+                except Exception:  # noqa: BLE001
+                    # Epic 8 T8.1 audit: regex-extracted JSON fragment may be
+                    # malformed in many ways; empty fallback is intentional.
                     result["actions"] = []
 
             # Extract scalar fields
@@ -1024,7 +1084,11 @@ CONSENSUS KURALI:
             logger.warning(f"Parse: complete failure, response length={len(response)}")
             return None
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1 audit: multi-stage LLM JSON recovery pipeline can
+            # raise ValueError, TypeError, RecursionError, re.error, or
+            # RecursionError from pathological input. Catch-all prevents a
+            # single bad cycle from killing AI Brain.
             logger.warning(f"Parse: {e}")
             return None
 
@@ -1187,7 +1251,11 @@ CONSENSUS KURALI:
                     msg = await self._apply_hyperopt_result(int(result_id), reason)
                     results.append(msg)
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
+                # Epic 8 T8.1 audit: per-action fault isolation — LLM-proposed
+                # actions have unpredictable shapes (dict.get/cast/DB write all
+                # in one branch). Catch-all so one malformed action doesn't
+                # abort the whole batch; append error and continue with rest.
                 results.append(f"❌ {e}")
         return results
 
@@ -1208,7 +1276,9 @@ CONSENSUS KURALI:
         try:
             from core.strategy_plugins import StrategyRegistry
             known = set(StrategyRegistry().names)
-        except Exception as _reg_err:
+        except (ImportError, AttributeError, TypeError) as _reg_err:
+            # Epic 8 T8.1: narrow — registry import/construction failure
+            # falls back to hard-coded list below. Any other error bubbles.
             logger.debug(f"_map_to_hyperopt_type registry err: {_reg_err}")
             # Fallback hard-coded list (registry import'u patlarsa):
             known = {
@@ -1299,11 +1369,16 @@ CONSENSUS KURALI:
                     try:
                         await self.bot_app.bot.send_message(
                             int(admin_id), text, parse_mode="HTML")
-                    except Exception as _notify_err:
+                    except Exception as _notify_err:  # noqa: BLE001
+                        # Epic 8 T8.1 audit: Telegram network/auth errors —
+                        # notification is best-effort; do not propagate.
                         logger.debug(f"HyperOpt notif send failed: {_notify_err}")
         except ImportError as _imp_err:
             logger.warning(f"OPTIMIZE failed: launcher import error: {_imp_err}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1 audit: subprocess launch + IPC + mutex — many
+            # failure modes (OSError, asyncio.TimeoutError, CalledProcessError,
+            # FileNotFoundError). bg task, so any leak is silent — log w/ trace.
             logger.error(f"OPTIMIZE bg failed: {e}", exc_info=True)
 
     async def _apply_hyperopt_result(self, result_id: int, reason: str) -> str:
@@ -1399,7 +1474,11 @@ CONSENSUS KURALI:
             else:
                 return f"⚠️ APPLY_HYPEROPT: #{result_id} uygulanacak param yok (izin: {_allowed})"
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1 audit: multi-stage DB reads + UPDATE + changelog —
+            # aiosqlite.Error, ValueError (json.loads), KeyError, TypeError
+            # all possible. Returns user-visible error string to Telegram;
+            # AI cycle must continue even if one APPLY fails.
             return f"❌ APPLY_HYPEROPT: {e}"
 
     async def _create(self, action) -> str:
@@ -1450,7 +1529,10 @@ CONSENSUS KURALI:
                                   "odds_threshold": threshold, "trade_amount": amount},
                              reason=reason, label=label)
             return f"🆕 CREATE: {label} ${amount}@{threshold} — {reason}"
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, KeyError, TypeError, AttributeError) as e:
+            # Epic 8 T8.1: narrow — DB insert + dict.get + UUID/strftime.
+            # Unexpected error types (e.g. ImportError, OSError) bubble so we
+            # see them in tests instead of silent "❌ CREATE: ..." swallowing.
             return f"❌ CREATE: {e}"
 
     # ═══ MEMORY + LEARNING ═══
@@ -1475,7 +1557,10 @@ CONSENSUS KURALI:
             await self.db.conn.commit()
             if pending:
                 logger.info(f"🧠 Measured {len(pending)} past decisions")
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, IndexError) as e:
+            # Epic 8 T8.1: narrow — measurement is best-effort; any DB or
+            # row-shape error just skips this cycle's measurement. Brier
+            # scoring below is independent and still runs.
             logger.debug(f"Measure outcomes: {e}")
 
         # Phase 66: Record Brier Scores for recently settled trades
@@ -1517,7 +1602,10 @@ CONSENSUS KURALI:
                     f"WHERE context_json IN ({placeholders})",
                     [json.dumps({"trade_id": tid}) for tid in trade_ids])
                 # This won't work perfectly but is a safety check
-            except Exception:
+            except aiosqlite.Error:
+                # Epic 8 T8.1: narrow — "no such table" until BrierTracker
+                # initialises. Swallow only sqlite errors; other problems
+                # should surface.
                 pass  # table may not exist yet, ensure_table will create it
 
             scored_count = 0
@@ -1543,7 +1631,10 @@ CONSENSUS KURALI:
 
             if scored_count > 0:
                 logger.info(f"📊 Brier: scored {scored_count} trades")
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, AttributeError) as e:
+            # Epic 8 T8.1: narrow — DB fetch + float/int casting + optional
+            # BrierTracker attr. Score recording is best-effort; any other
+            # error bubbles so test failures remain visible.
             logger.debug(f"Brier scoring: {e}")
 
     async def _analyze_losses(self):
@@ -1599,7 +1690,10 @@ CONSENSUS KURALI:
             await self.db.conn.commit()
             if losses:
                 logger.info(f"🧠 Analyzed {len(losses)} losing trades for mistakes journal")
-        except Exception as e:
+        except (aiosqlite.Error, ValueError, TypeError, KeyError, AttributeError) as e:
+            # Epic 8 T8.1: narrow — DB reads + LLM parse + UPDATE/INSERT.
+            # ModelRouter/LLM path raises httpx errors (already-guarded in
+            # _call_claude/_call_groq); only shape + DB errors land here.
             logger.debug(f"Analyze losses: {e}")
 
     async def _save_decision(self, input_summary, actions, results):
@@ -1612,16 +1706,22 @@ CONSENSUS KURALI:
             await self.db.conn.commit()
             self._spent += 0.015
             await self._save_budget()
-        except Exception:
-            pass
+        except (aiosqlite.Error, ValueError, TypeError, AttributeError) as _sd_err:
+            # Epic 8 T8.1 ALARM fix: silent pass → logger.debug. Decision
+            # logging is audit trail — if DB write fails, _spent still bumps
+            # and _save_budget is attempted, but we log the lost audit entry.
+            logger.debug(f"_save_decision failed (decision audit lost): {_sd_err}")
 
     # ═══ BUDGET ═══
     async def _load_budget(self):
         try:
             r = await self.db.conn.execute_fetchall("SELECT value FROM bot_settings WHERE key='ai_brain.spent'")
             if r: self._spent = float(r[0][0])
-        except Exception:
-            pass
+        except (aiosqlite.Error, ValueError, TypeError, IndexError) as _lb_err:
+            # Epic 8 T8.1 ALARM fix: silent pass → logger.debug. If budget
+            # load fails, _spent stays at __init__ default (0.0) which risks
+            # bypassing MAX_BUDGET cap after bot restart — must be visible.
+            logger.warning(f"_load_budget failed, _spent reset to 0.0: {_lb_err}")
 
     async def _save_budget(self):
         try:
@@ -1629,8 +1729,11 @@ CONSENSUS KURALI:
                 "INSERT OR REPLACE INTO bot_settings (key,value,updated_at) VALUES ('ai_brain.spent',?,?)",
                 (str(self._spent), datetime.now(timezone.utc).isoformat()))
             await self.db.conn.commit()
-        except Exception:
-            pass
+        except (aiosqlite.Error, ValueError, TypeError) as _sb_err:
+            # Epic 8 T8.1 ALARM fix: silent pass → logger.debug. Budget
+            # persistence failure means next restart may lose accumulated
+            # _spent — visible log so we notice drift.
+            logger.warning(f"_save_budget failed, _spent not persisted: {_sb_err}")
 
     # ═══ LLM ═══
     async def _call_claude(self, system, user, model="claude-sonnet-4-6"):
@@ -1650,7 +1753,11 @@ CONSENSUS KURALI:
                 await self._save_budget()
                 logger.info(f"🧠 Claude OK (${self._spent:.3f}/{MAX_BUDGET})")
             return r
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: run_in_executor surfaces arbitrary worker
+            # exceptions (httpx errors, cancellation, any downstream bug in
+            # _do_claude). Brain cycle tolerates None and falls back to Groq.
+            # TODO T8.2: detect 429 / budget overflow explicitly.
             return None
 
     def _do_claude(self, payload):
@@ -1665,7 +1772,10 @@ CONSENSUS KURALI:
             if "content" in d and d["content"]: return d["content"][0].get("text","")
             if "error" in d: logger.warning(f"Claude: {d['error'].get('message','')[:100]}")
             return None
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: sync HTTP call — httpx.HTTPError, TimeoutError,
+            # ConnectionError, JSONDecodeError. Caller treats None as soft
+            # failure. T8.2 will replace this with explicit 429 handling.
             return None
 
     async def _call_groq(self, system, user):
@@ -1676,7 +1786,10 @@ CONSENSUS KURALI:
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._do_groq, payload)
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: executor exceptions — any worker failure
+            # degrades to None, caller (brain cycle / two-agent) chooses
+            # next provider. T8.2: add 429 rate-limit detection.
             return None
 
     def _do_groq(self, payload):
@@ -1689,7 +1802,9 @@ CONSENSUS KURALI:
             d = r.json()
             ch = d.get("choices",[])
             return ch[0].get("message",{}).get("content","") if ch else None
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: sync HTTP — httpx.HTTPError, TimeoutError,
+            # JSONDecodeError. None is soft failure. T8.2: 429 handling.
             return None
 
     # ═══ Phase 69: OpenRouter SDK ═══
@@ -1710,7 +1825,9 @@ CONSENSUS KURALI:
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._do_openrouter, payload)
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: executor exceptions — tertiary provider,
+            # degrade silently. T8.2: add 429 handling + backoff.
             return None
 
     def _do_openrouter(self, payload):
@@ -1727,7 +1844,10 @@ CONSENSUS KURALI:
             d = r.json()
             ch = d.get("choices", [])
             return ch[0].get("message", {}).get("content", "") if ch else None
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Epic 8 T8.1 audit: sync HTTP — OpenRouter free tier is flaky.
+            # httpx.HTTPError / TimeoutError / JSONDecodeError all normal.
+            # T8.2 will add explicit rate-limit detection.
             return None
 
     # ═══ PER-TRADE ═══
@@ -1828,7 +1948,9 @@ CONSENSUS KURALI:
             else:
                 response = await self._call_claude("Kisa ve net analiz yap.", prompt, model)
             return response or ""
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1 audit: ModelRouter shape + LLM call — returns "" on
+            # any failure so caller can skip AI feedback rather than crash.
             logger.warning(f"AI backtest analysis failed: {e}")
             return ""
 
@@ -1858,10 +1980,18 @@ CONSENSUS KURALI:
         safe = re.sub(r'<(?!/?(b|i|code|pre|a)\b)[^>]*>', lambda m: m.group().replace('<','&lt;').replace('>','&gt;'), text)
         try:
             for i in range(0,len(safe),4000):
-                try: await self.bot_app.bot.send_message(chat_id=admin_id,text=safe[i:i+4000],parse_mode="HTML")
-                except Exception: await self.bot_app.bot.send_message(chat_id=admin_id,text=text[i:i+4000])
-        except Exception:
-            pass
+                try:
+                    await self.bot_app.bot.send_message(chat_id=admin_id,text=safe[i:i+4000],parse_mode="HTML")
+                except Exception as _html_err:  # noqa: BLE001
+                    # Epic 8 T8.1 ALARM fix: HTML parse failure fallback to
+                    # plaintext; log first-chunk error so we can fix entity
+                    # escaping instead of silently losing HTML formatting.
+                    logger.debug(f"_send HTML fallback: {_html_err}")
+                    await self.bot_app.bot.send_message(chat_id=admin_id,text=text[i:i+4000])
+        except Exception as _send_err:  # noqa: BLE001
+            # Epic 8 T8.1 audit: outer Telegram send — BadRequest / NetworkError
+            # / chat blocked. Notification is best-effort; AI cycle continues.
+            logger.debug(f"_send outer failed: {_send_err}")
 
     def get_status(self):
         return {"active":self._running,"spent":self._spent,"budget":MAX_BUDGET,
@@ -1909,8 +2039,12 @@ CONSENSUS KURALI:
                 # No Telegram → auto-execute as fallback
                 results = await self._execute(actions)
                 await self._save_decision(data_summary, actions, results)
-        except Exception as e:
-            logger.error(f"Approval queue: {e}")
+        except Exception as e:  # noqa: BLE001
+            # Epic 8 T8.1 audit: Telegram keyboard + send_message + pending
+            # dict mutation — any failure falls back to auto-execute so we
+            # never drop low-confidence actions silently. Catch-all preserves
+            # this safety net across PTB API changes.
+            logger.error(f"Approval queue: {e}", exc_info=True)
             # Fallback: execute anyway
             results = await self._execute(actions)
             await self._save_decision(data_summary, actions, results)
