@@ -11,6 +11,14 @@ import os
 import pytest
 import aiosqlite
 
+# Epic 9 T9.5: sandbox'ta python-telegram-bot kurulu değil.
+# PROD Windows ortamında yüklü (see feedback_local_pc.md).
+try:
+    import telegram  # noqa: F401
+    HAS_TELEGRAM = True
+except ImportError:
+    HAS_TELEGRAM = False
+
 # ═══════════════════════════════════════
 # FIXTURES
 # ═══════════════════════════════════════
@@ -458,6 +466,10 @@ class TestHandlerImports:
     # T1.3 Commit 7 (2026-04-20): test_phase76_handler silindi —
     # phase76_handler.py Commit 4'te dosya olarak silindi.
 
+    @pytest.mark.skipif(
+        not HAS_TELEGRAM,
+        reason="python-telegram-bot not installed (sandbox env). PROD: Windows bot kurulu.",
+    )
     def test_phase77_handler(self):
         from telegram_bot.handlers.phase77_handler import (
             why_command, mistakes_command, patterns_command,

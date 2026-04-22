@@ -289,7 +289,13 @@ class TestSettlementLockPattern(unittest.TestCase):
         self.assertIsNot(lock_a, lock_b)  # different market → different lock
 
     def test_lock_prevents_concurrent(self):
-        """Lock should serialize settlement and exit for same market."""
+        """Lock should serialize settlement and exit for same market.
+
+        Epic 9 T9.5 (2026-04-22): `asyncio.get_event_loop()` deprecated in
+        Python 3.10+ (RuntimeError on 3.12 if no running loop). Switched to
+        `asyncio.run()` — pytest-randomly exposed this flaky by changing
+        test order (a sibling test's asyncio.run() closes the default loop).
+        """
         lock = asyncio.Lock()
         order = []
 
@@ -300,9 +306,18 @@ class TestSettlementLockPattern(unittest.TestCase):
                 order.append(f"{name}_end")
 
         async def run():
-            await asyncio.gather(task("settle", 0.01), task("exit", 0.01))
+            # Lock must be created inside the running loop for the gather to work
+            local_lock = asyncio.Lock()
 
-        asyncio.get_event_loop().run_until_complete(run())
+            async def _task(name, delay):
+                async with local_lock:
+                    order.append(f"{name}_start")
+                    await asyncio.sleep(delay)
+                    order.append(f"{name}_end")
+
+            await asyncio.gather(_task("settle", 0.01), _task("exit", 0.01))
+
+        asyncio.run(run())
         # First task must complete before second starts
         self.assertEqual(order[0], "settle_start")
         self.assertEqual(order[1], "settle_end")

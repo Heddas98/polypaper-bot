@@ -301,6 +301,9 @@ class TestHyperOptPipelineMutex:
 
         Uses asyncio.run() wrapper so this test does not depend on pytest-asyncio
         being installed on the dev machine.
+
+        Epic 9 T9.5: HyperOptPipeline.__init__ raises ImportError when optuna
+        not installed — outer import + constructor call both guarded.
         """
         try:
             from backtest.hyperopt import HyperOptPipeline
@@ -320,7 +323,11 @@ class TestHyperOptPipelineMutex:
         class DummyDB:
             pass
 
-        pipeline = HyperOptPipeline(DummyDB())
+        try:
+            pipeline = HyperOptPipeline(DummyDB())
+        except ImportError as e:
+            # optuna missing → __init__ raises. Skip rather than fail.
+            pytest.skip(f"optuna not available: {e}")
 
         async def _run():
             return await pipeline.optimize(

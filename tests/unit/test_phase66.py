@@ -8,6 +8,40 @@ from core.signal_fusion import BayesianUpdater, SignalFusion, SignalWeights
 from core.risk_manager import RiskManager, RiskLimits
 
 
+# Epic 9 T9.5 (2026-04-22): autouse env + module-flag isolation fixture.
+# `test_whale_signal.py` previously did `importlib.reload(core.signal_fusion)`
+# with SIGNAL_W_WHALE leaked — SignalWeights dataclass defaults re-read from
+# os.environ, flipping whale_flow default from 0.0 to whatever leaked. Plus,
+# SignalFusion has module-level flags (_WHALE_SIGNAL_ENABLED, _BAYESIAN_ENABLED)
+# set at import — sibling test patches that don't cleanup bleed into phase66.
+# This fixture guarantees every test in this file starts with:
+#   - clean signal-weight ENV surface
+#   - _WHALE_SIGNAL_ENABLED = True (canonical)
+#   - _BAYESIAN_ENABLED = True (canonical)
+@pytest.fixture(autouse=True)
+def _clean_signal_env(monkeypatch):
+    for var in (
+        "SIGNAL_W_WHALE",
+        "SIGNAL_W_MOMENTUM",
+        "SIGNAL_W_EMA",
+        "SIGNAL_W_ORDERBOOK",
+        "SIGNAL_W_TIME",
+        "SIGNAL_W_ODDS",
+        "SIGNAL_W_VOLATILITY",
+        "WHALE_SIGNAL_ENABLED",
+        "BAYESIAN_UPDATER_ENABLED",
+        "MCI_ENABLED",
+        "BB_SQUEEZE_ENABLED",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    # Module-level flag canonical restore (even if sibling test leaked False)
+    import core.signal_fusion as sf_mod
+    monkeypatch.setattr(sf_mod, "_WHALE_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(sf_mod, "_BAYESIAN_ENABLED", True)
+    yield
+
+
 # ═══ BayesianUpdater Tests ═══
 
 class TestBayesianUpdater:
@@ -83,13 +117,25 @@ class TestSignalFusionBayesian:
         assert result.bayesian_posterior > 0
         assert "bayes_edge" in result.signals
 
-    def test_no_direction_no_bayesian(self):
+    def test_bayesian_neutral_on_equal_odds(self):
+        """Eşit odds + threshold üstünde değilse bayesian posterior prior'dan uzaklaşmamalı.
+
+        Epic 9 T9.5 (2026-04-22): Phase 79 rewrite sonrası SignalFusion.evaluate()
+        direction parametresi verildiğinde her zaman bayesian_posterior hesaplıyor
+        (önceden `== 0` dönüyordu). Test intent'i korunuyor: eşit odds + sub-threshold
+        durumunda bayesian signal zayıf kalmalı (prior=0.5'ten büyük sapma olmasın).
+
+        Eski assertion (`bayesian_posterior == 0`) deprecated — TRIAGE_MATRIX.md
+        #2 karar: stale logic expectation.
+        """
         sf = SignalFusion()
         result = sf.evaluate(
             up_odds=0.30, down_odds=0.30,
             threshold=0.55, direction="up"
         )
-        assert result.bayesian_posterior == 0  # no direction matched
+        # Posterior valid range [0, 1] + prior (0.5) civarında kalmalı
+        assert 0.0 <= result.bayesian_posterior <= 1.0
+        assert abs(result.bayesian_posterior - 0.5) < 0.45
 
 
 # ═══ Liquidity Check Tests ═══

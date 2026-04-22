@@ -9,6 +9,30 @@ from core.signals.whale_flow import WhaleFlowSignal
 from core.signal_fusion import SignalFusion, SignalWeights
 
 
+# Epic 9 T9.5 (2026-04-22): autouse env + module-flag isolation.
+# See tests/unit/test_phase66.py for full doctrine — whale/bayesian flags are
+# module-level in core.signal_fusion, sibling tests that patch them must not
+# leak. This fixture restores canonical True state before each test.
+@pytest.fixture(autouse=True)
+def _clean_signal_env(monkeypatch):
+    for var in (
+        "SIGNAL_W_WHALE",
+        "SIGNAL_W_MOMENTUM",
+        "SIGNAL_W_EMA",
+        "SIGNAL_W_ORDERBOOK",
+        "SIGNAL_W_TIME",
+        "SIGNAL_W_ODDS",
+        "SIGNAL_W_VOLATILITY",
+        "WHALE_SIGNAL_ENABLED",
+        "BAYESIAN_UPDATER_ENABLED",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    import core.signal_fusion as sf_mod
+    monkeypatch.setattr(sf_mod, "_WHALE_SIGNAL_ENABLED", True)
+    monkeypatch.setattr(sf_mod, "_BAYESIAN_ENABLED", True)
+    yield
+
+
 class TestWhaleFlowSignal:
     """Test WhaleFlowSignal computation and integration."""
 
@@ -199,16 +223,36 @@ class TestWhaleFlowSignal:
 
 
 class TestWhaleSignalFusion:
-    """Test integration of whale signal into signal fusion."""
+    """Test integration of whale signal into signal fusion.
+
+    Epic 9 T9.5 (2026-04-22): Post-Phase-79b rewrite.
+
+    Phase 79b rebalance (c820906) sıfırladı whale_flow default'unu
+    0.10 → 0.00 ("next candle prediction" focus). Bu testler artık
+    kasıtlı olarak **dependency injection** pattern kullanıyor:
+    SignalFusion(weights=SignalWeights(whale_flow=0.10)) ile fusion'ı
+    aktive edip whale katkısını doğruluyor. Önceki `importlib.reload`
+    + raw `os.environ[]` yaklaşımı state-leak üretiyordu (bkz.
+    FLAKY_AUDIT.md CRITICAL section).
+    """
 
     def test_signal_fusion_includes_whale_weight(self):
-        """Test that whale signal weight is properly configured."""
-        weights = SignalWeights()
-        assert hasattr(weights, "whale_flow")
-        assert weights.whale_flow == 0.10
+        """SignalWeights has whale_flow field + configurable via DI.
+
+        Default 0.00 (Phase 79b rebalance), but can be overridden at
+        construction time without env patching.
+        """
+        # Default: whale disabled
+        weights_default = SignalWeights()
+        assert hasattr(weights_default, "whale_flow")
+        assert weights_default.whale_flow == 0.00  # Phase 79b default
+
+        # DI override: whale enabled at 0.10 (legacy Phase 60 default)
+        weights_enabled = SignalWeights(whale_flow=0.10)
+        assert weights_enabled.whale_flow == 0.10
 
     def test_signal_result_includes_whale_signal(self):
-        """Test that SignalResult has whale_signal field."""
+        """SignalResult.whale_signal field populated regardless of weight."""
         sf = SignalFusion()
         result = sf.evaluate(
             up_odds=0.60,
@@ -225,10 +269,17 @@ class TestWhaleSignalFusion:
         assert "whale" in result.signals
 
     def test_signal_fusion_whale_signal_in_composite(self):
-        """Test that whale signal contributes to composite score."""
-        sf = SignalFusion()
+        """Whale signal contributes to composite when weight > 0.
 
-        # Evaluate WITHOUT whale signal
+        Epic 9 T9.5: Previously relied on default weight 0.10 (Phase 60)
+        which was zeroed out in Phase 79b. Now uses DI to set weight
+        explicitly, independent of ENV.
+        """
+        # Inject weight 0.10 so whale_signal meaningfully contributes
+        weights = SignalWeights(whale_flow=0.10)
+        sf = SignalFusion(weights=weights)
+
+        # Evaluate WITHOUT whale signal (whale_signal=0.0)
         result_no_whale = sf.evaluate(
             up_odds=0.60,
             down_odds=0.40,
@@ -250,43 +301,35 @@ class TestWhaleSignalFusion:
             whale_signal=0.5  # Strong whale support
         )
 
-        # Composite score should be higher with whale support
+        # With weight=0.10 + whale_signal=0.5 vs 0.0 → composite must differ
         assert result_with_whale.composite_score > result_no_whale.composite_score
 
-    def test_signal_fusion_whale_signal_disabled(self):
-        """Test that whale signal can be disabled via environment."""
-        import os
-        old_val = os.environ.get("WHALE_SIGNAL_ENABLED")
+    def test_signal_fusion_whale_signal_disabled(self, monkeypatch):
+        """Whale signal can be disabled via WHALE_SIGNAL_ENABLED=false.
 
-        try:
-            os.environ["WHALE_SIGNAL_ENABLED"] = "false"
-            # Reimport to pick up new ENV
-            import importlib
-            import core.signal_fusion
-            importlib.reload(core.signal_fusion)
+        Epic 9 T9.5: `importlib.reload` kaldırıldı (state-leak tehlikesi).
+        monkeypatch ile module-level _WHALE_SIGNAL_ENABLED flag'i direkt
+        patch ediliyor — reload gerekmiyor.
+        """
+        import core.signal_fusion as sf_mod
 
-            sf = core.signal_fusion.SignalFusion()
-            result = sf.evaluate(
-                up_odds=0.60,
-                down_odds=0.40,
-                threshold=0.50,
-                direction="up",
-                odds_series=[0.55, 0.57, 0.59, 0.61],
-                minutes_remaining=2.5,
-                whale_signal=0.5
-            )
+        # Module-level flag'i false'a zorla (reload yerine direkt patch)
+        monkeypatch.setattr(sf_mod, "_WHALE_SIGNAL_ENABLED", False)
 
-            # Whale signal should not contribute to composite when disabled
-            # (checking that it's in signals but not weighted)
-            assert "whale" in result.signals
-            assert result.signals["whale"] == 0.0  # Should be zeroed out
-        finally:
-            # Restore original value
-            if old_val is not None:
-                os.environ["WHALE_SIGNAL_ENABLED"] = old_val
-            else:
-                os.environ.pop("WHALE_SIGNAL_ENABLED", None)
-            importlib.reload(core.signal_fusion)
+        sf = sf_mod.SignalFusion()
+        result = sf.evaluate(
+            up_odds=0.60,
+            down_odds=0.40,
+            threshold=0.50,
+            direction="up",
+            odds_series=[0.55, 0.57, 0.59, 0.61],
+            minutes_remaining=2.5,
+            whale_signal=0.5
+        )
+
+        # Whale signal should be zeroed out when disabled
+        assert "whale" in result.signals
+        assert result.signals["whale"] == 0.0
 
 
 class TestWhaleSignalEdgeCases:
