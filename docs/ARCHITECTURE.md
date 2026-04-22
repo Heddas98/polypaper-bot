@@ -78,7 +78,8 @@ polyPaper-bot/
 │   ├── observability.py           # Metrics + correlation_id logger
 │   ├── changelog.py               # /changelog komutu verisi
 │   ├── indicators.py              # Compat katmanı (yeni indikatör skills/'da)
-│   ├── bg_task.py                 # Background task exception guard (Sprint 2.1)
+│   ├── bg_task.py                 # Background task exception guard (Sprint 2.1 + B6 ref capture)
+│   ├── stats_utils.py             # pearson_like (stdlib-only, T7.6 B2 2026-04-22)
 │   └── signals/                   # Eski signal moduleleri (legacy)
 │
 ├── backtest/                      # BACKTEST MOTORU
@@ -263,6 +264,7 @@ polyPaper-bot/
 - `auto_optimizer.py` ← `trade_memory.py` (pattern öğrenme)
 - `becker_calibration.py` ↔ `data_store/becker_calibration.db` (lokal, 50GB raw + 1.4GB calibDB)
 - Tüm handler'lar ← `core/bg_task.py` (exception guard sarmalayıcı)
+- `becker_weight_tracker.py`, `micro_weight_tracker.py`, `becker_weekly_recal.py` → `core/stats_utils.py::pearson_like` (stdlib-only shared helper; `None` return = "unreliable sample", caller must not coerce to 0.0)
 
 ## Performans Notları
 
