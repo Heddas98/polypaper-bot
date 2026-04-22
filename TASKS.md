@@ -709,9 +709,15 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 
 **Pre-mainnet gate (zorunlu):** T11.1-T11.3. **Post-audit forward work (defense-in-depth, mainnet'e bloklayıcı değil):** T11.4-T11.8.
 
-- [ ] **T11.1** Tüm Epic 0-10 kapandığında final audit rapor — risk: MED
+- [x] **T11.1** Tüm Epic 0-10 kapandığında final audit rapor — risk: MED ✅ 2026-04-22
+  - **Çıktı:** `docs/mainnet/T11_1_final_audit.md` (~340 satır, 10 bölüm: exec summary + Epic 0-10 closure matrix + 7 canlı invariant + test/security baseline + outstanding backlog + 6 risk + Go/No-Go karar kriterleri + referans indeksi)
+  - **Sonuç:** Bilinen mainnet bloklayan security veya test item'ı YOK. 735/8/0 test, 0 pip-audit CVE, 13 secret regex × 0 match, 0 admin-gate eksik.
+  - **Koşul:** Bu rapor tek başına mainnet açmaz — T11.2 (canlı kill-switch/budget/divergence kanıtı) ve T11.3 (rollback plan dry-run) tamamlanmadan Go verilmez.
 - [ ] **T11.2** `LIVE_ENABLED=true` öncesi: kill switch, budget guard, daily loss, paper-shadow divergence monitor aktif mi — risk: HIGH
+  - **Gerekli runtime kanıt (T11.1 Bölüm 8 referansı):** `/stop_all` force-settle + yeni trade block, `LIVE_BUDGET` cap guard, `LIVE_MAX_DAILY_LOSS` tetiklenme, paper-shadow divergence alert, `ROLLING_WR_KILL` auto-pause, `WS_STALE_SEC` fresh>stale block.
+  - **Öneri:** Shadow live ($1.49 USDC, $1/trade) üzerinde 48h controlled test + Telegram alert validation. Sandbox'ta yapılamaz.
 - [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
+  - **Gerekli:** `rollback_*.bat` envanteri + senaryo → .bat karar matrisi + dry-run kanıtı. `data/` gitignored sync yolu dokümante edilmiş olmalı (T10.5 fix Windows'a manuel kopya hâlâ bekliyor → SYNC.1).
 - [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
   - GitHub Actions (veya local `pre-commit-config.yaml`): `core/` coverage < 60% → CI fail. Eşik başlangıçta `21.2%` baseline, her PR'da düşüşe izin verme (ratchet).
   - Yeni `core/` fonksiyon + test yoksa → warning; 30 gün sonra hard fail.
