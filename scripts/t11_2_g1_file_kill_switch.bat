@@ -30,6 +30,12 @@ REM kaldırılınca otomatik devam eder.
 REM =====================================================================
 setlocal ENABLEDELAYEDEXPANSION
 
+REM --- Working directory: bat'in bulundugu scripts\ degil, bir ust olan ---
+REM --- PolyPaper root'a gec. File Explorer'dan cift-tiklandiginda     ---
+REM --- %CD% scripts\ olur; logs\ + data_store\ + evidence\ hepsi root ---
+REM --- kardesi, bu yuzden cd /d "%~dp0\.." sart.                      ---
+cd /d "%~dp0\.."
+
 REM --- Önkoşul doğrulama ---
 if not exist logs\polypaper.log (
     echo [T11.2 G1 FAIL] logs\polypaper.log bulunamadi. Bot calismiyor mu?
