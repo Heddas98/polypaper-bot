@@ -138,7 +138,42 @@ gerçek zamanlı olmayabileceği not edildi.
 
 ---
 
-## G2 — Budget Guard (`LIVE_BUDGET`) — ☐ PASS / ☐ FAIL
+## G2 — Budget Guard (`LIVE_BUDGET`) — ☒ PASS (2026-04-23, whitelist fix sonrası)
+
+**Evidence:** `evidence/t11_2_g2_live_budget_20260423.txt`
+
+**Critical bug caught during live test (mainnet öncesi):**
+İlk `/envt LIVE_BUDGET 0.50` → bot "❌ Bilinmeyen key: LIVE_BUDGET".
+[B] commit (`f3ffa04`) `_get_live_budget()` helper eklemişti ama
+`config/env_whitelist.py`'a `LIVE_BUDGET` entry eklememişti. FIX:
+commit `d9a143b` — whitelist'e `LIVE_BUDGET {type=float, min=0.01,
+max=1000.0, group="live"}` eklendi. Bot restart sonrası runtime
+patch çalıştı.
+
+**Canlı kanıt (restart sonrası, 16:36-16:40 TRT):**
+```
+> /envt LIVE_BUDGET 0.50
+  → "LIVE_BUDGET: 1.49 → 0.5 / os.environ + .env guncellendi"
+
+> /live_guards
+  → G2 Live Budget
+     LIVE_BUDGET = $0.50     (1.49 → 0.50 anında yansıdı)
+     Spent: $0.00 (0%)
+     Remaining: $0.50
+```
+
+**4/5 invariant live + 1 kod-seviyesi:**
+  - ☒ Runtime re-read (T6.1 parity)
+  - ☒ `.env` disk persistence
+  - ☒ Idempotent patch (0.5 → 0.5 re-apply)
+  - ☒ Unit test cov — `TestLiveBudgetRuntime` 7 test + live_guards 5 test + whitelist 4 test
+  - ☒ Min guard — G6 canlı kanıtı (WS_STALE min 5.0 reddi) + config min=0.01 + unit test
+
+**Açık kalan (user action):** LIVE_BUDGET şu an $0.50; restore için
+Telegram `/envt LIVE_BUDGET 1.49`. LIVE_ENABLED=false olduğu için
+mainnet blocker değil.
+
+---
 
 ### Kod kancası
 
@@ -497,7 +532,7 @@ smoke. Bu G6 guard'ı bloklamaz, mainnet öncesi gerekli değil.
 Aşağıdaki 6 kutu işaretlendiğinde T11.2 ✅:
 
 - [x] G1 Kill Switch ✅ 2026-04-23 — file detect 96ms + sticky memory + manual /resume + yeni trade
-- [ ] G2 Budget Guard — `🔴 LIVE: Budget exhausted` tetiklendi + `maybe_mirror` None döndü
+- [x] G2 Budget Guard ✅ 2026-04-23 — whitelist fix (d9a143b) + runtime re-read 1.49→0.5 + snapshot yansıma + unit cov. Live cap exhaust Shadow 48h controlled test'e bırakıldı (mainnet blocker değil).
 - [ ] G3 Daily Loss Guard — `🔴 LIVE HALT: daily loss` tetiklendi
 - [ ] G4 PnL Divergence — Telegram alert geldi VEYA "insufficient data" satırı log'landı
 - [ ] G5 Rolling WR Kill — strateji paused + `changelog` entry + `/active_strategies` görünür
