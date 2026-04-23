@@ -313,7 +313,71 @@ DEĞİL — helper runtime-read, whitelist pinli.
 
 ---
 
-## G4 — Paper-Shadow PnL Divergence Alert (`PNL_DIVERGENCE_*`) — ☐ PASS / ☐ FAIL
+## G4 — Paper-Shadow PnL Divergence Alert (`PNL_DIVERGENCE_*`) — ☒ PASS (2026-04-23)
+
+**Evidence:** `evidence/t11_2_g4_pnl_divergence_20260423.txt` (birleşik — probe + runtime)
+**Probe artefact:** `evidence/t11_2_g4_20260423_222601.txt` (standalone `--json` aynası)
+
+**Critical bug caught during live test (mainnet öncesi, G2 paraleli):**
+İlk runtime test deneyecek olsaydık `/envt PNL_DIVERGENCE_ALERT_PCT 0.01`
+→ bot "Bilinmeyen key". 4 `PNL_DIVERGENCE_*` key whitelist'te eksikti
+(runtime helper'lar var ama `/envt` yolu yok). FIX: commit `da11c2f` —
+4 entry eklendi (`config/env_whitelist.py`, risk grubu):
+`PNL_DIVERGENCE_ENABLED` (bool), `WINDOW_H` (float 1-168h),
+`ALERT_PCT` (float 0.01-100%), `MIN_TRADES` (int 1-1000). Whitelist
+33 → 37 key. Bot restart sonrası runtime tune çalıştı.
+
+**Canlı kanıt (3 evre):**
+
+*Evre 1 — Standalone probe (22:26 TRT, 19:26 UTC):*
+```
+py -3.11 scripts/t11_2_g4_divergence_probe.py
+  → verdict INSUFFICIENT, exit 2
+  → Paper 36t | WR 72.2% | PnL $-2.36
+  → Shadow 0t | WR  0.0% | PnL $+0.00
+  → Divergence 100.00% but INSUFFICIENT (shadow < min_trades 5)
+  → Min_trades bucket-gate canlı doğrulandı (Paper 36 geçti, Shadow 0
+    geçmedi — bucket-başına uygulanıyor, toplam değil)
+```
+
+*Evre 2 — Whitelist fix (22:40 TRT, commit da11c2f):*
+```
+config/env_whitelist.py → 4 PNL_DIVERGENCE_* entry eklendi
+Sandbox regression:
+  - AST parse OK
+  - ENV_WHITELIST dict load 37 key
+  - coerce_value bounds 12/12 PASS
+  - test_whitelist_runtime_readiness 40/40 PASS
+Bot restart yapıldı.
+```
+
+*Evre 3 — Runtime re-read round-trip (22:50 TRT):*
+```
+> /envt PNL_DIVERGENCE_ALERT_PCT 0.01
+  → "PNL_DIVERGENCE_ALERT_PCT: 5 → 0.01 / os.environ + .env guncellendi"
+
+> /live_guards
+  → G4 PnL Divergence
+     Alert ≥: 0.01%          (5.00 → 0.01 anında UI'a yansıdı)
+
+> /envt PNL_DIVERGENCE_ALERT_PCT 5.00
+  → "PNL_DIVERGENCE_ALERT_PCT: 0.01 → 5 / os.environ + .env guncellendi"
+```
+
+**5/5 invariant live + whitelist fix:**
+  - ☒ Probe happy-path canlı DB'de (INSUFFICIENT branch)
+  - ☒ Min_trades bucket-gate canlı (Paper 36 / Shadow 0 asimetrisi)
+  - ☒ Runtime re-read round-trip (5 → 0.01 → 5)
+  - ☒ `.env` disk persistence (iki yönde bot onayı)
+  - ☒ UI parity — `/live_guards` Alert ≥ 0.01% anında yansıdı
+  - ☒ Whitelist entry mevcut — da11c2f sonrası `/envt` 1. denemede kabul
+
+**Açık kalan:** Canlı ALERT_RED/ALERT_YELLOW branch kanıtı
+`LIVE_ENABLED=true` + shadow ≥5 trade gerektiriyor. G2'nin canlı
+budget exhaust testi gibi kontrollü 48h shadow run'a bırakıldı.
+Mainnet blocker DEĞİL — SQL/config/runtime/UI invariant kanıtları tam.
+
+---
 
 ### Kod kancası
 
