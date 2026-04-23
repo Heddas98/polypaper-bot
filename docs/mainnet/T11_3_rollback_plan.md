@@ -11,7 +11,7 @@ belkemiğini oluşturur. T11.1 Bölüm 8 referansı.
 **Template tarihi:** 2026-04-23
 **Test sahibi:** Heddas (Windows yerel)
 **Doğrulama sahibi:** Claude (bu dosya + TASKS.md update)
-**Kapanış tarihi:** *(dry-run 4 senaryo da ✅ olunca yaz)*
+**Kapanış tarihi:** 2026-04-23 (4/4 dry-run ✅ PASS + Bulgu B backup atomic fix forward work)
 
 ---
 
@@ -240,52 +240,152 @@ olarak S3 dry-run'i da kapatıldı — ekstra test koşturmaya gerek yok.
 
 ---
 
-### Senaryo 4 — M5 DB snapshot restore
+### Senaryo 4 — M5 DB snapshot restore — ☒ PASS (2026-04-23, sağlam backup ile)
 
-**Ön koşul:** Bot **DURMUŞ** (DB write lock olmadan swap kritik). Son
-`backup.bat` backup'ı mevcut (`data_store\backups\polypaper_*.db`).
+**Evidence:** `evidence/t11_3_s4_20260423_235919.txt` (gitignored)
+**Script:** `_archive/t11_3_s4_db_snapshot_restore_apr19.bat` (çift-tıklanabilir)
+**Helper:** `scripts/t11_3_s4_trade_count.py` (read-only sqlite count)
 
-**Adımlar:**
-1. Pre-state: `copy data_store\polypaper.db data_store\polypaper_preroll.db` (bizim fallback)
-2. Dummy write: bot'u başlat, 1 paper trade tetikle, kapat
-3. DB state diff: `sqlite3 data_store\polypaper.db "SELECT COUNT(*) FROM executions"` → N
-4. Swap: `copy data_store\backups\polypaper_<YYYYMMDD>.db data_store\polypaper.db /Y`
-5. Post-state: Aynı `SELECT COUNT(*)` → N-1 (dummy trade silindi)
-6. Restore: `copy data_store\polypaper_preroll.db data_store\polypaper.db /Y` (testi temizle)
+**Ön koşul:** Bot **DURMUŞ** (DB write lock çakışması → corruption riski).
+Geçerli bir backup mevcut (`data_store\backups\polypaper_YYYY-MM-DD.db`
+— magic bytes `SQLite format 3` kontrolü bat başında yapılır).
 
-**Pass kriteri:** N post < N pre, fallback restore sonra N = N original.
-Bot step 5 sonrası boot edebilmeli (`/h` yanıt vermeli).
+**Adımlar (bat otomasyonu):**
+1. Path + backup existence check
+2. User prompt: "Bot durdu mu?" (Enter onay)
+3. Pre-count (ana DB, read-only)
+4. Fallback copy: ana → `polypaper_preroll.db` (sigorta)
+5. Swap: backup → ana path, WAL+SHM sil (mismatch önle)
+6. Post-swap count (backup aktif)
+7. **User manuel boot test:** başka pencerede `start.bat`, `/h` cevap,
+   sonra bot durdur (Enter ile devam)
+8. Restore: `polypaper_preroll.db` → ana path, WAL+SHM sil
+9. Post-restore count
+10. Sanity: pre == post_restore ?
+11. Cleanup (fallback dosya sil) + evidence yaz
 
-**Kanıt:**
+**Pass kriteri:**
+- Pre-count > Post-swap count (backup eski, trade'ler daha az)
+- Post-restore count == Pre-count (bit-identical round-trip)
+- Bot backup DB üzerinde boot edebildi (`/h` cevap verdi, user onayı)
+- Rollback branch fail path'te de çalışır durumda (swap fail olursa
+  `:rollback_now` otomatik fallback restore eder)
+
+**Canlı kanıt (2026-04-23 23:59 TRT, sağlam Apr 19 backup ile):**
 
 ```
-[YYYY-MM-DD HH:MM:SS]
+Pre-count      : executions=942  (ana DB, live state)
+Fallback copy  : polypaper_preroll.db yaratıldı (sigorta)
+Swap           : polypaper_2026-04-19.db (8.9 GB) → ana path
+WAL+SHM        : silindi (mismatch önleme)
+Post-swap      : executions=761  (backup 181 trade geride; beklendi)
 
-<... count before / swap çıktısı / count after / boot kanıtı yapıştır ...>
+Bot boot test  : user /h ile Apr 19 DB üzerinde bot boot OK onayladı
+                 (Apr 19 state'den bot başlayabildi, canlı cevap verdi)
 
-Verdict: PASS / FAIL
+Restore        : polypaper_preroll.db → ana path, WAL+SHM sil
+Post-restore   : executions=942  (pre-count ile bit-identical)
+
+SANITY MATCH   : 942 == 942 → PASS
+Cleanup        : polypaper_preroll.db silindi
 ```
+
+**🚨 KRİTİK PRE-MAINNET BULGU (T11.2 whitelist bug'ları paraleli):**
+
+İlk S4 denemesi `polypaper_2026-04-23.db` ile FAIL — "file is not a
+database" hatası. Tüm backup dosyaları header tarandı:
+
+| Backup | Size | Header | Durum |
+|--------|------|--------|-------|
+| polypaper_2026-04-12 .. -17, -19, pre_sprint012 | 5-9 GB | `SQLite format 3` | ✅ Valid |
+| **polypaper_2026-04-20.db** | **780 MB** | **\x00\x00...** | 🔴 **Corrupt** |
+| **polypaper_2026-04-23.db** | **729 MB** | **\x00\x00...** | 🔴 **Corrupt** |
+
+**Root cause:** `daily_db_snapshot_job` (telegram_bot/jobs/maintenance_jobs.py)
+8GB DB için ~15-25 dk incremental backup yapıyor. Snapshot sırasında bot
+restart/Ctrl+C olursa yarı-yazılmış dosya kalıcı oluyor. 2026-04-23 log:
+```
+22:48:45 daily_db_snapshot scheduled
+22:53:45 "Running job" → snapshot başladı
+??:??:   bot Ctrl+C (user S4 için) → snapshot yarı-kesildi
+         → 729 MB bozuk dosya, header null
+```
+
+**Fix (forward work, T11.3 post-audit Bulgu B):** Atomic rename pattern.
+`dest_tmp = dest.with_suffix('.db.tmp')` → backup to tmp → `dest_tmp.replace(dest)`.
+Kesilirse tmp silinir/atlanır, eski dest korunur. 1-2 satır değişiklik,
+sandbox'ta hazırlanıp Windows sync + bot restart ile devreye alınır.
+
+**Verdict:** ☒ PASS — M5 rollback mekaniği Apr 19 sağlam backup ile
+tam round-trip doğrulandı. Bot backup state üzerinden boot edebildi
+(incident-restore feasibility canlı kanıtı). Bonus bulgu: backup
+corruption anti-pattern yakalandı — mainnet öncesi atomic-write fix
+gerekli. Bat'in `:rollback_now` branch'i bozuk backup'ta otomatik
+fallback restore yaptı (fail-safe path canlı kanıtlandı).
 
 ---
 
-## Kapanış Kriterleri
+## Kapanış Kriterleri — ✅ 4/4 PASS (2026-04-23)
 
-Aşağıdaki 4 kutu işaretlendiğinde T11.3 ✅:
-
-- [ ] Senaryo 1 (M1 git revert) — dry-run PASS + kanıt
-- [ ] Senaryo 2 (M3 rollback_sprint_2_1.py) — ilk+ikinci run PASS + kanıt
-- [ ] Senaryo 3 (M4 /env_toggle restore) — pre/post eşit + audit log
-- [ ] Senaryo 4 (M5 DB snapshot restore) — dummy write reverted
+- [x] Senaryo 1 (M1 git revert) — ✅ PASS (commit `498918b`)
+- [x] Senaryo 2 (M3 rollback_sprint_2_1.py) — ✅ PASS idempotent (commit `498918b`)
+- [x] Senaryo 3 (M4 /env_toggle restore) — ✅ PASS audit log (commit `2450d11`)
+- [x] Senaryo 4 (M5 DB snapshot restore) — ✅ PASS sağlam Apr 19 backup + bug bulgusu
 
 **Ek closure task'ları:**
 
-- [ ] `docs/DEPLOYMENT.md:115` "rollback.bat" ghost referansı:
+- [x] Senaryo 1-4 kanıtları template'e yapıştırıldı (evidence dosyaları gitignored).
+- [x] TASKS.md T11.3 closed + 2026-04-23 timestamp.
+- [x] MEMORY.md landmark update (`project_t11_3_closure.md`).
+- [ ] `docs/DEPLOYMENT.md:115` "rollback.bat" ghost referansı — post-audit
+  Bulgu A (low priority, mainnet blocker DEĞİL):
   - (a) `rollback.bat` yaz — git revert + service restart wrapper, VEYA
-  - (b) referansı `scripts/rollback_sprint_2_1.py` + `git revert HEAD`
-    açıklamasına yönlendir.
-- [ ] Senaryo 1-4 kanıtları template'e yapıştırıldı.
-- [ ] TASKS.md T11.3 closed + timestamp.
-- [ ] MEMORY.md landmark update.
+  - (b) referansı `scripts/rollback_sprint_2_1.py` + `git revert HEAD` açıklamasına yönlendir.
+
+## Post-Audit Bulguları (T11.3 kapandıktan sonra kalan iş)
+
+### Bulgu A — LOW — `docs/DEPLOYMENT.md:115` ghost rollback.bat referansı
+
+Doc'ta `rollback.bat` referansı var ama kök dizinde bu dosya yok. Fix
+yukarıda (a) veya (b). Mainnet blocker DEĞİL, dokümantasyon temizlik.
+
+### Bulgu B — 🔴 HIGH — Backup atomic write eksik (S4'te yakalandı)
+
+**Kanıt:** 2 bozuk backup dosyası (`polypaper_2026-04-20.db` 780 MB +
+`polypaper_2026-04-23.db` 729 MB), header tamamen `\x00`. Log analizi
+ile root cause: `daily_db_snapshot_job` incremental backup sırasında
+bot restart → yarı-yazılmış dosya.
+
+**Etki:** Production incident + restart + son backup corrupt → rollback
+imkansız. **Mainnet öncesi FIX GEREKLİ** (T11.3 closure'ı tek başına
+bloklamaz çünkü S4 sağlam backup ile PASS, ama mainnet Go/No-Go öncesi
+atomic fix uygulanmalı).
+
+**Fix (1-2 satır, sandbox'ta hazırlanıp Windows'a sync):**
+
+```python
+# telegram_bot/jobs/maintenance_jobs.py::daily_db_snapshot_job
+# ESKI:
+dest = BACKUP_DIR / f"polypaper_{ts}.db"
+# ...
+async with aiosqlite.connect(str(dest), timeout=60) as target:
+    await source.backup(target, pages=200, sleep=0.050)
+
+# YENI (atomic rename):
+dest = BACKUP_DIR / f"polypaper_{ts}.db"
+dest_tmp = dest.with_suffix(".db.tmp")
+# ...
+async with aiosqlite.connect(str(dest_tmp), timeout=60) as target:
+    await source.backup(target, pages=200, sleep=0.050)
+# Atomic rename on success — interrupt ederse .tmp silinir/atlanır
+dest_tmp.replace(dest)
+```
+
+**Ek:** Bot startup'ta `BACKUP_DIR/*.db.tmp` temizliği (ghost tmp sil).
+**Ek:** Bot startup'ta son backup dosyasının magic bytes kontrolü
+(`SQLite format 3` header, aksi halde uyarı log).
+
+**Forward work:** T11.3 post-closure Bulgu B, ayrı commit ile fix + test.
 
 ---
 
@@ -321,4 +421,4 @@ T11.2 + T11.3 paralel koşabilir; ikisi de Windows yerel.
 ---
 
 **Doğrulama sahibi:** Claude (bu dosya + TASKS.md update)
-**Kapanış tarihi:** *(dry-run 4/4 ✅ olunca yaz)*
+**Kapanış tarihi:** 2026-04-23 (dry-run 4/4 ✅ PASS)

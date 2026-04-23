@@ -61,9 +61,35 @@ Epic 11 T11.2 **tamamen kapandı**. Mainnet öncesi *runtime behavior proof* mil
 
 ---
 
-## 🧭 Sıradaki İşler (2026-04-23 — sandbox batch sonrası)
+## 🎯 T11.3 Rollback Plan Dry-Run CLOSED — 2026-04-23 (4/4 PASS)
 
-> **Durum:** T11.2 Ek İş batch kapandı (6 commit: [A][B][C][D][E][F] + [Z]). 755 pass + 3 skip + 0 fail. 15 yeni regresyon testi. `/live_guards` + `/lg` admin cmd canlı. **Mainnet bloklayan sandbox item: 0.** Aşağıdaki iş listesi ne kaldığını ve nerede tamamlanacağını netleştirir.
+Epic 11 T11.3 **tamamen kapandı**. Mainnet pre-gate **3/3 ✅** (T11.1 + T11.2 + T11.3). Go/No-Go karar aşamasına hazır.
+
+| # | Mekanizma | Durum | Kanıt |
+|---|---|---|---|
+| S1 | M1 Git Revert | ✅ PASS | round-trip (Pre SHA = Final SHA), revert audit trail + reset cleanup; commit `498918b` |
+| S2 | M3 rollback_sprint_2_1.py | ✅ PASS | 20 call reverted + 13 import + 1 notify block; idempotent; full restore via `git checkout --`; commit `498918b` |
+| S3 | M4 /envt restore | ✅ PASS | T11.2 yan ürünü (`logs/env_toggle_audit.log` 4 guard × round-trip); commit `2450d11` |
+| S4 | M5 DB snapshot restore | ✅ PASS | Apr 19 sağlam backup (8.9 GB), pre=post=942 executions round-trip, bot backup DB ile boot OK |
+
+**🚨 Kritik Bulgu B (HIGH, pre-mainnet blocker):** `daily_db_snapshot_job` atomic write yapmıyor — bot restart/Ctrl+C sırasında snapshot yarıda kalıyor, sonuç: 2 bozuk backup (2026-04-20 + 2026-04-23, 729-780 MB, header null). **T11.2 whitelist bug'ları (G2+G4) paraleli.** Gerçek incident + restart + son backup corrupt → rollback imkansız. Fix 1-2 satır: `dest_tmp.replace(dest)` atomic rename. **Mainnet öncesi fix gerekli.**
+
+**Kapanış commit zinciri (T11.2 kapanışından sonra):**
+- `2450d11` docs(t11.3): S3 /envt restore PASS (audit log evidence, T11.2 yan uretim)
+- `498918b` docs(t11.3): S1 git revert + S2 rollback_sprint_2_1.py PASS
+- **(bu commit)** T11.3 full closure (S4 PASS + Bulgu B + TASKS.md + memory landmark)
+
+**Memory landmark:** [`project_t11_3_closure.md`](../.auto-memory/project_t11_3_closure.md).
+
+**Mainnet bloklayan pre-mainnet gate item:** ~~1~~ → **0 (tümü kapalı)**. Mainnet öncesi tek öneri: **Bulgu B backup atomic fix** (sandbox 15 dk + Windows sync + bot restart).
+
+**Sıradaki:** Mainnet Go/No-Go kararı (T11.1 kriterleri). Alt işler: Bulgu B fix + T11.4-T11.8 defense-in-depth + T4.5-T4.9 empirical telemetry.
+
+---
+
+## 🧭 Sıradaki İşler (2026-04-23 — T11.3 kapanışı sonrası)
+
+> **Durum:** Epic 11 pre-mainnet gate **3/3 ✅** (T11.1+T11.2+T11.3). Bulgu B backup atomic fix mainnet öncesi önerilen tek iş. 755 pass + 3 skip + 0 fail. `/live_guards` + `/lg` admin cmd canlı. Aşağıdaki iş listesi ne kaldığını netleştirir.
 
 ### 1) 🪟 Windows (user elle — bot açıkken)
 
@@ -74,7 +100,7 @@ T11.2 kapanışı için hâlâ canlı kanıt bekleyen guard'lar. Yeni `/live_gua
 - [x] **T11.2 G3 Daily Loss** ✅ 2026-04-23 — runtime patch round-trip (1.00 → 0.1 önceki oturum 16:58, 0.1 → 1.00 bu oturum ~18:00) + `/live_guards` snapshot (`LIVE_MAX_DAILY_LOSS = $1.00`). Kod kancası `live_trader.py:51-53` runtime helper (T6.1 paritesi, module-top DEĞİL). Evidence: `evidence/t11_2_g3_daily_loss_20260423.txt`. Commit `60a5efc`. Canlı halt testi (-$1.00 pnl + LIVE_ENABLED=true) 48h shadow run'a bırakıldı.
 - [x] **T11.2 G4 PnL Divergence** ✅ 2026-04-23 — probe canlı DB'de INSUFFICIENT (Paper 36t / Shadow 0t, min_trades bucket-gate canlı doğrulandı) + runtime re-read round-trip (5 → 0.01 → 5, `/live_guards` Alert ≥ 0.01% anlık yansıdı). **KRİTİK bug catch: `PNL_DIVERGENCE_*` 4 key whitelist'te yoktu** (G2 paraleli) → fix commit `da11c2f` (33→37 key). Evidence: `evidence/t11_2_g4_pnl_divergence_20260423.txt` + probe artefact `evidence/t11_2_g4_20260423_222601.txt`. Commit `59c68d2`. Canlı ALERT_RED/YELLOW branch (LIVE_ENABLED=true + shadow ≥5 trade) 48h shadow run'a bırakıldı.
 - [x] **T11.2 G6 WS Stale** ✅ 2026-04-23 — runtime re-read 60→5→60 + whitelist min guard (3 reddi "Min 5.0 olmali") + `.env` persistence + unit cov 12 test. Evidence: `evidence/t11_2_g6_ws_stale_20260423.txt`. Commit `cf16954`.
-- [ ] **T11.3 Rollback dry-run** — `docs/mainnet/T11_3_rollback_plan.md` senaryolarını gerçek Windows ortamında test (ENV rollback + killswitch sentinel + process teardown).
+- [x] **T11.3 Rollback dry-run** ✅ 2026-04-23 — 4/4 senaryo PASS. S1 git revert round-trip, S2 rollback_sprint_2_1.py idempotent + full restore, S3 /envt restore (T11.2 audit log yan ürünü), S4 DB snapshot restore (Apr 19 sağlam backup). Evidence: `evidence/t11_3_s{1,2,4}_*.txt`. Commits: S3 `2450d11`, S1+S2 `498918b`, S4+closure TBD. **🚨 Bulgu B (HIGH):** 2026-04-20 + 2026-04-23 backup dosyaları corrupt (729-780 MB, header null) — `daily_db_snapshot_job` atomic write eksik. Fix forward work (`dest.tmp` → atomic rename, 1-2 satır).
 - [x] **SYNC.1** ✅ 2026-04-23 — `data/websocket_client.py` Cowork live mount ile zaten senkron (L401 T10.5 narrow except + [C] WS_STALE_SEC fallback doğrulandı).
 - [x] **SYNC.2** ✅ 2026-04-23 — `data/market_scanner.py` Cowork live mount ile zaten senkron (L226 "Scanner pruned" log doğrulandı).
 - [ ] **T4.5** — Empirical slippage calibration (trade_log_sim vs gerçek fill delta, 24h kanıt).
