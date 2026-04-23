@@ -250,8 +250,12 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
     # ── Hint footer ───────────────────────────────────────────────
+    # Note: use square brackets instead of &lt;KEY&gt;. Telegram HTML parse
+    # sometimes mangles `<KEY>` even after entity-escape (treats as unknown
+    # tag), eating the preceding "/e" of "/envt". [KEY]/[VALUE] renders
+    # cleanly in every client.
     lines.append(
-        "\n<i>Tune any threshold at runtime with /envt &lt;KEY&gt; &lt;VALUE&gt;.</i>"
+        "\n<i>Tune any threshold at runtime with <code>/envt [KEY] [VALUE]</code>.</i>"
     )
 
     full_text = "\n".join(lines)
