@@ -91,6 +91,8 @@ from telegram_bot.handlers.diagnose_handler import (  # Phase 62+: trade pipelin
     diagnose_command, diagnose_callback)
 from telegram_bot.handlers.live_guards_handler import (  # Epic 11 T11.2 [D]: 6-guard live snapshot
     live_guards_command)
+from telegram_bot.handlers.rest_timing_handler import (  # Epic 4 T4.8: REST RTT telemetry summary
+    dump_rest_timing_command)
 from telegram_bot.handlers.force_settle_handler import (  # Sprint 5 HOTFIX v4: manual oracle settle
     force_settle_command)
 from telegram_bot.handlers.env_toggle import (  # Phase 82e Sprint 6: hot-tune runtime env
@@ -298,6 +300,9 @@ class PolyPaperBot:
             # Epic 11 T11.2 [D]: 6-guard live snapshot (admin)
             ("live_guards", live_guards_command),
             ("lg", live_guards_command),
+            # Epic 4 T4.8: REST RTT telemetry summary (admin)
+            ("dump_rest_timing", dump_rest_timing_command),
+            ("drt", dump_rest_timing_command),
             # Sprint 5 HOTFIX v4: manual oracle settle for stuck positions
             ("force_settle", force_settle_command),
             ("fs", force_settle_command),
