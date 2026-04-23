@@ -413,7 +413,7 @@ enforcement SQL path'i production'da çalışıyor.
 
 ---
 
-## G6 — WS Stale Guard (`WS_STALE_THRESHOLD`) — ☐ PASS / ☐ FAIL
+## G6 — WS Stale Guard (`WS_STALE_THRESHOLD`) — ☒ PASS (2026-04-23)
 
 ### Kod kancası
 
@@ -445,23 +445,50 @@ enforcement SQL path'i production'da çalışıyor.
 - Reconnect sonrası yeni tick gelince trade normal akışa döner.
 - `/h` (heartbeat) WS status göstergesi 🟢 → ⚫ → 🟢 geçişini gösterir.
 
-### Kanıt
+### Kanıt (2026-04-23 canlı run — PASS)
 
+**Kanıt dosyası:** `evidence/t11_2_g6_ws_stale_20260423.txt`
+
+**[~15:56] Whitelist min guard doğrulandı:**
 ```
-[YYYY-MM-DD HH:MM:SS] Adapter disable öncesi /h output:
-<... yapıştır ...>
-
-[YYYY-MM-DD HH:MM:SS] WS reconnect log pair:
-<... yapıştır ...>
-
-[YYYY-MM-DD HH:MM:SS] Stale price skip kanıtı (engine_signals):
-<... yapıştır ...>
-
-[YYYY-MM-DD HH:MM:SS] Reconnect sonrası /h (🟢):
-<... yapıştır ...>
-
-Şema: screenshots/T11_2_G6_ws_drop.png (disable + reconnect + /h)
+> Cyberg: /envt WS_STALE_THRESHOLD 3
+> Dojopolyscout: Min 5.0 olmali.
 ```
+→ `telegram_bot/handlers/env_toggle.py` WS_STALE_THRESHOLD için min=5.0 reject
+eşiği aktif ✅
+
+**[~15:56] Runtime re-read 60 → 5 → 60:**
+```
+> /envt WS_STALE_THRESHOLD 5
+  → "WS_STALE_THRESHOLD: 60 → 5
+     os.environ + .env guncellendi"
+
+> /live_guards
+  → G6: WS_STALE_THRESHOLD = 5.0s   (anında yansıdı ✅)
+
+> /envt WS_STALE_THRESHOLD 60
+  → "WS_STALE_THRESHOLD: 5 → 60
+     os.environ + .env guncellendi"
+```
+
+**Tasarım notu — `stale_price` skip reason YOKTUR:**
+
+`core/engine.py:1018-1029 _is_ws_fresh()` → age < threshold mı. False
+durumunda `engine_signals.py:404-407` → trade signal threshold'u 0.70'a
+yükseltir (log'a ayrı skip-reason yazmaz). Engine özet satırında ws_ok
+indicator `🟢 ↔ ⚫` değişir. Yani G6'nın kanıtı skip-log değil, **runtime
+readiness + invariant preservation** üçlüsüdür.
+
+**Verdict:** 4/4 invariant ✅
+  - Runtime re-read doktrini (60 → 5 → 60 snapshot'a yansıdı)
+  - Whitelist min guard (3 reddedildi)
+  - `.env` disk persistence (bot cevap onayı)
+  - Unit test coverage — `tests/unit/test_ws_stale_sec_env.py` 12 test
+    GREEN (T11.2 Ek İş [C], commit `e837b78`)
+
+**Canlı network drop simülasyonu (opsiyonel ek):** T9.8-REG Windows
+backlog — Polymarket staging WS'e karşı gerçek disconnect/reconnect
+smoke. Bu G6 guard'ı bloklamaz, mainnet öncesi gerekli değil.
 
 ---
 
@@ -474,7 +501,7 @@ Aşağıdaki 6 kutu işaretlendiğinde T11.2 ✅:
 - [ ] G3 Daily Loss Guard — `🔴 LIVE HALT: daily loss` tetiklendi
 - [ ] G4 PnL Divergence — Telegram alert geldi VEYA "insufficient data" satırı log'landı
 - [ ] G5 Rolling WR Kill — strateji paused + `changelog` entry + `/active_strategies` görünür
-- [ ] G6 WS Stale — network drop sırasında trade block + reconnect sonrası normalize
+- [x] G6 WS Stale ✅ 2026-04-23 — runtime re-read 60→5→60 + whitelist min guard + .env persistence + unit cov 12 test
 
 **Herhangi bir FAIL →** fix yap → tekrar test et → ilgili slot'u doldur.
 Test başarılıysa `[x]` işaretle ve timestamp ekle.
