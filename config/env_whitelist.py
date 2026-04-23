@@ -161,6 +161,11 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
     },
     # ── Live (shadow-mirror) safety limits — T7.6 A5 ─────────────────────
     # core/live_trader.py reads these at runtime on every maybe_mirror().
+    "LIVE_BUDGET": {
+        "type": "float", "default": "1.49", "min": 0.01, "max": 1000.0,
+        "group": "live",
+        "desc": "Live toplam butce cap ($) — _total_spent bu degeri asamaz",
+    },
     "LIVE_MAX_TRADE": {
         "type": "float", "default": "1.00", "min": 0.10, "max": 100.0,
         "group": "live",
