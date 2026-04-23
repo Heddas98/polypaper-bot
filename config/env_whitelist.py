@@ -169,6 +169,15 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "group": "risk",
         "desc": "Bucket basi min trade (INSUFFICIENT gate)",
     },
+    # ── REST Timing telemetry (Epic 4 T4.7 + T4.8 + T4.9) ────────────────
+    # Default OFF. Enable for empirical RTT calibration (24h sampling).
+    # NOTE: `enabled()` helper caches at boot (hot-path). Flipping via
+    # /envt takes effect on next process start for safety; this whitelist
+    # entry exists to document the knob + enable `.env` persistence.
+    "REST_TIMING_TELEMETRY": {
+        "type": "bool", "default": "false", "group": "observability",
+        "desc": "REST HTTP RTT sampling (T4.7 empirical kalibrasyon)",
+    },
     # ── LLM rate-limit (Epic 8 T8.2) ─────────────────────────────────────
     # Read at runtime via
     # ``core.ai_brain._get_llm_ratelimit_backoff`` / ``_get_llm_ratelimit_min_cost``

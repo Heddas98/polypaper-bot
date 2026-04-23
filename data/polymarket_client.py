@@ -13,6 +13,7 @@ from typing import Optional
 
 import httpx
 from config.settings import Settings
+from core.observability.rest_timing import time_call
 
 logger = logging.getLogger("polypaper.data.polymarket")
 
@@ -55,13 +56,21 @@ class PolymarketClient:
         await self._client.aclose()
 
     async def _get_with_retry(self, url: str, params: dict | None = None,
-                              timeout: float | None = None) -> httpx.Response | None:
+                              timeout: float | None = None,
+                              label: str | None = None) -> httpx.Response | None:
         """Phase 56: GET with 429 exponential backoff retry.
-        Returns Response on success (any 2xx/4xx), None on total failure."""
+        Returns Response on success (any 2xx/4xx), None on total failure.
+
+        T4.9 (2026-04-24): `label` param enables REST timing telemetry.
+        When `REST_TIMING_TELEMETRY=true` (default OFF), each successful GET
+        records RTT into `core.observability.rest_timing` rolling buffer.
+        Zero overhead when telemetry disabled (context mgr no-op path).
+        """
         t = timeout or CLOB_TIMEOUT
         for attempt in range(MAX_429_RETRIES + 1):
             try:
-                r = await self._client.get(url, params=params, timeout=t)
+                async with time_call(label or "polymarket.http.get"):
+                    r = await self._client.get(url, params=params, timeout=t)
                 if r.status_code == 429:
                     self._429_count += 1
                     wait = min(2 ** attempt, 8)  # 1s, 2s, 4s, 8s
@@ -102,12 +111,13 @@ class PolymarketClient:
             if p is not None:
                 return p
         try:
-            r = await self._client.get(
-                f"{self.CLOB_BASE}/midpoint",
-                params={"token_id": token_id}, timeout=3.0)
+            async with time_call("clob.midpoint"):
+                r = await self._client.get(
+                    f"{self.CLOB_BASE}/midpoint",
+                    params={"token_id": token_id}, timeout=3.0)
             if r.status_code == 200:
                 return safe_float(r.json().get("mid"))
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return None
 
@@ -219,10 +229,11 @@ class PolymarketClient:
         events = []
         for offset in (0, 50, 100):
             try:
-                r = await self._client.get(
-                    f"{self.GAMMA_BASE}/events",
-                    params={"active": "true", "closed": "false", "limit": 50,
-                            "offset": offset, "order": "id", "ascending": "false"}, timeout=5.0)
+                async with time_call("gamma.events"):
+                    r = await self._client.get(
+                        f"{self.GAMMA_BASE}/events",
+                        params={"active": "true", "closed": "false", "limit": 50,
+                                "offset": offset, "order": "id", "ascending": "false"}, timeout=5.0)
                 if r.status_code != 200:
                     break
                 batch = r.json()
@@ -242,9 +253,10 @@ class PolymarketClient:
         Returns: {"asks": [[price, size], ...], "bids": [[price, size], ...]}
         Sorted: asks low→high, bids high→low."""
         try:
-            r = await self._client.get(
-                f"{self.CLOB_BASE}/book",
-                params={"token_id": token_id}, timeout=3.0)
+            async with time_call("clob.orderbook"):
+                r = await self._client.get(
+                    f"{self.CLOB_BASE}/book",
+                    params={"token_id": token_id}, timeout=3.0)
             if r.status_code == 200:
                 data = r.json()
                 asks = []
@@ -325,9 +337,10 @@ class PolymarketClient:
         Winner: outcomePrices icinde >=0.99 olan index'in outcome'u.
         """
         try:
-            r = await self._client.get(
-                f"{self.GAMMA_BASE}/markets",
-                params={"slug": slug}, timeout=4.0)
+            async with time_call("gamma.markets.slug"):
+                r = await self._client.get(
+                    f"{self.GAMMA_BASE}/markets",
+                    params={"slug": slug}, timeout=4.0)
             if not r or r.status_code != 200:
                 return None
             data = r.json()
@@ -416,7 +429,8 @@ class PolymarketClient:
 
     async def get_server_time(self):
         try:
-            r = await self._client.get(f"{self.CLOB_BASE}/time", timeout=5.0)
+            async with time_call("clob.time"):
+                r = await self._client.get(f"{self.CLOB_BASE}/time", timeout=5.0)
             return int(r.text) if r.status_code == 200 else int(datetime.now(timezone.utc).timestamp())
         except Exception:
             return int(datetime.now(timezone.utc).timestamp())
@@ -467,8 +481,9 @@ class PolymarketClient:
 
     async def get_price_history(self, token_id, interval="1h", fidelity=60):
         try:
-            r = await self._client.get(f"{self.CLOB_BASE}/prices-history",
-                                       params={"market": token_id, "interval": interval, "fidelity": fidelity}, timeout=4.0)
+            async with time_call("clob.prices_history"):
+                r = await self._client.get(f"{self.CLOB_BASE}/prices-history",
+                                           params={"market": token_id, "interval": interval, "fidelity": fidelity}, timeout=4.0)
             return r.json().get("history", []) if r.status_code == 200 else []
         except Exception:
             return []

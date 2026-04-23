@@ -110,11 +110,24 @@ Bu bat:
 
 ## 8. Operational Commands
 
-### Restart
+### Restart / Rollback
+
+Projede `rollback.bat` dosyası **yoktur** (T11.3 Bulgu A, 2026-04-24 doc fix).
+Geri alma için 3 yöntem — incident tipine göre:
+
 ```powershell
-rollback.bat          # Son stabil sürüme geri dön
-reset_and_start.bat   # DB wipe + 20 new strats (TEHLİKELİ)
+# 1) Son commit bozuk ise (en yaygın):
+git revert HEAD --no-edit
+# 2) Phase 82e Sprint 2.1 (safe_create_task) regression:
+py -3.11 scripts\rollback_sprint_2_1.py
+# 3) DB corruption — bot durdur, son sağlam backup'ı swap et:
+#    data_store\backups\polypaper_YYYY-MM-DD.db → data_store\polypaper.db
+#    (bkz. docs\mainnet\T11_3_rollback_plan.md Senaryo 4)
+
+reset_and_start.bat   # DB wipe + 20 new strats (TEHLİKELİ, son çare)
 ```
+
+Tam rollback matrisi + dry-run kanıtları için: **`docs/mainnet/T11_3_rollback_plan.md`**.
 
 ### Backup
 ```powershell
@@ -148,7 +161,7 @@ pause          — close-safe
 | Dosya | Açıklama |
 |---|---|
 | `watchdog.bat` / `watchdog.vbs` | Production başlatıcı |
-| `rollback.bat` | Acil geri alma |
+| `git revert HEAD --no-edit` + restart | Acil geri alma (rollback.bat dosyası YOK; T11.3 rollback_plan.md) |
 | `backup.bat` | Manuel DB yedekleme |
 | `reset_and_start.bat` | Strateji sıfırlama |
 | `analyze_ob_snapshots.bat` | OB data analiz |
