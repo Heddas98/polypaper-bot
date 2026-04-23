@@ -108,6 +108,31 @@ for file in $STAGED; do
     esac
 done
 
+# ── 4. T11.8 bare except guard (core/ strict zone) ───────────────
+# T7.6 + T1.4 + T8.1 doctrine: `except Exception:` banned in core/
+# unless annotated with `# noqa: BLE001` (ruff) or `# noqa: BLE-OK
+# reason=...` (T11.8 new pattern). Advisory scan for data/telegram_bot/db
+# (reports only, does not fail). Skipped if no .py files staged.
+STAGED_PY=$(echo "$STAGED" | tr ' ' '\n' | grep -E '\.py$' || true)
+if [ -n "$STAGED_PY" ]; then
+    if command -v python >/dev/null 2>&1; then
+        PY_BIN=python
+    elif command -v python3 >/dev/null 2>&1; then
+        PY_BIN=python3
+    elif command -v py >/dev/null 2>&1; then
+        PY_BIN="py -3.11"
+    else
+        PY_BIN=""
+    fi
+    if [ -n "$PY_BIN" ] && [ -f "scripts/bare_except_check.py" ]; then
+        if ! $PY_BIN scripts/bare_except_check.py $STAGED_PY; then
+            echo "[HATA] T11.8 bare except guard: core/ strict zone violation."
+            echo "  Fix: narrow except tuple, or add '# noqa: BLE001'."
+            VIOLATIONS=$((VIOLATIONS + 1))
+        fi
+    fi
+fi
+
 # ── Sonuç ────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then
     echo ""

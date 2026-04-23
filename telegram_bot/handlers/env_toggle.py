@@ -182,6 +182,9 @@ def _apply_set(key: str, raw_value: str,
         logger.exception(f"env_toggle patch .env failed: {e}")
         # Keep the os.environ change — still effective this session.
         _audit(admin_id, "SET_OS_ONLY", key, old, coerced)
+        # T11.6 policy exemption: env_toggle is admin-only + operator
+        # needs to see *which* OS error blocked .env write (permission vs
+        # disk full vs locked file). Truncated to 120 chars. See policy doc.
         return True, (
             f"⚠️ <b>{esc(key)}</b>: {esc(old)} → <b>{esc(coerced)}</b>\n"
             f"<i>os.environ guncellendi ama .env yazilamadi: "
@@ -202,6 +205,7 @@ def _apply_reset(key: str, admin_id: int) -> tuple[bool, str]:
     except Exception as e:
         logger.exception(f"env_toggle reset patch failed: {e}")
         _audit(admin_id, "RESET_OS_ONLY", key, old, default)
+        # T11.6 policy exemption: same rationale as _apply_set() above.
         return True, (
             f"⚠️ <b>{esc(key)}</b> default'a dondu: "
             f"{esc(old)} → <b>{esc(default)}</b>\n"

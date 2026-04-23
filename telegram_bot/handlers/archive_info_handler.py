@@ -22,6 +22,7 @@ from telegram.ext import ContextTypes
 
 from config.settings import Settings
 from telegram_bot.templates.safe_html import esc
+from telegram_bot.handlers._exc_render import render_user_exception
 
 logger = logging.getLogger("polypaper.handlers.archive_info")
 
@@ -59,7 +60,7 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         from backtest.archive_reader import ArchiveReader
     except ImportError as e:
         return await update.message.reply_text(
-            f"⚠️ ArchiveReader import failed: <code>{esc(str(e))}</code>",
+            render_user_exception(e, "⚠️ ArchiveReader import failed"),
             parse_mode="HTML")
 
     await update.message.reply_text(

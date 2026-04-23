@@ -149,17 +149,22 @@ class TestSurfaceBuilder:
 # ═══ Market Coherence Index Tests ═══
 
 class TestMCI:
-    def test_mci_disabled(self):
-        os.environ["MCI_ENABLED"] = "false"
-        # Need to reimport to pick up env change
+    def test_mci_disabled(self, monkeypatch):
+        # T11.5: monkeypatch.setenv auto-restores on test teardown
+        monkeypatch.setenv("MCI_ENABLED", "false")
+        # Need to reimport to pick up env change (module-top constant)
         import importlib
         import calibration.coherence as coh
         importlib.reload(coh)
-        result = coh.compute_mci(None)
-        assert result.score == 1.0
-        assert result.reason == "disabled"
-        os.environ["MCI_ENABLED"] = "true"
-        importlib.reload(coh)
+        try:
+            result = coh.compute_mci(None)
+            assert result.score == 1.0
+            assert result.reason == "disabled"
+        finally:
+            # Restore module with the (now-restored) env value so later
+            # tests see MCI_ENABLED=true / unset as originally configured
+            monkeypatch.setenv("MCI_ENABLED", "true")
+            importlib.reload(coh)
 
     def test_mci_no_surface(self):
         from calibration.coherence import compute_mci

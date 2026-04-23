@@ -17,6 +17,7 @@ import os
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram_bot.templates.safe_html import esc
+from telegram_bot.handlers._exc_render import render_user_exception
 
 logger = logging.getLogger("polypaper.handlers.roadmap")
 
@@ -93,7 +94,7 @@ async def ev_stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"❌ EV stats hatası: {esc(str(e))}", parse_mode="HTML")
+        await update.message.reply_text(render_user_exception(e, "❌ EV stats hatası"), parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════
@@ -135,7 +136,7 @@ async def metrics_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = title + "\n\n" + format_metrics_telegram(m)
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"❌ Metrics hatası: {esc(str(e))}", parse_mode="HTML")
+        await update.message.reply_text(render_user_exception(e, "❌ Metrics hatası"), parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════
@@ -167,7 +168,7 @@ async def surface_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = format_surface_telegram(surface)
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"❌ Surface hatası: {esc(str(e))}", parse_mode="HTML")
+        await update.message.reply_text(render_user_exception(e, "❌ Surface hatası"), parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════
@@ -218,7 +219,7 @@ async def latency_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = "\n".join(lines)
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"❌ WS stats hatası: {esc(str(e))}", parse_mode="HTML")
+        await update.message.reply_text(render_user_exception(e, "❌ WS stats hatası"), parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════

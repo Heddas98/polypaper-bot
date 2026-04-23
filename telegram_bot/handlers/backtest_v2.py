@@ -20,6 +20,7 @@ from telegram.ext import (
 )
 
 from telegram_bot.templates.safe_html import esc
+from telegram_bot.handlers._exc_render import render_user_exception
 
 logger = logging.getLogger("polypaper.handlers.backtest_v2")
 
@@ -1311,17 +1312,18 @@ async def becker_replay_command(update: Update,
             _run_replay_blocking, strategy, markets, maker, asset_filter)
     except FileNotFoundError as e:
         await update.message.reply_text(
-            f"❌ <b>Calibration DB missing:</b>\n<code>{esc(str(e))}</code>",
+            render_user_exception(e, "❌ <b>Calibration DB missing</b>"),
             parse_mode="HTML")
         return
     except ValueError as e:
         await update.message.reply_text(
-            f"❌ <b>{esc(str(e))}</b>", parse_mode="HTML")
+            render_user_exception(e, "❌ <b>Invalid replay input</b>"),
+            parse_mode="HTML")
         return
-    except Exception as e:
-        logger.error(f"becker_replay failed: {esc(e)}\n{traceback.format_exc()}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("becker_replay failed")
         await update.message.reply_text(
-            f"❌ <b>Replay failed:</b> <code>{esc(str(e))}</code>",
+            render_user_exception(e, "❌ <b>Replay failed</b>"),
             parse_mode="HTML")
         return
 
@@ -1411,10 +1413,10 @@ async def becker_deep_command(update: Update,
         if len(text) > 4000:
             text = text[:3990] + "\n..."
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"becker_deep failed: {e}\n{traceback.format_exc()}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("becker_deep failed")
         await update.message.reply_text(
-            f"❌ <b>Deep analysis failed:</b> <code>{esc(str(e))}</code>",
+            render_user_exception(e, "❌ <b>Deep analysis failed</b>"),
             parse_mode="HTML")
 
 
@@ -1438,10 +1440,10 @@ async def becker_zones_command(update: Update,
         if len(text) > 4000:
             text = text[:3990] + "\n..."
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"becker_zones failed: {e}\n{traceback.format_exc()}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("becker_zones failed")
         await update.message.reply_text(
-            f"❌ <b>Zone analysis failed:</b> <code>{esc(str(e))}</code>",
+            render_user_exception(e, "❌ <b>Zone analysis failed</b>"),
             parse_mode="HTML")
 
 

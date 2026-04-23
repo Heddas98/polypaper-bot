@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from db.database import Database
 from telegram_bot.templates.safe_html import esc
+from telegram_bot.handlers._exc_render import render_user_exception
 
 logger = logging.getLogger("polypaper.handlers.strategy_report")
 
@@ -39,8 +40,10 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "FROM strategies WHERE LOWER(id) LIKE ?",
             (f"{id_prefix}%",)
         )
-    except Exception as e:
-        await update.message.reply_text(f"❌ DB hatasi: {esc(str(e))}", parse_mode="HTML")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("strategy_report DB query failed")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ DB hatasi"), parse_mode="HTML")
         return
 
     if not rows:

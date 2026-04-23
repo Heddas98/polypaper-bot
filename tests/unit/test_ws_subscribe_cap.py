@@ -78,9 +78,9 @@ def test_prune_empty_subscribed_is_safe():
 # ═══════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.asyncio
-async def test_subscribe_below_cap_admits_all():
+async def test_subscribe_below_cap_admits_all(monkeypatch):
     """Below MAX_WS_TOKENS → every token is subscribed, no counters fire."""
-    os.environ["MAX_WS_TOKENS"] = "10"
+    monkeypatch.setenv("MAX_WS_TOKENS", "10")
     ws = PolymarketWebSocket()
     # Stub out _send so we don't try to hit real WS
     ws._send = AsyncMock()
@@ -94,13 +94,13 @@ async def test_subscribe_below_cap_admits_all():
 
 
 @pytest.mark.asyncio
-async def test_subscribe_preserves_caller_order_on_partial_cap():
+async def test_subscribe_preserves_caller_order_on_partial_cap(monkeypatch):
     """When cap is exceeded, FIRST tokens (by caller order) are kept.
 
     This is Fix B's key property: no more set-slicing that could drop
     high-priority (earlier-in-list) tokens at random.
     """
-    os.environ["MAX_WS_TOKENS"] = "3"
+    monkeypatch.setenv("MAX_WS_TOKENS", "3")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -115,9 +115,9 @@ async def test_subscribe_preserves_caller_order_on_partial_cap():
 
 
 @pytest.mark.asyncio
-async def test_subscribe_full_cap_admits_none():
+async def test_subscribe_full_cap_admits_none(monkeypatch):
     """If WS is already at cap, subscribe() bails without sending."""
-    os.environ["MAX_WS_TOKENS"] = "2"
+    monkeypatch.setenv("MAX_WS_TOKENS", "2")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -137,12 +137,12 @@ async def test_subscribe_full_cap_admits_none():
 
 
 @pytest.mark.asyncio
-async def test_priority_first_admitted_before_regular_on_cap():
+async def test_priority_first_admitted_before_regular_on_cap(monkeypatch):
     """priority_first tokens get the scarce slots, regular tokens dropped.
 
     This is the shadow-live / open-position protection path.
     """
-    os.environ["MAX_WS_TOKENS"] = "2"
+    monkeypatch.setenv("MAX_WS_TOKENS", "2")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -159,9 +159,9 @@ async def test_priority_first_admitted_before_regular_on_cap():
 
 
 @pytest.mark.asyncio
-async def test_priority_first_dedupe_cross_list():
+async def test_priority_first_dedupe_cross_list(monkeypatch):
     """A tid in both priority_first and token_ids is counted once only."""
-    os.environ["MAX_WS_TOKENS"] = "5"
+    monkeypatch.setenv("MAX_WS_TOKENS", "5")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -175,9 +175,9 @@ async def test_priority_first_dedupe_cross_list():
 
 
 @pytest.mark.asyncio
-async def test_already_subscribed_filtered_out():
+async def test_already_subscribed_filtered_out(monkeypatch):
     """Tokens already in _subscribed don't consume fresh slots."""
-    os.environ["MAX_WS_TOKENS"] = "3"
+    monkeypatch.setenv("MAX_WS_TOKENS", "3")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -197,13 +197,13 @@ async def test_already_subscribed_filtered_out():
 
 
 @pytest.mark.asyncio
-async def test_priority_overflows_only_priorities_dropped_from_tail():
+async def test_priority_overflows_only_priorities_dropped_from_tail(monkeypatch):
     """Edge case: priority list alone exceeds cap → tail of PRIORITY drops.
 
     This guards the invariant that the earlier entries in priority_first
     have precedence over later ones, and nothing from token_ids sneaks in.
     """
-    os.environ["MAX_WS_TOKENS"] = "2"
+    monkeypatch.setenv("MAX_WS_TOKENS", "2")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -228,9 +228,9 @@ async def test_empty_inputs_no_ops():
 
 
 @pytest.mark.asyncio
-async def test_none_priority_first_behaves_as_empty():
+async def test_none_priority_first_behaves_as_empty(monkeypatch):
     """Backward-compat: subscribe(tokens) with no priority_first works."""
-    os.environ["MAX_WS_TOKENS"] = "5"
+    monkeypatch.setenv("MAX_WS_TOKENS", "5")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
     await ws.subscribe(["a", "b"])
@@ -242,9 +242,9 @@ async def test_none_priority_first_behaves_as_empty():
 # ═══════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.asyncio
-async def test_status_exposes_cap_counters():
+async def test_status_exposes_cap_counters(monkeypatch):
     """get_status() includes cap_hits, cap_skipped, last_cap_hit_age."""
-    os.environ["MAX_WS_TOKENS"] = "1"
+    monkeypatch.setenv("MAX_WS_TOKENS", "1")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
@@ -270,7 +270,7 @@ async def test_status_exposes_cap_counters():
 # ═══════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.asyncio
-async def test_scan_cycle_pattern_prunes_dead_tokens():
+async def test_scan_cycle_pattern_prunes_dead_tokens(monkeypatch):
     """End-to-end shape: after subscribe round, prune clears dead tokens.
 
     Simulates the loop that market_scanner._do_scan implements: add new
@@ -278,7 +278,7 @@ async def test_scan_cycle_pattern_prunes_dead_tokens():
     live set. Dead tokens from resolved markets should drop out and free
     cap slots so future cycles can subscribe fresh tokens.
     """
-    os.environ["MAX_WS_TOKENS"] = "4"
+    monkeypatch.setenv("MAX_WS_TOKENS", "4")
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
