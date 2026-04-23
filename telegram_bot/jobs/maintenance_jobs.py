@@ -48,10 +48,33 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         ts = datetime.utcnow().strftime("%Y-%m-%d")
         dest = BACKUP_DIR / f"polypaper_{ts}.db"
+        # T11.3 Bulgu B fix (2026-04-23): atomic rename pattern
+        #
+        # ESKI davranis: `aiosqlite.connect(dest)` dogrudan ana path'e yazar.
+        # 8GB DB 15-25 dk incremental backup sirasinda bot restart/Ctrl+C
+        # olursa yari-yazilmis dosya KALICI olur (header null, NOT_SQLITE).
+        # Kanit: 2026-04-20.db (780 MB) + 2026-04-23.db (729 MB) corrupt.
+        #
+        # YENI: backup'i `dest_tmp`'e yaz; basari sonrasi atomic rename
+        # (`os.replace` / `Path.replace`) ile dest'e tasi. Interrupt ederse
+        # tmp kalir, dest hicbir zaman yarim-yazilmis olmaz. Bir sonraki
+        # cycle veya finally cleanup tmp'yi temizler.
+        dest_tmp = dest.with_suffix(".db.tmp")
 
         if not DB_PATH.exists():
             logger.warning(f"[snapshot] DB not found at {DB_PATH} — skip")
             return
+
+        # Ghost tmp cleanup: onceki yari-kesik backup'tan kalmis dosyalar
+        # (ornegin bot Ctrl+C ile durdurulmussa finally blogu calismamis
+        # olabilir). Cycle basinda temizle, disk doldurmasin.
+        for ghost in BACKUP_DIR.glob("polypaper_*.db.tmp"):
+            try:
+                ghost.unlink()
+                logger.info(f"[snapshot] cleaned ghost tmp: {ghost.name}")
+            except OSError as e:
+                logger.warning(f"[snapshot] ghost tmp cleanup failed "
+                               f"{ghost.name}: {e}")
 
         import aiosqlite
         import time as _time
@@ -64,15 +87,28 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         from db.ro_connect import open_ro_aiosqlite
         source = await open_ro_aiosqlite(DB_PATH, connect_timeout_s=60.0)
         try:
-            async with aiosqlite.connect(str(dest), timeout=60) as target:
+            async with aiosqlite.connect(str(dest_tmp), timeout=60) as target:
                 # pages=200 + sleep=50ms: her 200 page sonrası 50ms uyu.
                 # 8 GB / ~4KB page ≈ 2M page → 10K batch. Her batch ~100-150ms
                 # işleme + 50ms sleep ≈ 200ms. Toplam ≈ 15-25 dakika.
                 # Sleep asenkron event loop'a yield fırsatı verir;
                 # engine'in DB query'leri bu boşluklarda işlenir.
                 await source.backup(target, pages=200, sleep=0.050)
+            # Atomic rename: tmp -> dest. POSIX + Windows'ta tek syscall,
+            # yarim-rename olmaz. Backup icin DURUM BURADA KESINLESIR.
+            dest_tmp.replace(dest)
         finally:
             await source.close()
+            # Fail path: backup ortasinda exception atildiysa dest_tmp
+            # kismen yazilmis halde kalmis olabilir (rename asla calismamis).
+            # Temizle ki bir sonraki cycle ghost-glob'a dusmesin hemen.
+            if dest_tmp.exists():
+                try:
+                    dest_tmp.unlink()
+                    logger.warning(f"[snapshot] cleaned failed tmp: "
+                                   f"{dest_tmp.name}")
+                except OSError as e:
+                    logger.warning(f"[snapshot] failed tmp cleanup failed: {e}")
 
         elapsed = _time.monotonic() - t0
 
