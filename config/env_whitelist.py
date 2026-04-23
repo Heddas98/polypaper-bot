@@ -106,6 +106,25 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "type": "bool", "default": "true", "group": "sizing",
         "desc": "Adaptive maker/taker routing",
     },
+    # T4.5-B (2026-04-24): maker yolu kapilarini hot-tune edilir hale getir.
+    # T4.5 kalibrasyon: 0/960 maker fill -- adaptive yolu cok dar (sig<0.45 +
+    # mins>2.0 + spread>0.015). Bu 3 knob /envt ile A/B testi mumkun kilar.
+    # Hepsi engine_signals.py:1629-1637 runtime os.getenv() okur (T6.1 doctrin).
+    "ADAPTIVE_MAKER_MIN_MINS": {
+        "type": "float", "default": "2.0", "min": 0.1, "max": 60.0,
+        "group": "sizing",
+        "desc": "Adaptive maker min dakika (5m markets icin 0.5-1.0 dene)",
+    },
+    "ADAPTIVE_MAKER_MAX_SIGNAL": {
+        "type": "float", "default": "0.45", "min": 0.1, "max": 1.0,
+        "group": "sizing",
+        "desc": "Adaptive maker max |sig| (classic 0.60+ icin 0.65 dene)",
+    },
+    "ADAPTIVE_MAKER_IMPROVE_TICKS": {
+        "type": "int", "default": "1", "min": 0, "max": 10,
+        "group": "sizing",
+        "desc": "Adaptive maker mid+N tick teklif (fill probability)",
+    },
     # ── WS / staleness ────────────────────────────────────────────────────
     "WS_STALE_MIN_THRESHOLD": {
         "type": "float", "default": "0.70", "min": 0.0, "max": 1.0,
