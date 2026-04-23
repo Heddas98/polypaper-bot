@@ -12,7 +12,7 @@ REM     scripts\t11_2_g1_file_kill_switch.bat
 REM
 REM Önkoşul:
 REM     - Bot AYAKTA olmalı (start_bot.bat koşuyor olmalı)
-REM     - logs\bot.log dosyası mevcut ve güncel
+REM     - logs\polypaper.log dosyası mevcut ve güncel
 REM     - data_store\ klasörü yazılabilir
 REM
 REM Çıktı:
@@ -31,12 +31,16 @@ REM =====================================================================
 setlocal ENABLEDELAYEDEXPANSION
 
 REM --- Önkoşul doğrulama ---
-if not exist logs\bot.log (
-    echo [T11.2 G1 FAIL] logs\bot.log bulunamadi. Bot calismiyor mu?
+if not exist logs\polypaper.log (
+    echo [T11.2 G1 FAIL] logs\polypaper.log bulunamadi. Bot calismiyor mu?
+    echo.
+    pause
     exit /b 2
 )
 if not exist data_store (
     echo [T11.2 G1 FAIL] data_store\ klasoru yok.
+    echo.
+    pause
     exit /b 2
 )
 if not exist evidence (
@@ -53,7 +57,7 @@ echo Start: %DATE% %TIME% >> %EVID%
 echo ============================================================ >> %EVID%
 
 REM --- 1) log mevcut boyutunu not et (son satirlari farkli bulmak icin) ---
-for %%F in (logs\bot.log) do set BEFORE_SIZE=%%~zF
+for %%F in (logs\polypaper.log) do set BEFORE_SIZE=%%~zF
 echo [STEP 1] Log size before: !BEFORE_SIZE! bytes >> %EVID%
 
 REM --- 2) polypaper.stop olustur ---
@@ -68,16 +72,19 @@ timeout /t 6 /nobreak >nul
 REM --- 4) log'da "Kill active" arar ---
 echo [STEP 4] %TIME% — grepping log for kill-active line ... >> %EVID%
 echo ---- log tail (son 40 satir) ---- >> %EVID%
-powershell -NoProfile -Command "Get-Content logs\bot.log -Tail 40" >> %EVID%
+powershell -NoProfile -Command "Get-Content logs\polypaper.log -Tail 40" >> %EVID%
 echo ---------------------------------- >> %EVID%
 
-findstr /C:"Kill active" logs\bot.log >nul
+REM kill_switch.py gerçek log satırı: "🛑 KILL SWITCH ACTIVATED: <reason>"
+REM ve sentinel tespit satırı: "🛑 KILL SWITCH: File detected (...)".
+REM findstr emoji bypass için düz ASCII alt-string arar.
+findstr /C:"KILL SWITCH ACTIVATED" /C:"KILL SWITCH: File detected" logs\polypaper.log >nul
 if errorlevel 1 (
     set KILL_FOUND=0
-    echo [STEP 4 WARN] "Kill active" satiri log'da yok. >> %EVID%
+    echo [STEP 4 WARN] "KILL SWITCH ACTIVATED" satiri log'da yok. >> %EVID%
 ) else (
     set KILL_FOUND=1
-    echo [STEP 4 OK] "Kill active" satiri bulundu. >> %EVID%
+    echo [STEP 4 OK] "KILL SWITCH ACTIVATED / File detected" satiri bulundu. >> %EVID%
 )
 
 REM --- 5) polypaper.stop sil ---
@@ -91,14 +98,14 @@ timeout /t 4 /nobreak >nul
 REM --- 7) log'da "Kill deactivated" veya cycle devam etme satiri ---
 echo [STEP 7] %TIME% — checking for resume signal ... >> %EVID%
 echo ---- log tail after resume (son 20 satir) ---- >> %EVID%
-powershell -NoProfile -Command "Get-Content logs\bot.log -Tail 20" >> %EVID%
+powershell -NoProfile -Command "Get-Content logs\polypaper.log -Tail 20" >> %EVID%
 echo ----------------------------------------------- >> %EVID%
 
-REM Resume belirteci: "Kill deactivated" VEYA yeni engine cycle satiri
-findstr /C:"Kill deactivated" logs\bot.log >nul
+REM Resume belirteci: "KILL SWITCH DEACTIVATED" VEYA yeni engine cycle satiri
+findstr /C:"KILL SWITCH DEACTIVATED" logs\polypaper.log >nul
 if errorlevel 1 (
     REM Kill deactivated satiri yoksa, log boyutunun buyudugunu kontrol et
-    for %%F in (logs\bot.log) do set AFTER_SIZE=%%~zF
+    for %%F in (logs\polypaper.log) do set AFTER_SIZE=%%~zF
     if !AFTER_SIZE! GTR !BEFORE_SIZE! (
         set RESUME_FOUND=1
         echo [STEP 7 OK] Log buyudu (!BEFORE_SIZE! -^> !AFTER_SIZE!); engine cycle devam ediyor. >> %EVID%
@@ -108,7 +115,7 @@ if errorlevel 1 (
     )
 ) else (
     set RESUME_FOUND=1
-    echo [STEP 7 OK] "Kill deactivated" satiri bulundu. >> %EVID%
+    echo [STEP 7 OK] "KILL SWITCH DEACTIVATED" satiri bulundu. >> %EVID%
 )
 
 echo. >> %EVID%
@@ -117,10 +124,17 @@ echo End: %DATE% %TIME% >> %EVID%
 
 if !KILL_FOUND!==1 if !RESUME_FOUND!==1 (
     echo [VERDICT] PASS — kill active + resume her ikisi de gozlendi. >> %EVID%
+    echo.
     echo [T11.2 G1] PASS — kanit: %EVID%
+    echo.
+    pause
     exit /b 0
 ) else (
     echo [VERDICT] FAIL — inceleme gerek. KILL_FOUND=!KILL_FOUND! RESUME_FOUND=!RESUME_FOUND! >> %EVID%
+    echo.
     echo [T11.2 G1] FAIL — kanit: %EVID% — incele!
+    echo KILL_FOUND=!KILL_FOUND!  RESUME_FOUND=!RESUME_FOUND!
+    echo.
+    pause
     exit /b 1
 )
