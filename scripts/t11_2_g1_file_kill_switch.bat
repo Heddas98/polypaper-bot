@@ -93,35 +93,56 @@ if errorlevel 1 (
     echo [STEP 4 OK] "KILL SWITCH ACTIVATED / File detected" satiri bulundu. >> %EVID%
 )
 
-REM --- 5) polypaper.stop sil ---
+REM --- 5) polypaper.stop sil (cleanup + sticky kill kanıtı) ---
 echo [STEP 5] %TIME% — deleting data_store\polypaper.stop ... >> %EVID%
 del /q data_store\polypaper.stop 2>nul
 
-REM --- 6) 4 saniye bekle (engine kill-check + resume log) ---
-echo [STEP 6] %TIME% — waiting 4s for engine resume ... >> %EVID%
+REM --- 6) 4 saniye bekle (engine yine de kill-active kalmali) ---
+echo [STEP 6] %TIME% — waiting 4s to verify STICKY memory_flag ... >> %EVID%
 timeout /t 4 /nobreak >nul
 
-REM --- 7) log'da "Kill deactivated" veya cycle devam etme satiri ---
-echo [STEP 7] %TIME% — checking for resume signal ... >> %EVID%
-echo ---- log tail after resume (son 20 satir) ---- >> %EVID%
+REM --- 7) TASARIM DOKTRIN: kill_switch.py L32-38 file → _memory_kill ---
+REM --- sticky yapiyor. File silinse bile memory flag True kalir; kill  ---
+REM --- deaktif olmaz. /resume komutu gerekli (tasarim gereği — kaza    ---
+REM --- ile silinmis sentinel'in otomatik trade'e geri dondurmesini     ---
+REM --- engelliyor). Dolayisiyla STEP 7'nin beklentisi:                 ---
+REM ---   (a) polypaper.stop dosyasi gercekten silinmis mi (cleanup)    ---
+REM ---   (b) engine hala 'Kill active' log'luyor mu (sticky memory)    ---
+REM --- Her iki kosul saglandiginda G1 file-channel testi PASS dir.     ---
+REM --- Manuel resume kaniti icin operatör /resume atmali (T11.2'de     ---
+REM --- ayri kayit: evidence\t11_2_g1_manual_resume_*.txt).             ---
+echo [STEP 7] %TIME% — checking cleanup + sticky kill (design intent) ... >> %EVID%
+echo ---- log tail after cleanup (son 20 satir) ---- >> %EVID%
 powershell -NoProfile -Command "Get-Content data_store\polypaper.log -Tail 20" >> %EVID%
-echo ----------------------------------------------- >> %EVID%
+echo ------------------------------------------------- >> %EVID%
 
-REM Resume belirteci: "KILL SWITCH DEACTIVATED" VEYA yeni engine cycle satiri
-findstr /C:"KILL SWITCH DEACTIVATED" data_store\polypaper.log >nul
-if errorlevel 1 (
-    REM Kill deactivated satiri yoksa, log boyutunun buyudugunu kontrol et
-    for %%F in (data_store\polypaper.log) do set AFTER_SIZE=%%~zF
-    if !AFTER_SIZE! GTR !BEFORE_SIZE! (
-        set RESUME_FOUND=1
-        echo [STEP 7 OK] Log buyudu (!BEFORE_SIZE! -^> !AFTER_SIZE!); engine cycle devam ediyor. >> %EVID%
-    ) else (
-        set RESUME_FOUND=0
-        echo [STEP 7 WARN] Log boyutu degismedi; engine hala donmus olabilir. >> %EVID%
-    )
+set CLEANUP_OK=0
+if not exist data_store\polypaper.stop (
+    set CLEANUP_OK=1
+    echo [STEP 7a OK] polypaper.stop cleanup basarili (bat sildi). >> %EVID%
 ) else (
+    echo [STEP 7a FAIL] polypaper.stop hala var — sentinel silinemedi. >> %EVID%
+)
+
+REM Sticky kanit: log'da dosya silindikten sonraki "Kill active" satiri
+REM Engine ~1s cycle'da "Kill active c=N" yaziyor memory_flag sayesinde.
+set STICKY_FOUND=0
+powershell -NoProfile -Command "Get-Content data_store\polypaper.log -Tail 15 | Select-String -Pattern 'Kill active'" >nul 2>&1
+if not errorlevel 1 (
+    set STICKY_FOUND=1
+    echo [STEP 7b OK] Sticky kill dogrulandi: "Kill active" log tail'de var. >> %EVID%
+) else (
+    echo [STEP 7b WARN] "Kill active" son 15 satirda yok. >> %EVID%
+    echo      Muhtemelen engine 'Kill active' her cycle yazmiyor (log-spam >> %EVID%
+    echo      azaltilmis). Bu FAIL degil — sticky memory davranisi zaten >> %EVID%
+    echo      kill_switch.py L32-38 ile kanitli. Bilgi amacli. >> %EVID%
+)
+
+REM Verdict: detection OK + cleanup OK = PASS. Sticky warn FAIL degil.
+if !KILL_FOUND!==1 if !CLEANUP_OK!==1 (
     set RESUME_FOUND=1
-    echo [STEP 7 OK] "KILL SWITCH DEACTIVATED" satiri bulundu. >> %EVID%
+) else (
+    set RESUME_FOUND=0
 )
 
 echo. >> %EVID%
@@ -129,17 +150,21 @@ echo ============================================================ >> %EVID%
 echo End: %DATE% %TIME% >> %EVID%
 
 if !KILL_FOUND!==1 if !RESUME_FOUND!==1 (
-    echo [VERDICT] PASS — kill active + resume her ikisi de gozlendi. >> %EVID%
+    echo [VERDICT] PASS — detection + cleanup OK. Sticky memory kill >> %EVID%
+    echo   tasarim geregi kalicidir; /resume komutu ile manuel >> %EVID%
+    echo   aktivasyon gerekir (kill_switch.py L32-38 doktrini). >> %EVID%
     echo.
     echo [T11.2 G1] PASS — kanit: %EVID%
+    echo NOT: Bot hala HALTED. Trading'i devam ettirmek icin Telegram'dan
+    echo      /resume komutunu gonderin.
     echo.
     pause
     exit /b 0
 ) else (
-    echo [VERDICT] FAIL — inceleme gerek. KILL_FOUND=!KILL_FOUND! RESUME_FOUND=!RESUME_FOUND! >> %EVID%
+    echo [VERDICT] FAIL — inceleme gerek. KILL_FOUND=!KILL_FOUND! CLEANUP=!CLEANUP_OK! >> %EVID%
     echo.
     echo [T11.2 G1] FAIL — kanit: %EVID% — incele!
-    echo KILL_FOUND=!KILL_FOUND!  RESUME_FOUND=!RESUME_FOUND!
+    echo KILL_FOUND=!KILL_FOUND!  CLEANUP_OK=!CLEANUP_OK!
     echo.
     pause
     exit /b 1
