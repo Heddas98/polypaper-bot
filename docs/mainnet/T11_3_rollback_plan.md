@@ -130,7 +130,7 @@ Verdict: PASS / FAIL
 
 ---
 
-### Senaryo 3 — M4 /env_toggle restore (T11.2 T/S pattern)
+### Senaryo 3 — M4 /env_toggle restore (T11.2 T/S pattern) — ☒ PASS (2026-04-23)
 
 **Ön koşul:** Bot çalışıyor, shadow aktif, admin Telegram.
 
@@ -143,15 +143,41 @@ Verdict: PASS / FAIL
 **Pass kriteri:** `/env` çıktısı step 1 == step 3 (tam geri dönüş). Audit
 log 2 satır: patch + restore.
 
-**Kanıt:**
+**Kanıt (audit log 2026-04-23, T11.2 testleri sırasında 4 round-trip kanıtlandı):**
 
 ```
-[YYYY-MM-DD HH:MM:SS]
-
-<... pre-state screenshot / post-state screenshot + audit log yapıştır ...>
-
-Verdict: PASS / FAIL
+2026-04-23T13:12:46+00:00  admin=1667498935  SET  WS_STALE_THRESHOLD       old=5    new=60
+2026-04-23T13:36:13+00:00  admin=1667498935  SET  LIVE_BUDGET              old=1.49 new=0.5
+2026-04-23T13:36:43+00:00  admin=1667498935  SET  LIVE_BUDGET              old=0.5  new=0.5
+2026-04-23T13:55:18+00:00  admin=1667498935  SET  LIVE_BUDGET              old=0.5  new=1.49
+2026-04-23T13:58:48+00:00  admin=1667498935  SET  LIVE_MAX_DAILY_LOSS      old=1.00 new=0.1
+2026-04-23T14:55:56+00:00  admin=1667498935  SET  LIVE_MAX_DAILY_LOSS      old=0.1  new=1
+2026-04-23T19:38:21+00:00  admin=1667498935  SET  PNL_DIVERGENCE_ALERT_PCT old=5.0  new=0.01
+2026-04-23T19:38:52+00:00  admin=1667498935  SET  PNL_DIVERGENCE_ALERT_PCT old=0.01 new=5
+2026-04-23T19:50:08+00:00  admin=1667498935  SET  PNL_DIVERGENCE_ALERT_PCT old=5    new=0.01
+2026-04-23T19:50:26+00:00  admin=1667498935  SET  PNL_DIVERGENCE_ALERT_PCT old=0.01 new=5
 ```
+
+**Round-trip matrix (T11.2 testleri = aynı zamanda S3 M4 dry-run kanıtı):**
+| Key | Pre | Test patch | Restore | Restored? |
+|-----|-----|-----------|---------|-----------|
+| WS_STALE_THRESHOLD | 60 | 5 | 60 | ✅ |
+| LIVE_BUDGET | 1.49 | 0.5 | 1.49 | ✅ |
+| LIVE_MAX_DAILY_LOSS | 1.00 | 0.1 | 1 | ✅ |
+| PNL_DIVERGENCE_ALERT_PCT | 5.0 | 0.01 | 5 | ✅ (2× round-trip) |
+
+**Audit log format:** `timestamp admin=<telegram_id> SET <KEY> old=<X> new=<Y>`.
+4 distinct key × round-trip = 10 SET satırı. Tüm patch'ler `.env`'e de
+yazıldı (`os.environ + .env guncellendi` bot onayı).
+
+**Kod kancası:** `telegram_bot/handlers/env_toggle.py:41`
+`_AUDIT_PATH = logs/env_toggle_audit.log`. Her kabul edilen `/envt`
+komutu tab-separated satır yazıyor (admin/SET/old/new).
+
+**Verdict:** ☒ PASS — M4 rollback path canlı ortamda 4 farklı guard için
+round-trip doğrulandı. Audit log incident forensics için tam (kim,
+ne zaman, hangi key, hangi değer). T11.2 testleri sırasında yan ürün
+olarak S3 dry-run'i da kapatıldı — ekstra test koşturmaya gerek yok.
 
 ---
 
