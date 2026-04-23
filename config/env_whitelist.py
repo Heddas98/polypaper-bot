@@ -145,6 +145,30 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "group": "risk",
         "desc": "Rolling WR%% bunun altindaysa pause (Phase 52)",
     },
+    # ── PnL divergence monitor (T11.2 G4) ────────────────────────────────
+    # Read at runtime every 24h cycle by
+    # ``telegram_bot.jobs.pnl_divergence_job._compute_divergence_stats``
+    # plus standalone ``scripts/t11_2_g4_divergence_probe.py``. No restart
+    # needed after patch — job re-reads env on each cycle (T6.1 pattern).
+    "PNL_DIVERGENCE_ENABLED": {
+        "type": "bool", "default": "true", "group": "risk",
+        "desc": "Paper vs shadow PnL divergence job aktif mi",
+    },
+    "PNL_DIVERGENCE_WINDOW_H": {
+        "type": "float", "default": "24", "min": 1.0, "max": 168.0,
+        "group": "risk",
+        "desc": "Divergence pencere saat (look-back, max 1 hafta)",
+    },
+    "PNL_DIVERGENCE_ALERT_PCT": {
+        "type": "float", "default": "5.0", "min": 0.01, "max": 100.0,
+        "group": "risk",
+        "desc": "Divergence alert esigi %% (paper vs shadow)",
+    },
+    "PNL_DIVERGENCE_MIN_TRADES": {
+        "type": "int", "default": "5", "min": 1, "max": 1000,
+        "group": "risk",
+        "desc": "Bucket basi min trade (INSUFFICIENT gate)",
+    },
     # ── LLM rate-limit (Epic 8 T8.2) ─────────────────────────────────────
     # Read at runtime via
     # ``core.ai_brain._get_llm_ratelimit_backoff`` / ``_get_llm_ratelimit_min_cost``
