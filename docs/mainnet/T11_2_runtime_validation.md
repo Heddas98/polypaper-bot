@@ -457,7 +457,7 @@ Alert ekran görüntüsü: (pending — Seçenek B)
 
 ---
 
-## G5 — Rolling WR Kill (`ROLLING_WR_KILL`) — ☐ PASS / ☐ FAIL
+## G5 — Rolling WR Kill (`ROLLING_WR_KILL`) — ☒ PASS (2026-04-22, historical)
 
 ### Kod kancası
 
