@@ -74,59 +74,118 @@ Her senaryo için 3 aşama: **pre-state snapshot → rollback komut → post-sta
 Pass kriteri: post-state, beklenen pre-state'e matematiksel olarak eşit
 (trade count, balance, PnL, strategy status).
 
-### Senaryo 1 — M1 Git Revert (safe commit)
+### Senaryo 1 — M1 Git Revert (safe commit) — ☒ PASS (2026-04-23)
 
-**Ön koşul:** Temiz ağaç (`git status` boş), bot çalışmıyor.
+**Evidence:** `evidence/t11_3_s1_20260423_231946.txt` (gitignored)
+**Script:** `_archive/t11_3_s1_git_revert_dryrun.bat` (çift-tıklanabilir)
 
-**Adımlar:**
-1. Pre-state: `git log --oneline -5 > evidence/t11_3_s1_pre.txt`
-2. Dummy commit: `docs/test_rollback_dummy.md` yarat + commit
-3. Revert: `git revert HEAD --no-edit`
-4. Post-state: `git log --oneline -5 > evidence/t11_3_s1_post.txt`
-5. Doğrula: `git diff evidence/t11_3_s1_pre.txt evidence/t11_3_s1_post.txt`
-6. Temizlik: `git reset --hard <pre_sha>` (dummy chain'i yok say)
+**Ön koşul:** Temiz ağaç (`git status` boş), bot etkilemez.
 
-**Pass kriteri:** Post log pre log + 2 yeni satır (dummy + revert). Revert
-commit mesajı "Revert 'dummy...'" formatında.
+**Adımlar (bat otomasyonu):**
+1. Pre-state: `git diff --quiet && git diff --cached --quiet` (tracked tree clean guard)
+2. Pre-SHA kaydet: `git rev-parse HEAD` → `PRE_SHA`
+3. Dummy commit: `docs/test_rollback_dummy.md` yarat + `git add` + `git commit -m "chore(t11.3-s1): dummy commit for revert dry-run (temp)"`
+4. Revert: `git revert HEAD --no-edit`
+5. Post-state `git log --oneline -5` kaydet (dummy + revert commit'ler görünür)
+6. Dummy dosya silindi mi teyit (revert cleanup kontrolü)
+7. Cleanup: `git reset --hard <PRE_SHA>` (dummy+revert chain yok olur)
+8. `FINAL_SHA` = `PRE_SHA` doğrulama
 
-**Kanıt:**
+**Pass kriteri:** Pre SHA = Final SHA (round-trip OK). Revert commit
+mesajı "Revert 'chore(t11.3-s1)...'" formatında. Dummy dosya revert ile
+silindi.
+
+**Canlı kanıt (2026-04-23 23:19 TRT):**
 
 ```
-[YYYY-MM-DD HH:MM:SS]
+Pre SHA   : 2450d11186b95d80a9400e473cdde9918776ce8f
+Dummy SHA : 7744649b6baa25e76c2996ca6018ed70842c896b
+Revert SHA: 93e95bf7d5f06f831cfa29785ebadab40173f6dc
 
-<... dry-run kanıtı yapıştır ...>
+POST-STATE (revert sonrası, cleanup öncesi):
+93e95bf Revert "chore(t11.3-s1): dummy commit for revert dry-run (temp)"
+7744649 chore(t11.3-s1): dummy commit for revert dry-run (temp)
+2450d11 docs(t11.3): S3 /envt restore PASS -- audit log evidence
+...
 
-Verdict: PASS / FAIL
+FINAL SHA after cleanup reset = 2450d11... (PRE_SHA ile identik)
+Dummy file (docs/test_rollback_dummy.md) silindi: YES
 ```
+
+**Verdict:** ☒ PASS — Git revert + reset --hard round-trip canlı
+doğrulandı. Revert audit trail (log'da "Revert '...'" satırı) olarak
+üretilmiş, cleanup reset ile history temizlenebildi. Incident sırasında
+seçim matrisi: önce revert (audit için), sonra gerekirse reset
+(destructive cleanup).
 
 ---
 
-### Senaryo 2 — M3 rollback_sprint_2_1.py (idempotent script)
+### Senaryo 2 — M3 rollback_sprint_2_1.py (idempotent script) — ☒ PASS (2026-04-23)
 
-**Ön koşul:** Bot çalışmıyor. `scripts/rollback_sprint_2_1.py` mevcut.
+**Evidence:** `evidence/t11_3_s2_20260423_232244.txt` (gitignored)
+**Script:** `_archive/t11_3_s2_rollback_script_dryrun.bat` (çift-tıklanabilir)
+**Rollback hedef:** `scripts/rollback_sprint_2_1.py` (Phase 82e Sprint 2.1 kaldırma)
 
-**Adımlar:**
-1. Pre-state: `git log --oneline | head -3` + `grep -c "safe_create_task" core/*.py data/*.py` (sayaç)
-2. `py -3.11 scripts/rollback_sprint_2_1.py` (ilk run)
-3. Post-state-1: Aynı `grep -c` (0 olmalı) + `grep -c "asyncio.create_task" core/*.py data/*.py` (artmış olmalı)
-4. `py -3.11 scripts/rollback_sprint_2_1.py` (ikinci run — idempotency)
-5. Post-state-2: Aynı sayaçlar (değişmemiş olmalı — no-op)
-6. Restore: `git checkout -- core/ data/` (script edit'lerini geri al, production state'e dön)
+**Ön koşul:** Tracked tree clean. Bot etkilemez (Python belleğe
+yüklü kodu kullanır, disk değişikliği bir sonraki restart'a kadar etkisiz).
+
+**Adımlar (bat otomasyonu):**
+1. Pre-state: `git diff --quiet && git diff --cached --quiet`
+2. Pre-SHA kaydet
+3. **FIRST RUN**: `py -3.11 scripts/rollback_sprint_2_1.py` (stdout evidence'a)
+4. Post-first-run `git status` (modifiye dosya listesi kayıt)
+5. **SECOND RUN**: aynı script (idempotency kanıtı)
+6. Post-second-run `git status` (ilk status ile bit-identical olmalı)
+7. **RESTORE**: `git checkout -- core/ data/ telegram_bot/bot.py`
+8. Restore sonrası `git diff --quiet` (tree temiz mi)
 
 **Pass kriteri:**
-- İlk run: N file değişti (script output), safe_create_task count 0, asyncio.create_task count +N
-- İkinci run: "No changes" log, count'lar aynı
-- Restore sonrası: safe_create_task count eski haline döndü
+- İlk run: N dosya değişti, exit 0
+- İkinci run: hepsi "already reverted", exit 0 (idempotent)
+- Post-first status == Post-second status (bit-identical)
+- Restore sonrası tree clean (`git diff --quiet` OK)
 
-**Kanıt:**
+**Canlı kanıt (2026-04-23 23:22 TRT):**
 
 ```
-[YYYY-MM-DD HH:MM:SS]
+Pre SHA: 2450d11186b95d80a9400e473cdde9918776ce8f
 
-<... dry-run kanıtı yapıştır ...>
+FIRST RUN (12 dosya):
+  core/engine.py              CHANGED (3 call reverted, 1 import removed)
+  core/ai_brain.py            CHANGED (2 call, 1 import)
+  core/engine_settlement.py   CHANGED (4 call, 1 import)
+  core/keepalive.py           CHANGED (1 call, 1 import)
+  data/market_recorder.py     CHANGED (1 call, 1 import)
+  data/websocket_client.py    CHANGED (1 call, 1 import)
+  data/binance_multistream.py CHANGED (2 call, 1 import)
+  data/market_scanner.py      CHANGED (1 call, 1 import)
+  data/candle_collector.py    CHANGED (1 call, 1 import)
+  data/chainlink_oracle.py    CHANGED (1 call, 1 import)
+  data/external_feed.py       CHANGED (2 call, 1 import)
+  telegram_bot/bot.py         CHANGED (1 call, 2 imports, 1 notify block)
+  Total: 20 call reverted + 13 import removed + 1 notify block
+  Syntax check: 13/13 OK (bg_task.py dahil)
+  Exit code: 0
 
-Verdict: PASS / FAIL
+SECOND RUN (idempotency):
+  Hepsi "ok — (already reverted, no changes)"
+  Syntax check: 13/13 OK
+  Exit code: 0
+  Done: 0 file(s) reverted
+
+Post-first-run status = Post-second-run status (12 M dosya, bit-identical)
+
+RESTORE: git checkout -- core/ data/ telegram_bot/bot.py
+Post-restore status: sadece `?? BUGUN_NE_YAPACAGIM.md` (gitignored, normal)
+git diff --quiet: OK (tree clean)
 ```
+
+**Verdict:** ☒ PASS — 3 invariant canlı doğrulandı: (a) script 12
+production dosyayı safe_create_task → asyncio.create_task ve bg_task
+import temizliği ile revert etti, (b) ikinci run "already reverted"
+dönerek idempotency kanıtladı, (c) `git checkout --` ile %100 restore.
+Incident sırasında bg_task crash storm için primary rollback mekanizması.
+Bot restart dashboard'dan optik; dosya-disk ile bellek-runtime ayrışık.
 
 ---
 
