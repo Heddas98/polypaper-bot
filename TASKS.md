@@ -123,11 +123,7 @@ Hepsi sandbox'ta uygulanabilir, user PC'de zamanı olduğunda batch-onaylı aç�
 
 ### 3) 🧹 Housekeeping
 
-- [ ] **TASKS.md L810-812 arşiv** — 3 stale "Yeni İş Kuyruğu" referansı artık kapalı:
-  - Version drift (T0.2) → Epic 0 altında kapalı
-  - Engine ghost modules → Epic 1 altında kapalı
-  - engine_signals classic bypass → Epic 3 altında kapalı
-  Satırlar `## Ertelenenler` bloğuna taşınıp "ℹ️ Artık kapalı (Epic X)" notu ile etiketlenmeli.
+- [x] **TASKS.md L911-913 stale Yeni İş Kuyruğu refs** ✅ 2026-04-23 — 3 stale item `[x]` işaretlendi + kapanış Epic referansıyla etiketlendi (version drift → T0.2, ghost modules → T1.3, classic bypass → Epic 3). Detay için ilgili Epic kapanış satırları.
 
 ---
 
@@ -814,7 +810,7 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Çıktı:** `docs/mainnet/T11_1_final_audit.md` (~340 satır, 10 bölüm: exec summary + Epic 0-10 closure matrix + 7 canlı invariant + test/security baseline + outstanding backlog + 6 risk + Go/No-Go karar kriterleri + referans indeksi)
   - **Sonuç:** Bilinen mainnet bloklayan security veya test item'ı YOK. 735/8/0 test, 0 pip-audit CVE, 13 secret regex × 0 match, 0 admin-gate eksik.
   - **Koşul:** Bu rapor tek başına mainnet açmaz — T11.2 (canlı kill-switch/budget/divergence kanıtı) ve T11.3 (rollback plan dry-run) tamamlanmadan Go verilmez.
-- [ ] **T11.2** `LIVE_ENABLED=true` öncesi: kill switch, budget guard, daily loss, paper-shadow divergence monitor aktif mi — risk: HIGH
+- [x] **T11.2** ✅ **CLOSED 2026-04-23** — `LIVE_ENABLED=true` öncesi runtime guard doğrulaması tamamen kapandı. **6/6 PASS:** G1 Kill Switch (`941ec2a`) + G2 Live Budget (`c7170eb` + whitelist fix `d9a143b`) + G3 Daily Loss (`60a5efc`) + G4 PnL Divergence (`59c68d2` + whitelist fix `da11c2f`) + G5 Rolling WR Kill (historical) + G6 WS Stale (`cf16954`). Full closure commit `93e1d91`. Memory: `project_t11_2_full_closure.md`. Canlı ALERT branch (G2/G3/G4) 48h shadow run backlog — mainnet blocker DEĞİL. Detay: bkz. üst bölümdeki T11.2 closure banner.
   - **Şablon (sandbox'ta hazır):** `docs/mainnet/T11_2_runtime_validation.md` (~435 satır) — 6 guard (G1 Kill Switch / G2 Budget Guard / G3 Daily Loss / G4 PnL Divergence / G5 Rolling WR Kill / G6 WS Stale) × her biri için kod kancası ref (file:line) + tetikleme prosedürü (Seçenek A/B/C) + beklenen davranış + kanıt slotu (log satır + Telegram ekran görüntüsü + timestamp).
   - **Gerekli runtime kanıt (T11.1 Bölüm 8 referansı):** `/stop_all` force-settle + yeni trade block, `LIVE_BUDGET` cap guard, `LIVE_MAX_DAILY_LOSS` tetiklenme, paper-shadow divergence alert, `ROLLING_WR_KILL` auto-pause, `WS_STALE_SEC` fresh>stale block.
   - **Windows prosedürü:** `.env` + `/env_toggle` ile her guard ayrı ayrı tetiklenir (gerçek emir yok — `LIVE_ENABLED=false` kalır). Her G# başlığında `☐ PASS / ☐ FAIL` kutusu + kanıt dolduruldukça işaretlenir. 6/6 ✅ → T11.2 kapanır.
@@ -840,8 +836,8 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
     - Kanıt çıktıları `docs/mainnet/T11_2_runtime_validation.md` G4/G5 slot'larına paste edildi.
     - **wmic→PowerShell fix:** Windows 11'de wmic kaldırıldığı için bat timestamp'i bozuktu (`~0,8DT`). `Get-Date -Format 'yyyyMMdd_HHmmss'` pattern'ine migrate edildi (run + G1 bat).
     - **Kapanan:** G4 PARTIAL + G5 PASS = 2/6. Kalan G1/G2/G3/G6 canlı bot uptime + Telegram gerektirir (user Windows-only).
-- [ ] **T11.3** Rollback planı (`rollback_*.bat` hangisi canlı) — risk: HIGH
-  - **Gerekli:** `rollback_*.bat` envanteri + senaryo → .bat karar matrisi + dry-run kanıtı. `data/` gitignored sync yolu dokümante edilmiş olmalı (T10.5 fix Windows'a manuel kopya hâlâ bekliyor → SYNC.1).
+- [x] **T11.3** ✅ **CLOSED 2026-04-23** — Rollback Plan Dry-Run 4/4 PASS. S1 git revert (`498918b`) + S2 rollback_sprint_2_1.py idempotent (`498918b`) + S3 `/envt` audit log (T11.2 yan ürünü, `2450d11`) + S4 DB snapshot restore (Apr 19 sağlam backup). Full closure commit `3405d08`. Memory: `project_t11_3_closure.md`. **Bulgu B FIX kapandı (`35ae7d0`):** `daily_db_snapshot_job` atomic rename + ghost cleanup + 5/5 test PASS — yeni snapshot yazımları atomic, corrupt backup riski sıfırlandı. Detay: bkz. üst bölümdeki T11.3 closure banner.
+  - **T11.3 post-audit Bulgu A (LOW, mainnet blocker DEĞİL):** `docs/DEPLOYMENT.md:115` "rollback.bat" ghost referansı — kök dizinde `rollback.bat` yok. Fix: (a) `rollback.bat` yaz (git revert + service restart wrapper), veya (b) referansı `scripts/rollback_sprint_2_1.py` + `git revert HEAD` açıklamasına yönlendir. Dokümantasyon temizliği.
 - [ ] **T11.4** Coverage CI gate + pre-commit hook — risk: LOW *(Epic 9 post-audit'ten)*
   - GitHub Actions (veya local `pre-commit-config.yaml`): `core/` coverage < 60% → CI fail. Eşik başlangıçta `21.2%` baseline, her PR'da düşüşe izin verme (ratchet).
   - Yeni `core/` fonksiyon + test yoksa → warning; 30 gün sonra hard fail.
@@ -908,9 +904,9 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 
 *(ilk tarama sırasında bulunan ek konular)*
 
-- [ ] Version drift: `config/settings.py:142` vs `telegram_bot/version.py:7` — Epic 0'a alındı (T0.2)
-- [ ] `core/engine.py:204-290` → 4 ghost modül silent-fail — Epic 1'e alındı
-- [ ] `core/engine_signals.py` 9 farklı "classic bypass" — Epic 3'e alındı
+- [x] Version drift: `config/settings.py:142` vs `telegram_bot/version.py:7` → ✅ Epic 0 T0.2 altında kapatıldı (2026-04-20)
+- [x] `core/engine.py:204-290` → 4 ghost modül silent-fail → ✅ Epic 1 T1.1-T1.3 altında kapatıldı (2026-04-20, 16 ghost modül purge + `_archive/sprint4_modules/` silindi)
+- [x] `core/engine_signals.py` 9 farklı "classic bypass" → ✅ Epic 3 altında kapatıldı (2026-04-20, bypass haritası + RiskManager check_trade doğrulaması + docstring fix)
 - [x] `core/` altında 341 bare except — **3 faza bölündü (2026-04-20, T1.3 sonrası 284 blok):**
   - **Faz 1 ✅ TAMAMLANDI 2026-04-20** (65 → 17 bare, T1.4 Epic 1 altında): `live_trader.py` (16→7), `engine_settlement.py` (28→8), `engine_fills.py` (12→2), `risk_manager.py` (9→0). Bonus: 30 satır dead code (2 ghost orphan pattern) silindi, 19 debug log upgrade, 4 dosya py_compile + AST temiz.
   - Faz 2 (123 blok, HIGH): Epic 8 T8.1 altında (ai_brain + engine_signals + engine) — bağımlılık: Faz 1 ✅
