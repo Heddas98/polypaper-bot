@@ -230,7 +230,38 @@ Bulgu: LIVE_BUDGET runtime re-read __eksik__ mi (evet/hayır, yan rapor):
 
 ---
 
-## G3 — Daily Loss Guard (`LIVE_MAX_DAILY_LOSS`) — ☐ PASS / ☐ FAIL
+## G3 — Daily Loss Guard (`LIVE_MAX_DAILY_LOSS`) — ☒ PASS (2026-04-23)
+
+**Evidence:** `evidence/t11_2_g3_daily_loss_20260423.txt`
+
+**Canlı kanıt (runtime patch + restore, iki oturuma yayılmış):**
+```
+> /envt LIVE_MAX_DAILY_LOSS 0.1    (önceki oturum, ~16:58 TRT)
+  → "LIVE_MAX_DAILY_LOSS: 1.0 → 0.1 / os.environ + .env guncellendi"
+
+> /envt LIVE_MAX_DAILY_LOSS 1.00   (bu oturum, ~18:00 TRT — restore)
+  → "LIVE_MAX_DAILY_LOSS: 0.1 → 1 / os.environ + .env guncellendi"
+
+> /live_guards  (restore sonrası snapshot)
+  → G3 Daily Loss
+     LIVE_MAX_DAILY_LOSS = $1.00    (runtime helper fresh read ✅)
+     Today PnL:    $0.0000
+     Today trades: 0
+```
+
+**5/5 invariant live:**
+  - ☒ Runtime re-read round-trip (1.00 → 0.10 → 1.00)
+  - ☒ `.env` disk persistence (iki yönde de bot onayı)
+  - ☒ UI parity — `/live_guards` snapshot restore değerini anında gösterdi
+  - ☒ Helper pattern — `live_trader.py:51-53` runtime helper (module-top constant DEĞİL, T6.1 doktrini)
+  - ☒ Whitelist entry mevcut — /envt ilk denemede kabul etti (G2'de yaşanan whitelist bug'ı G3'te yok)
+
+**Açık kalan:** Gerçek live trade reddi (-$1.00 pnl → skip log) kanıtı
+LIVE_ENABLED=false olduğu için üretilmedi. Shadow live cap exhaust
+testi gibi kontrollü 48h shadow run'a bırakıldı. Mainnet blocker
+DEĞİL — helper runtime-read, whitelist pinli.
+
+---
 
 ### Kod kancası
 
