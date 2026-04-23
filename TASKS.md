@@ -43,8 +43,8 @@ T11.2 kapanışı için hâlâ canlı kanıt bekleyen guard'lar. Yeni `/live_gua
 - [ ] **T11.2 G3 Daily Loss halt** — shadow mirror loss streak + `/envt LIVE_MAX_DAILY_LOSS 0.10` → halt log + `/live_guards` `halted=true` görünmesi.
 - [ ] **T11.2 G6 WS Stale skip** — `/envt WS_STALE_THRESHOLD 5` + WS disable/pause → stale_price skip log + `/live_guards` ws_age > threshold rendering.
 - [ ] **T11.3 Rollback dry-run** — `docs/mainnet/T11_3_rollback_plan.md` senaryolarını gerçek Windows ortamında test (ENV rollback + killswitch sentinel + process teardown).
-- [ ] **SYNC.1** — `data/websocket_client.py` sandbox→Windows kopya (T10.5 malformed entry guard + [C] WS_STALE_SEC legacy fallback).
-- [ ] **SYNC.2** — `data/market_scanner.py` sandbox→Windows kopya (gitignored runtime sync).
+- [x] **SYNC.1** ✅ 2026-04-23 — `data/websocket_client.py` Cowork live mount ile zaten senkron (L401 T10.5 narrow except + [C] WS_STALE_SEC fallback doğrulandı).
+- [x] **SYNC.2** ✅ 2026-04-23 — `data/market_scanner.py` Cowork live mount ile zaten senkron (L226 "Scanner pruned" log doğrulandı).
 - [ ] **T4.5** — Empirical slippage calibration (trade_log_sim vs gerçek fill delta, 24h kanıt).
 - [ ] **T4.6** — Simülatör↔gerçek PnL parity smoke (Single Fee Oracle identity × 3 trade class).
 - [ ] **T4.7** — REST RTT 24h telemetry calibration (`REST_TIMING_ENABLED=true` + grafana-free csv dump).
@@ -832,8 +832,8 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 
 | ID | Task | Fix Kaynağı | Sandbox Yolu | Hedef (Windows) | Durum |
 |---|---|---|---|---|---|
-| SYNC.1 | `data/websocket_client.py` kopyala | T5.4 Fix A + T5.6 Fix A/B/C + **T10.5 narrow except** | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/websocket_client.py` | `data/websocket_client.py` | ⏳ manuel bekliyor |
-| SYNC.2 | `data/market_scanner.py` kopyala | T5.6 Fix A (prune wiring) | `/sessions/happy-confident-cannon/mnt/Polyscout31/data/market_scanner.py` | `data/market_scanner.py` | ⏳ manuel bekliyor |
+| SYNC.1 | `data/websocket_client.py` | T5.4 Fix A + T5.6 Fix A/B/C + **T10.5 narrow except** + **[C] WS_STALE_SEC fallback** | `data/websocket_client.py` | `data/websocket_client.py` | ✅ 2026-04-23 Cowork live mount (L401 narrow except + L459 return None doğrulandı) |
+| SYNC.2 | `data/market_scanner.py` | T5.6 Fix A (prune wiring) | `data/market_scanner.py` | `data/market_scanner.py` | ✅ 2026-04-23 Cowork live mount (L226 "Scanner pruned" log doğrulandı) |
 
 **Doğrulama adımları (Windows'ta):**
 1. İki dosyayı kopyala
