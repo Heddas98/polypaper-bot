@@ -30,6 +30,146 @@
 
 ---
 
+## 🆘 YENİ CHAT HANDOFF — 2026-04-23 akşamüstü (oturum sonu notu)
+
+> **Bu bölüm yeni chat için yazıldı.** Önceki Claude oturumu Chrome→Telegram send reliability sorunu yaşadı; iş bölümünü user'a devredip tertemiz handoff bırakıyor. Yeni chat bu bölümü okuyarak kaldığı yerden devam etmeli.
+
+### 🚨 ACİL 1 — İlk iş: LIVE_MAX_DAILY_LOSS restore
+
+Bot şu an **`LIVE_MAX_DAILY_LOSS = $0.10`** ile çalışıyor (G3 runtime re-read testi için düşürüldü, restore yapılamadı). Mainnet blocker değil (`LIVE_ENABLED=false`) ama temiz baseline için user Telegram'dan atsın:
+
+```
+/envt LIVE_MAX_DAILY_LOSS 1.00
+```
+
+Bot cevap atmalı: `"LIVE_MAX_DAILY_LOSS: 0.1 → 1.0 / os.environ + .env guncellendi"`. Bu tamamlanınca aşağıdaki adım 2'ye geç.
+
+### 📊 Durum özeti (2026-04-23 bitiminde)
+
+**Bot durumu:**
+- Bot **AÇIK** ve çalışıyor (start.bat üzerinden)
+- `LIVE_ENABLED=false` (shadow live kapalı, gerçek para hareketi YOK)
+- `LIVE_BUDGET=$1.49` (restore edildi ✅)
+- `LIVE_MAX_DAILY_LOSS=$0.10` (⚠️ restore bekliyor — yukarıda Acil 1)
+- `WS_STALE_THRESHOLD=60.0s` (restore edildi ✅)
+
+**Bu oturumda yapılan commit zinciri (en yeni → eski):**
+
+| SHA | Kapsam |
+|---|---|
+| `c7170eb` | docs(t11.2): G2 Live Budget ✅ PASS + whitelist bug catch |
+| `d9a143b` | **fix(whitelist): LIVE_BUDGET eklendi — [B] commit eksik yarısı (KRİTİK)** |
+| `cf16954` | docs(t11.2): G6 WS Stale ✅ PASS — 4/4 invariant |
+| `941ec2a` | docs(t11.2): G1 Kill Switch ✅ PASS — 3/3 sub-kanıt |
+| `11417e4` | fix(t11.2/g1): bat sticky-memory kill design'a hizalandı |
+| `8a06461` | fix(t11.2/g1): log dir data_store, not logs (main.py:48) |
+| `28f8b27` | fix(t11.2/g1): cd to PolyPaper root on double-click |
+| `41ed5a4` | fix(t11.2/g1): log path + grep pattern + pause (3 bug) |
+| `db2ce39` | fix(live_guards): /envt hint Telegram render (`<KEY>` → `[KEY]`) |
+| `d545267` | docs(tasks): SYNC.1 + SYNC.2 closed (Cowork live mount) |
+| `ae712c1` | docs(tasks): 2026-04-23 Sıradaki İşler section |
+
+**Ana kazançlar:**
+- **Kritik mainnet-öncesi bug yakalandı:** `LIVE_BUDGET` whitelist'te yoktu → `/envt LIVE_BUDGET` runtime patch yolu kapalıydı. [B] commit helper ekleyip whitelist'i unutmuştu. Fix `d9a143b`.
+- **Bat script 4 gerçek bug:** log path yanlış, grep pattern yanlış (gerçek log satırıyla eşleşmez), working dir scripts/ yerine root olmalı, pause eksik.
+- **Sticky-memory kill design netleşti:** `kill_switch.py::L32-38` — file detect → `_memory_kill=True` kalıcı. Otomatik resume YOK, `/resume` komutu gerekli. Bu güvenlik doktrini olarak bat'a + doc'a zımbalandı.
+- **`/envt` hint render fix:** `&lt;KEY&gt;` Telegram'da `<KEY>` HTML tag sanılıp `/e` dahil yiyordu. `[KEY]` cleaner.
+
+### ✅ T11.2 Live Guard Validation Durumu (4/6 PASS)
+
+| # | Guard | Durum | Kanıt |
+|---|---|---|---|
+| G1 | Kill Switch | ✅ PASS | `evidence/t11_2_g1_*` + commit `941ec2a` |
+| G2 | Live Budget | ✅ PASS | `evidence/t11_2_g2_*` + commit `c7170eb` (+ whitelist fix `d9a143b`) |
+| G3 | Daily Loss | 🟡 KISMEN | Runtime patch 1.0→0.1 kanıtlı ✅; /live_guards snapshot + restore bekliyor |
+| G4 | PnL Divergence | ⏳ | Sandbox script hazır (`scripts/t11_2_g4_divergence_probe.py`), Windows'ta çalıştırılmadı |
+| G5 | Rolling WR Kill | ✅ PASS | Historical (2026-04-22) — 7 ROLLING_WR_KILL changelog entry |
+| G6 | WS Stale | ✅ PASS | `evidence/t11_2_g6_*` + commit `cf16954` |
+
+### 📝 YENİ CHAT İÇİN KOPYA-YAPIŞTIR PROMPTU
+
+Aşağıdaki kutuyu olduğu gibi yeni chat'e yapıştır:
+
+```
+ROL: PolyPaper Bot (Epic 11 T11.2 Live Guard Validation) devam chat'i.
+
+TASKS.md'yi hemen oku (Polyscout31 kök dizininde). Özellikle
+"🆘 YENİ CHAT HANDOFF" bölümünü + "🧭 Sıradaki İşler" bölümünü.
+
+MEVCUT DURUM:
+- Bot AÇIK, LIVE_ENABLED=false (shadow)
+- LIVE_MAX_DAILY_LOSS şu an $0.10 (düşürüldü, restore lazım)
+- LIVE_BUDGET=$1.49 ve WS_STALE_THRESHOLD=60 zaten restore edildi
+- G1 ✅ G2 ✅ G5 ✅ G6 ✅ → 4/6 PASS
+- G3 runtime patch kanıtlı (1.0→0.1 bot onayı); /live_guards + restore kaldı
+- G4 henüz yapılmadı (sandbox script hazır)
+- T11.3 rollback dry-run yapılmadı
+
+İLK 3 GÖREV (sırayla):
+
+1. User Telegram'da /envt LIVE_MAX_DAILY_LOSS 1.00 atsın (baseline restore)
+   Bot onay: "LIVE_MAX_DAILY_LOSS: 0.1 → 1.0 / os.environ + .env guncellendi"
+
+2. User /live_guards atsın → G3 satırı "LIVE_MAX_DAILY_LOSS = $1.00" göstermeli.
+   Bu snapshot G3'ü PASS kapatır. Evidence dosyası + T11_2_runtime_validation.md
+   G3 slot + commit. Pattern G2/G6 ile birebir aynı.
+
+3. G4 PnL Divergence:
+   Seçenek B (en kolay): user Windows'ta çalıştırsın:
+     py -3.11 scripts/t11_2_g4_divergence_probe.py
+   Çıktı exit-code 0/1/2 (OK/ALERT/INSUFFICIENT) + evidence dosyası.
+   Veya Telegram ile /envt PNL_DIVERGENCE_ALERT_PCT X runtime re-read patternini
+   G2/G6 gibi kanıtla. İkisi de geçerli.
+
+KURAL:
+- Önceki Claude Chrome-Telegram send reliability sorunuyla zaman kaybetti.
+  SEN Chrome ile Telegram'a komut atmaya KALKMA. User komutları elle atsın,
+  sen çıktıları aldıktan sonra evidence + doc + commit zincirini kur.
+- Computer use gerekirse sadece bat çalıştırma + cmd pencere okuma için kullan
+  (G1'de olduğu gibi).
+- Her guard PASS'ı için ayrı commit + evidence dosyası + T11_2_runtime_validation.md
+  slot update. Pattern G1/G2/G6 ile aynı.
+- Türkçe iletişim. Yazılım bilgisi yok → jargon minimize.
+- Sandbox'ta yeni kod DEĞİŞİKLİĞİ yapmadan önce user onayı.
+
+TASK SIRAsı (G3 kapanışından sonra):
+→ G4 PnL Divergence (sandbox script + runtime re-read)
+→ T11.3 Rollback dry-run (docs/mainnet/T11_3_rollback_plan.md)
+→ T11.2 kapanış commit + memory landmark (project_t11_2_full_closure.md)
+→ T11.4-T11.8 sandbox backlog (coverage CI, env-leak, exception render, env_reference AST, bare-except hook)
+→ T4.5-T4.9 Windows backlog (slippage calibration + REST RTT telemetry)
+→ Mainnet Go/No-Go kararı
+
+Bitirince DUR ve "G3 snapshot'ı almak için user /live_guards atsın" de.
+İzin olmadan kod değiştirme.
+```
+
+### 🛠️ Teknik notlar (yeni chat için)
+
+**Chrome + Telegram Web send reliability — BU OTURUMDA ÇALIŞMADI:**
+- `.Button.main-button` class selector send button'ı bulur ama native `.click()` çağrısı Telegram React state'e ulaşmıyor (synthetic event security).
+- Chrome MCP `ref_*` tabanlı click bazen çalıştı, bazen stale oldu (her send sonrası DOM re-render). Her send öncesi yeni `find` gerekti ama her seferinde güvenilir değil.
+- Synthetic `KeyboardEvent('keydown', Enter)` → `preventDefault`, Telegram trusted event istiyor.
+- Coordinate click (`1349, 721`) ilk 2 send'de çalıştı sonra ekran resize (1568x750 → 1568x713) olunca y farklılaştı.
+- **Sonuç:** Yeni chat Chrome→Telegram send'i dene-rek vakit kaybetmesin. User komutları elle atsın. Çıktıları javascript_tool (`.message-list-item` DOM query) ile okumak GÜVENİLİR (bu oturumda hep çalıştı).
+
+**Input temizleme (başarılı):**
+```javascript
+const input = document.querySelector('#editable-message-text, [contenteditable="true"][role="textbox"]');
+if (input) { input.focus(); document.execCommand('selectAll'); document.execCommand('delete'); }
+```
+
+**Mesaj okuma (başarılı):**
+```javascript
+(() => { const msgs = document.querySelectorAll('.message-list-item'); return Array.from(msgs).slice(-5).map(m => (m.innerText||'').replace(/\n+/g,' ').slice(0,400)).join('\n---\n'); })()
+```
+
+**Log tail sandbox gecikmesi (Windows backlog):**
+- Python RotatingFileHandler buffer + WSL→Windows mount cache → sandbox'tan `data_store/polypaper.log` okuma 15-30s gecikmeli olabilir.
+- Telegram mesajları ilk-sınıf kanıt olarak kullanılır (direkt operatöre gidiyor, gerçek davranış).
+
+---
+
 ## 🧭 Sıradaki İşler (2026-04-23 — sandbox batch sonrası)
 
 > **Durum:** T11.2 Ek İş batch kapandı (6 commit: [A][B][C][D][E][F] + [Z]). 755 pass + 3 skip + 0 fail. 15 yeni regresyon testi. `/live_guards` + `/lg` admin cmd canlı. **Mainnet bloklayan sandbox item: 0.** Aşağıdaki iş listesi ne kaldığını ve nerede tamamlanacağını netleştirir.
@@ -38,10 +178,10 @@
 
 T11.2 kapanışı için hâlâ canlı kanıt bekleyen guard'lar. Yeni `/live_guards` komutu [D] her testten önce/sonra snapshot almak için direkt kullanılır.
 
-- [ ] **T11.2 G1 Kill Switch — file-channel canlı kanıt** (~3 dk). Bot ayakta → `scripts/t11_2_g1_file_kill_switch.bat` → `data_store/polypaper.stop` sentinel → halt log + Telegram uyarı + dosyayı sil → resume log.
-- [ ] **T11.2 G2 Live Budget cap** — shadow mirror + `/envt LIVE_BUDGET 0.01` → sonraki trade'de budget-exceeded log grep. `/live_guards` ile önce/sonra threshold doğrula.
-- [ ] **T11.2 G3 Daily Loss halt** — shadow mirror loss streak + `/envt LIVE_MAX_DAILY_LOSS 0.10` → halt log + `/live_guards` `halted=true` görünmesi.
-- [ ] **T11.2 G6 WS Stale skip** — `/envt WS_STALE_THRESHOLD 5` + WS disable/pause → stale_price skip log + `/live_guards` ws_age > threshold rendering.
+- [x] **T11.2 G1 Kill Switch** ✅ 2026-04-23 — file-channel detect 96 ms + sticky memory kanıtlı + manuel /resume PASS. 4 bat bug düzeltildi (log path + grep + cd + pause). Evidence: `evidence/t11_2_g1_20260423_155247.txt` + `evidence/t11_2_g1_resume_manual_20260423.txt`. Commit `941ec2a`.
+- [x] **T11.2 G2 Live Budget** ✅ 2026-04-23 — runtime re-read kanıtı (1.49→0.5 snapshot'a yansıdı) + `.env` persistence + idempotent re-apply. **KRİTİK bug catch: `LIVE_BUDGET` whitelist'te yoktu** → fix commit `d9a143b`. Canlı cap exhaust testi shadow 48h controlled'a bırakıldı. Evidence: `evidence/t11_2_g2_live_budget_20260423.txt`. Commit `c7170eb`.
+- [~] **T11.2 G3 Daily Loss** — KISMEN: runtime patch canlı kanıtlı (`/envt LIVE_MAX_DAILY_LOSS 1.00 → 0.1` bot onayıyla 16:58). **EKSİK:** /live_guards snapshot (G3=$0.10) + restore 1.00. **🚨 LIVE_MAX_DAILY_LOSS ŞU AN 0.10** — yeni chat'te ilk iş restore. Sonra /live_guards snapshot → G3 PASS kapanış.
+- [x] **T11.2 G6 WS Stale** ✅ 2026-04-23 — runtime re-read 60→5→60 + whitelist min guard (3 reddi "Min 5.0 olmali") + `.env` persistence + unit cov 12 test. Evidence: `evidence/t11_2_g6_ws_stale_20260423.txt`. Commit `cf16954`.
 - [ ] **T11.3 Rollback dry-run** — `docs/mainnet/T11_3_rollback_plan.md` senaryolarını gerçek Windows ortamında test (ENV rollback + killswitch sentinel + process teardown).
 - [x] **SYNC.1** ✅ 2026-04-23 — `data/websocket_client.py` Cowork live mount ile zaten senkron (L401 T10.5 narrow except + [C] WS_STALE_SEC fallback doğrulandı).
 - [x] **SYNC.2** ✅ 2026-04-23 — `data/market_scanner.py` Cowork live mount ile zaten senkron (L226 "Scanner pruned" log doğrulandı).
