@@ -75,8 +75,10 @@ class EventMonitor:
             else:
                 logger.debug(f"Event calendar not found: {self._path}")
                 self._events = []
-        except Exception as e:
-            logger.warning(f"Event calendar load error: {e}")
+        except (OSError, json.JSONDecodeError, AttributeError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. File I/O
+            # (OSError) + malformed JSON + .get() on non-dict surface here.
+            logger.warning(f"Event calendar load: {type(e).__name__}: {e}")
             self._events = []
 
     def get_active_event(self) -> Optional[EventAlert]:
@@ -121,7 +123,10 @@ class EventMonitor:
                     # Keep highest severity
                     if best is None or alert.severity > best.severity:
                         best = alert
-            except Exception:
+            except (KeyError, TypeError, ValueError, AttributeError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. Per-event
+                # parse: bad ISO datetime (ValueError), missing key (KeyError),
+                # non-dict (AttributeError on .get), float() (TypeError).
                 continue
 
         return best
@@ -148,6 +153,8 @@ class EventMonitor:
                         "impact": ev.get("impact"),
                         "type": ev.get("type"),
                     })
-            except Exception:
+            except (KeyError, TypeError, ValueError, AttributeError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. Same
+                # parse-failure surface as get_active_event() above.
                 continue
         return sorted(result, key=lambda x: x["hours_until"])

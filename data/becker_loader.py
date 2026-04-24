@@ -83,7 +83,9 @@ def is_dataset_present() -> bool:
         return False
     try:
         return any(kalshi_trades.glob("*.parquet"))
-    except Exception:
+    except OSError:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Path.glob() can
+        # raise OSError on permission errors / removed mount.
         return False
 
 
@@ -105,7 +107,9 @@ def _count_parquet(root: Path) -> int:
         return 0
     try:
         return sum(1 for _ in root.rglob("*.parquet"))
-    except Exception:
+    except OSError:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Path.rglob() can
+        # raise OSError when traversing a removed/permission-denied subtree.
         return 0
 
 
@@ -139,7 +143,11 @@ class BeckerLoader:
             logger.info(line)
             try:
                 print(line, flush=True)
-            except Exception:
+            except (OSError, ValueError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. print()
+                # raises OSError on closed/broken pipe and ValueError when the
+                # underlying stream is detached. Silent swallow keeps the
+                # build progressing even if Telegram launcher closes stdout.
                 pass
 
         if not is_dataset_present():
@@ -420,7 +428,14 @@ class BeckerLoader:
             else:
                 logger.warning(f"becker: unknown calibration source {source!r}")
                 return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T11.8-B (2026-04-24): bare Exception kept on purpose. DuckDB
+            # raises ~12 distinct typed exceptions (CatalogException,
+            # BinderException, IOException, ConversionException, ...) all
+            # subclassed off duckdb.Error which would require a duckdb-specific
+            # import. We string-match "does not exist" to detect the missing-
+            # table happy path; other failures fall through to error log. Wide
+            # catch is acceptable here because path is read-only diagnostic.
             # Phase 57: downgrade to warning — missing poly_crypto table is
             # expected when BECKER_SKIP_POLY=1 or dataset not built yet.
             if "does not exist" in str(e):
