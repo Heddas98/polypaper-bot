@@ -81,7 +81,11 @@ class PolymarketClient:
                     await asyncio.sleep(wait)
                     continue
                 return r
-            except Exception:
+            except (httpx.HTTPError, asyncio.TimeoutError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. httpx
+                # raises HTTPError (base of TimeoutException/ConnectError/
+                # NetworkError); asyncio.TimeoutError covers older asyncio
+                # cancellation. Return None lets caller fall back gracefully.
                 return None
         return None  # exhausted retries
 
@@ -242,7 +246,11 @@ class PolymarketClient:
                 events.extend(batch)
                 if len(batch) < 50:
                     break
-            except Exception:
+            except (httpx.HTTPError, asyncio.TimeoutError,
+                    json.JSONDecodeError, ValueError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. httpx
+                # request errors + r.json() parse failures end the pagination
+                # loop early. We keep partial `events` already collected.
                 break
         self._events_cache = events
         self._events_ts = now
@@ -274,8 +282,14 @@ class PolymarketClient:
                 asks.sort(key=lambda x: x[0])      # low → high
                 bids.sort(key=lambda x: -x[0])      # high → low
                 return {"asks": asks, "bids": bids}
-        except Exception as e:
-            logger.debug(f"Orderbook fetch failed: {e}")
+        except (httpx.HTTPError, asyncio.TimeoutError,
+                json.JSONDecodeError, ValueError, TypeError,
+                AttributeError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. httpx network
+            # errors + JSON parse + float() coercion of dict-shape responses
+            # surface here. Debug-log + None return is intentional (orderbook
+            # fetch is best-effort, fill simulator falls back to point fill).
+            logger.debug(f"Orderbook fetch: {type(e).__name__}: {e}")
         return None
 
     def calculate_vwap_fill(self, orderbook: dict, side: str, amount_usd: float) -> Optional[dict]:
@@ -389,8 +403,15 @@ class PolymarketClient:
                     return "up"
                 if p0 <= 0.01:
                     return "down"
-        except Exception as e:
-            logger.debug(f"check_market_resolved({slug}): {e}")
+        except (httpx.HTTPError, asyncio.TimeoutError,
+                json.JSONDecodeError, ValueError, TypeError,
+                AttributeError, KeyError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Wraps full
+            # gamma fetch + dict/list parse + outcome list iteration. Inner
+            # try blocks already narrow individual coercion failures; outer
+            # catch is the network/shape guard.
+            logger.debug(f"check_market_resolved({slug}): "
+                         f"{type(e).__name__}: {e}")
         return None
 
     async def get_resolution_price(self, token_id: str) -> Optional[float]:
@@ -432,7 +453,11 @@ class PolymarketClient:
             async with time_call("clob.time"):
                 r = await self._client.get(f"{self.CLOB_BASE}/time", timeout=5.0)
             return int(r.text) if r.status_code == 200 else int(datetime.now(timezone.utc).timestamp())
-        except Exception:
+        except (httpx.HTTPError, asyncio.TimeoutError,
+                ValueError, AttributeError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. httpx
+            # transport errors + int(r.text) ValueError + r.text on unset
+            # response (AttributeError). Local time fallback is correct.
             return int(datetime.now(timezone.utc).timestamp())
 
     def _extract_token_ids(self, market):
@@ -485,5 +510,9 @@ class PolymarketClient:
                 r = await self._client.get(f"{self.CLOB_BASE}/prices-history",
                                            params={"market": token_id, "interval": interval, "fidelity": fidelity}, timeout=4.0)
             return r.json().get("history", []) if r.status_code == 200 else []
-        except Exception:
+        except (httpx.HTTPError, asyncio.TimeoutError,
+                json.JSONDecodeError, ValueError, AttributeError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. httpx
+            # transport + .json() parse + .get() on non-dict surface here.
+            # Empty list is a valid signal-fusion fallback.
             return []
