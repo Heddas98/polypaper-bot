@@ -41,6 +41,17 @@ PROD_PREFIXES = ("core/", "data/", "telegram_bot/", "db/", "calibration/",
 OUTPUT = REPO_ROOT / "docs" / "env_reference.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
+# Windows cp1252 default stdout cannot print UTF-8 emoji (e.g. checkmark).
+# Reconfigure stdout/stderr to UTF-8 so --stdout mode works on Windows.
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in (
+    "utf-8", "utf_8", "u8"
+):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
+
 
 @dataclass
 class EnvUse:
