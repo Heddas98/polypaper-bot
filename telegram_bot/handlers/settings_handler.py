@@ -2,8 +2,10 @@
 PolyPaper Bot - /settings Handler
 Notification preferences matching Polyscout's settings view.
 """
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 from db.database import Database
@@ -121,8 +123,12 @@ async def toggle_notification_callback(update: Update, context: ContextTypes.DEF
             parse_mode="HTML",
             reply_markup=keyboard,
         )
-    except Exception:
-        pass  # Ignore if message hasn't changed
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. edit_message_
+        # caption raises BadRequest "message is not modified" when caption
+        # identical to previous; TelegramError covers other transport issues.
+        # Silent swallow is correct — toggle UI tolerates no-op edits.
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════

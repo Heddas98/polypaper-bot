@@ -17,6 +17,7 @@ Shows:
 """
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram_bot.handlers._exc_render import render_user_exception
 from telegram_bot.templates.safe_html import esc
 import logging
 
@@ -80,9 +81,15 @@ async def ev_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(text, parse_mode="HTML")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost handler wrapper intentionally wide.
+        # EVTracker touches DB + analytic math + telegram — wide catch + T11.6
+        # render policy to avoid leaking internal state to user.
         logger.error(f"/ev_stats failed: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ EV stats hatası"),
+            parse_mode="HTML",
+        )
 
 
 async def ev_stats_strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -162,6 +169,11 @@ async def ev_stats_strategy_command(update: Update, context: ContextTypes.DEFAUL
 
         await update.message.reply_text(text, parse_mode="HTML")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): same outer-wrapper doctrine as ev_stats_command.
+        # Per-strategy lookup + EVTracker chain.
         logger.error(f"/ev_stats_detail failed: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ EV stats hatası"),
+            parse_mode="HTML",
+        )

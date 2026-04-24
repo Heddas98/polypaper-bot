@@ -41,7 +41,10 @@ def _fmt_ts(ts_ms: int) -> str:
         return datetime.fromtimestamp(
             ts_ms / 1000, tz=timezone.utc
         ).strftime("%Y-%m-%d %H:%M UTC")
-    except Exception:
+    except (ValueError, TypeError, OverflowError, OSError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. fromtimestamp
+        # raises ValueError (out of range), TypeError (non-numeric), and
+        # OSError on platforms with 32-bit time_t. Fallback to raw int.
         return str(ts_ms)
 
 

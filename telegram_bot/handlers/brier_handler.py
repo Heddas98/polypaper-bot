@@ -14,6 +14,8 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from telegram_bot.handlers._exc_render import render_user_exception
+
 logger = logging.getLogger("polypaper.handler.brier")
 
 
@@ -40,6 +42,13 @@ async def brier_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = tracker.format_report(report)
 
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost handler wrapper intentionally wide.
+        # Brier report touches DB + tracker format + telegram send — wide
+        # catch + render_user_exception (T11.6 policy). exc_info=True to
+        # preserve full trace for operator.
         logger.error(f"/brier failed: {e}", exc_info=True)
-        await update.message.reply_text(f"Brier error: {e}")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ Brier error"),
+            parse_mode="HTML",
+        )

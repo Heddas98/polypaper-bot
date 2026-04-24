@@ -116,7 +116,10 @@ def _format_change_compact(old_v: str, new_v: str) -> str:
                     n = round(n, 4)
                 changes.append(f"{k}:{o}→{n}")
         return ", ".join(changes)
-    except Exception:
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. JSON parse of
+        # stored old/new snapshots. AttributeError on non-dict .keys() path.
+        # Empty string keeps the row rendering compact.
         return ""
 
 
@@ -249,7 +252,11 @@ async def changelog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chunk + footer,
                 parse_mode="HTML",
                 disable_web_page_preview=True)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # T11.8-B (2026-04-24): chunk send fallback intentionally wide.
+            # HTML parse error (BadRequest) is the common case; falls back
+            # to plain-text send. Admin-only changelog so truncated exc str
+            # is acceptable for operator diagnosis.
             logger.error(f"changelog send chunk {i+1}/{len(chunks)} failed: {e}")
             # Fallback: no HTML
             await update.message.reply_text(

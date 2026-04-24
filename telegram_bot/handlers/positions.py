@@ -17,9 +17,13 @@ async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Önce /start komutunu kullanın.")
             return
         await _show(update.message, db, user, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer handler wrapper intentionally wide.
+        # Full chain: DB user lookup + open positions + price fetch + send.
+        # Generic user message; full trace in server logs.
         import logging
-        logging.getLogger("polypaper.positions").error(f"positions_command error: {e}")
+        logging.getLogger("polypaper.positions").error(
+            f"positions_command error: {type(e).__name__}: {e}")
         await update.message.reply_text("⚠️ Pozisyonlar yüklenirken hata oluştu. Tekrar deneyin.")
 
 
@@ -31,18 +35,25 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
             await _show(q.message, db, user, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): same outer-wrapper doctrine as positions_command.
         import logging
-        logging.getLogger("polypaper.positions").error(f"positions_callback error: {e}")
+        logging.getLogger("polypaper.positions").error(
+            f"positions_callback error: {type(e).__name__}: {e}")
         await q.message.reply_text("⚠️ Pozisyonlar yüklenirken hata oluştu.")
 
 
 async def _show(message, db, user, context):
     try:
         positions = await db.get_open_positions(user.id)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): DB query wrapper intentionally wide.
+        # get_open_positions is a higher-level helper that may surface
+        # aiosqlite.Error + row-factory TypeError + AttributeError if user
+        # has no wallet. Generic user message + /db_health hint.
         import logging
-        logging.getLogger("polypaper.positions").error(f"DB get_open_positions error: {e}")
+        logging.getLogger("polypaper.positions").error(
+            f"DB get_open_positions error: {type(e).__name__}: {e}")
         await message.reply_text("⚠️ DB'ye erişilemedi. /db_health ile durumu kontrol edin.")
         return
     scanner = context.bot_data.get("scanner")

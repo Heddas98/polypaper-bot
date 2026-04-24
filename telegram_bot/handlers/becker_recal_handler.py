@@ -9,6 +9,8 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from telegram_bot.handlers._exc_render import render_user_exception
+
 logger = logging.getLogger("polypaper.handlers.becker_recal")
 
 
@@ -63,9 +65,15 @@ async def becker_recal_status_command(
 
         await update.message.reply_text(text, parse_mode="HTML")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer handler wrapper wide; recalibrator
+        # status query touches DB + numpy calibration math + telegram.
+        # T11.6 render policy prevents internal state leakage.
         logger.error(f"/becker_recal_status failed: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ Becker recal status"),
+            parse_mode="HTML",
+        )
 
 
 async def becker_recal_manual_command(
@@ -129,6 +137,11 @@ async def becker_recal_manual_command(
             error = result.get("error", "unknown error")
             await update.message.reply_text(f"❌ Recalibration failed: {error}")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): same outer-wrapper doctrine as status cmd.
+        # Heavy weekly recalibration can surface many classes.
         logger.error(f"/becker_recal_manual failed: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ Becker recal manual"),
+            parse_mode="HTML",
+        )

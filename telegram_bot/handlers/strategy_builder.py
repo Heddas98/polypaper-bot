@@ -16,7 +16,10 @@ try:
         message=r".*per_message=False.*",
         category=PTBUserWarning,
     )
-except Exception:
+except ImportError:
+    # T11.8-B (2026-04-24): narrow from bare Exception. Older python-telegram-
+    # bot versions (<21.x) don't export PTBUserWarning. Silent swallow
+    # correct — warning is informational-only.
     pass
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup

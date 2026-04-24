@@ -11,9 +11,11 @@ PolyPaper Bot - Phase 77 Handlers
 
 ADMIN ONLY.
 """
+import asyncio
 import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from config.settings import Settings
 
@@ -90,7 +92,10 @@ async def why_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]])
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. edit_message_text
+        # BadRequest "not modified" + transport failures. Refresh btn tolerates
+        # no-op.
         pass
 
 
@@ -171,7 +176,9 @@ async def patterns_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]])
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Same edit_message
+        # no-op-tolerant pattern as why_callback above.
         pass
 
 
@@ -287,7 +294,8 @@ async def health_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await q.edit_message_text(
             "🏥 /health komutunu tekrar çalıştırın.", parse_mode="HTML")
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Refresh hint msg.
         pass
 
 

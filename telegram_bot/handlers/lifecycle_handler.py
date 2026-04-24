@@ -8,6 +8,8 @@ size multipliers, and last adjustment reason for each strategy.
 ADMIN ONLY — shows engine internals.
 """
 import logging
+
+import aiosqlite
 from telegram import Update
 from telegram.ext import ContextTypes
 from config.settings import Settings
@@ -47,8 +49,11 @@ async def lifecycle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             strategies = await engine.db.get_active_strategies()
             for s in strategies:
                 await lc.get_params(s.id)
-        except Exception as e:
-            logger.debug(f"lifecycle load: {e}")
+        except (aiosqlite.Error, AttributeError, KeyError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. get_active_
+            # strategies DB query + lc.get_params cache miss path. Debug-log
+            # only; missing cache entry surfaces downstream as empty table.
+            logger.debug(f"lifecycle load: {type(e).__name__}: {e}")
 
     if not lc._cache:
         return await update.message.reply_text(
@@ -71,7 +76,9 @@ async def lifecycle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "SELECT label FROM strategies WHERE id=?", (sid,))
             if rows and rows[0][0]:
                 label = rows[0][0]
-        except Exception:
+        except (aiosqlite.Error, IndexError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. Label lookup
+            # is ornamental — if missing we fall back to sid prefix.
             pass
 
         lines.append(

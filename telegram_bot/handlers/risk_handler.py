@@ -4,8 +4,10 @@ Emergency controls and risk dashboard from Telegram.
 
 Phase 51 P51-03 — risk_hub.py merged into this file.
 """
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from config.settings import Settings
 from telegram_bot.templates.safe_html import esc, fmt_usd
@@ -498,10 +500,18 @@ async def risk_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await kill_command(proxy, context)
         if tab == "resume":
             return await resume_command(proxy, context)
-    except Exception as e:
-        logger.exception(f"risk_hub route {tab} failed: {esc(e)}")
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer route dispatcher intentionally wide.
+        # Each tab invokes a different sub-handler (risk/canary/kill/resume)
+        # with its own exception surface. We log the trace server-side and
+        # fall back to a generic inline-edit notice; user never sees raw exc.
+        logger.exception(f"risk_hub route {tab} failed: {esc(str(e))}")
         try:
             await query.edit_message_text(
                 f"❌ Route failed: <code>{esc(tab)}</code>", parse_mode="HTML")
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. edit_message
+            # BadRequest "message is not modified" or transport error on
+            # inline-edit. Silent swallow is correct — original error was
+            # already logged above.
             pass
