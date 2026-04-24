@@ -22,10 +22,13 @@ Env:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import logging
 from typing import List, Tuple
 
+import aiosqlite
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from telegram_bot.jobs.shadow_report_job import resolve_admin_chat_id
@@ -36,14 +39,19 @@ logger = logging.getLogger("polypaper.auto_promote")
 def _env_int(key: str, default: int) -> int:
     try:
         return int(os.getenv(key, str(default)))
-    except Exception:
+    except (ValueError, TypeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. int() raises
+        # ValueError on non-numeric / TypeError on None. Fallback to default
+        # on malformed ENV.
         return default
 
 
 def _env_float(key: str, default: float) -> float:
     try:
         return float(os.getenv(key, str(default)))
-    except Exception:
+    except (ValueError, TypeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. float() same
+        # coercion surface as _env_int.
         return default
 
 
@@ -72,8 +80,13 @@ async def _candidate_canary_strategies(db) -> List[Tuple[str, str, int, float]]:
             (min_trades, min_pnl)
         )
         rows = await cur.fetchall()
-    except Exception as e:
-        logger.warning(f"[auto_promote] query failed: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT with JOIN
+        # + GROUP BY surface is purely aiosqlite (OperationalError on schema
+        # missing, DatabaseError on corrupt). Empty list fallback keeps
+        # caller flow alive.
+        logger.warning(f"[auto_promote] query failed: "
+                       f"{type(e).__name__}: {e}")
         return []
 
     out: List[Tuple[str, str, int, float]] = []
@@ -132,8 +145,13 @@ async def auto_promote_job(context: ContextTypes.DEFAULT_TYPE):
                 f"[auto_promote] ✅ {sid[:8]} {label} canary → promoted "
                 f"({trades}t PnL${pnl:+.2f})"
             )
-        except Exception as e:
-            logger.warning(f"[auto_promote] failed for {sid[:8]}: {e}")
+        except aiosqlite.Error as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. UPDATE ...
+            # WHERE id=? AND deploy_stage='canary' returns via aiosqlite;
+            # IntegrityError/OperationalError expected. Skip this sid and
+            # keep scanning the batch.
+            logger.warning(f"[auto_promote] failed for {sid[:8]}: "
+                           f"{type(e).__name__}: {e}")
 
     if not promoted:
         return
@@ -161,5 +179,10 @@ async def auto_promote_job(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=admin_id, text="\n".join(lines), parse_mode="HTML",
         )
-    except Exception as e:
-        logger.warning(f"[auto_promote] notify failed: {e}")
+    except (TelegramError, asyncio.TimeoutError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. send_message
+        # surfaces TelegramError (BadRequest on HTML, NetworkError, etc.)
+        # + asyncio.TimeoutError on transport timeout. Promoted strategies
+        # still persisted — only notification was lost.
+        logger.warning(f"[auto_promote] notify failed: "
+                       f"{type(e).__name__}: {e}")

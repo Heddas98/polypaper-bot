@@ -46,10 +46,13 @@ ENV:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import logging
 from datetime import datetime, timezone
 
+import aiosqlite
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger("polypaper.tournament")
@@ -136,7 +139,10 @@ async def tournament_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         text=f"⚠️ Tournament: hyperopt import failed: {ie}",
                         parse_mode="HTML",
                     )
-                except Exception:
+                except (TelegramError, asyncio.TimeoutError):
+                    # T11.8-B (2026-04-24): narrow from bare Exception.
+                    # Nested admin-notify failure is best-effort; the import
+                    # failure above is the real signal and was already logged.
                     pass
             return
 
@@ -197,7 +203,9 @@ async def tournament_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         text=f"⚠️ Tournament: launcher import failed: {ie}",
                         parse_mode="HTML",
                     )
-                except Exception:
+                except (TelegramError, asyncio.TimeoutError):
+                    # T11.8-B (2026-04-24): narrow from bare Exception.
+                    # Same best-effort admin-notify pattern as above.
                     pass
             return
 
@@ -246,8 +254,12 @@ async def tournament_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 await _deploy_params(db, entry["strategy_id"], info.best_params)
                 entry["action"] = f"DEPLOYED (score={info.best_value:.4f})"
                 deployed.append(entry["label"])
-            except Exception as e:
-                entry["action"] = f"DEPLOY_FAILED: {e}"
+            except (aiosqlite.Error, KeyError, TypeError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception.
+                # _deploy_params SET clause raises aiosqlite.Error (DB);
+                # KeyError/TypeError surface on params dict shape issues
+                # from the hyperopt worker. exc_info=True preserves trace.
+                entry["action"] = f"DEPLOY_FAILED: {type(e).__name__}: {e}"
                 logger.error(
                     "Tournament: deploy failed for %s: %s",
                     entry["label"], e, exc_info=True,
@@ -263,15 +275,23 @@ async def tournament_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 await context.bot.send_message(
                     chat_id=admin, text=report, parse_mode="HTML"
                 )
-            except Exception as e:
-                logger.error("Tournament: send report failed: %s", e)
+            except (TelegramError, asyncio.TimeoutError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception.
+                # send_message transport failures only; the tournament run
+                # itself already succeeded and results were logged.
+                logger.error("Tournament: send report failed: "
+                             "%s: %s", type(e).__name__, e)
 
         logger.info(
             "Tournament DONE: %d entries, %d deployed, %.0fs",
             len(results), len(deployed), elapsed
         )
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. Nightly tournament is heavy (subprocess + DB + telegram);
+        # scheduler-thread crash would kill future runs. T7.6 job-safety
+        # exemption.
         logger.error("tournament_job failed: %s", e, exc_info=True)
 
 
@@ -343,7 +363,11 @@ async def _deploy_params(db, strategy_id: str, params: dict) -> None:
         if engine and hasattr(engine, 'lifecycle'):
             engine.lifecycle._cache.pop(strategy_id, None)
             logger.info("Tournament: lifecycle cache invalidated for %s", strategy_id[:8])
-    except Exception:
+    except (AttributeError, KeyError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. lifecycle cache
+        # invalidation is best-effort — AttributeError if engine/lifecycle
+        # not wired yet, KeyError if the strategy wasn't cached. Silent
+        # swallow is correct (worst case: one stale cache hit on next call).
         pass
 
 

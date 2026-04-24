@@ -12,9 +12,13 @@ Patterns detected:
   - Zone performance shifts (e.g., "35-50c zone WR dropped from 65% to 55%")
   - Strategy-specific streaks (e.g., "fusion strategy on BTC peaks Monday-Wednesday")
 """
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+
+import aiosqlite
+from telegram.error import TelegramError
 
 logger = logging.getLogger("polypaper.jobs.pattern_discovery")
 
@@ -38,7 +42,11 @@ async def _ensure_table(db):
             CREATE INDEX IF NOT EXISTS idx_dp_type ON discovered_patterns(pattern_type);
         """)
         await db.conn.commit()
-    except Exception:
+    except aiosqlite.Error:
+        # T11.8-B (2026-04-24): narrow from bare Exception. CREATE TABLE
+        # IF NOT EXISTS is idempotent; only aiosqlite.Error (OperationalError,
+        # IntegrityError, DatabaseError) is expected. Silent swallow kept
+        # because caller fallback (INSERT) would surface a harder error.
         pass
 
 
@@ -178,8 +186,11 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
         await db.conn.commit()
         logger.info(f"📊 Pattern discovery: {len(findings)} patterns found from {days} days")
 
-    except Exception as e:
-        logger.error(f"Pattern discovery error: {e}")
+    except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Heavy SQL path
+        # surfaces aiosqlite.Error (DB), KeyError/TypeError on row shape,
+        # and ValueError on numeric coercion. Partial findings still return.
+        logger.error(f"Pattern discovery: {type(e).__name__}: {e}")
 
     return [f[1] for f in findings]
 
@@ -208,7 +219,13 @@ async def pattern_discovery_callback(context):
 
         try:
             await context.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
-        except Exception:
+        except TelegramError:
+            # T11.8-B (2026-04-24): narrow from bare Exception. HTML parse
+            # error (BadRequest) is the specific expected failure here;
+            # plain-text retry below handles it. Transport timeouts and
+            # other TelegramError subclasses also fall through to retry.
             await context.bot.send_message(chat_id=admin_id, text=text)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. T7.6 job-safety exemption — JobQueue thread survival.
         logger.error(f"Pattern discovery job error: {e}")
