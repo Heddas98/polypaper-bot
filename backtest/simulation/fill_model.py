@@ -58,13 +58,19 @@ class FillSimulator:
     """Simulates order execution against orderbook state."""
 
     # Bid-ask spread cost in Polymarket (cost of crossing the spread for
-    # immediate execution). Default 0.5c per share — reasonable median for
-    # crypto Up/Down markets where typical spreads are 1-3c (5min markets
-    # widen to 5c+ near settlement). NOT empirically calibrated against
-    # 1417-trade live realized_slippage history yet — see Epic 4 T4.2 Faz B.
-    # Override via ENV `FILL_SPREAD_COST` (e.g. 0.003 for tight markets,
-    # 0.01 for wide-spread sweep tests).
-    SPREAD_COST: float = float(os.getenv("FILL_SPREAD_COST", "0.005"))
+    # immediate execution).
+    #
+    # T4.7-C (2026-04-24): Default raised 0.005 → 0.023 based on empirical
+    # calibration. T4.5 slippage analysis (1082 trades) reported weighted
+    # p90 = +2.3% adverse slippage, and T4.6-B sweep confirmed the heuristic
+    # was ~4.6x too optimistic (classic strategy 199 trades: HEURISTIC PnL
+    # -$4.87 vs EMPIRICAL PnL -$6.51, delta_pnl_pct=-33.68% FAIL). Using
+    # 0.023 makes backtest defaults match live reality without needing ENV
+    # overrides in production decision runs.
+    #
+    # Override via ENV `FILL_SPREAD_COST` for sensitivity sweeps (e.g. 0.005
+    # to reproduce legacy pre-T4.7-C heuristic behavior).
+    SPREAD_COST: float = float(os.getenv("FILL_SPREAD_COST", "0.023"))
 
     def __init__(self, mode: FillMode = FillMode.SIMPLE,
                  min_liquidity: float = 0.0,
@@ -217,16 +223,19 @@ class FillSimulator:
         # because the orderbook updates between signal and fill.
         # Model: latency_ms ~ N(μ, σ²); drift = latency × LATENCY_DRIFT_BPS_PER_MS.
         #
-        # The constant 0.08 bps/ms (→ ~20bps drift at 250ms) is a HEURISTIC
-        # placeholder, NOT empirically calibrated against live fill telemetry.
-        # Override via ENV `FILL_LATENCY_DRIFT_BPS_PER_MS` for sensitivity sweeps.
-        # Empirical calibration tracked under Epic 4 T4.2 Faz B (TASKS.md).
+        # T4.7-C (2026-04-24): Default lowered 0.08 → 0.04 bps/ms. T4.6-B sweep
+        # pair'ed this with spread/impact bumps; combined EMPIRICAL set matches
+        # live fill telemetry better than legacy heuristic. Half-heuristic (0.04)
+        # reflects that median latency drift is smaller than the heuristic
+        # assumed while the spread component carries most adverse slippage.
+        # Override via ENV `FILL_LATENCY_DRIFT_BPS_PER_MS` for sensitivity sweeps
+        # (e.g. 0.08 to reproduce legacy pre-T4.7-C behavior).
         latency_drift = 0.0
         if self.latency_mean_ms > 0:
             import random
             lat_ms = max(50, random.gauss(self.latency_mean_ms, self.latency_std_ms))
             drift_bps_per_ms_env = float(
-                os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "0.08")
+                os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "0.04")
             )
             drift_bps_per_ms = drift_bps_per_ms_env / 10000  # bps → fraction
             latency_drift = fill_price * lat_ms * drift_bps_per_ms
@@ -481,11 +490,15 @@ class FillSimulator:
         )
 
     # Default impact scale — what fraction of best_ask the √-impact term
-    # contributes. NOT derived from Almgren-Chriss calibration; chosen so a
-    # $1000 order in a $100k volume market lands at ~10bps impact. Override
-    # via ENV `FILL_IMPACT_SCALE` for sensitivity sweeps. Pending empirical
-    # fit under Epic 4 T4.2 Faz B (cross-check against realized_slippage).
-    IMPACT_SCALE: float = float(os.getenv("FILL_IMPACT_SCALE", "0.01"))
+    # contributes.
+    #
+    # T4.7-C (2026-04-24): Default raised 0.01 → 0.025 based on T4.5
+    # realized_slippage empirical mean+1σ. Pre-T4.7-C value (0.01) landed a
+    # $1000 order in $100k volume at ~10bps impact, but live SOL/ETH markets
+    # (lower depth than BTC) showed ~2-3x that in the 1082-trade sample.
+    # Override via ENV `FILL_IMPACT_SCALE` for sensitivity sweeps
+    # (e.g. 0.01 to reproduce legacy pre-T4.7-C behavior).
+    IMPACT_SCALE: float = float(os.getenv("FILL_IMPACT_SCALE", "0.025"))
     # Minimum spread floor — even tiny orders pay this. Polymarket UI
     # observation; not a hard fee, just a slippage proxy.
     IMPACT_MIN_FLOOR: float = float(os.getenv("FILL_IMPACT_MIN_FLOOR", "0.001"))
