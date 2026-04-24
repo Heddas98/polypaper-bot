@@ -9,9 +9,12 @@ Prevents calibration drift from market regime changes (halving, liquidity shifts
 
 Accessible via /becker_recal_status command.
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta
+
 from telegram import Chat
+from telegram.error import TelegramError
 
 logger = logging.getLogger("polypaper.jobs.becker_rolling_recal")
 
@@ -84,9 +87,13 @@ async def becker_rolling_recal_job(context):
                         text=text,
                         parse_mode="HTML",
                     )
-                except Exception as e:
+                except (TelegramError, asyncio.TimeoutError) as e:
+                    # T11.8-B (2026-04-24): narrow from bare Exception.
+                    # bot.send_message surfaces TelegramError +
+                    # asyncio.TimeoutError on transport timeout.
                     logger.warning(
-                        f"Failed to send Becker recal report: {e}"
+                        f"Failed to send Becker recal report: "
+                        f"{type(e).__name__}: {e}"
                     )
 
             logger.info(f"✅ Becker rolling recalibration completed: {result}")
@@ -94,7 +101,11 @@ async def becker_rolling_recal_job(context):
             error = result.get("error", "unknown error")
             logger.error(f"❌ Becker rolling recalibration failed: {error}")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. Sunday-weekly heavy recalibration touches DuckDB/SQL/file
+        # I/O; any exception class here would kill the scheduled job. T7.6
+        # job-safety exemption applies.
         logger.error(
             f"becker_rolling_recal_job crashed: {e}",
             exc_info=True,
@@ -134,5 +145,10 @@ def schedule_becker_rolling_recal(job_queue, context_data: dict):
 
         logger.info("✅ Becker rolling recal job scheduled (weekly Sunday 00:00 UTC)")
 
-    except Exception as e:
-        logger.error(f"Failed to schedule Becker rolling recal job: {e}")
+    except (AttributeError, TypeError, ValueError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. schedule time
+        # math (timedelta) + job_queue.run_repeating signature mismatches
+        # surface AttributeError/TypeError/ValueError. Unknown errors would
+        # be a programmer bug (class signature change) — let those propagate.
+        logger.error(f"Failed to schedule Becker rolling recal job: "
+                     f"{type(e).__name__}: {e}")

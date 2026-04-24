@@ -23,6 +23,9 @@ import os
 import logging
 from datetime import datetime, timedelta, timezone
 
+import asyncio
+
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger("polypaper.pnl_divergence")
@@ -150,8 +153,19 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info(f"pnl_divergence: sent daily report "
                         f"(div={divergence_pct:.1f}%, paper={paper_trades}t, "
                         f"shadow={shadow_trades}t)")
-        except Exception as e:
-            logger.error(f"pnl_divergence send failed: {e}")
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. send_message
+            # raises TelegramError (NetworkError/BadRequest/Unauthorized) +
+            # asyncio.TimeoutError on transport timeout. Other exceptions
+            # propagate to outer job wrapper for visibility.
+            logger.error(f"pnl_divergence send failed: "
+                         f"{type(e).__name__}: {e}")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. Job callbacks are scheduled by telegram.ext.JobQueue; an
+        # unhandled exception would stop the scheduler thread and silently
+        # kill future runs. Wide catch + exc_info=True preserves full trace
+        # in logs while keeping the queue alive. This is the T7.6 job-safety
+        # exemption pattern.
         logger.error(f"pnl_divergence_job failed: {e}", exc_info=True)

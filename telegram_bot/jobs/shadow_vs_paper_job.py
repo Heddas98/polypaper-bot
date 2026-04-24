@@ -18,6 +18,9 @@ import os
 import logging
 from datetime import datetime, timedelta, timezone
 
+import asyncio
+
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from telegram_bot.jobs.shadow_report_job import resolve_admin_chat_id
@@ -54,7 +57,10 @@ async def _query_paper_stats(db, strategy_id: str, cutoff: datetime) -> dict:
     for r in rows:
         try:
             bucket.append({"pnl": r["pnl"]})
-        except Exception:
+        except (KeyError, IndexError, TypeError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. Row access
+            # by column name raises KeyError/IndexError; positional fallback
+            # handles raw-tuple rows. TypeError covers None-subscript.
             bucket.append({"pnl": r[0] if len(r) else 0.0})
     return _bucket_stats(bucket)
 
@@ -144,7 +150,13 @@ async def shadow_vs_paper_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 chat_id=admin, text=msg, parse_mode="HTML")
             logger.info(
                 f"shadow_vs_paper: sent {len(anomalies)} anomaly alerts")
-        except Exception as e:
-            logger.error(f"shadow_vs_paper send failed: {e}")
-    except Exception as e:
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. send_message
+            # raises TelegramError subclasses; asyncio.TimeoutError on
+            # transport timeout. Unknown exceptions bubble to outer wrapper.
+            logger.error(f"shadow_vs_paper send failed: "
+                         f"{type(e).__name__}: {e}")
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. JobQueue thread safety — see T7.6 job-safety exemption.
         logger.error(f"shadow_vs_paper_job failed: {e}", exc_info=True)
