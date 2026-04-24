@@ -5,11 +5,13 @@ Daily DB snapshot + 10-min heartbeat ping. Wired in bot.py via JobQueue.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import logging
 from datetime import datetime
 from pathlib import Path
 
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from telegram_bot.jobs.shadow_report_job import resolve_admin_chat_id
@@ -117,7 +119,11 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         for old in snaps[:-MAX_BACKUPS]:
             try:
                 old.unlink()
-            except Exception:
+            except OSError:
+                # T11.8-B (2026-04-24): narrow from bare Exception. Path.
+                # unlink() raises OSError (PermissionError/FileNotFoundError
+                # subclasses). Silent swallow correct — pruning is best-
+                # effort, missing/locked old snapshot can be retried tomorrow.
                 pass
 
         size_mb = dest.stat().st_size / (1024 * 1024)
@@ -138,9 +144,18 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     ),
                     parse_mode="HTML",
                 )
-            except Exception as e:
-                logger.warning(f"[snapshot] notify failed: {e}")
-    except Exception as e:
+            except (TelegramError, asyncio.TimeoutError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception. send_
+                # message TelegramError + transport timeout. Snapshot itself
+                # already succeeded and was logged; notify is best-effort.
+                logger.warning(f"[snapshot] notify failed: "
+                               f"{type(e).__name__}: {e}")
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. Daily snapshot touches OS / aiosqlite / file system — many
+        # exception classes possible. logger.exception preserves full trace
+        # while keeping JobQueue scheduler thread alive (T7.6 job-safety
+        # exemption). Atomic rename above already guards backup integrity.
         logger.exception(f"[snapshot] failed: {e}")
 
 
@@ -210,7 +225,11 @@ async def wal_checkpoint_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             f"(shrunk {shrunk:+.1f} MB, log={log_pages}, ckpt={ckpt_pages}, "
             f"busy={busy}, elapsed={elapsed_ms:.0f}ms)"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. PRAGMA wal_checkpoint is a writer-lock hot path; aiosqlite
+        # / OperationalError + OS + timing surfaces all possible. Job-
+        # safety exemption so the 6h scheduler stays alive.
         logger.exception(f"[wal_checkpoint] failed: {e}")
 
 
@@ -266,12 +285,20 @@ async def heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     await context.bot.send_message(
                         chat_id=admin_id, text=msg, parse_mode="HTML",
                     )
-                except Exception as e:
-                    logger.warning(f"[heartbeat] notify failed: {e}")
+                except (TelegramError, asyncio.TimeoutError) as e:
+                    # T11.8-B (2026-04-24): narrow from bare Exception.
+                    # Heartbeat send is best-effort; transport failure is
+                    # logged but doesn't break the cycle bookkeeping below.
+                    logger.warning(f"[heartbeat] notify failed: "
+                                   f"{type(e).__name__}: {e}")
 
         context.application.bot_data["_hb_prev"] = {
             "halted": halted, "pnl": pnl, "streak": streak, "cycle": cycle,
             "pnl_warn": pnl_warn,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
+        # wide. Heartbeat reads engine internals (risk.state.halted,
+        # daily_pnl, etc.) — AttributeError class drift possible during
+        # refactors. Job-safety exemption keeps the 10-min scheduler alive.
         logger.exception(f"[heartbeat] failed: {e}")

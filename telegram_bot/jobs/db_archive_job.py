@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Optional
 
 from telegram import Update
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes, Application
 
 from telegram_bot.jobs.shadow_report_job import resolve_admin_chat_id
@@ -89,8 +90,12 @@ def _count_rows(conn: sqlite3.Connection, table: str, where: str = "") -> int:
         sql += f" WHERE {where}"
     try:
         return conn.execute(sql).fetchone()[0]
-    except Exception as e:
-        logger.warning(f"count_rows failed for {table}: {e}")
+    except (sqlite3.Error, IndexError, TypeError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT COUNT(*)
+        # surfaces sqlite3.Error (OperationalError on missing table); fetchone
+        # returns None → IndexError on [0]. TypeError covers schema drift.
+        logger.warning(f"count_rows failed for {table}: "
+                       f"{type(e).__name__}: {e}")
         return 0
 
 
@@ -137,8 +142,11 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA synchronous=NORMAL")
-    except Exception as e:
-        result["error"] = f"DB connect failed: {e}"
+    except sqlite3.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. sqlite3.connect
+        # + PRAGMA surface only sqlite3.Error subclasses (OperationalError
+        # on locked DB, DatabaseError on corrupt). Caller sees error in dict.
+        result["error"] = f"DB connect failed: {type(e).__name__}: {e}"
         logger.error(result["error"])
         return result
 
@@ -288,13 +296,20 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
         result["remaining"] = _count_rows(conn, "ob_snapshots")
         logger.info(f"Remaining in ob_snapshots: {result['remaining']:,} rows")
 
-    except Exception as e:
-        result["error"] = f"archive failed: {e}"
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer archive sync wrapper intentionally
+        # wide. Mixes sqlite3 + pandas + pyarrow + IO + ParquetWriter; each
+        # layer has its own typed exception hierarchy. Result dict surfaces
+        # error to caller; no silent swallow. T7.6 job-safety pattern.
+        result["error"] = f"archive failed: {type(e).__name__}: {e}"
         logger.error(result["error"], exc_info=True)
     finally:
         try:
             conn.close()
-        except Exception:
+        except sqlite3.Error:
+            # T11.8-B (2026-04-24): narrow from bare Exception. conn.close()
+            # raises sqlite3.Error if cursor still open or transaction in
+            # progress. Silent swallow: cleanup is best-effort.
             pass
 
     return result
@@ -340,8 +355,13 @@ async def db_archive_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         result = await asyncio.to_thread(
             _archive_to_parquet_sync, cutoff_ms, False
         )
-    except Exception as e:
-        logger.error(f"to_thread archive failed: {e}", exc_info=True)
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): asyncio.to_thread wrapper intentionally wide.
+        # Inner sync archive already has its own wide-catch with result dict
+        # error reporting. This catch handles the rare case where to_thread
+        # itself fails (RuntimeError on closed loop, OS thread limit).
+        logger.error(f"to_thread archive failed: {type(e).__name__}: {e}",
+                     exc_info=True)
         return
     elapsed = time.monotonic() - t_start
     logger.info(f"Archive thread finished in {elapsed:.1f}s")
@@ -365,8 +385,12 @@ async def db_archive_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"VACUUM done. DB size: {db_before:.1f} MB → "
                 f"{db_after:.1f} MB (saved {db_before - db_after:.1f} MB)"
             )
-        except Exception as e:
-            logger.error(f"VACUUM failed: {e}")
+        except (sqlite3.Error, RuntimeError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. VACUUM
+            # surfaces sqlite3.OperationalError on locked DB; RuntimeError
+            # if to_thread loop closed mid-vacuum. Archive itself already
+            # succeeded — VACUUM is shrinkage-only optional step.
+            logger.error(f"VACUUM failed: {type(e).__name__}: {e}")
     elif archived > 0 and not do_vacuum:
         logger.info(
             "Skipping VACUUM (DB_ARCHIVE_VACUUM=0). Freed pages will be "
@@ -417,8 +441,12 @@ async def db_archive_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     text=msg,
                     parse_mode="HTML"
                 )
-            except Exception as e:
-                logger.warning(f"Could not notify admin: {e}")
+            except (TelegramError, asyncio.TimeoutError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception. Archive
+                # already done; notify is best-effort. TelegramError covers
+                # send failures + asyncio.TimeoutError on transport timeout.
+                logger.warning(f"Could not notify admin: "
+                               f"{type(e).__name__}: {e}")
 
 
 def _run_vacuum_sync() -> None:
@@ -456,10 +484,15 @@ async def db_archive_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "✅ Archive job tamamlandı. Detaylar için /changelog veya logs'a bakın.",
             parse_mode="HTML"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outermost admin-command wrapper intentionally
+        # wide. db_archive_job() invokes the heavy archive thread + telegram
+        # notify chain — many error classes possible. exc_info=True preserves
+        # full trace; reply text shows truncated error to admin. T11.6 render
+        # policy compliant (admin sees error type only, no internal paths).
         logger.error(f"db_archive_command failed: {e}", exc_info=True)
         await update.message.reply_text(
-            f"❌ Archive başarısız: <code>{str(e)[:100]}</code>",
+            f"❌ Archive başarısız: <code>{type(e).__name__}: {str(e)[:100]}</code>",
             parse_mode="HTML"
         )
 
@@ -499,5 +532,11 @@ def setup_db_archive_job(app: Application) -> None:
             when=first_sec,
             name="db_archive_first"
         )
-    except Exception as e:
-        logger.error(f"Failed to setup db_archive_job: {e}")
+    except (ValueError, TypeError, AttributeError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Time parse
+        # (ValueError on bad "03:00"), app.job_queue attribute missing
+        # (AttributeError), or run_daily signature drift (TypeError).
+        # Unknown errors indicate programmer bug — let them propagate to
+        # bot boot for loud failure.
+        logger.error(f"Failed to setup db_archive_job: "
+                     f"{type(e).__name__}: {e}")
