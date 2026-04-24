@@ -199,9 +199,11 @@ async def changelog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         rows = await engine.db.conn.execute_fetchall(sql, params)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"changelog query failed: {e}")
-        return await update.message.reply_text(
+        # T11.6-OK reason=/changelog admin-only, DB SQL hatasi operator icin
+        # gerekli (table missing vs syntax vs lock). Truncated.
+        return await update.message.reply_text(  # noqa: T11.6-OK
             f"⚠️ Changelog sorgusu basarisiz: {esc(str(e)[:100])}",
             parse_mode="HTML")
 

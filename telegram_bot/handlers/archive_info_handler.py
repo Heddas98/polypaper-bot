@@ -71,9 +71,11 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         reader = ArchiveReader()
         info = await asyncio.to_thread(reader.info)
         counts = await asyncio.to_thread(reader.count_rows)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"archive_info failed: {e}", exc_info=True)
-        return await update.message.reply_text(
+        # T11.6-OK reason=/archive_info admin-only, parquet/sqlite I/O hatasi
+        # operator icin gerekli (Disk full vs missing file ayrimi). Truncated.
+        return await update.message.reply_text(  # noqa: T11.6-OK
             f"⚠️ Archive reader hata: <code>{esc(str(e)[:200])}</code>",
             parse_mode="HTML")
 

@@ -42,6 +42,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "data_store" / "polypaper.db"
 DEFAULT_OUT = REPO_ROOT / "backtest" / "calibration"
 
+# Ensure repo root in sys.path so `import backtest.*` / `import db.*` works
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 # ENV pairs:
 #   HEURISTIC  = current code defaults (T4.2 Faz A baseline)
 #   EMPIRICAL  = T4.5 calibration findings (1082 trade analysis)
@@ -72,15 +76,15 @@ async def run_backtest(env_overrides: Dict[str, str], label: str,
         import backtest.simulation.fill_model as _fm
         importlib.reload(_fm)
         print(f"[{label}] fill_model reloaded -- "
-              f"SPREAD_COST={_fm.FillModelV2.SPREAD_COST}, "
-              f"IMPACT_SCALE={_fm.FillModelV2.IMPACT_SCALE}")
+              f"SPREAD_COST={_fm.FillSimulator.SPREAD_COST}, "
+              f"IMPACT_SCALE={getattr(_fm.FillSimulator, 'IMPACT_SCALE', 'N/A')}")
 
         # Lazy import to avoid loading deps until needed
         from db.database import Database
         from backtest.replay_engine import ReplayEngine, ReplayConfig
 
-        db = Database()
-        await db.connect()
+        db = Database(str(DEFAULT_DB))
+        await db.initialize()
         try:
             config = ReplayConfig(
                 strategy_name=strategy_name,

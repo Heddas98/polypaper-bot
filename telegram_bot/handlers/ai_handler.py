@@ -116,7 +116,9 @@ async def _invoke_mapped_command(
         return True
     except Exception as e:
         logger.exception(f"/ai dispatch {result.command} failed: {e}")
-        await update.effective_message.reply_text(
+        # T11.6-OK reason=/ai admin-only diagnostic, dispatch failures need
+        # exception detail for troubleshooting. Truncated to 150 chars.
+        await update.effective_message.reply_text(  # noqa: T11.6-OK
             f"❌ <b>Çalıştırma hatası</b>\n"
             f"Komut: <code>{esc(result.command)}</code>\n"
             f"Hata: <code>{esc(str(e)[:150])}</code>",

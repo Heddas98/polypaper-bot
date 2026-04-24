@@ -85,14 +85,16 @@ async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TY
             if chat_id in _cancel_events:
                 del _cancel_events[chat_id]
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"test_strategy_command error: {e}", exc_info=True)
         try:
-            await update.message.reply_text(
+            # T11.6-OK reason=/test_strategy admin-only, replay engine hatasi
+            # operator icin gerekli (DB / archive_reader / strategy import).
+            await update.message.reply_text(  # noqa: T11.6-OK
                 f"❌ Hata: {esc(str(e)[:100])}",
                 parse_mode="HTML"
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
 

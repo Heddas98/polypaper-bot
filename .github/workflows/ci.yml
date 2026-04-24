@@ -46,6 +46,10 @@ jobs:
         run: |
           python scripts/gen_env_reference.py --check
 
+      - name: T11.6-B user-facing exception leak guard
+        run: |
+          python scripts/check_exc_leak.py --all
+
       - name: Run unit tests with coverage gate (T11.4)
         env:
           TELEGRAM_BOT_TOKEN: test-token

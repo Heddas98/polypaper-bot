@@ -131,6 +131,18 @@ if [ -n "$STAGED_PY" ]; then
             VIOLATIONS=$((VIOLATIONS + 1))
         fi
     fi
+
+    # ── 5. T11.6-B user-facing exception leak guard (telegram_bot/) ──
+    # Bans `reply_text(... esc(str(e)) ...)` pattern. Use
+    # `render_user_exception()` helper instead. Admin-diagnostic exemptions
+    # via `# noqa: T11.6-OK reason=...` annotation.
+    if [ -n "$PY_BIN" ] && [ -f "scripts/check_exc_leak.py" ]; then
+        if ! $PY_BIN scripts/check_exc_leak.py $STAGED_PY; then
+            echo "[HATA] T11.6-B exception leak guard: user-facing leak found."
+            echo "  Fix: render_user_exception() helper, or noqa: T11.6-OK"
+            VIOLATIONS=$((VIOLATIONS + 1))
+        fi
+    fi
 fi
 
 # ── Sonuç ────────────────────────────────────────────────────────
