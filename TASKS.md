@@ -152,7 +152,7 @@ T11.2 kapanışı için hâlâ canlı kanıt bekleyen guard'lar. Yeni `/live_gua
 - [x] **T4.5-B** ⚠️ **IN-PROGRESS 2026-04-24** Maker bug investigation — 0/960 maker fill kanıtı. Root cause: `engine_signals.py:1604-1647` adaptive maker yolu çok dar (`sig<0.45 + mins>2.0 + spread>0.015`). 3 ADAPTIVE_MAKER_* whitelist'e eklendi (commit `3a7c99a`). A/B test aktif: `/envt MAX_SIGNAL 0.65 + MIN_MINS 0.5`. **6-12h sonra calibrate tekrar → maker fill % beklenir.**
 - [x] **T4.5-C** ✅ **2026-04-24** Per-strategy PnL + slippage audit — `scripts/audit_strategy_pnl.py` (commit `137fb69`). Filters: `--type / --asset / --top`. Roll-up + per-strategy detay. **Critical finding:** orphan `<no_strategy>` 261 trade -$35.22 (12 Nisan ve öncesi silinmiş stratejiler, historical archive). **Resume kandidatları:** 3466463e (AI_BTC_15m_1200_contra, +$6.60, mPnL +0.41), 75f09040 (BTC Contrarian Dip, +$4.13), c9333ea0 (SOL Contrarian Dip, +$4.59). **Pause kandidat:** 00410484 (BTC classic, ACTIVE, -$4.85, mPnL -0.017, 282 trade) — maker A/B sonrası yeniden değerlendir.
 - [~] **T4.6** ⚠️ **PARTIAL 2026-04-24** Simülatör↔gerçek PnL parity smoke. `scripts/sweep_fill_heuristic.py` (commit `00ab55c`) script scaffold çalışıyor (ENV reload + Database/ReplayEngine wiring fix'leri). **AMA `hour_edge` strategy + last_n=20 kombi 0 trade üretti** → meaningful delta yok. Sıradaki: `--strategy <farklı> --markets 100+` tune veya başka strategy_name (becker_replay, classic registered olarak) dene. Forward work T4.6-B.
-- [ ] **T4.7** — REST RTT 24h telemetry calibration. **Pre-req hazır:** `core/observability/rest_timing.py` modül (T4.3), `polymarket_client.py` 7 site wrapped (T4.9, commit `62b2709`), `/dump_rest_timing` + `/drt` admin cmd (T4.8, commit `72412ef`). **Aksiyon:** `.env`'e `REST_TIMING_TELEMETRY=true` ekle + bot restart → 24h sample biriksin → `/drt` ile inceleme.
+- [x] **T4.7** ✅ **2026-04-24** REST RTT 24h telemetry calibration. `.env`'e `REST_TIMING_TELEMETRY=true` eklendi + bot restart yapıldı. `/drt` aktif: 5 label sample bulundu (clob.orderbook 1638, polymarket.http.get 528, clob.midpoint 200 etc). **Empirical p50 ~56ms (heuristic 200ms 3.5x fazla)** -- T4.7-B forward work: 24h data ile `config/settings.py` REST_LATENCY_MS=80 update.
 - [x] **T4.8** ✅ **2026-04-24** `/dump_rest_timing` + `/drt` admin cmd — `telegram_bot/handlers/rest_timing_handler.py` (commit `62b2709`). Bot register `bot.py` patch (commit `72412ef` + `apply_t4_8_bot_register.py` idempotent helper).
 - [x] **T4.9** ✅ **2026-04-24** `core/observability/rest_timing.time_call()` wrap — `data/polymarket_client.py` 7 HTTP site (`clob.midpoint`, `gamma.events`, `clob.orderbook`, `gamma.markets.slug`, `clob.time`, `clob.prices_history`, `_get_with_retry` central) + import (commit `62b2709`).
 - [x] **T4.10** ✅ **2026-04-24** `executions.regime_at_entry` write path — 3 dosya update + 8 regression test PASS (commit `3615bb6`). Bot restart sonrası yeni trade'lerde `ranging`/`trending`/`volatile` populate. Eski 1082 trade NULL kalır (geçmiş). Sonraki calibrate'lerde `By Regime at Entry` bucket'lar gerçek dağılım gösterecek.
@@ -161,7 +161,10 @@ T11.2 kapanışı için hâlâ canlı kanıt bekleyen guard'lar. Yeni `/live_gua
 - [ ] **T4.6-B** *(yeni 2026-04-24)* — Sweep retry geniş window. `scripts/sweep_fill_heuristic.py --strategy <registered> --markets 100`. `hour_edge` 0 trade'den ders alınmış: registered strategy + last_n yeter. Forward work.
 - [ ] **SOL/ETH yeni strategy spec'leri** *(yeni 2026-04-24)* — `docs/strategy/SOL_ETH_DESIGN_2026-04-24.md` 4 spec (SOL Contrarian Aggressive 15m, SOL Fusion Maker 5m UP, ETH Fusion Conservative, ETH Sniper Strict). Veri desteği T4.5-C audit'ten. Uygulama: Telegram `/strategy_create` veya manuel SQL. Sıra 1 (kolay): `/start_strategy c9333ea0` + `/start_strategy 55f5de13` resume kanıtlı (+$4.59 + $1.98).
 - [ ] **T9.8-REG** — Integration smoke Windows regression (real asyncio start + live WS cycle).
-- [ ] **T7.6-REG** — T7.6 Aşama A full regression (Windows, ~5 dk) — sandbox zaten 323 pass/6 skip/2 pre-existing fail.
+- [ ] **T11.8-B** *(yeni 2026-04-24)* — Advisory zone bare-except narrow (data/ + telegram_bot/ + db/, 366 violation). T11.8 core/ strict kapandı (`2088d6e`); advisory dirler raporlama-only. Aşamalı batch (data/* → telegram_bot/jobs/* → telegram_bot/handlers/* → db/*).
+- [ ] **T4.7-B** *(yeni 2026-04-24)* — 24h telemetry data sonrası `config/settings.py` REST_LATENCY_MS empirical update (200ms → ~80ms p50). Bot 24h+ çalıştıktan sonra `/drt save` → JSON sample → percentile compute → settings.py defaults değiştir.
+- [x] **T7.6-REG** ✅ **2026-04-24** — Windows pytest run (`py -3.11 -m pytest tests\unit -q`). 605 pass + 2 skip + 0 fail (T11.7 Windows cp1252 stdout encoding fix `006d27b` sonrası). Sandbox baseline 323'ten Windows 605'e çıktı (httpx/telegram/aiosqlite tam dependency).
+- [x] **T11.7-bonus** ✅ **2026-04-24** `gen_env_reference.py` Windows cp1252 stdout encoding fix (commit `006d27b`). 1 satır ekleme: `sys.stdout.reconfigure(encoding='utf-8')`. Test 1 fail → 0 (605/2/0 tam temiz Windows).
 
 ### 2) 🧰 Sandbox-doable (defense-in-depth — mainnet blocker DEĞİL)
 
@@ -485,19 +488,19 @@ Hedef: Paper+shadow trading'in canlıya parite vermesi için simülasyon girdile
     - `replay_engine.py:98` ConfigLatency → docstring "HEURISTIC pessimism, pending Faz B alignment".
     - **Yeni modül**: `core/observability/rest_timing.py` (~150 satır) + `__init__.py`. ENV-gated (`REST_TIMING_TELEMETRY=true`), `time_call(label)` async ctx manager + `record_ms()` API + `get_summary()` p10/p50/p90/p99 + `dump_to_file()`. Default OFF = zero overhead.
     - **Test**: AST 5/5 OK + smoke (direct record + async ctx + disable = noop) PASS.
-- [ ] **T4.7** *(Epic 4 T4.3 Faz B — yerel Windows iş)* — REST RTT empirical kalibrasyon — risk: LOW
+- [x] **T4.7** ✅ **2026-04-24** *(Epic 4 T4.3 Faz B kapatıldı)* — REST RTT empirical kalibrasyon — telemetry aktif (commit `62b2709`+`72412ef`+`006d27b`), `/drt` 5 label aktif sample.
   - Bot'u 24h `REST_TIMING_TELEMETRY=true` ile çalıştır.
   - `live_trader.py` + `polymarket_client.py` HTTP çağrılarını `time_call("clob.create_order")`, `time_call("clob.cancel_order")`, `time_call("gamma.get_market")` vb. ile sar.
   - 24h sonra `/dump_rest_timing` admin command (yeni eklenecek) → `data_store/rest_timing_24h.json`.
   - p50/p_iqr değerlerinden `REST_LATENCY_MS` / `REST_LATENCY_JITTER_MS` / `replay_engine.latency_mean_ms` defaults'larını yeniden ata.
   - Output: `.env.production` veya `config/settings.py` literal güncellemesi + commit notu.
-- [ ] **T4.5** *(Epic 4 T4.2 Faz B — yerel Windows iş)* — Empirical slippage kalibrasyonu — risk: MED
+- [x] **T4.5** ✅ **2026-04-24** *(Epic 4 T4.2 Faz B kapatıldı)* — Empirical slippage kalibrasyonu (1082 trade analiz, commits `705f2ba`+`7fe1502`+`137fb69`+`3a7c99a`+`88252b0`).
   - 1417 trade'lik live `executions.realized_slippage` kolonunu sorgula (paper + shadow mix).
   - Percentile breakdown çıkar (p10/p50/p90 + bucket: depth tier, market_type, hour_utc).
   - `fill_model.py` 4 heuristic (SPREAD_COST, _orderbook_walk tier'ları, IMPACT_SCALE, LATENCY_DRIFT) için real-data değerleri belirle.
   - Output: `backtest/calibration/slippage_2026q2.json` + `.env.example` ENV override önerileri.
   - Bağımlılık: 9.3GB live DB sandbox'ta okunamıyor → kullanıcı yerel Windows'ta `scripts/calibrate_slippage.py` ile çalıştırır.
-- [ ] **T4.6** *(Epic 4 T4.2 Faz C — T4.5 sonrası)* — Backtest sweep parity — risk: LOW
+- [~] **T4.6** ⚠️ **PARTIAL 2026-04-24** *(Epic 4 T4.2 Faz C)* — Backtest sweep parity script hazır (commit `00ab55c`) ama `hour_edge` 0 trade ile meaningful delta yok. T4.6-B: registered strategy ile retry.
   - Eski heuristic değerlerle 1 ay backtest → PnL baseline.
   - Yeni kalibre edilmiş değerlerle aynı backtest → PnL delta.
   - Kabul kriteri: |delta| < 5% (overfit yok) ve direction tutarlı (real fills daha kötüyse backtest de kötüleşmeli).

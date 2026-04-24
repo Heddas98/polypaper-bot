@@ -12,6 +12,8 @@ The odds_series is what Signal Fusion uses for EMA, momentum, volatility.
 import logging
 from collections import defaultdict, deque
 
+import aiosqlite
+
 
 logger = logging.getLogger("polypaper.data.odds_feed")
 
@@ -43,8 +45,10 @@ class OddsFeed:
                 self._count += 1
 
             logger.info(f"OddsFeed: loaded {self._count} records for {len(self._series)} slugs from DB")
-        except Exception as e:
-            logger.error(f"OddsFeed DB load: {e}")
+        except (aiosqlite.Error, ValueError, TypeError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. DB read +
+            # float() parse on `up_odds`. AttributeError covered by code path.
+            logger.error(f"OddsFeed DB load: {type(e).__name__}: {e}")
 
     def record_odds(self, slug: str, up_odds: float, down_odds: float = None):
         """Record a new odds snapshot. Called by Scanner on every scan."""
