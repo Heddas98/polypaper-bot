@@ -65,8 +65,12 @@ def migrate(db_path: str = "polypaper.db"):
         print("[Phase 79] Migration completed successfully ✓")
         return True
 
-    except Exception as e:
-        print(f"[Phase 79] Migration FAILED: {e}")
+    except (sqlite3.Error, OSError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. sqlite3.Error
+        # covers OperationalError (locked, schema), DatabaseError (corrupt);
+        # OSError covers DB file missing/permission. Standalone migrate
+        # script: False return signals failure to CLI exit code.
+        print(f"[Phase 79] Migration FAILED: {type(e).__name__}: {e}")
         return False
 
 

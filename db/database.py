@@ -247,7 +247,11 @@ class Database:
                     (amount, wallet_id, amount))
                 await self.conn.commit()
                 return cursor.rowcount > 0  # True if row was updated
-            except Exception as e:
+            except aiosqlite.Error as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception. aiosqlite
+                # raises OperationalError "database is locked" during write
+                # contention. String-match the condition; re-raise non-lock
+                # errors so caller sees real DB failures.
                 if "locked" in str(e).lower() and attempt < max_retries - 1:
                     logger.warning(
                         f"atomic_deduct locked, retry {attempt+1}/{max_retries} "
@@ -265,7 +269,10 @@ class Database:
                 await self.conn.execute(sql, params)
                 await self.conn.commit()
                 return
-            except Exception as e:
+            except aiosqlite.Error as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception. Same
+                # locked-retry pattern as atomic_deduct above — aiosqlite
+                # OperationalError is the only error class we retry.
                 if "locked" in str(e).lower() and attempt < max_retries - 1:
                     logger.warning(f"DB locked, retry {attempt+1}/{max_retries}")
                     await asyncio.sleep(0.1 * (attempt + 1))
@@ -385,8 +392,11 @@ class Database:
                 (user_id,)) as c:
                 async for row in c:
                     results.append(dict(row))
-        except Exception as e:
-            logger.error(f"Per-strategy stats: {e}")
+        except (aiosqlite.Error, TypeError, ValueError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. SELECT with
+            # JOIN+GROUP+ORDER. aiosqlite.Error covers SQL; dict(row) raises
+            # TypeError/ValueError on row-factory misconfig. Empty list fallback.
+            logger.error(f"Per-strategy stats: {type(e).__name__}: {e}")
         return results
 
     # ── EXECUTION ──
@@ -446,8 +456,11 @@ class Database:
                 (user_id,)) as c:
                 row = await c.fetchone()
                 stats["open_trades"] = row[0] if row else 0
-        except Exception as e:
-            logger.error(f"Stats error: {e}")
+        except (aiosqlite.Error, IndexError, TypeError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. COUNT queries
+            # + row[0] indexing. Partial stats preserved; caller sees whatever
+            # filled before the error.
+            logger.error(f"Stats error: {type(e).__name__}: {e}")
         return stats
 
     async def get_open_positions(self, user_id: str) -> list[dict]:
@@ -551,7 +564,10 @@ class Database:
             row = await self.conn.execute_fetchall(
                 "SELECT value FROM bot_settings WHERE key=?", (key,))
             return row[0][0] if row else default
-        except Exception:
+        except (aiosqlite.Error, IndexError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. bot_settings
+            # missing (aiosqlite.OperationalError) or empty row (IndexError).
+            # Default is the expected fallback.
             return default
 
     async def set_setting(self, key: str, value: str):
@@ -570,5 +586,7 @@ class Database:
                 "SELECT key, value FROM bot_settings WHERE key LIKE ?",
                 (prefix + "%",))
             return {r[0]: r[1] for r in rows}
-        except Exception:
+        except (aiosqlite.Error, IndexError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. Same surface
+            # as get_setting above; empty dict is the safe fallback.
             return {}

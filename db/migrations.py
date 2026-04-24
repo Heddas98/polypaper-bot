@@ -9,6 +9,8 @@ import logging
 from datetime import datetime
 from typing import Union
 
+import aiosqlite
+
 logger = logging.getLogger("polypaper.db.migrations")
 
 
@@ -217,7 +219,10 @@ async def _get_current_version(conn) -> int:
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row and row[0] else 0
-    except Exception:
+    except aiosqlite.Error:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT MAX surfaces
+        # aiosqlite.OperationalError when schema_version table missing (first
+        # boot before _ensure_schema_version_table). 0 = "no migrations yet".
         return 0
 
 
@@ -255,11 +260,19 @@ async def _apply_migration(conn, migration: dict) -> bool:
         await conn.commit()
         logger.info(f"Migration v{version} ({name}) applied successfully")
         return True
-    except Exception as e:
-        logger.error(f"Migration v{version} ({name}) failed: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Migration SQL
+        # (ALTER/CREATE/UPDATE) raises aiosqlite.Error subclasses only.
+        # Unknown exception types would indicate a Python bug — let those
+        # propagate (caller catches at run_migrations level).
+        logger.error(f"Migration v{version} ({name}) failed: "
+                     f"{type(e).__name__}: {e}")
         try:
             await conn.rollback()
-        except Exception:
+        except aiosqlite.Error:
+            # T11.8-B (2026-04-24): narrow from bare Exception. rollback()
+            # raises aiosqlite.Error if no transaction active. Silent swallow
+            # correct — we already logged the original migration failure.
             pass
         return False
 
@@ -308,8 +321,12 @@ async def run_migrations(conn) -> bool:
             logger.warning("Some migrations failed. Check logs above.")
 
         return all_success
-    except Exception as e:
-        logger.error(f"Migration runner error: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Top-level
+        # runner only handles aiosqlite errors not caught by inner per-
+        # migration loop (e.g. schema_version table creation failure).
+        # Returns False so bot boot can decide to abort.
+        logger.error(f"Migration runner error: {type(e).__name__}: {e}")
         return False
 
 
@@ -348,5 +365,9 @@ async def grandfather_deploy_stage(conn) -> None:
         )
         await conn.commit()
         logger.info("Phase 47f.10 grandfather: promoted strategies with trade history")
-    except Exception as e:
-        logger.warning(f"Phase 47f.10 grandfather skipped: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT/UPDATE/
+        # INSERT all aiosqlite.Error. Idempotent operation — silent skip on
+        # any DB error is correct (next boot retries).
+        logger.warning(f"Phase 47f.10 grandfather skipped: "
+                       f"{type(e).__name__}: {e}")

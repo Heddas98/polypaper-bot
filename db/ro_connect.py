@@ -80,7 +80,10 @@ def _try_connect(uri: str, busy_timeout_ms: int,
         # Quick sanity check — a trivial read forces the DB to be
         # actually openable, not just the file descriptor.
         conn.execute("SELECT 1").fetchone()
-    except Exception:
+    except sqlite3.Error:
+        # T11.8-B (2026-04-24): narrow from bare Exception. PRAGMA + SELECT 1
+        # surface sqlite3.Error (OperationalError on locked/corrupt DB).
+        # Close the half-opened connection and re-raise so caller can retry.
         conn.close()
         raise
     return conn
@@ -156,9 +159,12 @@ def open_ro_connection(
         logger.warning(
             f"ro_connect: fell back to immutable=1 snapshot for {db_path.name}")
         return conn
-    except Exception as e:
+    except sqlite3.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. _try_connect
+        # re-raises only sqlite3.Error. Stage-3 fallback follows.
         last_err = e
-        logger.warning(f"ro_connect: immutable=1 also failed: {e}")
+        logger.warning(f"ro_connect: immutable=1 also failed: "
+                       f"{type(e).__name__}: {e}")
 
     # ── Stage 3: copy-and-read (last resort) ──────────────────────────
     if allow_copy_fallback:
@@ -175,8 +181,13 @@ def open_ro_connection(
                 if side.exists():
                     try:
                         shutil.copy2(str(side), str(tmp) + suf)
-                    except Exception as _ce:
-                        logger.debug(f"copy {suf} failed: {_ce}")
+                    except (OSError, shutil.SameFileError) as _ce:
+                        # T11.8-B (2026-04-24): narrow from bare Exception.
+                        # shutil.copy2 raises OSError (disk, permission) and
+                        # SameFileError on path aliasing. WAL/SHM sidecars
+                        # are best-effort; main DB copy is what matters.
+                        logger.debug(f"copy {suf} failed: "
+                                     f"{type(_ce).__name__}: {_ce}")
             conn = _try_connect(
                 f"file:{tmp.as_posix()}?mode=ro",
                 busy_timeout_ms, connect_timeout_s)
@@ -187,9 +198,14 @@ def open_ro_connection(
                 f"ro_connect: fell back to tmp-copy for {db_path.name} "
                 f"→ {tmp.name}")
             return conn
-        except Exception as e:
+        except (sqlite3.Error, OSError, shutil.SameFileError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Stage 3 uses
+            # shutil.copy2 (OSError/SameFileError) + _try_connect (sqlite3.
+            # Error). Last resort exhausted; escalate to caller via final
+            # OperationalError raise below.
             last_err = e
-            logger.error(f"ro_connect: copy-fallback failed: {e}")
+            logger.error(f"ro_connect: copy-fallback failed: "
+                         f"{type(e).__name__}: {e}")
 
     # All strategies exhausted
     raise sqlite3.OperationalError(
@@ -211,7 +227,10 @@ def open_ro(
         tmp = getattr(conn, "_ro_tmp_copy", None)
         try:
             conn.close()
-        except Exception:
+        except sqlite3.Error:
+            # T11.8-B (2026-04-24): narrow from bare Exception. close()
+            # raises sqlite3.Error if cursor still open. Silent swallow
+            # correct — we're in context-mgr finally, caller already done.
             pass
         # Cleanup tmp copy (main + sidecars) if stage-3 was used
         if tmp:
@@ -219,8 +238,11 @@ def open_ro(
                 try:
                     if p.exists():
                         p.unlink()
-                except Exception as _e:
-                    logger.debug(f"tmp cleanup {p.name}: {_e}")
+                except OSError as _e:
+                    # T11.8-B (2026-04-24): narrow from bare Exception.
+                    # Path.unlink() raises OSError. Best-effort cleanup.
+                    logger.debug(f"tmp cleanup {p.name}: "
+                                 f"{type(_e).__name__}: {_e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -272,7 +294,10 @@ async def open_ro_aiosqlite(
             cur = await conn.execute("SELECT 1")
             await cur.fetchone()
             await cur.close()
-        except Exception:
+        except aiosqlite.Error:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Mirror of
+            # sync _try_connect: aiosqlite.Error is the only expected failure
+            # on PRAGMA + SELECT 1 sanity. Close and re-raise.
             await conn.close()
             raise
         return conn
@@ -282,7 +307,9 @@ async def open_ro_aiosqlite(
     for i in range(attempts):
         try:
             return await _try(uri)
-        except Exception as e:
+        except aiosqlite.Error as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. _try re-
+            # raises only aiosqlite.Error (sqlite3.Error subclass chain).
             last_err = e
             wait = min(backoff_base_s * (2 ** i), backoff_max_s)
             wait += random.uniform(0, wait * 0.1)
@@ -298,7 +325,9 @@ async def open_ro_aiosqlite(
         logger.warning(
             f"open_ro_aiosqlite: fell back to immutable=1 for {db_path.name}")
         return conn
-    except Exception as e:
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Stage-2 fallback
+        # exhausted; caller sees final OperationalError below.
         last_err = e
 
     raise sqlite3.OperationalError(

@@ -337,17 +337,16 @@ fallback restore yaptı (fail-safe path canlı kanıtlandı).
 - [x] Senaryo 1-4 kanıtları template'e yapıştırıldı (evidence dosyaları gitignored).
 - [x] TASKS.md T11.3 closed + 2026-04-23 timestamp.
 - [x] MEMORY.md landmark update (`project_t11_3_closure.md`).
-- [ ] `docs/DEPLOYMENT.md:115` "rollback.bat" ghost referansı — post-audit
-  Bulgu A (low priority, mainnet blocker DEĞİL):
-  - (a) `rollback.bat` yaz — git revert + service restart wrapper, VEYA
-  - (b) referansı `scripts/rollback_sprint_2_1.py` + `git revert HEAD` açıklamasına yönlendir.
+- [x] `docs/DEPLOYMENT.md:115` "rollback.bat" ghost referansı — **fix uygulandı 2026-04-24**. Seçenek (b): `DEPLOYMENT.md:115+164` ve `ARCHITECTURE.md:223` güncellendi, `rollback.bat` referansı kaldırılıp `scripts\rollback_sprint_2_1.py` + `git revert HEAD --no-edit` açıklamasına yönlendirildi.
 
 ## Post-Audit Bulguları (T11.3 kapandıktan sonra kalan iş)
 
-### Bulgu A — LOW — `docs/DEPLOYMENT.md:115` ghost rollback.bat referansı
+### Bulgu A — ✅ **CLOSED 2026-04-24** — `docs/DEPLOYMENT.md:115` ghost rollback.bat referansı
 
-Doc'ta `rollback.bat` referansı var ama kök dizinde bu dosya yok. Fix
-yukarıda (a) veya (b). Mainnet blocker DEĞİL, dokümantasyon temizlik.
+Doc'ta `rollback.bat` referansı vardı ama kök dizinde bu dosya yok. **Fix uygulandı seçenek (b):**
+- `docs/DEPLOYMENT.md:115` + `:164` → referans `rollback_sprint_2_1.py` + `git revert HEAD --no-edit`'e yönlendirildi.
+- `docs/ARCHITECTURE.md:223` → `rollback.bat` satırı kaldırıldı + açıklayıcı note eklendi.
+- `docs/PHASES.md:20` → Phase 55 tarihi kayıt, dokümantasyona dokunulmadı (ghost tarih değil, o dönemde bat vardı ama sonradan arşivlendi).
 
 ### Bulgu B — 🔴 HIGH — Backup atomic write eksik (S4'te yakalandı)
 

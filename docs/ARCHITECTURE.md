@@ -220,10 +220,13 @@ polyPaper-bot/
 │
 └── *.bat                          # Windows deployment scriptleri
     ├── watchdog.bat               # Production watchdog
-    ├── rollback.bat               # Acil geri alma
     ├── backup.bat                 # Manuel yedekleme
     ├── reset_and_start.bat        # Tam sıfırlama
     └── deploy_phase*.bat          # Her phase için deploy bat
+    # NOTE (T11.3 Bulgu A, 2026-04-24): `rollback.bat` yok — acil geri alma
+    # artık `git revert HEAD --no-edit` + restart veya
+    # `scripts\rollback_sprint_2_1.py` ile yapılır. Full matris:
+    # docs/mainnet/T11_3_rollback_plan.md.
 ```
 
 ## Data Flow
