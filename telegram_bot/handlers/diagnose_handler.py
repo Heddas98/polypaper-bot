@@ -206,9 +206,13 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rs = engine.risk.get_status()
     limits = rs.get("limits", {})
 
-    # Risk halt emoji
+    # Risk halt emoji + text
+    # T6.3-B (2026-04-24) bug fix: ESKI mantik ters yazilmisti --
+    #   halted=True  -> halt_reason  (bu DOGRU, halt aktif)
+    #   halted=False -> "Active"     (bu YANLIS! halt yok ama "Active" diyordu, kullanici "halt active" sandi)
+    # Yeni: halted=False -> "No halt" (net Turkce: halt yok); halted=True -> halt_reason
     halt_emoji = "🛑" if rs.get("halted", False) else "✅"
-    halt_text = rs.get("halt_reason", "No halt") if rs.get("halted") else "Active"
+    halt_text = rs.get("halt_reason", "Halted") if rs.get("halted") else "No halt"
 
     # Kill switch status
     ks = engine.kill_switch.get_status()
@@ -384,8 +388,9 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rs = engine.risk.get_status()
     limits = rs.get("limits", {})
 
+    # T6.3-B halt_text fix -- bkz. _build_diagnose_text yorumu yukarida
     halt_emoji = "🛑" if rs.get("halted", False) else "✅"
-    halt_text = rs.get("halt_reason", "No halt") if rs.get("halted") else "Active"
+    halt_text = rs.get("halt_reason", "Halted") if rs.get("halted") else "No halt"
 
     ks = engine.kill_switch.get_status()
     kill_emoji = "🛑" if ks.get("killed", False) else "✅"
