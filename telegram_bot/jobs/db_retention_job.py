@@ -27,14 +27,15 @@ All thresholds are env-driven:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from telegram.ext import ContextTypes
-
 import aiosqlite
+from telegram.error import TelegramError
+from telegram.ext import ContextTypes
 
 from telegram_bot.jobs.shadow_report_job import resolve_admin_chat_id
 
@@ -67,8 +68,13 @@ async def _ensure_archive_table(archive_conn, table: str, main_db):
             )
             await archive_conn.execute(create_sql)
             await archive_conn.commit()
-    except Exception as e:
-        logger.warning(f"[archive] schema copy for {table} failed: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT sql FROM
+        # sqlite_master + CREATE TABLE IF NOT EXISTS surface aiosqlite.Error
+        # (OperationalError on locked archive). Archive is best-effort;
+        # failure falls through to caller.
+        logger.warning(f"[archive] schema copy for {table} failed: "
+                       f"{type(e).__name__}: {e}")
 
 
 async def _archive_rows(db, table: str, where: str, label: str) -> int:
@@ -120,7 +126,12 @@ async def _archive_rows(db, table: str, where: str, label: str) -> int:
 
         logger.info(f"[archive] {label}: archived {total:,} rows → {archive_path}")
         return total
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): archive function outer wrapper intentionally
+        # wide. Multi-step: open archive DB + copy schema + chunked SELECT +
+        # executemany INSERT + DELETE on main. Heterogeneous failure surface.
+        # 0 return signals caller "did nothing"; logger.exception preserves
+        # full trace. T7.6 job-safety pattern.
         logger.exception(f"[archive] {label}: failed — {e}")
         return 0
 
@@ -133,15 +144,22 @@ async def _count_old(db, table: str, where: str, label: str) -> int:
         count = int(row[0]) if row else 0
         logger.info(f"[retention-report] {label}: {count:,} rows older than threshold")
         return count
-    except Exception as e:
-        logger.warning(f"[retention-report] {label}: count failed — {e}")
+    except (aiosqlite.Error, IndexError, TypeError, ValueError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT COUNT(*)
+        # + fetchone + int() coercion. aiosqlite.Error (missing table),
+        # IndexError (row None[0]), ValueError (non-int COUNT result).
+        logger.warning(f"[retention-report] {label}: count failed: "
+                       f"{type(e).__name__}: {e}")
         return 0
 
 
 def _days(env_key: str, default: int) -> int:
     try:
         return max(1, int(os.getenv(env_key, str(default))))
-    except Exception:
+    except (ValueError, TypeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. int() coercion
+        # of ENV surfaces ValueError + TypeError (None). Fallback to default
+        # on malformed retention-day ENV.
         return default
 
 
@@ -183,10 +201,14 @@ async def _delete_old(db, table: str, where: str, label: str) -> int:
                 total += deleted
                 if deleted < 20000:
                     break
-        except Exception as e:
+        except aiosqlite.Error as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Chunked DELETE
+            # fallback — older SQLite builds raise OperationalError on LIMIT
+            # in DELETE (ENABLE_UPDATE_DELETE_LIMIT off). Fall back to single
+            # DELETE which is always supported.
             logger.warning(
-                f"[retention] {label}: chunked delete failed ({e}), "
-                f"falling back to single DELETE"
+                f"[retention] {label}: chunked delete failed "
+                f"({type(e).__name__}: {e}), falling back to single DELETE"
             )
             cur = await db.conn.execute(f"DELETE FROM {table} WHERE {where}")
             await db.conn.commit()
@@ -194,7 +216,10 @@ async def _delete_old(db, table: str, where: str, label: str) -> int:
 
         logger.info(f"[retention] {label}: deleted {total:,} rows")
         return total
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer delete wrapper intentionally wide.
+        # Mixed SQL + row coercion + fallback chain above. 0 return signals
+        # caller "did nothing"; logger.exception preserves full trace.
         logger.exception(f"[retention] {label}: failed — {e}")
         return 0
 
@@ -238,7 +263,11 @@ async def db_retention_job(
         db_path = "data_store/polypaper.db"
         from pathlib import Path
         pre_size_mb = Path(db_path).stat().st_size / (1024 * 1024)
-    except Exception:
+    except OSError:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Path.stat()
+        # raises OSError (FileNotFoundError/PermissionError subclass) when
+        # DB missing or permission denied. 0.0 is a safe sentinel for the
+        # size-delta report.
         pre_size_mb = 0.0
 
     t0 = datetime.utcnow()
@@ -294,13 +323,19 @@ async def db_retention_job(
             await db.conn.commit()
             vacuumed = True
             logger.info("[retention] VACUUM done")
-        except Exception as e:
-            logger.warning(f"[retention] VACUUM failed: {e}")
+        except aiosqlite.Error as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. VACUUM
+            # surfaces aiosqlite.OperationalError (locked DB, no space).
+            # VACUUM is shrinkage-only; deletes already committed.
+            logger.warning(f"[retention] VACUUM failed: "
+                           f"{type(e).__name__}: {e}")
 
     # Post-retention DB size
     try:
         post_size_mb = Path(db_path).stat().st_size / (1024 * 1024)
-    except Exception:
+    except OSError:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Same OSError
+        # surface as pre-size read above.
         post_size_mb = 0.0
 
     elapsed = (datetime.utcnow() - t0).total_seconds()
@@ -340,7 +375,10 @@ async def db_retention_job(
                 await context.bot.send_message(
                     chat_id=admin_id, text="\n".join(lines), parse_mode="HTML",
                 )
-            except Exception as e:
-                logger.warning(f"[retention] notify failed: {e}")
+            except (TelegramError, asyncio.TimeoutError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception. Retention
+                # pass already done; notify is best-effort.
+                logger.warning(f"[retention] notify failed: "
+                               f"{type(e).__name__}: {e}")
 
     return summary

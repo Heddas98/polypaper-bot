@@ -10,12 +10,16 @@ chat every 30 min, with quiet-hours throttling and promotion-gate check.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import json
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+import aiosqlite
+from telegram.error import TelegramError
 
 ADMIN_CHAT_FILE = Path(__file__).resolve().parents[2] / "data_store" / "admin_chat.json"
 
@@ -27,7 +31,10 @@ def _load_admin_chat_id_from_file() -> Optional[str]:
             cid = data.get("chat_id")
             if cid and str(cid) != "0":
                 return str(cid)
-    except Exception:
+    except (OSError, json.JSONDecodeError, AttributeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Path.read_text
+        # OSError (missing/permission) + JSON parse + .get on non-dict.
+        # Silent swallow correct — this is a fallback loader; ENV is primary.
         pass
     return None
 
@@ -39,8 +46,12 @@ def save_admin_chat_id(chat_id: int | str) -> None:
         ADMIN_CHAT_FILE.write_text(
             json.dumps({"chat_id": str(chat_id)}), encoding="utf-8"
         )
-    except Exception as e:
-        logger.warning(f"[shadow_report] could not persist admin chat id: {e}")
+    except OSError as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Path.write_text
+        # + mkdir surface OSError (PermissionError, disk full). Persistence
+        # failure is non-fatal — ENV remains the primary source.
+        logger.warning(f"[shadow_report] could not persist admin chat id: "
+                       f"{type(e).__name__}: {e}")
 
 
 def resolve_admin_chat_id() -> Optional[str]:
@@ -196,7 +207,12 @@ def _is_quiet_hours() -> bool:
         # Server may not have TZ data; fall back to UTC+3 calc.
         from zoneinfo import ZoneInfo
         h = datetime.now(ZoneInfo("Europe/Istanbul")).hour
-    except Exception:
+    except Exception:  # noqa: BLE001
+        # T11.8-B (2026-04-24): bare Exception kept on purpose. ZoneInfo
+        # raises a typed ZoneInfoNotFoundError (subclass of KeyError) when
+        # tzdata package missing on Windows, plus ImportError if Python <3.9.
+        # Wide catch is the "no tz data available" fallback; UTC+3 approx
+        # is correct for Istanbul year-round since 2016 (no DST).
         h = (datetime.utcnow().hour + 3) % 24
     return 0 <= h < 7
 
@@ -247,8 +263,12 @@ async def shadow_report_job(
     # 1) Discover what strategy_types are actually in the DB.
     try:
         all_types = await _discover_strategy_types(db)
-    except Exception as e:
-        logger.exception(f"[shadow_report] discover failed: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT DISTINCT
+        # surfaces aiosqlite.Error (missing column after migration, locked
+        # DB). Empty list downstream triggers diagnostic ping.
+        logger.exception(f"[shadow_report] discover failed: "
+                         f"{type(e).__name__}: {e}")
         all_types = []
 
     # 2) Build the effective list: WATCHED ∩ existing, else fall back to all.
@@ -272,8 +292,12 @@ async def shadow_report_job(
                     parse_mode="HTML",
                 )
                 pushed += 1
-            except Exception as e:
-                logger.exception(f"[shadow_report] diag send failed: {e}")
+            except (TelegramError, asyncio.TimeoutError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception.
+                # Diagnostic send is best-effort; empty-DB signal is already
+                # in the log.
+                logger.exception(f"[shadow_report] diag send failed: "
+                                 f"{type(e).__name__}: {e}")
         return pushed
 
     # 4) If WATCHED list missed entirely, surface that to the user.
@@ -293,8 +317,11 @@ async def shadow_report_job(
                 parse_mode="HTML",
             )
             pushed += 1
-        except Exception as e:
-            logger.exception(f"[shadow_report] mismatch warn failed: {e}")
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Mismatch
+            # warn is best-effort.
+            logger.exception(f"[shadow_report] mismatch warn failed: "
+                             f"{type(e).__name__}: {e}")
 
     # 5) Phase 79 S4-06: Collect ALL A/B reports into summary table format (not 10 separate messages).
     summary_lines = [
@@ -310,8 +337,12 @@ async def shadow_report_job(
     for stype in targets:
         try:
             ab = await _query_strategy_ab(db, stype, cutoff)
-        except Exception as e:
-            logger.exception(f"[shadow_report] query failed for {stype}: {e}")
+        except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. A/B query
+            # surfaces aiosqlite.Error (SQL) + row access Key/Type/ValueError
+            # (datetime parse, missing column). Skip this stype, continue batch.
+            logger.exception(f"[shadow_report] query failed for {stype}: "
+                             f"{type(e).__name__}: {e}")
             continue
 
         promo_msg = _check_promotion_gate(ab, decision_mode)
@@ -355,8 +386,11 @@ async def shadow_report_job(
                 chat_id=admin_id, text=summary_html, parse_mode="HTML"
             )
             pushed += 1
-        except Exception as e:
-            logger.exception(f"[shadow_report] tg send failed: {e}")
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Main summary
+            # send; transport/BadRequest only. Pushed count already reflects.
+            logger.exception(f"[shadow_report] tg send failed: "
+                             f"{type(e).__name__}: {e}")
     else:
         # Split into 2 messages: summary table + footer
         parts = summary_html.split("\n")
@@ -369,16 +403,22 @@ async def shadow_report_job(
                 chat_id=admin_id, text=msg1, parse_mode="HTML"
             )
             pushed += 1
-        except Exception as e:
-            logger.exception(f"[shadow_report] tg send (part 1) failed: {e}")
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Part 1 of
+            # split summary; same error surface as single-msg path.
+            logger.exception(f"[shadow_report] tg send (part 1) failed: "
+                             f"{type(e).__name__}: {e}")
 
         try:
             await context.bot.send_message(
                 chat_id=admin_id, text=msg2, parse_mode="HTML"
             )
             pushed += 1
-        except Exception as e:
-            logger.exception(f"[shadow_report] tg send (part 2) failed: {e}")
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Part 2
+            # counterpart.
+            logger.exception(f"[shadow_report] tg send (part 2) failed: "
+                             f"{type(e).__name__}: {e}")
 
     # Send promotion messages (separate, as they're actionable alerts)
     for promo_msg in promo_msgs:
@@ -387,8 +427,11 @@ async def shadow_report_job(
                 chat_id=admin_id, text=promo_msg, parse_mode="HTML"
             )
             pushed += 1
-        except Exception as e:
-            logger.exception(f"[shadow_report] promo send failed: {e}")
+        except (TelegramError, asyncio.TimeoutError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. Promotion
+            # alerts are actionable; log and continue iterating.
+            logger.exception(f"[shadow_report] promo send failed: "
+                             f"{type(e).__name__}: {e}")
 
     if pushed:
         logger.info(f"[shadow_report] {pushed} message(s) pushed to telegram")
