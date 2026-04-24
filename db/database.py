@@ -391,12 +391,16 @@ class Database:
 
     # ── EXECUTION ──
     async def create_execution(self, execution: Execution) -> Execution:
+        # T4.10 (2026-04-24): regime_at_entry kolonu artik populate ediliyor.
+        # NULL kalmaya devam edebilir (bot'ta regime detector aktif degilse
+        # veya migration eski) — Optional[str] sema esnek.
         await self.conn.execute(
             """INSERT INTO executions (id,user_id,wallet_id,strategy_id,event_slug,
                market_token_id,direction,trade_amount,fee_amount,odds_threshold,
                execution_price,status,stop_loss_percent,stop_loss_odds,
                take_profit_percent,take_profit_odds,pnl,payout,result,closed_at,
-               error_message,created_at,updated_at,signal_score) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               error_message,created_at,updated_at,signal_score,regime_at_entry)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (execution.id, execution.user_id, execution.wallet_id,
              execution.strategy_id, execution.event_slug,
              execution.market_token_id, execution.direction.value,
@@ -409,7 +413,8 @@ class Database:
              execution.closed_at.isoformat() if execution.closed_at else None,
              execution.error_message,
              execution.created_at.isoformat(), execution.updated_at.isoformat(),
-             execution.signal_score))
+             execution.signal_score,
+             execution.regime_at_entry))
         await self.conn.commit()
         return execution
 

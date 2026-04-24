@@ -395,6 +395,18 @@ class EngineFillsMixin:
             self.skips.record("BALANCE_FAIL")
             return
 
+        # T4.10 (2026-04-24): regime_at_entry write path populate.
+        # self.regime is RegimeClassifier set in core/engine.py:142.
+        # Snapshot regime str now (not after settle, regime can drift).
+        # Empty/missing -> None (DB schema esnek).
+        _regime_at_entry = None
+        try:
+            _regime_obj = getattr(self, "regime", None)
+            if _regime_obj is not None:
+                _regime_at_entry = getattr(_regime_obj, "regime", None)
+        except (AttributeError, TypeError):
+            _regime_at_entry = None
+
         ex = Execution(
             user_id=o.user_id, wallet_id=o.wallet_id, strategy_id=o.strategy_id,
             event_slug=o.slug, market_token_id=o.token_id,
@@ -404,7 +416,8 @@ class EngineFillsMixin:
             is_maker=1 if o.is_maker else 0,  # Phase 79 BUG-02: populate is_maker
             signal_score=o.signal_score or 0.0,  # Phase 79 BUG-03: store original signal score
             stop_loss_percent=o.sl_pct, stop_loss_odds=o.sl_odds,
-            take_profit_percent=o.tp_pct, take_profit_odds=o.tp_odds)
+            take_profit_percent=o.tp_pct, take_profit_odds=o.tp_odds,
+            regime_at_entry=_regime_at_entry)  # T4.10
         await self.db.create_execution(ex)
         # Phase 79 BUG-03: Persist decision reasoning when trade is placed
         try:

@@ -183,6 +183,11 @@ class Execution(BaseModel):
     result: Optional[str] = None
     closed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    # T4.10 (2026-04-24): regime_at_entry write path. Migration v??? added
+    # this column already (db/migrations.py L109) but it was never populated.
+    # Now: engine_fills snapshots self.regime.regime at order placement time.
+    # Calibrate downstream: regime x slippage x PnL correlation.
+    regime_at_entry: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
