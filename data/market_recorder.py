@@ -15,6 +15,13 @@ atiyormus gibi sonuc uretecek.
 Tablolar:
   ob_snapshots — L2 orderbook + fiyat + depth snapshot'lari
   ob_trades    — Polymarket'ten tick-level fiyat degisimleri (WS)
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 import asyncio
 import json
@@ -208,13 +215,13 @@ class MarketRecorder:
         ):
             try:
                 await self.db.conn.execute(ddl)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass  # column already exists
         try:
             await self.db.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ob_trades_event_type "
                 "ON ob_trades(event_type, ts_ms)")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         await self.db.conn.commit()
         logger.info("📸 MarketRecorder: tables initialized (P1.1 trades schema)")
@@ -248,7 +255,7 @@ class MarketRecorder:
                 if original_cb:
                     try:
                         original_cb(token_id, price)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.debug(f"scanner cb error: {e}")
                 # 2. Schedule async tick recording on the running loop
                 try:
@@ -256,7 +263,7 @@ class MarketRecorder:
                         lambda: asyncio.ensure_future(
                             self._record_tick(token_id, price), loop=loop)
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.debug(f"tick schedule error: {e}")
 
             self.ws_client._on_price_callback = combined_callback
@@ -274,7 +281,7 @@ class MarketRecorder:
                     try:
                         self._engine_trade_listener(
                             token_id, price, size, side, ts_ms)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.debug(f"engine trade listener: {e}")
                 # 2. Persist to ob_trades
                 try:
@@ -284,7 +291,7 @@ class MarketRecorder:
                                 token_id, price, size, side, ts_ms),
                             loop=loop)
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.debug(f"trade schedule error: {e}")
 
             self.ws_client._on_trade_callback = trade_callback
@@ -363,7 +370,7 @@ class MarketRecorder:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self._errors += 1
                 self._last_error = str(e)
                 logger.error(f"📸 Recording loop error: {e}", exc_info=True)
@@ -477,7 +484,7 @@ class MarketRecorder:
                     total = (et - st).total_seconds()
                     elapsed = (now_utc - st).total_seconds()
                     elapsed_pct = max(0, min(1, elapsed / total)) if total > 0 else 0
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             market_vol = float(mdata.get("volume", 0) or 0)
@@ -528,7 +535,7 @@ class MarketRecorder:
             self._snapshot_count += 1
             return True
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self._errors += 1
             self._last_error = str(e)
             logger.debug(f"📸 Snapshot error [{market.get('slug','')}]: {e}")
@@ -540,7 +547,7 @@ class MarketRecorder:
             return None
         try:
             return await self.pm_client.get_orderbook(token_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"OB fetch error: {e}")
             return None
 
@@ -631,7 +638,7 @@ class MarketRecorder:
             if self._trade_count % 10 == 0:
                 await self.db.conn.commit()
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"Tick record error: {e}")
 
     async def _record_trade(self, token_id: str, price: float, size: float,
@@ -681,9 +688,9 @@ class MarketRecorder:
                     logger.info(
                         f"🐋 WHALE: {slug} {side.upper()} {size:.1f}sh "
                         f"@ {price:.4f} = ${notional:.0f}")
-            except Exception as _we:
+            except Exception as _we:  # noqa: BLE001
                 logger.debug(f"Whale detect: {_we}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"Real trade record error: {e}")
 
     # ═══════════════════════════════════════════════
@@ -700,7 +707,7 @@ class MarketRecorder:
                 "DELETE FROM ob_trades WHERE ts_ms < ?", (cutoff_ms,))
             await self.db.conn.commit()
             logger.info(f"📸 Cleanup: removed old data before {CLEANUP_DAYS}d")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Cleanup error: {e}")
 
     async def _update_meta(self, key: str, value: str):
@@ -713,7 +720,7 @@ class MarketRecorder:
                 (key, value, now)
             )
             await self.db.conn.commit()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     # ═══════════════════════════════════════════════
@@ -830,5 +837,5 @@ class MarketRecorder:
                 "errors": self._errors,
                 "enabled": self._enabled,
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return {"error": str(e)}

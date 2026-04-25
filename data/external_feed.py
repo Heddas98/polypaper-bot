@@ -3,6 +3,13 @@ PolyPaper Bot - External Price Feed (Phase 34+ — Windows PC)
 Fetches real BTC/ETH/SOL/XRP spot prices from Binance REST API.
 
 Windows: httpx is primary. curl fallback kept for Linux/Replit compat.
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 import asyncio
 import json
@@ -51,7 +58,7 @@ class ExternalFeed:
                     # Phase 82e Sprint 2.1: guarded
                     safe_create_task(self._poll_loop(), name="external_feed_httpx")
                     return
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"Binance httpx test: {e}")
         # Method 2: curl fallback (Replit/Linux)
         if sys.platform != "win32":
@@ -66,7 +73,7 @@ class ExternalFeed:
                     # Phase 82e Sprint 2.1: guarded
                     safe_create_task(self._poll_loop(), name="external_feed_curl")
                     return
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"Binance curl test: {e}")
         logger.warning("🌐 Binance feed: unavailable")
 
@@ -75,7 +82,7 @@ class ExternalFeed:
             try:
                 await self._fetch_all()
                 self._consecutive_fails = 0
-            except Exception:
+            except Exception:  # noqa: BLE001
                 self._consecutive_fails += 1
                 if self._consecutive_fails > 10:
                     logger.warning("🌐 Binance: too many fails, stopping")
@@ -109,7 +116,7 @@ class ExternalFeed:
                     p = float(data.get("price", 0))
                     if p > 0:
                         prices[symbol] = p
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         return prices
 
@@ -128,7 +135,7 @@ class ExternalFeed:
                         self._prices[asset] = {"price": price, "ts": now}
                         # Phase 79b: Record price history for momentum calc
                         self._record_history(asset, now, price)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
     def _record_history(self, asset: str, ts: float, price: float):

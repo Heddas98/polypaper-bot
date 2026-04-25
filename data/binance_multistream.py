@@ -33,6 +33,13 @@ Settings (config/settings.py — Phase 44a):
     BINANCE_FUTURES_FUNDING       default True
 
 Wired in main.py: started after Polymarket scanner, before AI brain.
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 from __future__ import annotations
 
@@ -255,7 +262,7 @@ class BinanceMultiStream:
                         self._dispatch_spot(msg)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self._reconnects += 1
                 wait = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
                 logger.warning(f"📡 Binance spot WS lost ({type(e).__name__}: {e}); retry in {wait}s")
@@ -310,7 +317,7 @@ class BinanceMultiStream:
                             self._states[asset].apply_mark(data)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self._reconnects += 1
                 wait = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
                 logger.warning(f"📡 Binance fut WS lost ({type(e).__name__}: {e}); retry in {wait}s")

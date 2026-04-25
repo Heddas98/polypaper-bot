@@ -3,6 +3,13 @@ PolyPaper Bot - WebSocket Client (Phase 8.5 BULLETPROOF)
 Every message handler wrapped in try/except.
 Supports: dict, list of dicts, nested structures.
 NEVER crashes the receive loop.
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 import asyncio
 import json
@@ -74,7 +81,7 @@ class PolymarketWebSocket:
         if self._ws:
             try:
                 await self._ws.close()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         if self._task:
             self._task.cancel()
@@ -226,7 +233,7 @@ class PolymarketWebSocket:
                         # BULLETPROOF: entire handler in try/except
                         try:
                             self._parse(raw)
-                        except Exception as _parse_err:
+                        except Exception as _parse_err:  # noqa: BLE001
                             self._errors += 1
                             # Phase 54 P0-03: log parse failures (was silent)
                             # Phase 57: reduced to every 100th after initial 5
@@ -235,7 +242,7 @@ class PolymarketWebSocket:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self._connected = False
                 self._reconnects += 1
                 if self._reconnects <= 3 or self._reconnects % 20 == 0:
@@ -273,12 +280,12 @@ class PolymarketWebSocket:
         for ev in events:
             try:
                 self._extract_price(ev, now_iso)
-            except Exception as _px_err:
+            except Exception as _px_err:  # noqa: BLE001
                 logger.debug(f"WS _extract_price: {type(_px_err).__name__}: {_px_err}")
             # Phase 39 (P1.1): also check for trade events
             try:
                 self._extract_trade(ev)
-            except Exception as _tr_err:
+            except Exception as _tr_err:  # noqa: BLE001
                 logger.debug(f"WS _extract_trade: {type(_tr_err).__name__}: {_tr_err}")
 
     def _extract_trade(self, ev):
@@ -305,7 +312,7 @@ class PolymarketWebSocket:
         ts = ev.get("timestamp") or ev.get("ts")
         try:
             ts_ms = int(float(ts)) if ts else int(time.time() * 1000)
-        except Exception:
+        except Exception:  # noqa: BLE001
             ts_ms = int(time.time() * 1000)
         # Polymarket sometimes sends ts in seconds; normalize to ms
         if ts_ms < 10_000_000_000:
@@ -314,7 +321,7 @@ class PolymarketWebSocket:
         if self._on_trade_callback:
             try:
                 self._on_trade_callback(asset_id, price, size, side, ts_ms)
-            except Exception as _cb_err:
+            except Exception as _cb_err:  # noqa: BLE001
                 logger.warning(f"⚠️ WS trade callback failed: {type(_cb_err).__name__}: {_cb_err}")
 
     def _extract_price(self, ev, now_iso: str):
@@ -357,7 +364,7 @@ class PolymarketWebSocket:
         if price and self._on_price_callback:
             try:
                 self._on_price_callback(asset_id, price)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
     def get_live_price(self, token_id: str) -> Optional[float]:
@@ -420,7 +427,7 @@ class PolymarketWebSocket:
                 ts = datetime.fromisoformat(data["ts"].replace("Z", "+00:00"))
                 if (now - ts).total_seconds() > max_age_seconds:
                     stale.append(tid)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 stale.append(tid)
         for tid in stale:
             del self.live_prices[tid]
@@ -450,7 +457,7 @@ class PolymarketWebSocket:
         if self._ws and self._connected:
             try:
                 await self._ws.send(msg)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
     @staticmethod

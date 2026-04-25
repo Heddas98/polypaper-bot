@@ -10,6 +10,13 @@ Tablolar:
 
 Her 50 mum = ~4 saat veri. Sistem surekli calisir, bosluk birakmaz.
 Backtest v3 icin temel veri kaynagidir.
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 import asyncio
 import logging
@@ -226,7 +233,7 @@ class CandleCollector:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"📊 CandleCollector error: {e}", exc_info=True)
                 await asyncio.sleep(30)
 
@@ -250,7 +257,7 @@ class CandleCollector:
                     if series:
                         latest = series[-1]
                         self._poly_builder.tick(slug, latest)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"CandleCollector poly tick error: {e}")
 
     async def _flush_poly_candles(self):
@@ -293,7 +300,7 @@ class CandleCollector:
                 await self.db.conn.commit()
                 self._candle_count += len(rows)
                 logger.info(f"📊 Flushed {len(rows)} poly candles (total: {self._candle_count})")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"📊 Poly candle write error: {e}")
 
     # ── BINANCE EXTERNAL CANDLES ──
@@ -330,12 +337,12 @@ class CandleCollector:
                              float(k[5]), float(k[7]), int(k[8]), float(k[9]),
                              open_ts, close_ts, now_iso)
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         pass  # UNIQUE constraint = already exists
 
                 await self.db.conn.commit()
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"📊 Binance {symbol} fetch error: {e}")
 
         self._last_binance_fetch = time.time()
@@ -393,7 +400,7 @@ class CandleCollector:
 
                 await asyncio.sleep(0.2)  # Rate limit
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"📊 Binance backfill {symbol} error: {e}")
 
         logger.info(f"📊 Binance backfill complete: {total_stored} candles stored")
@@ -412,7 +419,7 @@ class CandleCollector:
                 """INSERT OR REPLACE INTO candle_collector_meta (key, value, updated_at)
                    VALUES (?, ?, ?)""", (key, value, now))
             await self.db.conn.commit()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     # ── QUERY HELPERS ──
@@ -430,7 +437,7 @@ class CandleCollector:
             ) as c:
                 async for row in c:
                     rows.append(dict(row))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"get_poly_candles error: {e}")
         rows.reverse()
         return rows
@@ -448,7 +455,7 @@ class CandleCollector:
             ) as c:
                 async for row in c:
                     rows.append(dict(row))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"get_ext_candles error: {e}")
         rows.reverse()
         return rows
@@ -478,7 +485,7 @@ class CandleCollector:
                 if row:
                     stats["oldest"] = row["oldest"]
                     stats["newest"] = row["newest"]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"get_candle_stats error: {e}")
 
         return stats

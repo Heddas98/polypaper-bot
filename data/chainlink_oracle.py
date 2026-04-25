@@ -27,6 +27,13 @@ Aggregator addresses (Ethereum mainnet, Chainlink standard):
   ETH/USD:  0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
   SOL/USD:  0x4ffC43a60e009B551865A93d232E33Fce9f01507
   XRP/USD:  0xCed2660c6Dd1Ffd856A5A82C67f3482d88C50b12
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 from __future__ import annotations
 
@@ -96,7 +103,7 @@ class ChainlinkOracle:
                 logger.warning(
                     "⚠ Phase 47b: oracle smoke test got 0 prices — RPC may be blocked"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"⚠ Phase 47b: oracle smoke test threw: {e}")
 
     async def stop(self):
@@ -108,7 +115,7 @@ class ChainlinkOracle:
         while self._running:
             try:
                 await self._refresh_all()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self._fails += 1
                 logger.debug(f"chainlink poll error: {e}")
             try:
@@ -123,7 +130,7 @@ class ChainlinkOracle:
                 if price and price > 0:
                     self._prices[asset] = {"price": price, "ts": time.time()}
                     self._fetches += 1
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self._fails += 1
                 logger.debug(f"chainlink {asset} fetch failed: {e}")
 
@@ -154,7 +161,7 @@ class ChainlinkOracle:
             if raw <= 0:
                 return None
             return raw / (10 ** decimals)
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
     # ── public API ───────────────────────────────────────────────────

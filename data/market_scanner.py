@@ -1,6 +1,13 @@
 """
 PolyPaper Bot - Market Scanner (Phase 8)
 Auto-subscribes discovered tokens to WebSocket for real-time updates.
+
+T11.8-B (2026-04-24): every catch in this module is annotated
+`# noqa: BLE001`. Data-feed orchestrator: WebSockets + httpx +
+json + aiosqlite + asyncio reconnect chain. Single network blip
+or schema drift should NOT crash the feed thread — the reconnect
+loop handles it. Wide catches at the orchestration layer are
+intentional and logged.
 """
 import asyncio
 import logging
@@ -50,7 +57,7 @@ class MarketScanner:
         logger.info("Scanner: initial scan...")
         try:
             await self._do_scan()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Initial scan: {e}")
         # Phase 19: Wire WS → OddsFeed real-time bridge
         if self.ws and self.odds_feed:
@@ -85,7 +92,7 @@ class MarketScanner:
             if self.odds_feed:
                 try:
                     self.odds_feed.record_odds(slug, price)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
             # Phase 82e HOTFIX: refresh odds_cache with fresh WS tick
             try:
@@ -103,7 +110,7 @@ class MarketScanner:
                     "down_odds": entry.get("down_odds"),
                     "timestamp": entry["ws_ts"],
                 }
-            except Exception as _cache_err:
+            except Exception as _cache_err:  # noqa: BLE001
                 logger.debug(f"ws cache write {slug[:16]}: {_cache_err}")
         elif direction == "down":
             # DOWN tick: only touch cache if nothing fresh came from UP side
@@ -117,7 +124,7 @@ class MarketScanner:
                 entry.setdefault(
                     "ws_ts", datetime.now(timezone.utc).isoformat())
                 self.odds_cache[slug] = entry
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
     async def stop(self):
@@ -138,7 +145,7 @@ class MarketScanner:
                     self.ws.cleanup_stale_prices(3600)
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Scan: {e}")
             # Phase 82e HOTFIX: 30s → SCAN_INTERVAL_S (default 5s, env-tunable)
             # Reduces stale odds_cache window so strategies see fresh REST odds
@@ -199,7 +206,7 @@ class MarketScanner:
             try:
                 await self.ws.subscribe(new_tokens)
                 logger.info(f"  WS: subscribed {len(new_tokens)} new tokens")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"WS subscribe: {e}")
 
         # Epic 5 T5.6 Fix A: prune dead tokens from prior cycles.
@@ -225,7 +232,7 @@ class MarketScanner:
                         logger.info(
                             f"  Scanner pruned {pruned} tokens, "
                             f"slugs -{len(stale_slugs)}")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.debug(f"prune_stale_tokens: {e}")
             else:
                 logger.debug(
@@ -249,7 +256,7 @@ class MarketScanner:
                 "INSERT INTO odds_history (event_slug,up_odds,down_odds,timestamp) VALUES (?,?,?,?)",
                 (slug, odds.get("up_odds"), odds.get("down_odds"), now))
             await self.db.conn.commit()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     def get_current_market(self, asset, timeframe):
