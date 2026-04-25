@@ -22,7 +22,17 @@ Her strateji 3 faz arasında otomatik ilerler:
 
 Geçiş kriteri: son N trade WR'si + cumulative PnL. `/lifecycle` komutu ile her strateji için mevcut faz görüntülenir.
 
-## Aktif Engine Stratejileri
+## 5 Ghost-Class Doctrine (Epic 6 + T9.7)
+
+UI panellerinde gösterilip de engine'de hiç çalışmayan veya tersine çalışan parametre/strateji "ghost" sayılır. Epic 6 T6.3 + Epic 9 T9.7'nin kapatma sonucu, bot'un panel-ile-davranış paritesi 5 sınıf altında doktrinize edildi:
+
+1. **AI Brain Flags** — Canonical 6-flag set + `kelly_sizing` virtual flag. Boot-sync defect kapalı.
+2. **Runtime ENV Knob** — Module-level import-time ENV'ler (örn. `MIN_ORDER_SHARES`, `ALLOWED_ZONES`) `/env_toggle` whitelist'ine **dahil edilmedi** — restart gerektirir, yalan söylemiyoruz.
+3. **PNL_PAUSE Threshold** — T6.1'de module-top constant → `_get_pnl_pause_threshold()` helper, drift -3.0 → -8.0.
+4. **Market Recorder Parity** — UI literal + AST valid_features + regex sibling-prop + engine init + stub sim — 11 test × 5 class.
+5. **Kelly DB-persist** — Whitelist runtime-readiness guard ile DB'den okur, panel ↔ engine senkronizasyonu garantili.
+
+## Aktif Engine Stratejileri (19 adet)
 
 ### 1. late_convergence
 **Ne yapar:** Market kapanışa yakın (son 15-30dk) olasılık yakınsaması fırsatlarını yakalar. Becker calibration'dan en yüksek sinyal ağırlığı alır.
@@ -90,6 +100,14 @@ Geçiş kriteri: son N trade WR'si + cumulative PnL. `/lifecycle` komutu ile her
 
 ### 18. weekend_multiplier (Phase 60)
 **Ne yapar:** Hafta sonu düşük likidite ortamında daha sıkı filter + daha büyük position size.
+
+### 19. opening_breakout (2026-04-23)
+**Ne yapar:** Polymarket cycle açılışından sonra ilk N dakikadaki breakout sinyalini yakalar. Backtest'te kârlı çıkmış live spec.
+
+**Sinyaller:** Cycle-open price + ilk dakikalık range expansion + volume confirmation
+**Parametreler:** `OPEN_WINDOW_MIN`, `BREAK_THRESHOLD_PCT`, `VOLUME_MIN_RATIO`
+**Lifecycle:** exploration (yeni eklendi, henüz proven değil)
+**Kaynak:** `f353060 feat(opening_breakout): backtest-karli strategy live spec + create script`
 
 ## Classic Plugin (Phase 82e Sprint 4.6)
 

@@ -80,7 +80,11 @@ polyPaper-bot/
 │   ├── indicators.py              # Compat katmanı (yeni indikatör skills/'da)
 │   ├── bg_task.py                 # Background task exception guard (Sprint 2.1 + B6 ref capture)
 │   ├── stats_utils.py             # pearson_like (stdlib-only, T7.6 B2 2026-04-22)
-│   └── signals/                   # Eski signal moduleleri (legacy)
+│   ├── observability/             # Yeni — Epic 4 T4.4 (2026-04-21)
+│   │   └── rest_timing.py         # ENV-gated RTT recorder, time_call(label) ctx mgr
+│   └── signals/                   # Sinyal modülleri
+│       ├── whale_flow.py          # Whale tracker integration (Epic 9)
+│       └── WHALE_SIGNAL_INTEGRATION.md
 │
 ├── backtest/                      # BACKTEST MOTORU
 │   ├── engine_v2.py               # Backtest engine v2
@@ -140,6 +144,8 @@ polyPaper-bot/
 │   │   ├── becker_recal_handler.py # /becker_recal
 │   │   ├── phase76_handler.py     # /markov, /capital
 │   │   ├── phase77_handler.py     # /experiment, /health
+│   │   ├── env_toggle.py          # /env_toggle (/envt) — runtime ENV knob hot-tune (Sprint 6)
+│   │   ├── live_guards_handler.py # /live_guards (/lg) — 6 guard snapshot (Epic 11 T11.2)
 │   │   └── …
 │   ├── jobs/                      # PTB JobQueue periyodik işler
 │   │   ├── maintenance_jobs.py    # heartbeat_job (10dk) + daily_db_snapshot
@@ -176,6 +182,9 @@ polyPaper-bot/
 │   └── ev_threshold.py            # EV threshold calibration helper
 │
 ├── config/                        # YAML + static config
+│   ├── settings.py                # Tüm ENV variable parsing + default
+│   ├── validator.py               # Config validator
+│   ├── env_whitelist.py           # /env_toggle whitelist (Sprint 6) — 37 runtime knob (T11.2 sonrası)
 │   ├── strategies/                # Per-strategy parametre yaml'ları
 │   └── zones.yaml                 # ALLOWED_ZONES default
 │
@@ -191,10 +200,14 @@ polyPaper-bot/
 │   ├── ob_archive.py              # Order book Parquet arşivi
 │   ├── verify_db_health.py
 │   ├── backfill_ob_trades.py
+│   ├── _t118b_a4_bulk_annotate.py # T11.8-B advisory bulk annotate (2026-04-24)
+│   ├── rollback_sprint_2_1.py     # Idempotent rollback helper (Epic 11 T11.3)
 │   └── migrate_*.py
 │
-├── tests/                         # TEST SUITE (60+ test)
-│   └── unit/                      # Unit testler
+├── tests/                         # TEST SUITE — 735 pass + 8 skip + 0 fail
+│   ├── unit/                      # Unit testler
+│   ├── integration/               # T9.8 integration suite — 52/52 PASS Windows
+│   └── README.md                  # Test runner + 3-seed determinism guide
 │
 ├── utils/                         # ORTAK YARDIMCILAR
 │   ├── fmt.py                     # fmt_usd, safe_html

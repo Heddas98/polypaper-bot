@@ -6,9 +6,11 @@
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Engine](https://img.shields.io/badge/engine-v34-brightgreen.svg)]()
 [![Bot](https://img.shields.io/badge/bot-v9.7.9-brightgreen.svg)]()
-[![Phase](https://img.shields.io/badge/phase-82e%20Sprint%206-orange.svg)]()
+[![Phase](https://img.shields.io/badge/phase-Epic%2011%20Pre--Gate-orange.svg)]()
+[![Tests](https://img.shields.io/badge/tests-735%20pass-brightgreen.svg)]()
+[![Security](https://img.shields.io/badge/security-13%20regex%20%C3%97%200%20match-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-Live-success.svg)]()
+[![Status](https://img.shields.io/badge/status-Mainnet%20Pre--Gate-yellow.svg)]()
 
 ---
 
@@ -16,7 +18,7 @@
 
 **Ne yapar:** Polymarket'in BTC/ETH/SOL kripto Up/Down binary piyasalarında, gerçek canlı verilerle kâğıt üstünde işlem yapar. Aynı sinyalleri aynı anda "shadow-live" modunda küçük gerçek USDC miktarıyla da çalıştırır — tam otomasyon, Telegram üzerinden tek tuş kontrol.
 
-**Mevcut durum (2026-04-20):**
+**Mevcut durum (2026-04-25):**
 
 | Metric | Value |
 |---|---|
@@ -24,12 +26,17 @@
 | Toplam PnL | +$355 |
 | Trade sayısı | 1,417+ |
 | Win Rate | 57% |
-| Aktif strateji | 18 engine + Classic plugin + AI |
+| Aktif strateji | 18 engine + Classic plugin + AI + opening_breakout |
 | Shadow live | Aktif ($1.49 USDC, $1/trade, 3 strateji) |
 | AI Brain | Claude Sonnet, 10 dk cycle |
-| Son hotfix | Sprint 6 — /env_toggle hot-tune (2026-04-20) |
+| Test baseline | 735 pass + 8 skip + 0 fail (3-seed deterministic) |
+| Security | 13 secret regex × 3 scope = 0 match · pip-audit 0 CVE |
+| Pre-mainnet gate | T11.1 + T11.2 + T11.3 + T9.8-REG **3/3 ✅** |
+| Son milestone | T9.8-REG Windows integration 52/52 PASS (2026-04-24) |
 
 **Neden özel:** 18+ stratejinin her biri kendi lifecycle'ında (exploration → evaluation → proven) otomatik gate filtresi öğrenir. 2-Agent AI Brain (Optimist+Critic) her saat parametreleri optimize eder, HyperOpt (Optuna TPE) gecelik overfit-gate'li parametre taraması yapar, Becker Calibrator gerçek Polymarket geçmişinden kalibre probability sağlar.
+
+**Mühendislik temeli (Epic 1-11):** Tek fee oracle (`core/fees_v2.py`), 5 ghost-class doctrine, canonical 6-flag set, paper×0.66 ≈ live fill heuristic, advisory bare-except sweep (56 dosya × 373 site), 6 live-guard runtime validation (kill switch / live budget / PNL divergence / rolling WR kill / staleness), atomik backup + rollback dry-run plan, 13 secret leak regex × 3 scope. Tüm geliştirme tarihçesi: [docs/PHASES.md](docs/PHASES.md) · [TASKS.md](TASKS.md).
 
 ---
 

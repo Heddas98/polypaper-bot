@@ -7,6 +7,192 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versiyonlama
 ## [Unreleased]
 Aktif geliştirme branch'i.
 
+## [T9.8-REG — Windows Integration Smoke] — 2026-04-24
+
+### Verified
+- Windows tarafı `pytest tests/integration/` **52/52 PASS** (15 test class)
+- Paper-shadow identity 1000 event × 3 seed (42/1337/9001) — **zero drift**
+- Fee oracle bit-identical, WS reconnect doctrine GREEN
+- Pre-mainnet gate kapandı: T11.1 + T11.2 + T11.3 + T9.8-REG hepsi ✅
+
+## [T11.8-B — Advisory Bare-Except Closure] — 2026-04-24
+
+### Refactored
+- 56 dosya × **373 bare-except site** (153 narrow + 220 documented `noqa`)
+- 5 aşama: A data + B jobs + C handlers + D db + E `bot.py` + A4 data S2
+- 6 doktrin sınıfı zımbalandı (full narrow / job-safety / router-dispatch / multi-source / boot orchestrator / data-feed reconnect)
+- T11.6 render policy 4+ handler'a entegre
+
+### Tooling
+- `scripts/_t118b_a4_bulk_annotate.py` — bulk annotation script
+- `bare_except_check.py --advisory` → 0 violation
+
+## [T4.6-B — Fill Heuristic Calibration Sweep] — 2026-04-24
+
+### Discovery
+- Classic 199 trade × 200 markets sweep
+- HEURISTIC -$4.87 vs EMPIRICAL -$6.51, delta_pnl_pct = -33.68%, **verdict FAIL**
+- Sinyal üretimi etkilenmedi (WR 52.26% her ikisi), tüm sapma fill tarafında
+- **Zihin çarpanı:** paper × 0.66 ≈ live beklentisi
+- Forward work T4.7-C: `config/settings.py` FILL_SPREAD_COST 0.005→0.023, IMPACT 0.01→0.025, LATENCY_DRIFT 0.08→0.04
+
+### Artifact
+- `backtest/calibration/sweep_fill_heuristic_20260424_193711.json`
+
+## [Epic 11 T11.3 — Rollback Dry-Run] — 2026-04-23
+
+### Verified
+- 4/4 senaryo PASS: S1 git revert + S2 rollback_sprint_2_1.py idempotent + S3 `/envt` audit log + S4 DB snapshot restore (Apr 19 backup)
+
+### Fixed (HIGH severity)
+- **Bulgu B:** backup atomic write eksikti — 2026-04-20 + 2026-04-23 backup dosyaları corrupt (729-780 MB, header null)
+- Fix: `dest.tmp` → atomic rename pattern
+
+### Status
+- Pre-mainnet gate **3/3 ✅** (T11.1 + T11.2 + T11.3)
+- Mainnet Go/No-Go karar aşamasında
+
+## [Epic 11 T11.2 — Live Guard Validation Full Closure] — 2026-04-23
+
+### Verified
+- 5 canlı + G5 historical = **6/6 PASS**
+- G3 commit `60a5efc`, whitelist fix `da11c2f` (PNL_DIVERGENCE_* 4 entry, G2 paraleli), G4 commit `59c68d2`
+- Whitelist 33 → 37 knob
+
+### Backlog
+- Canlı ALERT branch (G2/G3/G4) 48h shadow run — Windows backlog
+
+## [Epic 11 T11.2 — Ek İş Batch] — 2026-04-22
+
+### Added
+- `/live_guards` (alias `/lg`) admin Telegram cmd — 6 guard single snapshot
+- LIVE_BUDGET runtime read (T6.1 parity)
+- 15 yeni regression test
+- Changelog `pnl` / `trades` kolonları NULL → dolu
+
+### Commits
+- `98d8f71`, `f3ffa04`, `bc87f42` — 3 atomic commit
+
+## [Epic 10 — Security Pass + Post-Audit] — 2026-04-22
+
+### Closed (T10.1-T10.5)
+- T10.1: secret leak scan CLEAN (6 regex × 4 scope = 0 match)
+- T10.2: 3 CRIT callback auth gap fixed (`filters_callback`, `brain_toggle_callback`, 5 strategy callbacks) via `_is_admin_call()` helper + 8 AST regression test
+- T10.3: pip-audit 0 CVE
+- T10.4: `.env.example` ↔ `settings.py` sync
+- T10.5: `get_live_price` fresh-over-stale
+
+### Post-Audit (T10.6-T10.10)
+- `6998f6f` T10.6 hyperopt_apply_callback admin gate (CRIT — T10.2 kapsam kaçağı)
+- `a9cbc89` T10.7 Batch 2 exception leak (2 site)
+- `bdff7ff` T10.8 secret regex 6→**13** (+AKIA / hf_ / sk-proj- / sk_live_ / sk_test_ / bare-64hex / BIP-39)
+- `0cf35b3` T10.9 eth-* doc precision
+- `9006853` T10.10 F4 reproducible grep
+
+### Test Baseline
+- 498 → **735 pass + 8 skip + 0 fail**, 3-seed deterministic
+- 0 admin-gate eksik, 13 secret pattern × 3 scope, 0 CVE, 0 eval/shell
+
+## [Epic 9 — Test Infrastructure Closure] — 2026-04-22
+
+### Coverage
+- 17.5% → **21.2%** (502 → 723 pass + 8 skip + 0 fail)
+
+### Added
+- T9.6: 8 commit × 160 test × 8 critical-path modül (502 → 662 pass)
+- T9.7: market_recorder UI↔engine explicit parity (5 ghost class doctrine tamamlandı)
+- T9.8: 3 integration dosyası × 50 test (Engine boot + Single Fee Oracle PnL identity + WS reconnect)
+- T9.10: WS fixture isolation hardening (microsecond ISO roundtrip race + WS_STALE_SEC env-pin)
+
+### Doctrine
+- DI pattern + autouse fixture + asyncio.run
+- Mixin harness pattern
+- ENV runtime re-read
+
+### Post-Audit
+- `d2cb442` Batch A (5 test correctness)
+- `25bbd4f` Batch B+C (doc accuracy + T10.5/T11.4/T11.5 forward work)
+
+## [Epic 8 — Bare-Except HIGH + LLM Guard] — 2026-04-22
+
+### Refactored
+- T8.1: 4 commit (auto_opt + engine + engine_signals + ai_brain) × 146 blok
+- T8.2: `c967726` LLM rate-limit guard (429 Retry-After + cooldown + MIN_COST anti-bypass)
+
+### Genel Tarama Closure
+- `99844b9` B7 RiskLimits doc
+- `990d234` engine `noqa` × 3 + `/diagnose` live count
+- `69553c4` LLM_RATELIMIT_* runtime helpers (T6.1 pattern + whitelist `llm` group)
+
+### Test
+- 489 → 498 pass + 0 new regression
+
+## [Epic 7 — Dead Code & Duplicate Logic] — 2026-04-22
+
+### Closed
+- T7.1-T7.5: 10 superseded smoke → `_archive/smoke_superseded_2026_04_21/`
+- replay_engine v1 + v3 keep both
+
+### T7.6 — Bare-Except Faz 3
+- Aşama A (16 dosya, 16/16 ✅): 37 blok narrow + 4 unused import + observability shadow-bug rescue + 4 noqa gerekçe
+- Aşama B (7 dosya × 7 atomic commit): 23 narrow + 21 noqa Faz 3 audit + 2 dead import. `core/` bare = 0
+- Post-audit: 23 modül × 14 bulgu, 5 critical + 4 smell + 1 style = 10 atomic commit
+- `pearson_like` triplicate → `core/stats_utils.py`
+- `live_trader` ENV-override + whitelist
+- `trade_journal` GC-safe
+- `auto_optimizer` ROLLING_WR runtime
+
+### B6 + B3 Closure
+- `4fdc781` bg_task `_BG_TASK_OBJECTS` strong-ref set + 7 yeni test
+- `9de66ef` ARCHITECTURE.md stats_utils + B6 cross-refs
+- `9f1b8cd` TASKS.md B3 AUDIT-CLOSED
+
+### Test
+- 496 pass + 0 new regression
+
+## [Epic 1-6 — Comprehensive Audit] — 2026-04-21
+
+### Verified
+- 3 paralel agent full verification
+- **126 pass + 2 skip**, 0 yeni bug
+- 1 cosmetic TASKS.md sayı hatası fix (`341→237` gerçek vs `341→276` iddia)
+
+## [Epic 6 — UI↔Engine Ghost Audit] — 2026-04-21
+
+### Closed (T6.1-T6.5)
+- T6.1 PNL_PAUSE runtime fix: `/env_toggle` silent ghost toggle düzeltildi. Module-top constant → `_get_pnl_pause_threshold()` helper. Whitelist default drift -3.0 → -8.0. 82/82 test
+- T6.3 Brain Flags Parity: AI Brain panel 4 ghost + boot-sync defect kapatıldı. Canonical 6-flag set + `kelly_sizing` virtual. 10+9 test GREEN
+- Kelly DB-persist + whitelist runtime-readiness guard
+- 5 ghost sınıfı doktrini
+- 57 test toplam
+
+## [Epic 5 — Atomicity / State] — 2026-04-21
+
+### Fixed (T5.6)
+- WS cap fix: prune wiring + deterministic priority_first + telemetry
+- 14/14 test, cap skiplerinin state drift'i çözüldü
+
+## [Epic 4 — Simulator Audit] — 2026-04-21
+
+### Closed (T4.1-T4.4)
+- Single fee oracle (`core/fees_v2.py` ONLY) — pre-Mart 2026 v1 + legacy category arşivlendi
+- ENV-overridable slippage heuristics
+- REST timing telemetry stub (`core/observability/rest_timing.py`)
+- T4.5/T4.6/T4.7 yerel Windows backlog
+
+## [Epic 2 — Root Cleanup] — 2026-04-20
+
+### Closed
+- Kök 100+ → 19 dosya
+- 97 → `_archive/` 11 nested subfolder
+- Mainnet-ready
+
+## [T1.4 Faz 1 — Bare Except Narrowing] — 2026-04-20
+
+### Refactored
+- 65 blok CRITICAL path narrow + 30 satır dead code
+- `core/`: 341 → 276 bare-except site
+
 ## [Phase 82e Sprint 6 — `/env_toggle` hot-tune] — 2026-04-20
 
 ### Added

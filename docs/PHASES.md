@@ -61,6 +61,21 @@ PolyPaper Bot'un Phase 47'den Phase 82e Sprint 6'ya kadar olan tüm mühendislik
 | 82e Sprint 5 HOTFIX v5 | 2026-04-20 | Classic FEE_TAIL/TOKEN_CAP/EMA/LOW_VOL/SLIPPAGE/TOO_EARLY bypass + resolution notify |
 | 82e Sprint 5 HOTFIX v6 | 2026-04-20 | Classic TAKER limit ceiling (`CLASSIC_TAKER_LIMIT_CEIL`=0.99) + stuck cancel 120s |
 | 82e Sprint 6 | 2026-04-20 | `/env_toggle` (`/envt`) admin cmd — 23 whitelisted runtime knob hot-tune, .env patch + audit |
+| Epic 1-3 | 2026-04-20 | Ghost modül purge, Root cleanup 100+ → 19, Classic bypass audit |
+| T1.4 Faz 1 | 2026-04-20 | 65 blok bare-except narrow + 30 dead code, `core/` 341 → 276 |
+| Epic 4 | 2026-04-21 | Simulator audit — Single Fee Oracle (`fees_v2`), ENV slippage heuristics, REST timing telemetry stub |
+| Epic 5 | 2026-04-21 | Atomicity/state — T5.6 WS cap prune + deterministic priority + telemetry |
+| Epic 6 | 2026-04-21 | UI↔Engine ghost audit — T6.1 PNL_PAUSE + T6.3 brain flags parity + Kelly DB-persist + 5 ghost class doctrine |
+| Epic 1-6 Audit | 2026-04-21 | 3 paralel agent comprehensive verification — 126 pass + 2 skip, 0 yeni bug |
+| Epic 7 | 2026-04-22 | Dead code & duplicate logic — T7.1-T7.5 + T7.6 Aşama A/B + post-audit. `pearson_like` → `core/stats_utils.py`. `core/` bare = 0 |
+| Epic 8 | 2026-04-22 | T8.1 bare-except HIGH (146 blok) + T8.2 LLM rate-limit guard (429 Retry-After + MIN_COST anti-bypass) + LLM_RATELIMIT_* runtime helpers |
+| Epic 9 | 2026-04-22 | Test infrastructure — T9.1-T9.10 + post-audit. Coverage 17.5% → 21.2%. 502 → 723 pass + 8 skip. 3-seed deterministic |
+| Epic 10 | 2026-04-22 | Security pass — T10.1-T10.10. 13 secret regex pattern, admin gate 3 CRIT fix, hyperopt admin gate, exception leak Batch 2. 723 → **735 pass** |
+| Epic 11 T11.2 | 2026-04-22/23 | Live guard validation — 5 canlı + 1 historical = 6/6 PASS. `/live_guards` cmd + 15 yeni test + LIVE_BUDGET runtime read |
+| Epic 11 T11.3 | 2026-04-23 | Rollback dry-run 4/4 PASS — git revert + idempotent rollback + envt audit + DB snapshot. **HIGH:** backup atomic write fix (Bulgu B) |
+| T4.6-B | 2026-04-24 | Fill heuristic calibration sweep — verdict FAIL, paper×0.66 ≈ live, forward T4.7-C settings.py update |
+| T11.8-B | 2026-04-24 | Advisory bare-except sweep — 56 dosya × 373 site (153 narrow + 220 noqa). 6 doktrin sınıfı |
+| T9.8-REG | 2026-04-24 | Windows integration smoke 52/52 PASS. Paper-shadow identity 1000 event × 3 seed zero drift. Pre-mainnet gate kapandı |
 
 ## Detaylı Phase Notları
 
@@ -140,12 +155,65 @@ Yeni **"classic" strategy_type** — algoritma yok, sadece `direction_filter + t
 
 Smoke: 25/25 PASS.
 
+### Epic 7 — Dead Code & Duplicate Logic (2026-04-22)
+**T7.1-T7.5:** 10 superseded smoke → `_archive/smoke_superseded_2026_04_21/`. `replay_engine` v1+v3 her ikisi keep.
+
+**T7.6 Faz 3 bare-except (113 blok × 26 dosya):** 3 aşamaya bölündü:
+- **Aşama A (16 dosya):** 37 narrow + 4 unused import + observability shadow-bug rescue + 4 noqa
+- **Aşama B (7 dosya, 7 atomic commit):** 23 narrow + 21 noqa + 2 dead import. **`core/` bare = 0**
+- **Post-audit:** 23 modül × 14 bulgu, 5 critical + 4 smell + 1 style. `pearson_like` triplicate → **`core/stats_utils.py`**. `live_trader` ENV-override + whitelist. `trade_journal` GC-safe. `auto_optimizer` ROLLING_WR runtime. **B6:** bg_task `_BG_TASK_OBJECTS` strong-ref set + 7 yeni test.
+
+### Epic 8 — Bare-Except HIGH + LLM Guard (2026-04-22)
+**T8.1:** ai_brain (47) + auto_optimizer (22) + engine (35) + engine_signals (42) = **146 HIGH-risk blok** narrow.
+
+**T8.2 LLM Rate-Limit Guard:** Anthropic 429 Retry-After + cooldown + MIN_COST anti-bypass. `LLM_RATELIMIT_*` runtime helpers (T6.1 pattern + whitelist `llm` group).
+
+498 pass + 0 new regression.
+
+### Epic 9 — Test Infrastructure (2026-04-22)
+**Coverage 17.5% → 21.2%, 502 → 723 pass + 8 skip + 0 fail.**
+
+- **T9.6:** 8 commit × 160 test × 8 critical-path modül. Mixin harness pattern + ENV runtime re-read doktrini zımbalandı.
+- **T9.7 ghost guards:** `market_recorder` UI↔engine explicit parity, 11 test × 5 class. **5 ghost sınıfı doktrini tamamlandı.**
+- **T9.8 integration:** 3 dosya × 50 test. Engine boot + Single Fee Oracle PnL identity + WS reconnect.
+- **T9.10 WS fixture isolation:** microsecond ISO roundtrip race + WS_STALE_SEC env-pin. 3-seed determinism GREEN (42/1337/9001).
+
+**Doktrin:** DI pattern + autouse fixture + asyncio.run.
+
+### Epic 10 — Security Pass (2026-04-22)
+**T10.1-T10.5 closed:** secret leak scan CLEAN (6 regex × 4 scope = 0 match). 3 CRIT callback auth gap fix (`filters_callback`, `brain_toggle_callback`, 5 strategy callbacks) via `_is_admin_call()` + 8 AST regression test. pip-audit 0 CVE. `.env.example` ↔ `settings.py` sync. `get_live_price` fresh-over-stale.
+
+**Post-audit T10.6-T10.10:**
+- T10.6: `hyperopt_apply_callback` admin gate (CRIT — T10.2 kapsam kaçağı)
+- T10.7: Batch 2 exception leak (2 site)
+- T10.8: secret regex 6 → **13** (+AKIA / hf_ / sk-proj- / sk_live_ / sk_test_ / bare-64hex / BIP-39)
+- T10.9: eth-* doc precision
+- T10.10: F4 reproducible grep
+
+**Test:** 498 → **735 pass + 8 skip + 0 fail**.
+
+### Epic 11 — Mainnet Go/No-Go Pre-Gate
+
+**T11.2 Live Guard Validation (2026-04-22/23):** 5 canlı + 1 historical = **6/6 PASS**. Guards: G1 Kill Switch (file-channel 96ms + sticky memory) / G2 Live Budget (1.49→0.5→1.49 runtime + whitelist fix) / G3 PNL Divergence / G4 Rolling WR Kill / G5 ROLLING_WR_KILL changelog historical / G6 24h staleness. `/live_guards` (`/lg`) admin cmd + 15 yeni regression test + LIVE_BUDGET runtime read (T6.1 parity). Whitelist 33 → 37 knob.
+
+**T11.3 Rollback Dry-Run (2026-04-23):** **4/4 senaryo PASS.** S1 git revert + S2 `rollback_sprint_2_1.py` idempotent + S3 `/envt` audit log + S4 DB snapshot restore (Apr 19 backup). **HIGH-severity Bulgu B:** backup atomic write eksikti — 2026-04-20 + 2026-04-23 backup'ları corrupt (729-780 MB, header null). Fix: `dest.tmp` → atomic rename pattern. **Pre-mainnet gate 3/3 ✅.**
+
+**T9.8-REG Windows Integration (2026-04-24):** `pytest tests/integration/` **52/52 PASS** (15 test class). Paper-shadow identity 1000 event × 3 seed zero drift. Fee oracle bit-identical, WS reconnect doctrine GREEN.
+
+**T4.6-B Fill Heuristic Sweep (2026-04-24):** classic 199 trade × 200 markets. HEURISTIC -$4.87 vs EMPIRICAL -$6.51, delta_pnl_pct = **-33.68%**, verdict FAIL. Sinyal üretimi etkilenmedi (WR 52.26% her ikisi), tüm sapma fill'de. **Zihin çarpanı: paper × 0.66 ≈ live.** Forward T4.7-C: FILL_SPREAD_COST 0.005→0.023, IMPACT 0.01→0.025, LATENCY_DRIFT 0.08→0.04.
+
+**T11.8-B Advisory Bare-Except (2026-04-24):** **56 dosya × 373 site** (153 narrow + 220 documented `noqa`). 5 aşama (A data + B jobs + C handlers + D db + E `bot.py` + A4 data S2). 6 doktrin sınıfı. T11.6 render policy 4+ handler entegre. `bare_except_check.py --advisory` 0 violation.
+
 ## Phase Numaralandırma Notları
 
 - Phase 64 ve Phase 66 arası Phase 65'e sığdırıldı (Phase 66 Roadmap document).
 - Phase 75 ayrı bir phase değil, analiz raporu.
 - Phase 82a/b/c/d/e parallel fix stream'ler — her biri bağımsız deploy'lar.
 
-## Mevcut (2026-04-20)
+## Mevcut (2026-04-25)
 
-Aktif branch: **Phase 82e Sprint 6 — `/env_toggle` hot-tune**. Bot v9.7.9, 18+ engine + Classic plugin + AI stratejileri aktif. Shadow live ($1.49 USDC, $1/trade, 3 strateji) + AI Brain Claude Sonnet 10dk cycle. Bakiye ~$10,386, toplam PnL +$355, WR %57, 1,417+ trade.
+**Aktif milestone:** Epic 11 (Mainnet Go/No-Go) — T11.1 + T11.2 + T11.3 + T9.8-REG **hepsi ✅** kapandı, mainnet bloklayıcı yok. T11.8-B advisory zone temizliği bitti, T4.6-B fill heuristic kalibrasyon sweep'i `paper×0.66 ≈ live` zihin çarpanını ortaya koydu. Bot v9.7.9, 18+ engine + Classic plugin + AI Brain (Claude Sonnet 10dk cycle). Shadow live aktif ($1.49 USDC, $1/trade, 3 strateji). Bakiye ~$10,386, toplam PnL +$355, WR %57, 1,417+ trade.
+
+**Test baseline:** 735 pass + 8 skip + 0 fail, 3-seed deterministic (42/1337/9001).
+**Security baseline:** 13 secret regex × 3 scope = 0 match, pip-audit 0 CVE, 0 admin-gate eksik, 0 eval/shell.
+**Bare-except:** `core/` = 0, advisory zone kampanyası 56 dosya × 373 site closure.
