@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-04-24T10:59:27.371793+00:00",
+  "strategy": "hour_edge",
+  "markets": 20,
+  "heuristic": {
+    "label": "HEURISTIC",
+    "env": {
+      "FILL_SPREAD_COST": "0.005",
+      "FILL_IMPACT_SCALE": "0.01",
+      "FILL_LATENCY_DRIFT_BPS_PER_MS": "0.08"
+    },
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "wr_pct": 0.0,
+    "total_pnl": 0.0,
+    "mean_pnl": 0.0,
+    "final_balance": 10000.0
+  },
+  "empirical": {
+    "label": "EMPIRICAL",
+    "env": {
+      "FILL_SPREAD_COST": "0.023",
+      "FILL_IMPACT_SCALE": "0.025",
+      "FILL_LATENCY_DRIFT_BPS_PER_MS": "0.04"
+    },
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "wr_pct": 0.0,
+    "total_pnl": 0.0,
+    "mean_pnl": 0.0,
+    "final_balance": 10000.0
+  },
+  "delta": {
+    "delta_pnl": 0.0,
+    "delta_pnl_pct": 0.0,
+    "delta_trades": 0,
+    "delta_wr_pp": 0.0,
+    "direction_consistent": true,
+    "verdict": "PASS",
+    "criterion": "|delta_pnl_pct| < 5% AND direction consistent"
+  }
+}
