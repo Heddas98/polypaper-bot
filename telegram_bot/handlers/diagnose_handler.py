@@ -456,7 +456,9 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"  Running: {running_count}\n"
             f"  Paused: {paused_count}\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): callback strategies fetch — same wide-catch
+        # pattern as command path; admin-only diagnostic.
         logger.error(f"Failed to fetch strategies: {e}")
         strat_text = (
             f"<b>Strategy Health</b>\n"

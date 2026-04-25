@@ -2,9 +2,13 @@
 PolyPaper Bot - /strategies Handler (v7)
 ALL buttons work including Edit with full detail view.
 """
+import asyncio
 import logging
 import os
+
+import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 from db.database import Database
@@ -153,7 +157,9 @@ async def strategies_page_callback(update: Update, context: ContextTypes.DEFAULT
         return
     try:
         page = int(data.replace("strats_page_", ""))
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. int() coercion
+        # of callback_data suffix; fallback to page 0 on malformed.
         page = 0
     await q.answer()
     db: Database = context.bot_data["db"]
@@ -216,7 +222,9 @@ async def delete_strategy_callback(update: Update, context: ContextTypes.DEFAULT
         await q.answer("Silindi 🗑")
         try:
             await q.edit_message_text("🗑 Strateji silindi.", parse_mode="HTML")
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. edit_message
+            # may BadRequest on no-op or message gone — silent swallow OK.
             pass
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
@@ -227,7 +235,8 @@ async def delete_strategy_callback(update: Update, context: ContextTypes.DEFAULT
         await q.answer("İptal edildi")
         try:
             await q.edit_message_text("❌ Silme iptal edildi.", parse_mode="HTML")
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): edit_message no-op tolerated.
             pass
         return
 
@@ -664,7 +673,8 @@ async def quick_strategy_wizard_callback(update: Update, context: ContextTypes.D
         await q.answer("İptal")
         try:
             await q.edit_message_text("❌ Wizard iptal edildi.", parse_mode="HTML")
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): edit_message no-op tolerated.
             pass
         return
 
@@ -803,7 +813,8 @@ async def quick_strategy_wizard_callback(update: Update, context: ContextTypes.D
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("▶ Start", callback_data=f"start_strat_{s.id}")],
                     [InlineKeyboardButton("🎰 Strategies", callback_data="show_strategies")]]))
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): edit_message fallback to fresh reply.
             await q.message.reply_text(
                 f"✅ Created!\n{s.summary_line(1)}", parse_mode="HTML")
         return
@@ -816,7 +827,8 @@ async def _edit_or_reply(q, text: str, kb):
     """Try to edit the wizard message in place; fall back to a new reply."""
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): edit_message fallback to fresh reply.
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -1033,7 +1045,10 @@ async def autopilot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Remove buttons after action - ALWAYS use HTML
     try:
         await query.edit_message_text(f"🤖 {esc(str(result))}", parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): autopilot callback wrapper. AI brain
+        # methods may surface heterogeneous exceptions. Generic finished
+        # message preserves UX.
         logger.error(f"Autopilot callback error: {esc(str(e))}")
         await query.edit_message_text("🤖 Islem tamamlandi.", parse_mode="HTML")
 
@@ -1352,8 +1367,11 @@ async def kelly_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if db is not None:
             await db.set_setting(
                 "engine.kelly_mode", "1" if engine._kelly_mode else "0")
-    except Exception as e:
-        logger.warning(f"Kelly mode persist failed: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. set_setting
+        # surfaces aiosqlite.Error only. Persist failure is non-fatal.
+        logger.warning(f"Kelly mode persist failed: "
+                       f"{type(e).__name__}: {e}")
     status = "✅ AKTIF" if engine._kelly_mode else "⚫ KAPALI"
     await update.message.reply_text(f"🎯 Kelly Modu: {status}")
 
@@ -1443,8 +1461,10 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Brain Cycle aksiyonlari otomatik uygular:",
                     parse_mode="HTML", reply_markup=keyboard)
 
-    except Exception as e:
-        logger.error(f"Analyze command error: {esc(e)}", exc_info=True)
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): analyze command outer wrapper. AI brain
+        # analyze touches LLM + DB + signal eval — heterogeneous surface.
+        logger.error(f"Analyze command error: {esc(str(e))}", exc_info=True)
         await update.message.reply_text(
             f"❌ <b>Analiz Hatasi</b>\n\nDetay: {str(e)[:100]}",
             parse_mode="HTML")
@@ -1470,7 +1490,9 @@ async def analyze_optimize_command(update: Update, context: ContextTypes.DEFAULT
             )
         else:
             await update.message.reply_text("⚠️ Brain cycle sonuc uretmedi.", parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): brain cycle wrapper. LLM + signal +
+        # DB layered. Truncated err already T11.6-OK pattern.
         logger.error(f"Optimize AI error: {e}", exc_info=True)
         safe_err = esc(str(e)[:100])
         await update.message.reply_text(
@@ -1592,7 +1614,9 @@ def _fmt_num(v, fmt="{:.4f}"):
         return "—"
     try:
         return fmt.format(float(v))
-    except Exception:
+    except (ValueError, TypeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. float() coercion
+        # of None/non-numeric → em-dash placeholder.
         return "—"
 
 
@@ -1611,7 +1635,9 @@ async def micro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         try:
             status = bms.get_status() if hasattr(bms, "get_status") else {}
-        except Exception:
+        except (AttributeError, TypeError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. get_status
+            # may not exist on older bms versions.
             status = {}
         lines.append(
             f"📡 stream: running={status.get('running', '?')} "
@@ -1627,8 +1653,10 @@ async def micro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for asset in ASSETS:
             try:
                 feat = bms.features(asset)
-            except Exception as e:
-                lines.append(f"<b>{esc(asset)}</b> — error: {esc(e)}")
+            except (AttributeError, KeyError, ValueError, TypeError) as e:
+                # T11.8-B (2026-04-24): narrow from bare Exception. bms.
+                # features call — missing asset (KeyError) or attribute drift.
+                lines.append(f"<b>{esc(asset)}</b> — error: {esc(str(e))}")
                 continue
             if not feat:
                 lines.append(f"<b>{esc(asset)}</b> — no data yet")
@@ -1662,7 +1690,8 @@ async def micro_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         lines.append(
                             f"  ⛓ chainlink={cl_price:.2f} Δ={_fmt_num(delta, '{:.1f}')}bps"
                         )
-                except Exception:
+                except (AttributeError, KeyError, TypeError, ValueError):
+                    # T11.8-B (2026-04-24): per-feature render fallback.
                     pass
             lines.append("")
 
@@ -1760,5 +1789,6 @@ async def recorder_refresh_callback(update: Update, context: ContextTypes.DEFAUL
 
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): edit_message no-op tolerated.
         pass

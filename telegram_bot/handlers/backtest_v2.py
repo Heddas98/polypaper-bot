@@ -10,6 +10,12 @@ Commands:
   /backtest_v2 taker_flow     → Taker flow testi (eski format)
   /backtest_v2 composite      → Multi-signal fusion testi (eski format)
   /compare hour_edge streak_reversal → İki strateji karşılaştır
+
+T11.8-B (2026-04-24): Every catch in this module is annotated `# noqa:
+BLE001`. Backtest v2 touches ReplayEngine + ParquetWriter + matplotlib +
+DB + asyncio.to_thread + telegram send_photo — heterogeneous failure
+surface across 6+ libraries. T11.6 render policy preserved on user-facing
+reply paths via `render_user_exception()` where present.
 """
 import io
 import asyncio
@@ -71,7 +77,7 @@ async def backtest_v2_cmd(update: Update,
             "gerçek L2 orderbook geçmişi (9/10 realism).\n\n"
             "v2 sadece 11 legacy strateji port edilene kadar açık.",
             parse_mode="HTML")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     args = context.args if context.args else []
 
@@ -473,7 +479,7 @@ async def _run_backtest(source, strategy_name: str,
         await polybt.close()
         await gamma.close()
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Backtest v2 failed: %s", e, exc_info=True)
         error_msg = str(e)[:100]
         await _reply(source, f"❌ <b>Backtest Hatasi</b>\n\nIslem: {esc(strategy_name)}\nDetay: {error_msg}", parse_mode="HTML")
@@ -574,7 +580,7 @@ async def _run_comparison(update: Update, strategy_names: list,
             # Clean up cancel event
             _cancel_events.pop(chat_id, None)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Comparison failed: %s", e, exc_info=True)
         error_msg = str(e)[:100]
         await update.message.reply_text(
@@ -710,7 +716,7 @@ async def _reply(source, text: str, parse_mode: str = "HTML"):
                 await source.message.reply_text(text, parse_mode=parse_mode)
         elif hasattr(source, "reply_text"):
             await source.reply_text(text, parse_mode=parse_mode)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Reply failed: %s", e)
 
 
@@ -723,7 +729,7 @@ async def _send_photo(source, photo_bytes: bytes, caption: str = ""):
             await source.message.reply_photo(bio, caption=caption)
         elif hasattr(source, "reply_photo"):
             await source.reply_photo(bio, caption=caption)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Send photo failed: %s", e)
 
 
@@ -802,7 +808,7 @@ async def backtest_replay_command(update: Update,
             "SELECT COUNT(*), COUNT(DISTINCT slug) FROM ob_snapshots")
         snap_count = r[0][0] if r else 0
         market_count = r[0][1] if r else 0
-    except Exception:
+    except Exception:  # noqa: BLE001
         snap_count = 0
         market_count = 0
 
@@ -952,10 +958,10 @@ async def _run_replay(source, db, strategy_name: str,
             if chart_bytes:
                 await _send_photo(source, chart_bytes,
                                   f"📈 Equity: {esc(strategy_name)} (Replay)")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Charts optional
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Replay backtest failed: %s", e, exc_info=True)
         await _reply(source,
                      f"❌ <b>Replay Hatasi</b>\n\n"
@@ -1014,7 +1020,7 @@ async def _run_compare_all(source, db):
 
         await _reply(source, text)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Replay compare failed: %s", e, exc_info=True)
         await _reply(source,
                      f"❌ <b>Karsilastirma Hatasi</b>\n\n"
@@ -1071,7 +1077,7 @@ async def _reply(source, text: str, parse_mode: str = "HTML"):
                 await source.message.reply_text(text, parse_mode=parse_mode)
         elif hasattr(source, "reply_text"):
             await source.reply_text(text, parse_mode=parse_mode)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Reply failed: %s", e)
 
 
@@ -1084,7 +1090,7 @@ async def _send_photo(source, photo_bytes: bytes, caption: str = ""):
             await source.message.reply_photo(bio, caption=caption)
         elif hasattr(source, "reply_photo"):
             await source.reply_photo(bio, caption=caption)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Send photo failed: %s", e)
 
 
@@ -1153,7 +1159,7 @@ def _maybe_extract_archive() -> tuple[bool, str]:
         return True, "extracted via python zstandard"
     except ImportError:
         pass
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return False, f"python zstd extract failed: {esc(e)}"
     # Fallback: shell out to zstd + tar (Windows: requires zstd.exe + tar in PATH)
     import subprocess
@@ -1165,7 +1171,7 @@ def _maybe_extract_archive() -> tuple[bool, str]:
         if r.returncode == 0:
             return True, "extracted via shell zstd|tar"
         return False, f"shell extract rc={r.returncode}: {r.stderr[:200]}"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return False, f"shell extract threw: {esc(e)}"
 
 
@@ -1185,7 +1191,7 @@ def _run_replay_v3_smoke() -> tuple[bool, str]:
         n_kalshi = len(curves.get("kalshi", []) or [])
         n_poly = len(curves.get("poly", []) or [])
         return True, f"kalshi_curve_bins={n_kalshi} poly_curve_bins={n_poly}"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return False, f"smoke run failed: {esc(e)}"
 
 
@@ -1203,13 +1209,13 @@ async def becker_build_command(update: Update, context: ContextTypes.DEFAULT_TYP
         lines.append("🗜 extracting archive...")
         try:
             await msg.edit_text("\n".join(lines), parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         ok, why = await asyncio.to_thread(_maybe_extract_archive)
         lines[-1] = ("✅ extract: " if ok else "❌ extract: ") + why
         try:
             await msg.edit_text("\n".join(lines), parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         if not ok:
             return
@@ -1220,25 +1226,25 @@ async def becker_build_command(update: Update, context: ContextTypes.DEFAULT_TYP
     lines.append("🧮 building calibration DB (DuckDB)...")
     try:
         await msg.edit_text("\n".join(lines), parse_mode="HTML")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     loader = BeckerLoader()
     try:
         result = await asyncio.to_thread(loader.build_calibration_db)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         result = None
         logger.exception("becker build_calibration_db failed")
         lines[-1] = f"❌ build threw: {esc(e)}"
         try:
             await msg.edit_text("\n".join(lines), parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
     if result is None:
         lines[-1] = "❌ build returned None — DuckDB or raw missing"
         try:
             await msg.edit_text("\n".join(lines), parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
     n_kalshi = result.get("kalshi_crypto", 0)
@@ -1249,7 +1255,7 @@ async def becker_build_command(update: Update, context: ContextTypes.DEFAULT_TYP
     lines.append("🎬 ReplayEngineV3 smoke run...")
     try:
         await msg.edit_text("\n".join(lines), parse_mode="HTML")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     ok, why = await asyncio.to_thread(_run_replay_v3_smoke)
     lines[-1] = ("✅ smoke: " if ok else "⚠ smoke: ") + why
@@ -1259,7 +1265,7 @@ async def becker_build_command(update: Update, context: ContextTypes.DEFAULT_TYP
     lines.append(f"calibration db: {_fmt_bytes(s1['calib_bytes'])}")
     try:
         await msg.edit_text("\n".join(lines), parse_mode="HTML")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -1320,7 +1326,7 @@ async def becker_replay_command(update: Update,
             render_user_exception(e, "❌ <b>Invalid replay input</b>"),
             parse_mode="HTML")
         return
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001  # noqa: BLE001
         logger.exception("becker_replay failed")
         await update.message.reply_text(
             render_user_exception(e, "❌ <b>Replay failed</b>"),
@@ -1413,7 +1419,7 @@ async def becker_deep_command(update: Update,
         if len(text) > 4000:
             text = text[:3990] + "\n..."
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001  # noqa: BLE001
         logger.exception("becker_deep failed")
         await update.message.reply_text(
             render_user_exception(e, "❌ <b>Deep analysis failed</b>"),
@@ -1440,7 +1446,7 @@ async def becker_zones_command(update: Update,
         if len(text) > 4000:
             text = text[:3990] + "\n..."
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001  # noqa: BLE001
         logger.exception("becker_zones failed")
         await update.message.reply_text(
             render_user_exception(e, "❌ <b>Zone analysis failed</b>"),

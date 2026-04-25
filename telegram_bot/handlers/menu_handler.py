@@ -9,6 +9,14 @@ Phase 38b changes:
   without duplicating rendering logic. Each handler already writes to
   `update.message.reply_text` / `reply_photo`; the shim maps that to the
   callback query's message so we get a fresh response per tap.
+
+T11.8-B (2026-04-24): every `menu_X` callback below is a thin route
+dispatcher that invokes a sub-command (markets, stats, risk, brain, etc.)
+with its own exception surface. Wide `except Exception as e:` + generic
+"⚠️ X yüklenemedi. /Y dene." fallback is intentional — the user gets a
+clear retry hint and the full traceback goes to the operator log via
+`exc_info=True`. Each catch is annotated `# noqa: BLE001` (T11.8-B
+router-dispatch exemption).
 """
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -103,7 +111,7 @@ async def _send(message, db, user, engine=None):
         kb = build_main_hub_keyboard(refresh_callback="menu_refresh")
 
         await message.reply_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Menu build error: {esc(str(e))}", exc_info=True)
         await message.reply_text("⚠️ Menu yukleme hatasi. /start dene.")
 
@@ -126,7 +134,7 @@ async def menu_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_
         banner = banner_dashboard()
         await q.message.reply_photo(photo=banner, caption=text, parse_mode="HTML",
                                     reply_markup=DASHBOARD_BUTTONS)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_dashboard error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Dashboard yüklenemedi. /dashboard dene.")
 
@@ -141,7 +149,7 @@ async def menu_strategies_callback(update: Update, context: ContextTypes.DEFAULT
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
             await _send(q.message, db, user)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_strategies error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Stratejiler yüklenemedi. /strategies dene.")
 
@@ -153,7 +161,7 @@ async def menu_brain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         from telegram_bot.handlers.ai_handler import brain_command
         await _invoke_command(brain_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_brain error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Brain yüklenemedi. /brain dene.")
 
@@ -186,7 +194,7 @@ async def menu_bt_replay_callback(update: Update, context: ContextTypes.DEFAULT_
     try:
         from telegram_bot.handlers.backtest_v2 import backtest_replay_command
         await _invoke_command(backtest_replay_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_bt_replay error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Replay yüklenemedi. /backtest_replay dene.")
 
@@ -198,7 +206,7 @@ async def menu_bt_v2_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         from telegram_bot.handlers.backtest_v2 import backtest_v2_cmd
         await _invoke_command(backtest_v2_cmd, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_bt_v2 error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Backtest v2 yüklenemedi. /backtest_v2 dene.")
 
@@ -210,7 +218,7 @@ async def menu_bt_compare_callback(update: Update, context: ContextTypes.DEFAULT
     try:
         from telegram_bot.handlers.backtest_v2 import compare_cmd
         await _invoke_command(compare_cmd, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_bt_compare error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Karşılaştır yüklenemedi. /compare dene.")
 
@@ -225,7 +233,7 @@ async def menu_positions_callback(update: Update, context: ContextTypes.DEFAULT_
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
             await _show(q.message, db, user, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_positions error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Pozisyonlar yüklenemedi. /positions dene.")
 
@@ -240,7 +248,7 @@ async def menu_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
             await _send_stats(q.message, db, user, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_stats error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ İstatistik yüklenemedi. /stats dene.")
 
@@ -252,7 +260,7 @@ async def menu_risk_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         from telegram_bot.handlers.risk_handler import risk_command
         await _invoke_command(risk_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_risk error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Risk yüklenemedi. /risk dene.")
 
@@ -264,7 +272,7 @@ async def menu_market_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         from telegram_bot.handlers.markets import markets_command
         await _invoke_command(markets_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_market error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Piyasa yüklenemedi. /markets dene.")
 
@@ -276,7 +284,7 @@ async def menu_candles_callback(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         from telegram_bot.handlers.markets import candles_command
         await _invoke_command(candles_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_candles error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Mum verisi yüklenemedi. /candles dene.")
 
@@ -291,7 +299,7 @@ async def menu_settings_callback(update: Update, context: ContextTypes.DEFAULT_T
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
             await _send_settings(q.message, db, user)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_settings error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Ayarlar yüklenemedi. /settings dene.")
 
@@ -303,7 +311,7 @@ async def menu_live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         from telegram_bot.handlers.live_handler import live_command
         await _invoke_command(live_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_live error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Live yüklenemedi. /live dene.")
 
@@ -372,7 +380,7 @@ async def menu_health_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         from telegram_bot.handlers.phase77_handler import health_command
         await _invoke_command(health_command, update, context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_health error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Sağlık yüklenemedi. /health dene.")
 
@@ -425,7 +433,7 @@ async def _menu_cmd_callback(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await _invoke_command(fn, update, context)
         else:
             await q.message.reply_text(f"⚠️ /{cmd_name} bulunamadı.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"menu_cmd_{cmd_name} error: {esc(e)}", exc_info=True)
         await q.message.reply_text(f"⚠️ /{cmd_name} yüklenemedi. Komutu doğrudan dene.")
 

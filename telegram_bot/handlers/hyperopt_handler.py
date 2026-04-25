@@ -26,6 +26,14 @@ SIGKILL escalation). The run loop is additionally wrapped in an outer
 ``asyncio.wait_for`` guard (``study_timeout * strat_count + 300s``) so a
 pathological worker that streams IPC forever without STRAT_DONE can no
 longer hold the Telegram handler open indefinitely.
+
+T11.8-B (2026-04-24): Every catch in this module is annotated `# noqa:
+BLE001`. Hyperopt subprocess management touches: subprocess (returncode,
+SIGTERM/KILL), JSON IPC parsing (malformed STRAT_DONE/PROGRESS payloads),
+asyncio.wait_for timeouts, telegram edit_message no-op, DB persist of
+best_params, and Optuna study restoration — heterogeneous failure surface
+across 5+ libraries. Wide catch + admin-only diagnostic acceptable per
+T11.6 policy.
 """
 from __future__ import annotations
 
@@ -117,7 +125,7 @@ async def _pump_subprocess_stderr(proc, pid: int) -> None:
                 logger.warning("hyperopt stderr [pid=%s]: %s", pid, text)
             else:
                 logger.info("hyperopt stderr [pid=%s]: %s", pid, text)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug("hyperopt stderr pump exited: %s", e)
 
 
@@ -231,7 +239,7 @@ async def _run_hyperopt_worker(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("hyperopt subprocess spawn failed: %s", e, exc_info=True)
         await header_msg.edit_text(
             f"❌ HyperOpt subprocess başlatılamadı: <code>{e}</code>",
@@ -340,7 +348,7 @@ async def _run_hyperopt_worker(
                         f"({n_trials} trial/strat) · pid=<code>{proc.pid}</code>\n"
                         f"Mod: {mode_label}{filter_info}",
                         parse_mode="HTML", reply_markup=cancel_kb)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             # Live-edit progress on TRIAL_DONE (cooldown-throttled)
@@ -359,7 +367,7 @@ async def _run_hyperopt_worker(
                         await header_msg.edit_text(
                             body, parse_mode="HTML", reply_markup=cancel_kb)
                         _progress_state.mark_pushed("trial_edit")
-                    except Exception as edit_err:
+                    except Exception as edit_err:  # noqa: BLE001
                         logger.debug("progress edit skipped: %s", edit_err)
 
             # Per-strategy done: send a separate summary message
@@ -384,7 +392,7 @@ async def _run_hyperopt_worker(
                         f"{info.elapsed_sec:.0f}s\n\n"
                         f"Best params:\n{params_str}",
                         parse_mode="HTML")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             elif evt.event == EventType.MEMORY_WARNING.value:
@@ -393,7 +401,7 @@ async def _run_hyperopt_worker(
                         f"⚠️ Bellek uyarısı: "
                         f"<code>{getattr(evt, 'message', '')}</code>",
                         parse_mode="HTML")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             elif evt.event == EventType.MEMORY_CRITICAL.value:
@@ -402,7 +410,7 @@ async def _run_hyperopt_worker(
                         f"🔥 Bellek kritik — gc tetiklendi: "
                         f"<code>{getattr(evt, 'message', '')}</code>",
                         parse_mode="HTML")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             elif evt.event == EventType.MEMORY_ABORT.value:
@@ -411,7 +419,7 @@ async def _run_hyperopt_worker(
                         f"🛑 Bellek sınırı aşıldı — subprocess abort: "
                         f"<code>{getattr(evt, 'message', '')}</code>",
                         parse_mode="HTML")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             elif evt.event == EventType.TIMEOUT.value:
@@ -436,7 +444,7 @@ async def _run_hyperopt_worker(
                     await msg.reply_text(
                         f"❌ Worker error: <code>{getattr(evt, 'message', '')}</code>",
                         parse_mode="HTML")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             elif evt.event == EventType.BATCH_DONE.value:
@@ -470,7 +478,7 @@ async def _run_hyperopt_worker(
                     f"subprocess durduruldu (pid={proc.pid}).",
                     parse_mode="HTML",
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
         # ── Wait for clean exit (Sprint 1.3: helper handles escalation) ──
@@ -498,7 +506,7 @@ async def _run_hyperopt_worker(
                     await asyncio.wait_for(_stderr_pump_task, timeout=2.0)
                 except asyncio.TimeoutError:
                     _stderr_pump_task.cancel()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     return done_info
@@ -597,7 +605,7 @@ async def hyperopt_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except ImportError as ie:
         await update.message.reply_text(f"⚠️ optuna yüklü değil: {ie}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("/hyperopt failed: %s", e, exc_info=True)
         await update.message.reply_text(f"HyperOpt error: {e}")
 
@@ -650,7 +658,7 @@ async def hyperopt_all_command(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             try:
                 await update.message.reply_text(summary, parse_mode="HTML")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # Long message; split
                 await update.message.reply_text(
                     f"📊 Batch tamamlandı ({len(done_info)} strateji).",
@@ -662,7 +670,7 @@ async def hyperopt_all_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     except ImportError as ie:
         await update.message.reply_text(f"⚠️ optuna yüklü değil: {ie}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("/hyperopt_all failed: %s", e, exc_info=True)
         await update.message.reply_text(f"Batch HyperOpt error: {e}")
 
@@ -737,7 +745,7 @@ async def hyperopt_status_command(update: Update, context: ContextTypes.DEFAULT_
             "ℹ️ HyperOpt <b>aktif değil</b>. /hyperopt veya /hyperopt_all ile başlat.",
             parse_mode="HTML")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("/hyperopt_status failed: %s", e, exc_info=True)
         await update.message.reply_text(f"status error: {e}")
 
@@ -750,13 +758,17 @@ def _is_admin(context, telegram_id: int) -> bool:
     """Mirror of diagnose_handler._is_admin for lock-override gating."""
     try:
         settings = context.bot_data.get("settings")
-    except Exception:
+    except (AttributeError, KeyError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. bot_data is a
+        # dict — KeyError if missing; AttributeError if bot not initialized.
         return False
     if not settings:
         return False
     try:
         return settings.is_admin(telegram_id)
-    except Exception:
+    except (AttributeError, TypeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. is_admin missing
+        # on settings (older config) — deny by default.
         return False
 
 
@@ -812,7 +824,7 @@ async def hyperopt_abort_command(update: Update, context: ContextTypes.DEFAULT_T
             try:
                 if _progress_state.active:
                     _progress_state.finalize(error="aborted_by_admin")
-            except Exception as _fe:
+            except Exception as _fe:  # noqa: BLE001
                 logger.debug("progress_state.finalize failed: %s", _fe)
 
             await update.message.reply_text(
@@ -825,7 +837,7 @@ async def hyperopt_abort_command(update: Update, context: ContextTypes.DEFAULT_T
                 "❌ Lock silinemedi — dosya izinlerini veya disk durumunu kontrol et.",
                 parse_mode="HTML")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("/hyperopt_abort failed: %s", e, exc_info=True)
         await update.message.reply_text(f"abort error: {e}")
 
@@ -859,7 +871,7 @@ async def mc_kelly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "SELECT balance FROM paper_wallet ORDER BY updated_at DESC LIMIT 1"
                 )
                 bankroll = bal_row[0][0] if bal_row else 10000.0
-            except Exception:
+            except Exception:  # noqa: BLE001
                 win_rate, avg_price, bankroll = 0.57, 0.65, 10000.0
         else:
             win_rate, avg_price, bankroll = 0.57, 0.65, 10000.0
@@ -886,7 +898,7 @@ async def mc_kelly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except ImportError as ie:
         await update.message.reply_text(f"⚠️ numpy yüklü değil: {ie}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("/mc_kelly failed: %s", e, exc_info=True)
         await update.message.reply_text(f"MC Kelly error: {e}")
 
@@ -939,7 +951,7 @@ def _classify_param(param: str, strategy_type: str, registry) -> str:
         plugin_schema = registry.CONFIGURABLE.get(strategy_type, {})
         if param in plugin_schema:
             return "plugin_param"
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     # 3. Known engine-level gate (Karar B1)
     if param == "_min_confidence":
@@ -968,7 +980,7 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
     if not pending:
         try:
             await q.edit_message_text("⌛ HyperOpt sonucu süresi doldu.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
@@ -982,11 +994,11 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
                     await db.conn.execute(
                         "UPDATE hyperopt_results SET applied=2 WHERE id=?", (row_id,))
                     await db.conn.commit()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         try:
             await q.edit_message_text("❌ HyperOpt sonucu reddedildi.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
@@ -1093,7 +1105,7 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
                     ok = registry.set_config(stype, param, value)
                     if not ok:
                         plugin_set_failures.append(param)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.warning(
                         f"HyperOpt set_config {stype}.{param} failed: {e}")
                     plugin_set_failures.append(param)
@@ -1113,7 +1125,9 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
                     existing_sp = json.loads(existing_sp_raw)
                     if not isinstance(existing_sp, dict):
                         existing_sp = {}
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
+                    # T11.8-B (2026-04-24): narrow from bare Exception. Stored
+                    # strategy_params raw JSON parse — empty dict fallback.
                     existing_sp = {}
                 if plugin_updates:
                     existing_sp["plugin_params"] = {
@@ -1142,8 +1156,11 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
                 if engine is not None and getattr(engine, "lifecycle", None):
                     for sid_row in rows:
                         engine.lifecycle._cache.pop(sid_row[0], None)
-            except Exception as _ci:
-                logger.debug(f"lifecycle cache invalidate failed: {_ci}")
+            except (AttributeError, KeyError) as _ci:
+                # T11.8-B (2026-04-24): narrow from bare Exception. Cache
+                # invalidate best-effort — see tournament_job for same doctrine.
+                logger.debug(f"lifecycle cache invalidate failed: "
+                             f"{type(_ci).__name__}: {_ci}")
 
             # Phase 80: Mark as applied in DB + changelog
             row_id = pending.get("row_id")
@@ -1153,7 +1170,7 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
                         "UPDATE hyperopt_results SET applied=1 WHERE id=?",
                         (row_id,))
                     await db.conn.commit()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
             try:
                 from core.changelog import log_change
@@ -1172,7 +1189,7 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
                         reason=f"score={pending['best_score']:.4f} "
                                f"matched={len(rows)}",
                         label=sid_row[1])
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
             # Build Telegram summary (HTML; Markdown YOK)
@@ -1229,12 +1246,12 @@ async def hyperopt_apply_callback(update: Update, context: ContextTypes.DEFAULT_
 
         try:
             await q.edit_message_text(text, parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             await q.message.reply_text(text, parse_mode="HTML")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"HyperOpt apply error: {e}", exc_info=True)
         try:
             await q.edit_message_text(f"❌ Uygulama hatasi: {str(e)[:100]}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass

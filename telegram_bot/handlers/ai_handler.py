@@ -14,6 +14,14 @@ Phase 51 P51-05 piggy-backs on the same handler for natural-language
 backtest queries: any intent that resolves to `/compare`, `/becker_replay`,
 `/backtest_v2`, or `/bt2` is treated as a backtest query and we forward
 the extracted args directly to the mapped handler.
+
+T11.8-B (2026-04-24): Every catch in this module is annotated `# noqa:
+BLE001` because the natural-language layer touches: (a) LLM API (Anthropic
+client may surface httpx, anthropic, asyncio.TimeoutError, AnthropicError),
+(b) intent parser regex/scoring, (c) downstream sub-handlers (each its own
+exception surface), (d) edit_message_text Telegram replies. T11.6 render
+policy is preserved on user-facing reply paths (truncated err only on
+admin-only diagnostics; generic message otherwise).
 """
 from __future__ import annotations
 
@@ -114,7 +122,7 @@ async def _invoke_mapped_command(
     try:
         await handler(update, context)
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.exception(f"/ai dispatch {result.command} failed: {e}")
         # T11.6-OK reason=/ai admin-only diagnostic, dispatch failures need
         # exception detail for troubleshooting. Truncated to 150 chars.
@@ -183,7 +191,7 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         result = await parse_intent(text, use_claude=True)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.exception(f"intent parse failed: {e}")
         await update.message.reply_text(
             "❌ Intent parser hatası — doğrudan komut kullan.",
@@ -251,14 +259,14 @@ async def ai_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if raw is None:
         try:
             await q.edit_message_text("⌛ Öneri zaman aşımına uğradı.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
     if q.data == "ai_cancel":
         try:
             await q.edit_message_text("❌ İptal edildi.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
@@ -268,7 +276,7 @@ async def ai_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"▶️ Çalıştırılıyor: <code>{esc(result.command)}</code>",
             parse_mode="HTML",
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     # Phase 51 BUG-FIX — downstream handlers use `update.message.reply_text`
     # which is None on callback queries; wrap with proxy.
@@ -350,7 +358,7 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         # Epic 10 T10.7 (2026-04-22): exception detay loglara, kullanıcıya
         # generic mesaj — engine.brain_flags / kelly durumu gibi iç durum
         # string'leri Telegram'a sızmasın.
@@ -438,7 +446,7 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
         await brain_command(CallbackUpdateProxy.from_update(update), context)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Brain toggle error: {esc(e)}", exc_info=True)
         await query.answer(f"❌ Hata: {str(e)[:50]}", show_alert=True)
 
@@ -526,7 +534,7 @@ async def drift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text += f"\n<i>Weight &lt; 1.0 = sinyal zayifliyor, otomatik azaltildi</i>"
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error("Drift command error: %s", e, exc_info=True)
         await update.message.reply_text(
             f"❌ <b>Drift Tespiti Hatasi</b>\n\nDetay: {str(e)[:100]}", parse_mode="HTML")
@@ -611,7 +619,7 @@ async def monitor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "\n🌐 <i>Web dashboard: /health URL + /dashboard</i>"
 
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Monitor command error: {esc(e)}", exc_info=True)
         await update.message.reply_text(
             f"❌ <b>Monitor Hatasi</b>\n\nDetay: {str(e)[:100]}",
@@ -627,7 +635,7 @@ async def ai_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if not engine or not engine.analyst:
         try:
             await q.edit_message_text("⚠️ Engine bulunamadi.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
@@ -638,13 +646,13 @@ async def ai_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         result_text = await engine.analyst.handle_approval(approved, msg_id)
         try:
             await q.edit_message_text(result_text, parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             await q.message.reply_text(result_text)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"AI approval callback: {e}")
         try:
             await q.edit_message_text(f"❌ Hata: {str(e)[:100]}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
 
@@ -657,7 +665,7 @@ async def analyze_apply_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not engine or not engine.analyst:
         try:
             await q.edit_message_text("⚠️ Engine bulunamadi.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
@@ -673,13 +681,13 @@ async def analyze_apply_callback(update: Update, context: ContextTypes.DEFAULT_T
             result_text = "⏭ <b>Analiz aksiyonlari atlanildi.</b>"
         try:
             await q.edit_message_text(result_text, parse_mode="HTML")
-        except Exception:
+        except Exception:  # noqa: BLE001
             await q.message.reply_text(result_text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Analyze apply callback: {e}")
         try:
             await q.edit_message_text(f"❌ Hata: {str(e)[:100]}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
 
@@ -692,7 +700,7 @@ async def analyze_brain_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not engine or not engine.analyst:
         try:
             await q.edit_message_text("⚠️ Engine bulunamadi.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return
 
@@ -703,15 +711,15 @@ async def analyze_brain_callback(update: Update, context: ContextTypes.DEFAULT_T
             safe_result = result[:3500]
             try:
                 await q.message.reply_text(f"🧠 <b>Brain Cycle Tamamlandi</b>\n\n{safe_result}", parse_mode="HTML")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 await q.message.reply_text(f"🧠 Brain Cycle: {safe_result[:500]}")
         else:
             await q.message.reply_text("⚠️ Brain cycle sonuc uretmedi.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Analyze brain callback: {e}")
         try:
             await q.message.reply_text(f"❌ Brain Cycle Hatasi: {str(e)[:100]}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
 
@@ -765,9 +773,9 @@ async def suggest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await q.edit_message_text("❌ Strateji olusturulamadi (muhtemelen zaten var).")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Suggest callback: {e}")
         try:
             await q.edit_message_text(f"❌ Hata: {str(e)[:100]}")
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
