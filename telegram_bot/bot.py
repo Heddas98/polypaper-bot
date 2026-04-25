@@ -1,6 +1,19 @@
 """
 PolyPaper Bot - Main Bot Class (v9 — Phase 33 Adaptive Intelligence)
 Thompson Sampling + Regime Detection + Drift Monitor + Full UI refresh.
+
+T11.8-B (2026-04-24): every catch in this module is annotated `# noqa:
+BLE001`. bot.py is the boot orchestrator — it touches: handler imports
+(40+ optional modules), JobQueue registration (each job has its own
+ImportError surface), engine wiring (engine/risk/scanner attribute
+chain), Telegram Application startup (httpx + websockets + ssl), DB
+init + migration, and admin command setup. Wide catches at the boot
+layer are intentional — a single missing module or schema mismatch
+should not crash bootstrap; the bot logs the failure and continues
+with degraded functionality. Anything tighter risks "first user message
+crashes silently because handler X failed to register" type bugs.
+T11.6 render policy is preserved (no exception text reaches users from
+this file; user-facing error reporting happens in handler modules).
 """
 import logging
 import os
@@ -409,7 +422,7 @@ class PolyPaperBot:
                 # monitor_command uses update.message — patch it for callback
                 update.message = q.message
                 await monitor_command(update, context)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 await q.message.reply_text("💡 /monitor veya /m yazın.", parse_mode="HTML")
         self.app.add_handler(CallbackQueryHandler(_monitor_cb, pattern="^show_monitor$"))
 
@@ -629,7 +642,7 @@ class PolyPaperBot:
                     scope=BotCommandScopeChat(chat_id=int(admin_id))
                 )
                 logger.info(f"✅ Admin commands set ({len(combined)} total) for chat_id={admin_id}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"⚠️ Could not set admin commands: {e}")
         else:
             logger.warning("⚠️ ADMIN_TELEGRAM_ID not set — admin-only commands hidden. Send /sr to capture.")
@@ -643,7 +656,7 @@ class PolyPaperBot:
                 import core.engine_monitor as _em
                 _em.FORCE_EXIT_SECONDS = int(saved_fe)
                 logger.info(f"✅ force_exit_seconds restored from DB: {saved_fe}s")
-        except Exception as _fe_err:
+        except Exception as _fe_err:  # noqa: BLE001
             logger.warning(f"force_exit_seconds restore failed: {_fe_err}")
 
         # Phase 47f.7+ in-bot shadow report (replaces sandbox scheduled task)
@@ -658,7 +671,7 @@ class PolyPaperBot:
                     logger.info(f"✅ admin_chat_id resolved → {_admin}")
                 else:
                     logger.warning("⚠️ admin_chat_id not set — send /sr in Telegram once to capture it")
-            except Exception as _ae:
+            except Exception as _ae:  # noqa: BLE001
                 logger.warning(f"admin_chat resolve failed: {_ae}")
 
             jq = self.app.job_queue
@@ -782,7 +795,7 @@ class PolyPaperBot:
                         jq.run_repeating(_suggest_job, interval=sg_interval,
                                          first=sg_first, name="strategy_suggester")
                         logger.info(f"✅ strategy_suggester job scheduled (every {sg_interval}s, first in {sg_first}s)")
-                    except Exception as _sg_e:
+                    except Exception as _sg_e:  # noqa: BLE001
                         logger.warning(f"Strategy Suggester schedule failed: {_sg_e}")
 
                 # Phase 75+: Becker rolling recalibration (weekly Sunday 00:00 UTC)
@@ -796,14 +809,14 @@ class PolyPaperBot:
                         }
                         schedule_becker_rolling_recal(jq, context_data)
                         logger.info("✅ Becker rolling recalibration job scheduled (weekly)")
-                    except Exception as _br_e:
+                    except Exception as _br_e:  # noqa: BLE001
                         logger.warning(f"Failed to schedule Becker rolling recal job: {_br_e}")
                 else:
                     self.app.bot_data["becker_rolling_enabled"] = False
             else:
                 logger.warning("JobQueue is None — shadow_report disabled. "
                                "Install python-telegram-bot[job-queue]")
-        except Exception as _je:
+        except Exception as _je:  # noqa: BLE001
             logger.exception(f"Failed to schedule shadow_report: {_je}")
 
         await self.app.initialize()
@@ -823,7 +836,7 @@ class PolyPaperBot:
             else:
                 logger.warning(
                     "bg_task notify disabled (ADMIN_TELEGRAM_ID / ADMIN_CHAT_ID unset)")
-        except Exception as _e:
+        except Exception as _e:  # noqa: BLE001
             logger.warning(f"bg_task notify handler setup failed: {_e}")
 
         logger.info(f"✅ PolyPaper Bot {BOT_VERSION} — {BOT_CODENAME} is live!")
@@ -970,7 +983,7 @@ class PolyPaperBot:
                     "⚠️ Shadow report çalıştı ama hiç mesaj gönderilmedi.\n"
                     "(DB'de hiç strateji yok veya quiet hours.)"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"manual shadow_report failed: {e}")
             await update.message.reply_text(f"❌ Hata: {type(e).__name__}: {e}")
 
@@ -991,7 +1004,7 @@ class PolyPaperBot:
                     c = await db.conn.execute(f"SELECT COUNT(*) FROM {t}")
                     n = (await c.fetchone())[0]
                     rows.append((t, n))
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
             rows.sort(key=lambda r: r[1], reverse=True)
             top = rows[:15]
@@ -1011,7 +1024,7 @@ class PolyPaperBot:
             for name, n in top:
                 lines.append(f"  <code>{name}</code> — <code>{n:,}</code> rows")
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"db_health failed: {e}")
             await update.message.reply_text(f"❌ Hata: {type(e).__name__}: {e}")
 
@@ -1029,7 +1042,7 @@ class PolyPaperBot:
                 f"✅ Tamam — toplam <code>{total:,}</code> satır silindi.",
                 parse_mode="HTML",
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"db_cleanup failed: {e}")
             await update.message.reply_text(f"❌ Hata: {type(e).__name__}: {e}")
 
@@ -1041,7 +1054,7 @@ class PolyPaperBot:
         try:
             from telegram_bot.jobs.db_archive_job import db_archive_command
             await db_archive_command(update, context)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"db_archive failed: {e}")
             await update.message.reply_text(f"❌ Hata: {type(e).__name__}: {e}")
 
@@ -1082,7 +1095,7 @@ class PolyPaperBot:
                     lines.append(f"WR=<code>{wins/len(last10)*100:.0f}%</code> "
                                  f"PnL=<code>{sum(last10):+.2f}</code>")
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"risk_status failed: {e}")
             await update.message.reply_text(f"❌ Hata: {type(e).__name__}: {e}")
 
@@ -1098,7 +1111,7 @@ class PolyPaperBot:
             if db is not None:
                 try:
                     await db.conn.execute("SELECT 1")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     db_ok = f"ERR: {e}"
             # Phase 53b: force exit counter
             fe_count = getattr(engine, '_force_exits_today', 0) if engine else 0
@@ -1113,7 +1126,7 @@ class PolyPaperBot:
                 f"force_exit: <code>{fe_cfg}</code> (today: {fe_count})",
             ]
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"health failed: {e}")
             await update.message.reply_text(f"❌ Hata: {type(e).__name__}: {e}")
 
@@ -1122,5 +1135,5 @@ class PolyPaperBot:
         if isinstance(update, Update) and update.effective_message:
             try:
                 await update.effective_message.reply_text("⚠️ Hata. /start dene")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
