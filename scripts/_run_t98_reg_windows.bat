@@ -25,7 +25,8 @@ echo === Quick exit code: %Q_EXIT% ===
 echo.
 
 echo === Phase 3: 3-seed determinism kontrolu (paper vs shadow identity) ===
-py -3.11 -m pytest "tests\integration\test_paper_shadow_divergence.py::TestPaperShadowIdentity::test_1000_events_identical" -v
+REM Fixed 2026-04-24: actual class is TestRandomReplay (not TestPaperShadowIdentity).
+py -3.11 -m pytest "tests\integration\test_paper_shadow_divergence.py::TestRandomReplay::test_1000_events_identical" -v
 set DET_EXIT=%errorlevel%
 echo.
 echo === Determinism exit code: %DET_EXIT% ===
