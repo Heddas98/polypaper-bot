@@ -4,9 +4,13 @@ Inline-button toggle UI for all trade-blocking filters.
 Each toggle updates os.environ at runtime (no restart needed).
 Persistent: writes changes to bot_settings DB table.
 """
+import asyncio
 import logging
 import os
+
+import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 from db.database import Database
@@ -339,8 +343,12 @@ async def _persist_filter(db: Database, env_key: str, value: str):
             (f"filter.{env_key}", value),
         )
         await db.conn.commit()
-    except Exception as e:
-        logger.warning(f"persist filter {env_key}: {e}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. INSERT ON CONFLICT
+        # surface aiosqlite.Error only. Persistence failure is non-fatal —
+        # os.environ already updated for current session.
+        logger.warning(f"persist filter {env_key}: "
+                       f"{type(e).__name__}: {e}")
 
 
 async def _load_persisted_filters(db: Database):
@@ -356,8 +364,11 @@ async def _load_persisted_filters(db: Database):
             logger.info(f"  filter restored: {env_key}={row['value']}")
         if rows:
             logger.info(f"Loaded {len(rows)} persisted filter overrides")
-    except Exception as e:
-        logger.warning(f"load persisted filters: {e}")
+    except (aiosqlite.Error, KeyError, TypeError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT + row[key]
+        # access. Failure to load persisted filters means defaults stay.
+        logger.warning(f"load persisted filters: "
+                       f"{type(e).__name__}: {e}")
 
 
 # ─── Telegram Handlers ──────────────────────────────────────────
@@ -409,7 +420,9 @@ async def filters_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = _build_keyboard(page)
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. edit_message
+            # BadRequest "not modified" — toggle UI tolerates no-op edits.
             pass
         return
 
@@ -427,7 +440,9 @@ async def filters_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = _build_keyboard(0)
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. edit_message
+            # BadRequest "not modified" — toggle UI tolerates no-op edits.
             pass
         return
 
@@ -469,5 +484,7 @@ async def filters_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = _build_keyboard(page)
     try:
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Same edit_message
+        # no-op-tolerant pattern as above.
         pass

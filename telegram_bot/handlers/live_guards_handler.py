@@ -107,7 +107,11 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"  File:  {file_emoji} <code>{esc(str(ks.get('file_path', '?')))}</code>\n"
             f"  Mem:   {mem_emoji}\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): per-guard render block intentionally wide.
+        # Each guard touches different engine internals (kill_switch attrs,
+        # file paths, mem state); wide catch ensures one failure doesn't
+        # blank the whole /live_guards snapshot. Admin-only diagnostic.
         logger.exception("live_guards: G1 render failed")
         lines.append(
             f"<b>G1 Kill Switch</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
@@ -138,7 +142,8 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"({pct_used:.0f}%)\n"
             f"  Remaining: {fmt_usd(remaining, decimals=2)}\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G2 render failed")
         lines.append(
             f"<b>G2 Live Budget</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
@@ -169,7 +174,8 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"  Today PnL:    {fmt_usd(daily_pnl, decimals=4, sign=True)}\n"
             f"  Today trades: {daily_trades}\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G3 render failed")
         lines.append(
             f"<b>G3 Daily Loss</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
@@ -212,7 +218,8 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"  Kill if WR &lt; {wr_kill:.1f}%\n"
             f"  Protected: <code>{esc(protected)}</code>\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G5 render failed")
         lines.append(
             f"<b>G5 Rolling WR Kill</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
@@ -243,7 +250,8 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"  {ws_emoji} WS_STALE_THRESHOLD = {ws_threshold:.1f}s\n"
             f"  Last tick age: {age_str}\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G6 render failed")
         lines.append(
             f"<b>G6 WS Stale</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"

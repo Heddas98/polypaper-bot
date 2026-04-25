@@ -78,7 +78,10 @@ def _build_bg_tasks_section() -> str:
                 ago = max(0, int(time.time() - e.get("ts", 0)))
                 out += f"  • <code>{nm}</code> ({ago}s ago): {er}\n"
         return out + "\n"
-    except Exception as _bg_err:
+    except Exception as _bg_err:  # noqa: BLE001
+        # T11.8-B (2026-04-24): bg_task registry import + getter calls — wide
+        # catch lets /diagnose render even if registry module changes shape.
+        # Admin-only diagnostic so 80-char truncated exc str is acceptable.
         return (
             f"<b>Background Tasks</b>: &lt;registry unavailable: "
             f"{esc(str(_bg_err)[:80])}&gt;\n\n"
@@ -159,7 +162,10 @@ def _build_hyperopt_section() -> str:
             out += "  (idle — no run recorded this session)\n"
 
         return out + "\n"
-    except Exception as _ho_err:
+    except Exception as _ho_err:  # noqa: BLE001
+        # T11.8-B (2026-04-24): hyperopt_launcher import + worker registry —
+        # subprocess + IPC + JSON parsing layers. Wide catch keeps /diagnose
+        # rendering when worker silently dies. Admin-only.
         return (
             f"<b>HyperOpt Status</b>: &lt;unavailable: "
             f"{esc(str(_ho_err)[:80])}&gt;\n\n"
@@ -273,7 +279,10 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"  Running: {running_count}\n"
             f"  Paused: {paused_count}\n"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): strategies fetch wrapper. db.get_strategies()
+        # may surface aiosqlite.Error + AttributeError on missing engine.db
+        # link. Admin-only; truncated exc str is acceptable for operator.
         logger.error(f"Failed to fetch strategies: {e}")
         strat_text = (
             f"<b>Strategy Health</b>\n"

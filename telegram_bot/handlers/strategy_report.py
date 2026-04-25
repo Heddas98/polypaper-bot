@@ -4,6 +4,8 @@ Shows complete lifecycle of a strategy: creation, backtest, paper, zone breakdow
 """
 import logging
 from datetime import datetime, timezone
+
+import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -81,7 +83,9 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_fees = float(stats_row[0][3] or 0)
         wr = (wins / total_t * 100) if total_t > 0 else 0
         ev = total_pnl / total_t if total_t > 0 else 0
-    except Exception:
+    except (aiosqlite.Error, IndexError, TypeError, ValueError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. SUM/COUNT query
+        # + int/float coercion. Zero-tuple fallback keeps report rendering.
         total_t, wins, total_pnl, total_fees, wr, ev = 0, 0, 0, 0, 0, 0
 
     # Get zone breakdown
@@ -112,7 +116,9 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             z_wr = (z_wins / z_cnt * 100) if z_cnt > 0 else 0
             icon = "✅" if z_pnl > 0 else "❌"
             zones_text += f"  {icon} {z_name}: {z_cnt}t {z_wr:.0f}% WR {z_pnl:+.2f}\n"
-    except Exception:
+    except (aiosqlite.Error, IndexError, TypeError, ValueError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Zone breakdown
+        # query + per-row coercion. Empty fallback message OK for missing data.
         zones_text = "  (zone verisi yok)\n"
 
     if not zones_text:
@@ -131,7 +137,9 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             d, p, pnl_val, ts = rt
             icon = "🟢" if (pnl_val or 0) > 0 else "🔴"
             recent_text += f"  {icon} {d or '?'} @{float(p or 0):.2f} → {float(pnl_val or 0):+.2f}\n"
-    except Exception:
+    except (aiosqlite.Error, IndexError, TypeError, ValueError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Recent trades
+        # SELECT + per-row coercion. Same fallback pattern as zones_text.
         recent_text = "  (veri yok)\n"
 
     if not recent_text:

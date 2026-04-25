@@ -93,7 +93,10 @@ async def ev_stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             text = text[:3990] + "\n..."
 
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer handler wrapper. EVTracker chain may
+        # surface aiosqlite + numpy + custom exceptions. T11.6 render policy
+        # applied — user sees only exception type.
         await update.message.reply_text(render_user_exception(e, "❌ EV stats hatası"), parse_mode="HTML")
 
 
@@ -135,7 +138,9 @@ async def metrics_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             title += f" — <code>{esc(strategy_filter)}</code>"
         text = title + "\n\n" + format_metrics_telegram(m)
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): SQL + backtest.metrics compute chain — wide
+        # catch + T11.6 render policy.
         await update.message.reply_text(render_user_exception(e, "❌ Metrics hatası"), parse_mode="HTML")
 
 
@@ -167,7 +172,9 @@ async def surface_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         from calibration.surface_2d import format_surface_telegram
         text = format_surface_telegram(surface)
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): calibration.surface_2d format chain — wide
+        # catch + T11.6 render policy.
         await update.message.reply_text(render_user_exception(e, "❌ Surface hatası"), parse_mode="HTML")
 
 
@@ -218,7 +225,9 @@ async def latency_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         text = "\n".join(lines)
         await update.message.reply_text(text, parse_mode="HTML")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): WS stats deep attribute access — AttributeError
+        # likely. Wide catch + T11.6 render policy.
         await update.message.reply_text(render_user_exception(e, "❌ WS stats hatası"), parse_mode="HTML")
 
 

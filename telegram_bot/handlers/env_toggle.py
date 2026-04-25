@@ -66,8 +66,11 @@ def _read_env_file() -> list[str]:
     try:
         return _ENV_PATH.read_text(
             encoding="utf-8", errors="replace").splitlines()
-    except Exception as e:
-        logger.exception(f"env_toggle read .env: {e}")
+    except OSError as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Path.read_text
+        # raises OSError (PermissionError, FileNotFoundError race). Empty
+        # list keeps caller flow alive.
+        logger.exception(f"env_toggle read .env: {type(e).__name__}: {e}")
         return []
 
 
@@ -108,8 +111,11 @@ def _audit(admin_id: int, action: str, key: str, old: str, new: str) -> None:
         line = f"{ts}\tadmin={admin_id}\t{action}\t{key}\told={old}\tnew={new}\n"
         with _AUDIT_PATH.open("a", encoding="utf-8") as f:
             f.write(line)
-    except Exception as e:
-        logger.exception(f"env_toggle audit write: {e}")
+    except OSError as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. mkdir + open(a)
+        # surface OSError (permission, disk full). Audit log loss is non-
+        # fatal — env change already applied to os.environ + .env.
+        logger.exception(f"env_toggle audit write: {type(e).__name__}: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -178,8 +184,13 @@ def _apply_set(key: str, raw_value: str,
     os.environ[key] = coerced
     try:
         _patch_env_file(key, coerced)
-    except Exception as e:
-        logger.exception(f"env_toggle patch .env failed: {e}")
+    except OSError as e:  # noqa: T11.6-OK
+        # T11.8-B (2026-04-24): narrow from bare Exception. _patch_env_file
+        # uses Path.read/write_text — only OSError expected (permission, disk).
+        # T11.6 exemption preserved: admin needs to see exact OS error to
+        # diagnose .env write failures (permission vs disk full vs locked).
+        logger.exception(f"env_toggle patch .env failed: "
+                         f"{type(e).__name__}: {e}")
         # Keep the os.environ change — still effective this session.
         _audit(admin_id, "SET_OS_ONLY", key, old, coerced)
         # T11.6 policy exemption: env_toggle is admin-only + operator
@@ -202,8 +213,11 @@ def _apply_reset(key: str, admin_id: int) -> tuple[bool, str]:
     os.environ[key] = default  # ensure runtime code sees default now
     try:
         _patch_env_file(key, None)  # drop from .env
-    except Exception as e:
-        logger.exception(f"env_toggle reset patch failed: {e}")
+    except OSError as e:  # noqa: T11.6-OK
+        # T11.8-B (2026-04-24): narrow from bare Exception. Same OSError
+        # surface as _apply_set above. T11.6 exemption preserved.
+        logger.exception(f"env_toggle reset patch failed: "
+                         f"{type(e).__name__}: {e}")
         _audit(admin_id, "RESET_OS_ONLY", key, old, default)
         # T11.6 policy exemption: same rationale as _apply_set() above.
         return True, (

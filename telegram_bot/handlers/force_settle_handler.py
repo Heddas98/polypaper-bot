@@ -23,9 +23,12 @@ of the force-settle deadline — operator gets a clean summary + trade receipt.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
+import aiosqlite
+import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -71,8 +74,12 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
     # 1) Gamma outcomePrices
     try:
         resolved = await engine.client.check_market_resolved(slug)
-    except Exception as e:
-        logger.debug(f"force_settle gamma err {slug[:30]}: {e}")
+    except (httpx.HTTPError, asyncio.TimeoutError, AttributeError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. check_market_
+        # resolved gamma fetch — httpx + JSON parse errors. None falls
+        # through to next oracle layer.
+        logger.debug(f"force_settle gamma err {slug[:30]}: "
+                     f"{type(e).__name__}: {e}")
         resolved = None
     if resolved:
         return resolved, None, "gamma"
@@ -82,8 +89,11 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
     if token_id:
         try:
             cur_p = await engine.client.get_resolution_price(token_id)
-        except Exception as e:
-            logger.debug(f"force_settle clob err {slug[:30]}: {e}")
+        except (httpx.HTTPError, asyncio.TimeoutError, AttributeError) as e:
+            # T11.8-B (2026-04-24): narrow from bare Exception. CLOB price
+            # fetch — same surface as gamma above.
+            logger.debug(f"force_settle clob err {slug[:30]}: "
+                         f"{type(e).__name__}: {e}")
             cur_p = None
         if cur_p is not None and (cur_p >= 0.95 or cur_p <= 0.05):
             if cur_p >= 0.95:
@@ -95,7 +105,10 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
     last = None
     try:
         last = engine.scanner.get_last_known_odds(slug)
-    except Exception:
+    except (AttributeError, KeyError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Scanner not yet
+        # initialized (AttributeError) or slug not cached (KeyError). Falls
+        # through to next oracle layer.
         pass
     if last:
         lu = safe_float(last.get("up_odds"))
@@ -111,7 +124,10 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
         if r and r["up_odds"] is not None:
             lu = float(r["up_odds"])
             return ("up" if lu > 0.5 else "down"), lu, "history"
-    except Exception:
+    except (aiosqlite.Error, KeyError, IndexError, TypeError, ValueError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. odds_history
+        # query + row[col] + float() coercion. Falls through to entry-side
+        # fallback (5th oracle).
         pass
 
     # 5) Fallback: entry side → this nearly always locks in loss
@@ -130,7 +146,11 @@ async def _settle_one(engine, row) -> dict:
             "winner": winner, "price": price, "source": src,
             "direction": row["direction"], "trade_amount": row["trade_amount"],
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): _settle outer wrapper intentionally wide.
+        # Multi-step settlement: oracle resolution + fee math + DB update +
+        # journal write — heterogeneous failure surface. Result dict with
+        # ok=False signals failure to caller.
         logger.exception(f"force_settle _settle fail {row['id'][:8]}: {e}")
         return {
             "ok": False, "exec_id": row["id"], "slug": row["event_slug"],
@@ -200,7 +220,9 @@ async def force_settle_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         rows = await _fetch_open_rows(db)
-    except Exception as e:
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. _fetch_open_rows
+        # SELECT surfaces aiosqlite.Error only. T10.7 render policy preserved.
         # Epic 10 T10.7 (2026-04-22): exception detail loglara yazılır,
         # kullanıcıya generic mesaj döner — DB şeması / tablo isimleri /
         # SQL parçaları Telegram'a sızmasın.

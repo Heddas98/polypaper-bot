@@ -2,8 +2,12 @@
 PolyPaper Bot - /stats + /strategy_stats (Phase 5)
 Per-strategy win rate, PnL, trade count breakdown.
 """
+import asyncio
 import logging
+
+import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from db.database import Database
 from telegram_bot.banners import banner_stats
@@ -95,8 +99,11 @@ async def _send_stats(message, db, user, context):
 
         banner = banner_stats()
         await message.reply_photo(photo=banner, caption=text, parse_mode="HTML", reply_markup=kb)
-    except Exception as e:
-        logger.error(f"Stats error: {esc(e)}", exc_info=True)
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer command wrapper. Stats touches DB +
+        # banner gen + photo send — heterogeneous failure surface. Generic
+        # user message; T10.7 render policy preserved.
+        logger.error(f"Stats error: {esc(str(e))}", exc_info=True)
         error_msg = "⚠️ İstatistik yükleme hatası. Admin'e bildirin."
         await message.reply_text(error_msg, parse_mode="HTML")
 
@@ -321,8 +328,10 @@ async def _send_trades(message, db, user, page=0, edit=False):
         else:
             await message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
-    except Exception as e:
-        logger.error(f"Trades error: {esc(e)}", exc_info=True)
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): trades outer wrapper — DB + render + send.
+        # Generic user message preserves UX.
+        logger.error(f"Trades error: {esc(str(e))}", exc_info=True)
         error_msg = "⚠️ Trade history yukleme hatasi."
         if edit:
             await message.edit_text(error_msg, parse_mode="HTML")
@@ -369,8 +378,10 @@ async def stats_by_market_callback(update: Update, context: ContextTypes.DEFAULT
                 text += (
                     f"{esc(e)} <b>{esc(asset)}</b>\n"
                     f"  {wins}W/{losses}L ({wr:.0f}%) | PnL: <b>{pnl:+.2f}</b>\n\n")
-    except Exception as e:
-        text += f"Error: {esc(e)}"
+    except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Per-asset SQL
+        # group + row coercion. Append error to text instead of failing.
+        text += f"Error: {esc(str(e))}"
 
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
@@ -453,12 +464,15 @@ async def stats_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return await kelly_command(proxy, context)
         if tab == "velocity":
             return await velocity_command(proxy, context)
-    except Exception as e:
-        logger.exception(f"stats_hub route {tab} failed: {esc(e)}")
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): route dispatcher wide. Each tab invokes a
+        # different sub-command with its own exception surface.
+        logger.exception(f"stats_hub route {tab} failed: {esc(str(e))}")
         try:
             await query.edit_message_text(
                 f"❌ Route failed: <code>{esc(tab)}</code>", parse_mode="HTML")
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): edit_message no-op tolerated.
             pass
 
 
@@ -510,10 +524,12 @@ async def stats_chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                GROUP BY day
                ORDER BY day""",
             (user.id, start_date.isoformat()))
-    except Exception as e:
-        logger.error(f"stats_chart query: {esc(e)}")
+    except aiosqlite.Error as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT date
+        # aggregate query — aiosqlite.Error only.
+        logger.error(f"stats_chart query: {esc(str(e))}")
         return await update.message.reply_text(
-            f"❌ Sorgu hatasi: <code>{esc(e)}</code>", parse_mode="HTML")
+            f"❌ Sorgu hatasi: <code>{esc(str(e))}</code>", parse_mode="HTML")
 
     if not rows:
         return await update.message.reply_text(
@@ -658,7 +674,10 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                         f"Bot %{pred_pct} güven verdiğinde sadece %{actual_pct} kazanıyor (gap: {gap:.2f})\n"
                         f"80c+ zone Brier alarm ile bloke edildi.\n"
                     )
-        except Exception:
+        except (aiosqlite.Error, KeyError, TypeError, ImportError, AttributeError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. BrierTracker
+            # may not be available + DB query may fail. Falls through to
+            # zone-based estimate.
             # If Brier data unavailable, use zone-based estimate
             if worst_zone_label == "80c+":
                 brier_warning_text = (
@@ -811,7 +830,10 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"  {d_emoji} <b>D = {d_coeff:+.2f}</b> (target: +0.79)\n"
         else:
             text += "  ⚪ D = N/A (max_unrealized verisi toplanıyor)\n"
-    except Exception as e:
+    except (aiosqlite.Error, KeyError, TypeError, ValueError, ZeroDivisionError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. Disposition
+        # SQL aggregate + numeric coercion + division. 40-char truncated
+        # exc str OK for admin diagnostic.
         text += f"  ⚠️ Disposition hesaplanamadi ({esc(str(e)[:40])})\n"
 
     kb = InlineKeyboardMarkup([
@@ -843,8 +865,10 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (user.id,)) as c:
             async for row in c:
                 execs.append(dict(row))
-    except Exception as e:
-        return await update.message.reply_text(f"Error: {esc(e)}")
+    except (aiosqlite.Error, TypeError) as e:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT cursor
+        # iteration + dict(row) row-factory.
+        return await update.message.reply_text(f"Error: {esc(str(e))}")
 
     if len(execs) < 5:
         return await update.message.reply_text("Need 5+ settled trades for analytics.")

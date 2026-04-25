@@ -3,8 +3,12 @@ PolyPaper Bot - /live command (Phase 34: Shadow Mode)
 Button UI — toggle live, paper vs real side by side, trade history.
 Real data feeds back into paper model calibration.
 """
+import asyncio
 import logging
+
+import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from telegram_bot.templates.safe_html import esc
 
@@ -52,7 +56,10 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             try:
                 await q.edit_message_text(confirm_text, parse_mode="HTML", reply_markup=kb)
-            except Exception:
+            except (BadRequest, TelegramError, asyncio.TimeoutError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. edit
+                # BadRequest "not modified" or original message gone — fall
+                # back to fresh reply.
                 await q.message.reply_text(confirm_text, parse_mode="HTML", reply_markup=kb)
             return
         # Already on → toggle OFF immediately (no confirm)
@@ -61,7 +68,8 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_toggle_confirm":
@@ -70,14 +78,16 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_toggle_cancel":
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_compare":
@@ -85,7 +95,8 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")]])
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_history":
@@ -93,14 +104,16 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")]])
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_main":
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -129,7 +142,9 @@ async def _build_main(engine, db):
             if r:
                 p_pnl, p_trades = r[0][0], r[0][1]
                 p_wr = r[0][2] / r[0][1] * 100 if r[0][1] > 0 else 0
-        except Exception:
+        except (aiosqlite.Error, IndexError, TypeError, ZeroDivisionError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. Aggregate
+            # SELECT + row[0][n] indexing + division by zero (defensive).
             pass
 
     text = (

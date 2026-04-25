@@ -2,9 +2,13 @@
 PolyPaper Bot - /dashboard (v9 — Phase 33 Adaptive Intelligence)
 Rich dashboard: balance, PnL, top strategies, regime, AI, TS ranking.
 """
+import asyncio
 import datetime
 import logging
+
+import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from db.database import Database
 from telegram_bot.banners import banner_dashboard
@@ -78,12 +82,19 @@ async def _build(db, user, engine=None):
                         f"{max_dl:.0f} ({pnl_pct:+.0f}%) | "
                         f"streak: <b>{streak}</b>/{max_ls} | "
                         f"exp: ${exp_now:.0f}/{max_exp:.0f} ({exp_pct:.0f}%)\n")
-            except Exception as _re:
-                logger.debug(f"dashboard risk snapshot: {_re}")
+            except (AttributeError, KeyError, TypeError) as _re:
+                # T11.8-B (2026-04-24): narrow from bare Exception. Risk
+                # snapshot deep attribute access; missing engine.risk attr
+                # is the common failure. Skip block, dashboard renders rest.
+                logger.debug(f"dashboard risk snapshot: "
+                             f"{type(_re).__name__}: {_re}")
 
         text += "\n<i>Detaylar icin butonlari tıkla ➡️</i>"
         return text
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): _build outer wrapper intentionally wide.
+        # Dashboard touches DB + wallet + strategies + risk + AI brain —
+        # heterogeneous failure surface. Generic user message preserves UX.
         logger.error(f"Dashboard build error: {esc(str(e))}", exc_info=True)
         return "⚠️ Dashboard yukleme hatasi. Lütfen /start yaziniz."
 
@@ -97,8 +108,11 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = await _build(db, user, context.bot_data.get("engine"))
         banner = banner_dashboard()
         await update.message.reply_photo(photo=banner, caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
-    except Exception as e:
-        logger.error(f"Dashboard command error: {esc(e)}", exc_info=True)
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): outer command wrapper. Banner generation +
+        # photo send may surface FileNotFoundError + TelegramError. Fall
+        # back to plain reply.
+        logger.error(f"Dashboard command error: {esc(str(e))}", exc_info=True)
         error_msg = f"⚠️ Dashboard yukleme hatasi. Lütfen /start yaziniz."
         await update.message.reply_text(error_msg, parse_mode="HTML")
 
@@ -120,7 +134,10 @@ async def refresh_dashboard_callback(update: Update, context: ContextTypes.DEFAU
     text = await _build(db, user, context.bot_data.get("engine"))
     try:
         await update.callback_query.edit_message_caption(caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. edit_message_
+        # caption BadRequest "not modified" or original sent without photo
+        # (no caption to edit). Fall back to fresh reply.
         await update.callback_query.message.reply_text(text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
 
 
@@ -199,7 +216,9 @@ async def journal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 FROM trade_log tl LEFT JOIN strategies s ON tl.strategy_id = s.id
                 ORDER BY tl.ts DESC LIMIT ?""",
                 (limit,))
-    except Exception:
+    except aiosqlite.Error:
+        # T11.8-B (2026-04-24): narrow from bare Exception. SELECT raises
+        # aiosqlite.OperationalError when trade_log table missing.
         # Table might not exist yet
         return await update.message.reply_text(
             "📓 <b>Trade Journal</b>\n\n"
@@ -511,7 +530,9 @@ async def price_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         slug = alert["slug"]
         try:
             current = odds_feed.get_price(slug) if hasattr(odds_feed, "get_price") else None
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
+            # T11.8-B (2026-04-24): narrow from bare Exception. odds_feed
+            # cache lookup; missing slug surfaces as KeyError/TypeError.
             current = None
         if current is None:
             continue
@@ -530,5 +551,8 @@ async def price_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         ),
                         parse_mode="HTML",
                     )
-                except Exception as e:
-                    logger.warning(f"price_alert DM failed: {esc(e)}")
+                except (TelegramError, asyncio.TimeoutError) as e:
+                    # T11.8-B (2026-04-24): narrow from bare Exception. Alert
+                    # send transport — best effort, alert still recorded.
+                    logger.warning(f"price_alert DM failed: "
+                                   f"{type(e).__name__}: {e}")

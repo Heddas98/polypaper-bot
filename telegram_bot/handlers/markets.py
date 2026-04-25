@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from data.market_scanner import MarketScanner
 from telegram_bot.templates.safe_html import esc
@@ -24,7 +25,9 @@ def _time_remaining(end_str) -> str:
         if secs < 3600:
             return f"{secs // 60}m {secs % 60}s"
         return f"{secs // 3600}h {(secs % 3600) // 60}m"
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. fromisoformat
+        # ValueError, str() TypeError, .replace() AttributeError on None.
         return "?"
 
 
@@ -58,7 +61,9 @@ async def refresh_markets_callback(update: Update, context: ContextTypes.DEFAULT
     try:
         text = _build_markets_text(scanner) + "\n⏳ <i>Güncel fiyatlar yükleniyor...</i>"
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Initial render
+        # may BadRequest "not modified" if user double-clicks; tolerated.
         pass
 
     # Step 2: Background scan → re-render with fresh data
@@ -69,12 +74,17 @@ async def _refresh_and_update(query, scanner, kb):
     """Background: scan then edit message with fresh data."""
     try:
         await asyncio.wait_for(scanner._do_scan(), timeout=8.0)
-    except Exception:
+    except (asyncio.TimeoutError, asyncio.CancelledError, AttributeError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. wait_for
+        # TimeoutError is the expected miss case; AttributeError if scanner
+        # not yet initialized. Continue with stale snapshot anyway.
         pass
     text = _build_markets_text(scanner)
     try:
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        # T11.8-B (2026-04-24): narrow from bare Exception. Same edit_message
+        # no-op pattern.
         pass
 
 
@@ -256,7 +266,9 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 end_dt = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
                 minutes_remaining = (end_dt - datetime.now(timezone.utc)).total_seconds() / 60
-            except Exception:
+            except (ValueError, TypeError, AttributeError):
+                # T11.8-B (2026-04-24): narrow from bare Exception. Same
+                # ISO-parse surface as _time_remaining above.
                 pass
 
         sig = engine.signals.evaluate(

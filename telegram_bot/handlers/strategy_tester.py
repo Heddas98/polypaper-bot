@@ -224,17 +224,23 @@ async def _run_test(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 "⏸ Test iptal edildi",
                 parse_mode="HTML"
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # T11.8-B (2026-04-24): edit_text best-effort; cancellation
+            # path proceeds regardless.
             pass
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): _run_test outer wrapper. Replay engine
+        # touches DB + ob_snapshots + strategy registry — heterogeneous
+        # exception surface. Truncated str(e) admin-only acceptable.
         logger.error(f"_run_test error: {e}", exc_info=True)
         try:
             await status_msg.edit_text(
                 f"❌ Test hatası: {esc(str(e)[:100])}",
                 parse_mode="HTML"
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # T11.8-B (2026-04-24): edit_text best-effort.
             pass
 
 
@@ -312,7 +318,9 @@ async def _test_strategy_async(db: Database, user_id: str, id_prefix: str,
             "stats": stats
         }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): async test wrapper — to_thread + replay
+        # engine + strategy plugins. Result dict failure mode preserved.
         logger.error(f"_test_strategy_async error: {e}", exc_info=True)
         return {
             "success": False,
@@ -371,7 +379,8 @@ async def _test_with_recorder(db: Database, strategy: Strategy) -> dict:
             },
         }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): recorder backtest wrapper — same surface.
         logger.error(f"_test_with_recorder error: {e}", exc_info=True)
         return {
             "total_trades": 0,
@@ -399,7 +408,8 @@ async def _test_with_becker(strategy: Strategy) -> dict:
             "zone_breakdown": {},
         }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): becker backtest wrapper — same surface.
         logger.error(f"_test_with_becker error: {e}", exc_info=True)
         return {
             "total_trades": 0,
@@ -446,7 +456,10 @@ async def test_strategy_callback(update: Update, context: ContextTypes.DEFAULT_T
             # TODO: Rerun test with becker data source
             return
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # T11.8-B (2026-04-24): callback outer wrapper. Test trigger
+        # callback may surface DB / scheduling errors; query.answer alert
+        # is the user feedback path.
         logger.error(f"test_strategy_callback error: {e}", exc_info=True)
         await query.answer(f"Hata: {str(e)[:50]}", show_alert=True)
 
