@@ -11,6 +11,7 @@ from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 from db.database import Database
 from telegram_bot.banners import banner_stats
+from telegram_bot.handlers._exc_render import render_user_exception
 from telegram_bot.templates.safe_html import esc, fmt_usd
 
 logger = logging.getLogger("polypaper.handlers.stats")
@@ -527,9 +528,10 @@ async def stats_chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except aiosqlite.Error as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT date
         # aggregate query — aiosqlite.Error only.
-        logger.error(f"stats_chart query: {esc(str(e))}")
+        # T11.6 fix 2026-04-28: render_user_exception (no raw esc(str(e)) leak).
+        logger.exception("stats_chart query failed")
         return await update.message.reply_text(
-            f"❌ Sorgu hatasi: <code>{esc(str(e))}</code>", parse_mode="HTML")
+            render_user_exception(e, "❌ Sorgu hatasi"), parse_mode="HTML")
 
     if not rows:
         return await update.message.reply_text(
@@ -868,7 +870,10 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (aiosqlite.Error, TypeError) as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT cursor
         # iteration + dict(row) row-factory.
-        return await update.message.reply_text(f"Error: {esc(str(e))}")
+        # T11.6 fix 2026-04-28: render_user_exception (no raw esc(str(e)) leak).
+        logger.exception("analytics SELECT failed")
+        return await update.message.reply_text(
+            render_user_exception(e, "Error"), parse_mode="HTML")
 
     if len(execs) < 5:
         return await update.message.reply_text("Need 5+ settled trades for analytics.")
