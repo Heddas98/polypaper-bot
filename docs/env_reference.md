@@ -3,9 +3,9 @@
 > **Auto-generated** by `scripts/gen_env_reference.py` (T11.7 doctrine).
 > Do not hand-edit. Run the generator after adding any new `os.getenv(...)` call in production code.
 >
-> **Total keys:** 258 distinct env vars read across production dirs.
+> **Total keys:** 259 distinct env vars read across production dirs.
 > **Whitelist coverage:** 41 / 41 whitelisted keys have at least one reader.
-> **`.env.example` coverage:** 115 / 258 runtime keys are documented in `.env.example`.
+> **`.env.example` coverage:** 116 / 259 runtime keys are documented in `.env.example`.
 
 ## Legend
 
@@ -76,6 +76,7 @@
 | `CLASSIC_RESPECT_UNSELLABLE` | `'false'` | ✅ | ✅ | `core/engine_signals.py:1253` |
 | `CLASSIC_RESPECT_ZONES` | `'false'` | ✅ | ✅ | `core/engine_signals.py:813` |
 | `CLASSIC_TAKER_LIMIT_CEIL` | `'0.99'` | ✅ |  | `core/engine_signals.py:1674` |
+| `CLOB_SIGNATURE_TYPE` | `'2'` |  | ✅ | `core/live_trader.py:210`, `core/live_trader.py:440` |
 | `CLOB_TIMEOUT` | `'5.0'` |  | ✅ | `data/polymarket_client.py:21` |
 | `CONFLUENCE_K` | `'3'` |  | ✅ | `core/ai_brain.py:741`, `core/signal_fusion.py:551` |
 | `CONFLUENCE_MODE` | `'true'` |  | ✅ | `core/signal_fusion.py:550` |
@@ -194,11 +195,11 @@
 | `PNL_DIVERGENCE_WINDOW_H` | `'24'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:190`, `telegram_bot/jobs/pnl_divergence_job.py:57` |
 | `PNL_PAUSE_THRESHOLD` | `'-8.0'` | ✅ |  | `core/auto_optimizer.py:45` |
 | `POLYBACKTEST_API_KEY` | `''` |  | ✅ | `backtest/data_sources/polybacktest.py:49` |
-| `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:153`, `core/live_trader.py:425` |
-| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:551`, `core/live_trader.py:154`, `core/live_trader.py:426` |
-| `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:229` |
-| `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:230` |
-| `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:231` |
+| `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:153`, `core/live_trader.py:432` |
+| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:561`, `core/live_trader.py:154`, `core/live_trader.py:433` |
+| `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:236` |
+| `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:237` |
+| `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:238` |
 | `POLYPAPER_DB` | `<expr>` |  |  | `backtest/archive_reader.py:112` |
 | `PORT` | `8080` |  |  | `core/keepalive.py:22` |
 | `PRICE_ALERT_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:715` |

@@ -201,10 +201,17 @@ class LiveTrader:
             return (False, f"py-clob-client not installed: {e}")
 
         try:
+            # 2026-04-28 Heddas docs audit fix (Bulgu 1): Polymarket.com Rabby
+            # login akışı CREATE2 ile Gnosis Safe Proxy deploy ediyor — fonlar
+            # bu Proxy'de tutuluyor (deposit/withdraw addr), trade'ler proxy
+            # adına execute. signature_type=2 (GNOSIS_SAFE) + funder=ProxyAddr.
+            # ENV-tunable: CLOB_SIGNATURE_TYPE=0 (EOA) ile geri sarılabilir
+            # eğer kullanıcı doğrudan EOA wallet kullanıyorsa.
+            sig_type = int(os.getenv("CLOB_SIGNATURE_TYPE", "2"))
             client = ClobClient(
                 "https://clob.polymarket.com",
                 key=pk, chain_id=137,
-                signature_type=0,  # EOA
+                signature_type=sig_type,
                 funder=wallet,
             )
         except Exception as e:  # noqa: BLE001
@@ -428,10 +435,13 @@ class LiveTrader:
             if not pk or not wallet:
                 return {"id": "", "status": "error:missing POLYGON_PRIVATE_KEY/WALLET"}
 
+            # 2026-04-28 Heddas docs audit fix (Bulgu 1): aynı signature_type
+            # convention as start() above. Default 2 = GNOSIS_SAFE.
+            sig_type = int(os.getenv("CLOB_SIGNATURE_TYPE", "2"))
             client = ClobClient(
                 "https://clob.polymarket.com",
                 key=pk, chain_id=137,
-                signature_type=0,  # EOA
+                signature_type=sig_type,
                 funder=wallet,
             )
 
