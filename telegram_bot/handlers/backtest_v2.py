@@ -1095,12 +1095,13 @@ async def _send_photo(source, photo_bytes: bytes, caption: str = ""):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Phase 51 P51-03 Faz-2 Cluster F — merged from becker_handler.py
+# Becker block — 2026-04-28 Heddas direktifi: Becker tam silindi.
+# Aşama 1: module-level becker_loader import kaldırıldı (data/becker_loader.py
+# dosyası rm edildiğinde patlamasın diye). Aşağıdaki becker_*_command fonksiyonları
+# bot.py'dan import edilmiyor artık — Aşama 2 cosmetic cleanup'ta tamamen silinecek.
+# Şu an dead code; çağrılırsa NameError verir ama hiçbir register zinciri yok.
 # ═══════════════════════════════════════════════════════════════════════
 import asyncio  # noqa: E402
-from data.becker_loader import (  # noqa: E402
-    BeckerLoader, dataset_status, is_dataset_present, ARCHIVE_PATH, RAW_DIR,
-)
 def _fmt_bytes(n: int) -> str:
     if n is None or n <= 0:
         return "0"

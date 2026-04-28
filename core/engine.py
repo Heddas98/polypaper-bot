@@ -202,19 +202,11 @@ class TradingEngine(
             # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init failures
             logger.warning(f"micro_weight init failed: {_mwe}")
             self.micro_weight = None
-        # Phase 48: Adaptive per-asset Becker weight tracker (opt-in).
-        # Mirrors Phase 47a but the input signal is the Becker δ ensemble
-        # rather than microstructure tilt. Default disabled — controlled by
-        # ADAPTIVE_BECKER_WEIGHT_ENABLED env var.
-        try:
-            from core.becker_weight_tracker import BeckerWeightTracker
-            self.becker_weight = BeckerWeightTracker(
-                enabled=getattr(settings, "ADAPTIVE_BECKER_WEIGHT_ENABLED", False)
-            )
-        except Exception as _bwe:  # noqa: BLE001
-            # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init failures
-            logger.warning(f"becker_weight init failed: {_bwe}")
-            self.becker_weight = None
+        # Becker calibration removed 2026-04-28 (Heddas direktifi: gereksiz,
+        # kendi veri toplama yeterli). Backward-compat stub: Aşama 1 kapsamında
+        # engine.py functional unwire; Aşama 2'de engine_signals/engine_fills
+        # dead code'u temizlenecek. Ref: docs/audits/fee_reality_check_2026_04.md.
+        self.becker_weight = None
 
         # Phase 59: Event calendar monitor — pre-event volatility adjustment
         try:
@@ -231,39 +223,12 @@ class TradingEngine(
         # taşınmıştı ve import her bootta sessiz fail ediyordu. Temizlendi.
         # (Aktif whale akışı için core/signals/whale_flow.py kullanılıyor.)
 
-        # Phase 47f: Becker δ(p) calibration curve (poly) — loaded once at init.
-        # Stored as list[tuple[float bin_low, float delta]] sorted by bin.
-        # Used in _evaluate to tilt signal_score based on empirical mispricing
-        # at the current best_ask price. Best-effort — no-op if DB missing.
+        # Becker calibration curves removed 2026-04-28 (Heddas direktifi).
+        # Backward-compat stub: empty lists ensure engine_signals dead-code
+        # `if self._becker_poly_curve:` short-circuits to False and never
+        # invokes Becker logic. Aşama 2 cosmetic cleanup'ta tamamen silinecek.
         self._becker_poly_curve: list[tuple[float, float]] = []
         self._becker_kalshi_curve: list[tuple[float, float]] = []
-        if getattr(settings, "BECKER_CALIB_ENABLED", False):
-            try:
-                from data.becker_loader import BeckerLoader, CALIB_DB
-                if CALIB_DB.exists():
-                    bl = BeckerLoader()
-                    for src_name, holder_attr in (("poly", "_becker_poly_curve"),
-                                                  ("kalshi", "_becker_kalshi_curve")):
-                        try:
-                            rows = bl.calibration_curve(src_name) or []
-                            # Each row: (bin_low, actual_wr, n). delta = actual - bin_mid
-                            curve = [(float(r[0]), float(r[1]) - (float(r[0]) + 0.025))
-                                     for r in rows if r and r[0] is not None]
-                            curve.sort(key=lambda x: x[0])
-                            setattr(self, holder_attr, curve)
-                        except (aiosqlite.Error, ValueError, TypeError, IndexError) as _ce:
-                            # Epic 8 T8.1: DB read / numeric cast / empty row slicing
-                            logger.warning(f"becker {src_name} curve load: {_ce}")
-                    logger.info(
-                        f"📈 Phase 47f: Becker δ(p) loaded "
-                        f"poly={len(self._becker_poly_curve)} bins "
-                        f"kalshi={len(self._becker_kalshi_curve)} bins"
-                    )
-                else:
-                    logger.info("📈 Phase 47f: Becker calib DB not present — δ(p) disabled")
-            except (ImportError, AttributeError, aiosqlite.Error, OSError) as _be:
-                # Epic 8 T8.1: outer bootstrap — loader import / DB open / FS errors
-                logger.warning(f"becker curve init failed: {_be}")
 
         # Phase 70: EV Threshold Tracker
         try:

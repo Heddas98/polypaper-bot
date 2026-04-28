@@ -209,11 +209,13 @@ class TestMakerRebateEdgeCases:
         # Arrange: real taker fee
         fee = 1.0
 
-        # Act: 25% rebate for crypto
+        # Act: crypto maker rebate
         rebate = polymarket_maker_rebate(fee, category="crypto")
 
-        # Assert: 25% of fee
-        assert rebate == 0.25
+        # Assert: 20% of fee (FAZ 0.1 fix 2026-04-28 — Polymarket docs:
+        # crypto rebate is 20%, not 25%. See docs/audits/fee_reality_check_2026_04.md
+        # and TestPolymarketDocsParity.test_maker_rebate_pct_matches_docs.)
+        assert rebate == 0.20
 
 
 class TestEVAfterFeeEdgeCases:

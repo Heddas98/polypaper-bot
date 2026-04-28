@@ -76,9 +76,7 @@ from telegram_bot.handlers.backtest_v2 import (  # Phase 51 P51-03 Faz-2 Cluster
     backtest_v2_cmd, compare_cmd, backtest_v2_callback,
     backtest_v2_config_callback, handle_limit_input,
     backtest_replay_command, replay_callback,  # merged from backtest_replay.py
-    becker_build_command, becker_status_command, becker_replay_command,  # merged from becker_handler.py
-    becker_zones_command,  # Phase 60 P2-2
-    becker_deep_command,  # Phase 60 P2-4
+    # Becker commands removed 2026-04-28 (Heddas direktifi: tam kaldırma)
     cancel_operation_callback,  # Phase 79 S1-12: Cancel for backtest/compare
 )
 from telegram_bot.handlers.strategy_tester import (  # Phase 79 S2-1: Test user strategies
@@ -161,8 +159,7 @@ from telegram_bot.handlers.roadmap_handler import (  # Phase 70-73
     ev_stats_command, metrics_command, surface_command, latency_command,
 )
 from telegram_bot.handlers.lifecycle_handler import lifecycle_command  # Phase 74b
-from telegram_bot.handlers.becker_recal_handler import (  # Phase 75+
-    becker_recal_status_command, becker_recal_manual_command)
+# Becker recal handler removed 2026-04-28 (Heddas direktifi)
 # T1.3 Commit 4 (2026-04-20): phase76_handler silindi —
 # markov_command + capital_command ghost modüllere (core.markov_estimator,
 # core.capital_allocator) bağlıydı, Phase 76 ayağı Phase 79b sonrası ölü kalmıştı.
@@ -175,8 +172,7 @@ from telegram_bot.handlers.phase77_handler import (  # Phase 77
 from telegram_bot.jobs.db_retention_job import db_retention_job
 from telegram_bot.jobs.auto_promote_job import auto_promote_job  # Phase 48
 from telegram_bot.jobs.db_archive_job import db_archive_job  # Phase 59 DB-01b
-from telegram_bot.jobs.becker_rolling_recal_job import (  # Phase 75+
-    becker_rolling_recal_job, schedule_becker_rolling_recal)
+# Becker rolling recal job removed 2026-04-28 (Heddas direktifi)
 from telegram_bot.jobs.maintenance_jobs import (
     daily_db_snapshot_job, heartbeat_job, wal_checkpoint_job,
 )
@@ -260,13 +256,9 @@ class PolyPaperBot:
             ("maker_stats", maker_stats_command),  # Phase 43c
             ("micro", micro_command),  # Phase 46d
             ("microstructure", micro_command),  # Phase 47f.9: readable alias
-            ("becker_status", becker_status_command),  # Phase 47c
-            ("calibration_status", becker_status_command),  # Phase 47f.9: readable alias
-            ("becker_build", becker_build_command),  # Phase 47c
-            ("calibration_build", becker_build_command),  # Phase 47f.9: readable alias
-            ("becker_replay", becker_replay_command),  # Phase 50: walk-forward historical backtest
-            ("becker_zones", becker_zones_command),  # Phase 60: sub-25c zone analysis
-            ("becker_deep", becker_deep_command),  # Phase 60: full deep analysis
+            # Becker commands removed 2026-04-28 (Heddas direktifi):
+            #   /becker_status /calibration_status /becker_build /calibration_build
+            #   /becker_replay /becker_zones /becker_deep
             # Phase 50 (Suggestion 12.3) — price alerts
             ("alert", alert_set_cmd),
             ("alerts", alerts_list_cmd),
@@ -343,9 +335,7 @@ class PolyPaperBot:
             ("metrics", metrics_command),
             ("surface", surface_command),
             ("latency", latency_command),
-            # Phase 75+: Becker rolling recalibration
-            ("becker_recal_status", becker_recal_status_command),
-            ("becker_recal_manual", becker_recal_manual_command),
+            # Becker recal commands removed 2026-04-28 (Heddas direktifi)
             # Phase 74b: Per-strategy lifecycle
             ("lifecycle", lifecycle_command), ("lc", lifecycle_command),
             # T1.3 Commit 4 (2026-04-20): Phase 76 markov + capital
@@ -618,8 +608,7 @@ class PolyPaperBot:
             BotCommand("demote", "Stage geri al"),
             BotCommand("filters", "Trade filtre paneli (on/off, alias: /f)"),
             BotCommand("diagnose", "Trade pipeline tani raporu"),
-            BotCommand("becker_recal_status", "Becker recal durumu"),
-            BotCommand("becker_recal_manual", "Becker manuel recal"),
+            # Becker BotCommand entries removed 2026-04-28 (Heddas direktifi)
             BotCommand("experiment_apply", "Experiment sonucunu uygula"),
             BotCommand("experiment_discard", "Experiment sonucunu iptal et"),
             BotCommand("hyperopt_all", "Tum stratejileri hyperopt et"),
@@ -798,21 +787,7 @@ class PolyPaperBot:
                     except Exception as _sg_e:  # noqa: BLE001
                         logger.warning(f"Strategy Suggester schedule failed: {_sg_e}")
 
-                # Phase 75+: Becker rolling recalibration (weekly Sunday 00:00 UTC)
-                if os.getenv("BECKER_ROLLING_RECAL_ENABLED", "false").lower() == "true":
-                    try:
-                        self.app.bot_data["becker_rolling_enabled"] = True
-                        context_data = {
-                            "db": self.db,
-                            "bot": self.app.bot,
-                            "admin_chat_id": int(os.getenv("ADMIN_TELEGRAM_ID", "0") or "0"),
-                        }
-                        schedule_becker_rolling_recal(jq, context_data)
-                        logger.info("✅ Becker rolling recalibration job scheduled (weekly)")
-                    except Exception as _br_e:  # noqa: BLE001
-                        logger.warning(f"Failed to schedule Becker rolling recal job: {_br_e}")
-                else:
-                    self.app.bot_data["becker_rolling_enabled"] = False
+                # Becker rolling recalibration job removed 2026-04-28 (Heddas direktifi)
             else:
                 logger.warning("JobQueue is None — shadow_report disabled. "
                                "Install python-telegram-bot[job-queue]")

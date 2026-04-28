@@ -2,19 +2,25 @@
 PolyPaper Bot - Polymarket Fee Model v2 (Phase 43a)
 
 March 2026 fee change: Polymarket shifted from quadratic (feeRate=0.25, exp=2)
-to a lower, category-aware linear / near-linear curve. Crypto Up/Down was the
-most affected bucket — taker fee dropped substantially, maker orders now earn
-a category-specific rebate from the taker pool.
+to a uniformly lower bell-shape curve `fee = C x feeRate x p x (1-p)` with
+category-specific feeRate. The fee in USDC peaks at p=0.5 and decreases
+symmetrically toward both extremes. Crypto Up/Down was the most affected
+bucket -- taker fee dropped substantially, maker orders now earn a
+category-specific rebate from the taker pool.
 
-Formula:
-    fee = shares × feeRate × (p × (1-p))^exponent
-    fee_pct_of_notional = feeRate × p^(exp-1) × (1-p)^exp
+Formula (canonical, per https://docs.polymarket.com/trading/fees):
+    fee = shares x feeRate x (p x (1-p))^exponent
 
-Exponents vary by category: 1 (linear), 2 (quadratic), 0.5 (sqrt).
+For all currently documented categories `exponent == 1`, i.e. the
+formula simplifies to `fee = shares x feeRate x p x (1-p)`. The
+`taker_exp` field is retained for forward-compat -- Polymarket's SDK
+exposes per-market `info["fd"] = { "r": fee_rate, "e": exponent }`,
+so individual markets MAY override the exponent in the future.
 
 CATEGORY_FEES is a forward-compatible dict. Dynamic override via
-polymarket_taker_fee_v2(..., override_rate=…, override_exp=…) is supported
-so a future /fee-rate endpoint listener can hot-patch without a restart.
+polymarket_taker_fee_v2(..., override_rate=..., override_exp=...) is
+supported so a /fee-rate endpoint listener can hot-patch without a
+restart.
 
 Tail-zone gate: at p < TAIL_LOW or p > TAIL_HIGH the taker fee is tiny in
 absolute terms but the edge required to overcome slippage + execution risk
@@ -23,33 +29,33 @@ module only computes; the gate lives in engine._evaluate.
 """
 from __future__ import annotations
 
-# Default category fee table — Mart 2026, category-aware mixed exponents.
+# Default category fee table -- Mart 2026, all categories use exp=1 per docs.
 # Keys are lowercase category tags used by the scanner / market.category field.
-# taker_rate / taker_exp → plugged into the formula above.
-# maker_rebate_pct → share of realized taker fee returned to makers daily.
+# taker_rate -> plugged into the formula above.
+# maker_rebate_pct -> share of realized taker fee returned to makers daily.
 CATEGORY_FEES: dict[str, dict] = {
-    # Verified against Polymarket docs & Pine Analytics (April 2026).
-    # Formula: fee = shares × feeRate × (p × (1-p))^exponent
-    "crypto":      {"taker_rate": 0.072, "taker_exp": 1,   "maker_rebate_pct": 0.25},
-    "sports":      {"taker_rate": 0.030, "taker_exp": 1,   "maker_rebate_pct": 0.25},
-    "politics":    {"taker_rate": 0.040, "taker_exp": 1,   "maker_rebate_pct": 0.25},
-    "finance":     {"taker_rate": 0.040, "taker_exp": 1,   "maker_rebate_pct": 0.25},
-    "economics":   {"taker_rate": 0.050, "taker_exp": 0.5, "maker_rebate_pct": 0.25},
-    "culture":     {"taker_rate": 0.050, "taker_exp": 1,   "maker_rebate_pct": 0.25},
-    "weather":     {"taker_rate": 0.050, "taker_exp": 0.5, "maker_rebate_pct": 0.25},
-    "tech":        {"taker_rate": 0.040, "taker_exp": 1,   "maker_rebate_pct": 0.25},
-    "mentions":    {"taker_rate": 0.040, "taker_exp": 2,   "maker_rebate_pct": 0.25},
-    "other":       {"taker_rate": 0.050, "taker_exp": 2,   "maker_rebate_pct": 0.25},
-    "geopolitics": {"taker_rate": 0.000, "taker_exp": 1,   "maker_rebate_pct": 0.00},
-    # NOTE: Pre-Mart 2026 "legacy" quadratic category removed 2026-04-21 with
-    # Epic 4 T4.1. Polymarket deprecated that curve; fees_v2 is the canonical
-    # source (verified against live Gamma feeSchedule). See git history for
-    # the old {rate: 0.25, exp: 2} entry if ever needed for archival review.
+    # Verified 2026-04-28 against official Polymarket docs:
+    #   - https://docs.polymarket.com/trading/fees
+    #   - https://docs.polymarket.com/market-makers/maker-rebates
+    # Formula: fee = shares x feeRate x (p x (1-p))^exponent
+    # All documented categories currently use exponent == 1.
+    # Audit: docs/audits/fee_reality_check_2026_04.md (FAZ 0.1).
+    "crypto":      {"taker_rate": 0.072, "taker_exp": 1, "maker_rebate_pct": 0.20},
+    "sports":      {"taker_rate": 0.030, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "politics":    {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "finance":     {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "economics":   {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "culture":     {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "weather":     {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "tech":        {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "mentions":    {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "other":       {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "geopolitics": {"taker_rate": 0.000, "taker_exp": 1, "maker_rebate_pct": 0.00},
 }
 
 DEFAULT_CATEGORY = "crypto"
 
-# Tail-zone thresholds — callers use these to emit FEE_TAIL skips.
+# Tail-zone thresholds -- callers use these to emit FEE_TAIL skips.
 TAIL_LOW = 0.15
 TAIL_HIGH = 0.85
 
@@ -101,9 +107,9 @@ def polymarket_fee_percent_v2(
     params = _category_params(category)
     rate = override_rate if override_rate is not None else params["taker_rate"]
     exp = override_exp if override_exp is not None else params["taker_exp"]
-    # fee/amount = rate × price × (1-price)^exp × (price×(1-price))^(exp-1)
-    # simplified for exp=1: rate × (1-price)
-    # general: rate × (1-price)^exp × price^(exp-1)
+    # fee/amount = rate x price x (1-price)^exp x (price x (1-price))^(exp-1)
+    # simplified for exp=1: rate x (1-price)
+    # general: rate x (1-price)^exp x price^(exp-1)
     return round(rate * (price ** (exp - 1)) * ((1 - price) ** exp) * 100, 4)
 
 
@@ -130,7 +136,7 @@ def in_tail_zone(price: float) -> bool:
     Paper trading should skip entries here because:
       1. The absolute fee is tiny but the edge required to overcome
          rounding + slippage + UMA outlier risk is disproportionate.
-      2. Liquidity is thin — maker queue advances slowly, taker sweeps
+      2. Liquidity is thin -- maker queue advances slowly, taker sweeps
          blow past our limit.
     """
     if not price:
