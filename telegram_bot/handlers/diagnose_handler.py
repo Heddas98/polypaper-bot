@@ -88,88 +88,8 @@ def _build_bg_tasks_section() -> str:
         )
 
 
-def _build_hyperopt_section() -> str:
-    """Phase 82e Sprint 2.3 — HyperOpt worker status block.
-
-    Renders the parent-side HyperoptProgressState: active run details
-    (mode/strat/trial/elapsed/ETA/memory/last_status) OR last run summary
-    OR 'idle — no run recorded' fallback. Never raises.
-    """
-    try:
-        from telegram_bot.handlers.hyperopt_handler import _progress_state
-        from backtest.hyperopt_ipc import format_eta_hybrid
-
-        state = _progress_state
-        out = "<b>HyperOpt Status</b>\n"
-
-        if state.active:
-            mode_label = {
-                "single": "Single",
-                "batch": "Batch",
-            }.get(state.mode, state.mode)
-            strat = state.current_strat or "-"
-            trial = state.current_trial or 0
-            total = state.current_total or 0
-            elapsed_s = int(state.elapsed_sec)
-            pct = state.progress_pct
-            eta = format_eta_hybrid(state.eta_sec, pct)
-
-            out += f"  Mode: {esc(mode_label)} 🟢\n"
-            out += f"  Strat: <code>{esc(strat)}</code>\n"
-            if total > 0:
-                out += f"  Trial: {trial}/{total}\n"
-            out += f"  Elapsed: {elapsed_s}s\n"
-            out += f"  ETA: {esc(eta)}\n"
-            if state.memory_mb > 0:
-                out += (
-                    f"  Memory: {state.memory_mb:.0f}MB "
-                    f"(sys {state.memory_sys_pct:.0f}%)\n"
-                )
-
-            if state.last_status and state.last_status_at:
-                ago = max(
-                    0,
-                    int((datetime.utcnow() - state.last_status_at).total_seconds()),
-                )
-                out += (
-                    f"  Last: <code>{esc(state.last_status[:120])}</code> "
-                    f"({ago}s ago)\n"
-                )
-
-            if state.warnings:
-                last_warn = state.warnings[-1]
-                out += f"  ⚠️ {esc(last_warn[:80])}\n"
-
-        elif state.last_run_summary:
-            s = state.last_run_summary
-            elapsed = int(s.get("elapsed_sec") or 0)
-            done = s.get("strats_done", 0)
-            total = s.get("strats_total", 0)
-            err = s.get("error")
-            icon = "❌" if err else "🏁"
-            out += f"  {icon} last run ({s.get('mode', '?')}): "
-            out += f"{done}/{total} strats in {elapsed}s\n"
-            top = s.get("top_strats") or []
-            if top:
-                t0 = top[0]
-                out += (
-                    f"  Best: <code>{esc(t0.get('name', '?'))}</code> "
-                    f"score={t0.get('best_value', 0.0):.4f}\n"
-                )
-            if err:
-                out += f"  Error: {esc(str(err)[:80])}\n"
-        else:
-            out += "  (idle — no run recorded this session)\n"
-
-        return out + "\n"
-    except Exception as _ho_err:  # noqa: BLE001
-        # T11.8-B (2026-04-24): hyperopt_launcher import + worker registry —
-        # subprocess + IPC + JSON parsing layers. Wide catch keeps /diagnose
-        # rendering when worker silently dies. Admin-only.
-        return (
-            f"<b>HyperOpt Status</b>: &lt;unavailable: "
-            f"{esc(str(_ho_err)[:80])}&gt;\n\n"
-        )
+# _build_hyperopt_section removed 2026-04-28 (Heddas direktifi: tam silme).
+# Phase 82e Sprint 2.3 HyperOpt worker status block kaldırıldı.
 
 
 async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,11 +249,7 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # safe_create_task() has been called for each task.
     bg_text = _build_bg_tasks_section()
 
-    # ══ 8. HYPEROPT STATUS (Phase 82e Sprint 2.3) ══
-    # Surfaces parent-side HyperoptProgressState so the user can see
-    # whether a background hyperopt run is stuck (last_status + age) or
-    # finished (last_run_summary) without having to call /hyperopt_status.
-    ho_text = _build_hyperopt_section()
+    # Section 8 (Hyperopt Status) removed 2026-04-28 (Heddas direktifi)
 
     # Combine all sections
     full_text = (
@@ -345,7 +261,6 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{ws_text}"
         f"{cycle_text}"
         f"\n{bg_text}"
-        f"{ho_text}"
     )
     # Telegram hard limit 4096 — truncate to leave room for markup errors
     if len(full_text) > 3950:
@@ -501,8 +416,7 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ══ 7. BG TASK REGISTRY (Phase 82e Sprint 2.1) ══
     bg_text = _build_bg_tasks_section()
 
-    # ══ 8. HYPEROPT STATUS (Phase 82e Sprint 2.3) ══
-    ho_text = _build_hyperopt_section()
+    # Section 8 (Hyperopt Status) removed 2026-04-28 (Heddas direktifi)
 
     full_text = (
         f"🔧 <b>Trade Pipeline Diagnostics</b>\n\n"
@@ -513,7 +427,6 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{ws_text}"
         f"{cycle_text}"
         f"\n{bg_text}"
-        f"{ho_text}"
     )
     if len(full_text) > 3950:
         full_text = full_text[:3900] + "\n\n... (truncated)"

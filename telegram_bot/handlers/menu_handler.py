@@ -361,11 +361,7 @@ async def menu_experiment_callback(update: Update, context: ContextTypes.DEFAULT
         "/experiment_discard — İptal et\n\n"
         "<b>📋 Örnek:</b>\n"
         "<code>/experiment MIN_COMPOSITE=0.30</code>\n"
-        "<code>/experiment KELLY_FRACTION=0.15</code>\n\n"
-        "<b>🧪 Optimizasyon:</b>\n"
-        "/hyperopt — Optuna hyperparameter optimize\n"
-        "/hyperopt_all — Tüm stratejileri hyperopt et\n"
-        "/mc_kelly — Monte Carlo Kelly doğrulama"
+        "<code>/experiment KELLY_FRACTION=0.15</code>\n"
     )
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
@@ -468,7 +464,7 @@ async def menu_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "/patterns — En iyi/kötü pattern'ler\n"
         "/markov — Markov Chain | /capital — Sermaye dağılımı\n\n"
         "<b>🧪 Backtest & Deney</b>\n"
-        "/backtest_v2 — Hızlı v2 | /hyperopt — Optuna optimize\n"
+        "/backtest_v2 — Hızlı v2\n"
         "/experiment KEY=VAL — Parametre testi\n\n"
         "<b>🚀 Gelişmiş</b>\n"
         "/breed — Genetik | /vote — Swarm | /whale — Whale akış\n"

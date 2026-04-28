@@ -1457,7 +1457,7 @@ async def becker_zones_command(update: Update,
 # Phase 79 S1-12: Cancel callback handler for heavy operations
 async def cancel_operation_callback(update: Update,
                                    context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle cancel button for /backtest_v2, /hyperopt, /compare operations."""
+    """Handle cancel button for /backtest_v2, /compare operations."""
     chat_id = update.effective_chat.id
     evt = _cancel_events.get(chat_id)
     if evt:

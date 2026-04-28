@@ -175,10 +175,6 @@ AKSIYON TIPLERI:
   Ornek: {"type":"TUNE","id":"df8902ba","field":"odds_threshold","value":0.50,"reason":"WR yuksek, threshold dusur daha cok trade ac"}
 - RESTART: Durmus karli stratejiyi baslat
   Ornek: {"type":"RESTART","id":"4da8cbee","reason":"market trending'e dondu, momentum calisabilir"}
-- OPTIMIZE: Stratejiyi Optuna ile optimize et (arka planda calisir, sonuc sonraki cycle'da gorunur)
-  Ornek: {"type":"OPTIMIZE","strategy_name":"hour_edge","reason":"WR dusuk, parametre taramasi gerekli"}
-- APPLY_HYPEROPT: Bekleyen HyperOpt sonucunu stratejiye uygula
-  Ornek: {"type":"APPLY_HYPEROPT","result_id":7,"reason":"overfit degil, test score iyi"}
 - INSIGHT: Gozlem (aksiyon degil, sadece not)
 
 KARAR VERIRKEN DIKKAT ET:
@@ -190,9 +186,6 @@ KARAR VERIRKEN DIKKAT ET:
 6. BOT KONFIGURASYONU'na bak — hangi sinyaller kapali, agirliklar ne. Buna gore strateji olustur.
 7. SADECE 4-5 AKTIF STRATEJI varsa ONCELIKLE CREATE veya RESTART yap. Fazla DELETE yapma.
 8. Paper trading'de cesur ol ama NEDEN kaybettigini ANALIZ et.
-9. HYPEROPT SONUCLARI bloğuna bak — bekleyen (BEKLIYOR) ve overfit olmayan sonuclar varsa APPLY_HYPEROPT yap.
-   Eger bir strateji kotu gidiyorsa ve son 7 gunde optimize edilmediyse OPTIMIZE action ver.
-   TUNE ile elle ayar yerine OPTIMIZE ile Optuna'ya birak — 100 deneme yapar, daha iyi sonuc bulur.
 
 CIKTI (SADECE JSON, baska bir sey yazma):
 {"actions": [...], "confidence": 0.0-1.0, "market_view": "bullish/bearish/sideways",
@@ -935,36 +928,7 @@ CONSENSUS KURALI:
                 # AttributeError, KeyError, TypeError possible. Best-effort.
                 pass
 
-            # ── BLOK 9: Son HyperOpt Sonuclari ──
-            try:
-                hopt_rows = await self.db.conn.execute_fetchall(
-                    """SELECT strategy_name, best_params, best_score, metric,
-                            train_score, test_score, overfit_ratio, is_overfit,
-                            applied, source, id, created_at
-                    FROM hyperopt_results
-                    WHERE created_at > datetime('now', '-7 days')
-                    ORDER BY created_at DESC LIMIT 10""")
-                if hopt_rows:
-                    lines.append("\n═══ SON HYPEROPT SONUCLARI (7 gun) ═══")
-                    for h in hopt_rows:
-                        name, params, score, metric = h[0], h[1], h[2], h[3]
-                        train, test, ofit_r, is_ofit = h[4], h[5], h[6], h[7]
-                        applied_st, src, rid = h[8], h[9], h[10]
-                        ofit_tag = "OVERFIT" if is_ofit else "OK"
-                        app_tag = {0: "BEKLIYOR", 1: "UYGULANDI", 2: "REDDEDILDI"}.get(applied_st, "?")
-                        lines.append(f"  [{rid}] {name} | {metric}={score:.3f} "
-                                     f"train={train:.3f} test={test:.3f} ratio={ofit_r:.2f} "
-                                     f"{ofit_tag} | {app_tag} | src={src}")
-                        if applied_st == 0 and not is_ofit:
-                            lines.append(f"      ^ UYGULANABILIR — params: {params}")
-                    lines.append("  OPTIMIZE action ile yeni strateji optimize edebilirsin.")
-                    lines.append("  APPLY_HYPEROPT action ile bekleyen sonucu uygulayabilirsin.")
-                else:
-                    lines.append("\n═══ HYPEROPT: Son 7 gunde sonuc yok. OPTIMIZE action kullan. ═══")
-            except Exception:  # noqa: BLE001
-                # Epic 8 T8.1 audit: hyperopt_results SQL — aiosqlite.Error,
-                # TypeError on None formatting. Best-effort LLM context.
-                pass
+            # BLOK 9 (HyperOpt Sonuclari) removed 2026-04-28 (Heddas direktifi)
 
             return "\n".join(lines)
         except Exception as e:  # noqa: BLE001
@@ -1264,46 +1228,8 @@ CONSENSUS KURALI:
                 elif atype == "INSIGHT":
                     results.append(f"💡 {action.get('message','')}")
 
-                elif atype == "OPTIMIZE":
-                    strat_name = action.get("strategy_name", "").strip()
-                    if not strat_name:
-                        results.append("⚠️ OPTIMIZE: strategy_name gerekli")
-                        continue
-                    # Phase 82b.5 — GHOST STRAT GUARD:
-                    # AI Brain bazen `AI_F_SOL_5m_up_0.53` gibi strateji INSTANCE
-                    # isimleri öneriyor. HyperOpt sadece base TYPE'ları bilir
-                    # (momentum, fusion, contrarian, ...). Aşağıdaki mapping
-                    # hem instance → type çevirisi yapar, hem de registry'de
-                    # olmayan tamamen uydurma isimleri reddeder.
-                    mapped_name = self._map_to_hyperopt_type(strat_name)
-                    if not mapped_name:
-                        results.append(
-                            f"⏭ OPTIMIZE: '{strat_name}' bilinen bir "
-                            f"strateji tipi değil, atlandı")
-                        logger.warning(
-                            f"🧠 OPTIMIZE skipped — unknown strategy "
-                            f"'{strat_name}' (not in HyperOpt registry)")
-                        continue
-                    if mapped_name != strat_name:
-                        logger.info(
-                            f"🧠 OPTIMIZE: mapped '{strat_name}' → "
-                            f"'{mapped_name}' (base type)")
-                    # Non-blocking: spawn background task
-                    # Phase 82e Sprint 2.1: guarded with safe_create_task
-                    safe_create_task(
-                        self._run_hyperopt_bg(mapped_name, reason),
-                        name=f"ai_hyperopt_{mapped_name}")
-                    results.append(
-                        f"🔬 OPTIMIZE: {mapped_name} baslatildi (arka plan)")
-                    logger.info(f"🧠 OPTIMIZE: {mapped_name} — {reason}")
-
-                elif atype == "APPLY_HYPEROPT":
-                    result_id = action.get("result_id")
-                    if not result_id:
-                        results.append("⚠️ APPLY_HYPEROPT: result_id gerekli")
-                        continue
-                    msg = await self._apply_hyperopt_result(int(result_id), reason)
-                    results.append(msg)
+                # OPTIMIZE + APPLY_HYPEROPT actions removed 2026-04-28
+                # (Heddas direktifi: Hyperopt tam silme).
 
             except Exception as e:  # noqa: BLE001
                 # Epic 8 T8.1 audit: per-action fault isolation — LLM-proposed
@@ -1313,227 +1239,10 @@ CONSENSUS KURALI:
                 results.append(f"❌ {e}")
         return results
 
-    # ═══ HYPEROPT INTEGRATION (Phase 80) ═══
-
-    def _map_to_hyperopt_type(self, name: str) -> Optional[str]:
-        """
-        Phase 82b.5 — Strategy instance adını HyperOpt'un bildiği base TYPE'a
-        çevir. Bilinmiyor ise None dön (OPTIMIZE skip edilir).
-
-        Örnekler:
-          "momentum"                       → "momentum"     (zaten base type)
-          "AI_F_SOL_5m_up_0.53"            → "fusion"        (AI Fusion prefix)
-          "AI_F_XRP_5m_any_0.52"           → "fusion"
-          "ETH Momentum Trend"             → "momentum"      (label → tip)
-          "foo_bar_baz"                    → None            (bilinmiyor)
-        """
-        try:
-            from core.strategy_plugins import StrategyRegistry
-            known = set(StrategyRegistry().names)
-        except (ImportError, AttributeError, TypeError) as _reg_err:
-            # Epic 8 T8.1: narrow — registry import/construction failure
-            # falls back to hard-coded list below. Any other error bubbles.
-            logger.debug(f"_map_to_hyperopt_type registry err: {_reg_err}")
-            # Fallback hard-coded list (registry import'u patlarsa):
-            known = {
-                "hour_edge", "streak_reversal", "late_convergence",
-                "taker_flow", "orderbook_imbalance", "fade_rip",
-                "cross_coin", "opening_breakout", "funding_rate",
-                "calibration_arb", "composite", "momentum", "contrarian",
-                "scalper", "sniper", "martingale", "flashcrash", "streak",
-                "highthreshold", "penny_contract", "bonding_yield", "fusion",
-            }
-
-        if not name:
-            return None
-        raw = name.strip()
-        lower = raw.lower()
-
-        # 1) Zaten base type ise direkt dön
-        if raw in known:
-            return raw
-        if lower in known:
-            return lower
-
-        # 2) AI Fusion prefix → "fusion"
-        if lower.startswith("ai_f_") or lower.startswith("ai_fusion"):
-            if "fusion" in known:
-                return "fusion"
-
-        # 3) Label içinden tip yakalama ("ETH Momentum Trend" → "momentum")
-        for token in lower.replace("-", " ").replace("_", " ").split():
-            if token in known:
-                return token
-
-        # 4) Bulunamadı
-        return None
-
-    async def _run_hyperopt_bg(self, strategy_name: str, reason: str):
-        """Phase 82e: run HyperOpt in a SUBPROCESS, never inline.
-
-        Why
-        ---
-        Phase 82b moved the Telegram /hyperopt path to a subprocess to protect
-        the main event loop. AI Brain's OPTIMIZE action still called
-        ``HyperOptPipeline.optimize`` inline via ``asyncio.create_task``. Even
-        though that runs as a bg task, it shares the engine's event loop —
-        any heavy SQL inside discovery priming (>= 90 s) trips the engine
-        stall watchdog. Observed on 2026-04-18: cycles 120 + 121 both frozen
-        for 90 s right after AI Brain fired OPTIMIZE.
-
-        Fix: delegate to ``backtest.hyperopt_launcher.launch_hyperopt_subprocess``
-        which uses the same worker + IPC + mutex + stderr pump as the
-        Telegram path. The worker owns the heavy SQL; the engine's event
-        loop sees only short awaits on stdout.readline. Result row is
-        written by the worker itself (``--source launcher:ai_brain``) so
-        this coroutine does no DB writes.
-        """
-        try:
-            from backtest.hyperopt_launcher import launch_hyperopt_subprocess
-
-            n_trials = int(os.getenv("AI_HYPEROPT_TRIALS", "30"))
-            info = await launch_hyperopt_subprocess(
-                strategy_name=strategy_name,
-                n_trials=n_trials,
-                source="ai_brain",
-            )
-            if info is None:
-                logger.warning(
-                    f"🧠 OPTIMIZE {strategy_name}: launcher returned None "
-                    f"(lock busy, stall, or worker failed)")
-                return
-
-            logger.info(
-                f"🔬 OPTIMIZE done: {info.name} "
-                f"score={info.best_value:.4f} trials={info.trial_count} "
-                f"elapsed={info.elapsed_sec:.1f}s")
-
-            # Notify admin via Telegram (best-effort — never block on this)
-            if getattr(self, "bot_app", None):
-                admin_id = os.getenv("ADMIN_CHAT_ID") or os.getenv("ADMIN_TELEGRAM_ID")
-                if admin_id:
-                    text = (
-                        f"🔬 <b>AI HyperOpt Tamamlandi</b>\n"
-                        f"Strateji: {info.name}\n"
-                        f"Skor: {info.best_value:.4f}\n"
-                        f"Trial: {info.trial_count} · {info.elapsed_sec:.0f}s\n"
-                        f"Neden: {reason}\n"
-                        f"Sonraki cycle'da APPLY_HYPEROPT ile uygulanabilir."
-                    )
-                    try:
-                        await self.bot_app.bot.send_message(
-                            int(admin_id), text, parse_mode="HTML")
-                    except Exception as _notify_err:  # noqa: BLE001
-                        # Epic 8 T8.1 audit: Telegram network/auth errors —
-                        # notification is best-effort; do not propagate.
-                        logger.debug(f"HyperOpt notif send failed: {_notify_err}")
-        except ImportError as _imp_err:
-            logger.warning(f"OPTIMIZE failed: launcher import error: {_imp_err}")
-        except Exception as e:  # noqa: BLE001
-            # Epic 8 T8.1 audit: subprocess launch + IPC + mutex — many
-            # failure modes (OSError, asyncio.TimeoutError, CalledProcessError,
-            # FileNotFoundError). bg task, so any leak is silent — log w/ trace.
-            logger.error(f"OPTIMIZE bg failed: {e}", exc_info=True)
-
-    async def _apply_hyperopt_result(self, result_id: int, reason: str) -> str:
-        """Apply a pending HyperOpt result to its matching strategy.
-
-        Phase 82e Sprint 5 (FINAL): reads asset/timeframe from the
-        hyperopt_results row (set by worker --asset/--timeframe). When set,
-        UPDATE targets ALL live strategies matching (strategy_type, asset,
-        timeframe) — previously rows[0]-only was silently applying Fusion×29
-        hyperopts to a single instance.
-        """
-        try:
-            rows = await self.db.conn.execute_fetchall(
-                "SELECT strategy_name, best_params, best_score, is_overfit, "
-                "       applied, asset, timeframe "
-                "FROM hyperopt_results WHERE id=?", (result_id,))
-            if not rows:
-                return f"⚠️ APPLY_HYPEROPT: result_id={result_id} bulunamadi"
-
-            name, params_json, score, is_ofit, applied, r_asset, r_tf = rows[0]
-            if applied == 1:
-                return f"⏭ APPLY_HYPEROPT: #{result_id} zaten uygulandi"
-            if is_ofit:
-                return f"⚠️ APPLY_HYPEROPT: #{result_id} OVERFIT — uygulama riskli"
-
-            import json as _json
-            best_params = _json.loads(params_json) if isinstance(params_json, str) else params_json
-
-            r_asset = (r_asset or "").strip().upper()
-            r_tf = (r_tf or "").strip()
-
-            # Phase 82e Sprint 5 (FINAL): granular match when the hyperopt
-            # row has (asset, tf) tags — otherwise fall back to legacy LIKE.
-            if r_asset and r_tf:
-                strat_rows = await self.db.conn.execute_fetchall(
-                    "SELECT id, label FROM strategies "
-                    "WHERE strategy_type = ? AND asset = ? AND timeframe = ? "
-                    "AND status='active'",
-                    (name, r_asset, r_tf))
-                match_scope = f"type={name} asset={r_asset} tf={r_tf}"
-            else:
-                strat_rows = await self.db.conn.execute_fetchall(
-                    "SELECT id, label FROM strategies WHERE "
-                    "(strategy_type LIKE ? OR label LIKE ?) AND status='active'",
-                    (f"%{name}%", f"%{name}%"))
-                match_scope = f"type/label~={name}"
-
-            if not strat_rows:
-                return (f"⚠️ APPLY_HYPEROPT: '{name}' icin aktif strateji "
-                        f"bulunamadi (scope={match_scope})")
-
-            # Apply allowed params to EVERY matching strategy
-            _allowed = {"odds_threshold", "trade_amount", "stop_loss_percent",
-                        "stop_loss_odds", "take_profit_percent", "take_profit_odds"}
-            applied_params: dict = {}
-            for param, value in best_params.items():
-                # Common params from Optuna use _ prefix
-                clean = param.lstrip("_")
-                if clean in _allowed:
-                    applied_params[clean] = value
-
-            if applied_params:
-                for sid_row in strat_rows:
-                    sid_i = sid_row[0]
-                    for k, v in applied_params.items():
-                        await self.db.conn.execute(
-                            f"UPDATE strategies SET {k}=? WHERE id=?", (v, sid_i))
-
-                # Mark result as applied (single hyperopt row)
-                await self.db.conn.execute(
-                    "UPDATE hyperopt_results SET applied=1 WHERE id=?", (result_id,))
-                await self.db.conn.commit()
-
-                # Changelog: one entry per updated strategy
-                from core.changelog import log_change
-                for sid_row in strat_rows:
-                    await log_change(
-                        self.db, sid_row[0], "HYPEROPT_APPLY", "ai_brain",
-                        old=None, new=applied_params,
-                        reason=f"HyperOpt #{result_id} score={score:.4f} "
-                               f"scope={match_scope} matched={len(strat_rows)} — {reason}",
-                        label=sid_row[1])
-
-                labels_str = ", ".join(s[1] for s in strat_rows[:3])
-                if len(strat_rows) > 3:
-                    labels_str += f" ... (+{len(strat_rows)-3})"
-                logger.info(
-                    f"🧠 APPLY_HYPEROPT: #{result_id} → {len(strat_rows)} strategy(ies) "
-                    f"[{match_scope}] {applied_params}")
-                return (f"✅ APPLY_HYPEROPT: #{result_id} → {len(strat_rows)} strategy "
-                        f"({labels_str}) — "
-                        f"{', '.join(f'{k}={v}' for k,v in applied_params.items())}")
-            else:
-                return f"⚠️ APPLY_HYPEROPT: #{result_id} uygulanacak param yok (izin: {_allowed})"
-
-        except Exception as e:  # noqa: BLE001
-            # Epic 8 T8.1 audit: multi-stage DB reads + UPDATE + changelog —
-            # aiosqlite.Error, ValueError (json.loads), KeyError, TypeError
-            # all possible. Returns user-visible error string to Telegram;
-            # AI cycle must continue even if one APPLY fails.
-            return f"❌ APPLY_HYPEROPT: {e}"
+    # Hyperopt integration removed 2026-04-28 (Heddas direktifi: tam silme).
+    # 3 fonksiyon kaldırıldı: _map_to_hyperopt_type, _run_hyperopt_bg,
+    # _apply_hyperopt_result. AI Brain artık OPTIMIZE / APPLY_HYPEROPT
+    # action'larını desteklemiyor.
 
     async def _create(self, action) -> str:
         try:

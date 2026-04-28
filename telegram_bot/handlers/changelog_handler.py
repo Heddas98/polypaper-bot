@@ -10,7 +10,6 @@ Usage:
   /changelog ai             → last 20 entries, ai_brain only
   /changelog adaptive       → last 20 entries, adaptive_optimizer only
   /changelog user           → last 20 entries, user_telegram only
-  /changelog hyperopt       → last 20 entries, hyperopt only
   /changelog all 50         → last 50 entries, all sources
   /changelog ai 10          → last 10 entries, ai_brain only
 
@@ -44,8 +43,7 @@ _SOURCE_ALIASES = {
     "user": "user_telegram",
     "user_telegram": "user_telegram",
     "telegram": "user_telegram",
-    "hyperopt": "hyperopt",
-    "ho": "hyperopt",
+    # Hyperopt aliases removed 2026-04-28 (Heddas direktifi)
     "all": None,   # no filter
     "*": None,
 }
@@ -62,8 +60,7 @@ _ACTION_EMOJI = {
     "ROLLING_WR_KILL": "❌",
     "ADAPTIVE_DEAD": "💀",
     "LIFECYCLE_ADJUST": "🧬",
-    "OPTIMIZE": "🧪",
-    "APPLY_HYPEROPT": "✅",
+    # OPTIMIZE / APPLY_HYPEROPT removed 2026-04-28 (Heddas direktifi)
 }
 
 
@@ -152,7 +149,7 @@ def _format_row(row: tuple) -> str:
         "ai_brain": "AI",
         "adaptive_optimizer": "ADPT",
         "user_telegram": "USR",
-        "hyperopt": "HO",
+        # "hyperopt": "HO" removed 2026-04-28 (Heddas direktifi)
     }.get(source, source[:8])
 
     line = f"{emoji} <b>{esc(action)}</b> [{esc(src_short)}] <code>{esc(label)}</code>"

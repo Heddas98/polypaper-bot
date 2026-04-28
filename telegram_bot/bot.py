@@ -145,14 +145,11 @@ from telegram_bot.handlers.ai_handler import (  # Phase 51 P51-03 Faz-2 Cluster 
 from telegram_bot.jobs.shadow_report_job import shadow_report_job
 from telegram_bot.jobs.shadow_vs_paper_job import shadow_vs_paper_job  # Phase 47f.10 P5#22
 from telegram_bot.jobs.pnl_divergence_job import pnl_divergence_job  # Phase 66
-from telegram_bot.jobs.tournament_job import tournament_job  # Phase 67
-from telegram_bot.handlers.hyperopt_handler import (  # Phase 67
-    hyperopt_command, hyperopt_all_command, mc_kelly_command,
-    hyperopt_status_command,  # Phase 82b: live subprocess worker status
-    hyperopt_abort_command,   # Phase 82e Sprint 3.2: force-release lock
-    cancel_hyperopt_callback,  # Phase 79 S1-12: Cancel for hyperopt
-    hyperopt_apply_callback,  # Sprint 3 S3-05: Apply/Reject buttons
-)
+# Tournament job removed 2026-04-28 (Heddas direktifi: Hyperopt tam silme,
+# tournament_job ana işi hyperopt subprocess çalıştırmaktı).
+# Hyperopt handler removed 2026-04-28 (Heddas direktifi: tam silme)
+# Phase 67/82b/82e ait /hyperopt /hyperopt_all /hyperopt_status /hyperopt_abort
+# /mc_kelly komutları + cancel + apply callback'leri kaldırıldı.
 from telegram_bot.handlers.roadmap_handler import (  # Phase 70-73
     # T1.3 Commit 5 (2026-04-20): breed/vote/drift_check/whale/market_quality/
     # correlation_check import'ları silindi (ghost modüller).
@@ -322,13 +319,10 @@ class PolyPaperBot:
             ("filters", filters_command), ("f", filters_command),
             # Phase 66: Brier Score calibration report
             ("brier", brier_command),
-            # Phase 67: HyperOpt + MC Kelly  |  Phase 82b: subprocess status
-            ("hyperopt", hyperopt_command),
-            ("hyperopt_all", hyperopt_all_command),
-            ("hyperopt_status", hyperopt_status_command),
-            # Phase 82e Sprint 3.2: force-release a stuck hyperopt lock (admin)
-            ("hyperopt_abort", hyperopt_abort_command),
-            ("mc_kelly", mc_kelly_command),
+            # Hyperopt commands removed 2026-04-28 (Heddas direktifi):
+            #   /hyperopt /hyperopt_all /hyperopt_status /hyperopt_abort /mc_kelly
+            # MC Kelly hyperopt_handler.py içinde tanımlıydı; ayrı bir dosyaya
+            # taşımak istersek Aşama 2'de basit ~50 satır rewrite.
             # Phase 70-73: Roadmap commands (T1.3 Commit 5: breed/vote/drift_check/
             # whale/market_quality/correlation_check ghost silindi)
             ("ev_stats", ev_stats_command),
@@ -504,9 +498,7 @@ class PolyPaperBot:
 
         # Phase 79 S1-12: Cancel handlers for heavy operations
         self.app.add_handler(CallbackQueryHandler(cancel_operation_callback, pattern="^cancel_backtest$"))
-        self.app.add_handler(CallbackQueryHandler(cancel_hyperopt_callback, pattern="^cancel_hyperopt$"))
-        # Sprint 3 S3-05: HyperOpt apply/reject buttons
-        self.app.add_handler(CallbackQueryHandler(hyperopt_apply_callback, pattern="^hyperopt_(apply|reject)$"))
+        # Hyperopt cancel + apply callback handlers removed 2026-04-28 (Heddas direktifi)
 
         for pat in ["show_api", "share_pnl", "import_wallet", "wallet_info_",
                      "wallet_key_", "wallet_delete_", "select_wallet_"]:
@@ -578,8 +570,7 @@ class PolyPaperBot:
             # ── Test & Backtest (3) ──
             BotCommand("test_strategy", "Gercek veri test et (/test)"),
             BotCommand("backtest_v2", "Backtest v2 (alias: /bt2)"),
-            BotCommand("hyperopt", "Parametre optimizasyonu"),
-            BotCommand("mc_kelly", "Monte Carlo Kelly"),
+            # /hyperopt + /mc_kelly removed 2026-04-28 (Heddas direktifi)
             # ── Istatistik (3) ──
             BotCommand("stats_hub", "Tum istatistikler (tab menu)"),
             BotCommand("daily", "Gunluk ozet"),
@@ -611,8 +602,7 @@ class PolyPaperBot:
             # Becker BotCommand entries removed 2026-04-28 (Heddas direktifi)
             BotCommand("experiment_apply", "Experiment sonucunu uygula"),
             BotCommand("experiment_discard", "Experiment sonucunu iptal et"),
-            BotCommand("hyperopt_all", "Tum stratejileri hyperopt et"),
-            BotCommand("hyperopt_status", "HyperOpt subprocess durumu (Phase 82b)"),
+            # /hyperopt_all + /hyperopt_status removed 2026-04-28 (Heddas direktifi)
         ]
 
         # Set public commands for all users
@@ -718,21 +708,8 @@ class PolyPaperBot:
                                      first=pnl_div_first, name="pnl_divergence")
                     logger.info(f"✅ pnl_divergence job scheduled (every {pnl_div_interval}s)")
 
-                # Phase 67: AI Tournament — nightly parameter optimization
-                if os.getenv("TOURNAMENT_ENABLED", "false").lower() == "true":
-                    tournament_interval = int(os.getenv("TOURNAMENT_INTERVAL_SEC", "86400"))  # daily
-                    tournament_hour = int(os.getenv("TOURNAMENT_HOUR_UTC", "3"))
-                    # First run: calculate seconds until next 03:00 UTC
-                    from datetime import datetime, timezone, timedelta
-                    _now = datetime.now(timezone.utc)
-                    _target = _now.replace(hour=tournament_hour, minute=0, second=0, microsecond=0)
-                    if _target <= _now:
-                        _target += timedelta(days=1)
-                    _tournament_first = int((_target - _now).total_seconds())
-                    jq.run_repeating(tournament_job, interval=tournament_interval,
-                                     first=_tournament_first, name="tournament")
-                    logger.info(f"✅ tournament job scheduled (daily at {tournament_hour}:00 UTC, "
-                                f"first in {_tournament_first}s)")
+                # Tournament job removed 2026-04-28 (Heddas direktifi: Hyperopt
+                # tam silme — tournament_job hyperopt subprocess'e dayalıydı).
 
                 # Phase 50 (Suggestion 12.3) — price alert watcher
                 if os.getenv("PRICE_ALERT_ENABLED", "1") == "1":
@@ -875,9 +852,7 @@ class PolyPaperBot:
 
             "<b>🧪 Test &amp; Backtest</b>\n"
             "/test_strategy — Gercek veri ile test <i>(/test)</i>\n"
-            "/backtest_v2 — Backtest v2 <i>(/bt2)</i>\n"
-            "/hyperopt — Parametre optimizasyonu\n"
-            "/mc_kelly — Monte Carlo Kelly\n\n"
+            "/backtest_v2 — Backtest v2 <i>(/bt2)</i>\n\n"
 
             "<b>📊 Istatistik</b>\n"
             "/stats_hub — Tum istatistikler (tab menu)\n"

@@ -128,50 +128,8 @@ def test_strategy_callback_has_admin_gate(fn_name):
             f"{fn_name}: admin gate must run BEFORE DB mutation")
 
 
-# ─── C4: hyperopt_apply_callback (Epic 10 T10.6 post-audit) ────────
-
-def test_hyperopt_apply_callback_has_admin_gate():
-    """hyperopt_apply_callback must reject non-admin callers before
-    mutating strategies / hyperopt_results tables.
-
-    T10.2 original audit kaçırmıştı (only 7 callbacks taranmıştı, 85
-    var). Post-audit'te yakalandı ve T10.6 ile fix'lendi.
-    """
-    src = _source("telegram_bot/handlers/hyperopt_handler.py")
-    func = _find_func(src, "hyperopt_apply_callback")
-    func_src = ast.unparse(func)
-
-    assert "_is_admin_call" in func_src, (
-        "hyperopt_apply_callback must call _is_admin_call() — "
-        "Epic 10 T10.6 post-audit C4")
-    assert "_deny_callback" in func_src, (
-        "hyperopt_apply_callback must use _deny_callback() on refusal")
-
-    # Gate must appear before any DB UPDATE. The body literally contains
-    # both "UPDATE hyperopt_results" and "UPDATE strategies" SQL.
-    gate_idx = func_src.find("_is_admin_call")
-    mut_points = [
-        func_src.find("UPDATE hyperopt_results"),
-        func_src.find("UPDATE strategies"),
-        func_src.find("registry.set_config"),
-    ]
-    mut_idx = min((i for i in mut_points if i != -1), default=-1)
-    if mut_idx != -1:
-        assert gate_idx < mut_idx, (
-            "hyperopt_apply_callback: admin gate must run BEFORE DB "
-            "mutation (UPDATE hyperopt_results / UPDATE strategies / "
-            "registry.set_config)")
-
-
-def test_hyperopt_apply_callback_imports_helpers():
-    """Sanity: module imports _is_admin_call + _deny_callback from
-    strategies.py — single-source-of-truth ilkesi."""
-    src = _source("telegram_bot/handlers/hyperopt_handler.py")
-    # Look for the exact import line.
-    assert "from telegram_bot.handlers.strategies import _is_admin_call" in src, (
-        "hyperopt_handler must import _is_admin_call from strategies")
-    assert "_deny_callback" in src, (
-        "hyperopt_handler must import _deny_callback from strategies")
+# C4 hyperopt_apply_callback admin-gate tests removed 2026-04-28
+# (Heddas direktifi: Hyperopt tam silme — hyperopt_handler.py kaldırıldı).
 
 
 def test_is_admin_call_helper_fallback_dev_mode():
