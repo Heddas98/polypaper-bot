@@ -174,8 +174,11 @@ async def _build_main(engine, db):
     except Exception as _pe:  # noqa: BLE001
         logger.debug(f"pm cache read in live_handler: {_pe}")
 
+    # 2026-04-29 Aşama 3.B: top-level mode banner
+    from telegram_bot.templates.mode_banner import format_banner
     text = (
-        f"💰 <b>PolyPaper — Live Trader</b>\n"
+        format_banner()
+        + f"💰 <b>PolyPaper — Live Trader</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📋 <b>PAPER</b> (simülasyon)\n"
         f"  PnL: {p_pnl:+.2f} | {p_trades}t | WR: {p_wr:.0f}%\n\n"

@@ -124,7 +124,11 @@ def _render_summary(snap: dict, fetched_at: str) -> str:
     latency = int(snap.get("fetch_latency_ms", 0))
     age = _age_human(fetched_at)
 
+    # 2026-04-29 Aşama 3.B: mode banner
+    from telegram_bot.templates.mode_banner import format_banner
     lines = [
+        format_banner().rstrip(),
+        "",
         "<b>💼 Polymarket Cüzdan</b>",
         "",
         f"<b>Adres:</b> <code>{esc(user[:8] + '...' + user[-6:] if len(user) > 14 else user)}</code>",

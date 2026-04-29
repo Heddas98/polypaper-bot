@@ -161,6 +161,8 @@ from telegram_bot.handlers.portfolio_handler import (
     portfolio_command, portfolio_callback,
 )
 from telegram_bot.jobs.polymarket_portfolio_job import polymarket_portfolio_job
+# 2026-04-29 Aşama 3.B: top-level mode toggle (Paper vs Real)
+from telegram_bot.handlers.mode_handler import mode_command, mode_callback
 # Becker recal handler removed 2026-04-28 (Heddas direktifi)
 # T1.3 Commit 4 (2026-04-20): phase76_handler silindi —
 # markov_command + capital_command ghost modüllere (core.markov_estimator,
@@ -337,6 +339,8 @@ class PolyPaperBot:
             # Becker recal commands removed 2026-04-28 (Heddas direktifi)
             # 2026-04-29 Polymarket gerçek cüzdan view (Aşama 1)
             ("portfolio", portfolio_command), ("pf", portfolio_command),
+            # 2026-04-29 Aşama 3.B: top-level mode toggle (Paper/Real)
+            ("mode", mode_command), ("m", mode_command),
             # Phase 74b: Per-strategy lifecycle
             ("lifecycle", lifecycle_command), ("lc", lifecycle_command),
             # T1.3 Commit 4 (2026-04-20): Phase 76 markov + capital
@@ -511,6 +515,10 @@ class PolyPaperBot:
         # tab_<name>, refresh, act_<deposit|withdraw|approve|wallet|pk>
         self.app.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^pf_(tab_|refresh|act_)"))
 
+        # 2026-04-29 Aşama 3.B: mode toggle inline callbacks
+        # mode_set_<paper|real>, mode_refresh, mode_nav_<live|portfolio>
+        self.app.add_handler(CallbackQueryHandler(mode_callback, pattern="^mode_(set_|refresh|nav_)"))
+
         for pat in ["show_api", "share_pnl", "import_wallet", "wallet_info_",
                      "wallet_key_", "wallet_delete_", "select_wallet_"]:
             self.app.add_handler(CallbackQueryHandler(self._ph(pat), pattern=f"^{pat}"))
@@ -587,6 +595,7 @@ class PolyPaperBot:
             BotCommand("daily", "Gunluk ozet"),
             BotCommand("trades", "Son trade listesi"),
             BotCommand("portfolio", "Polymarket gercek cuzdan (alias: /pf)"),
+            BotCommand("mode", "Paper/Real mode toggle (alias: /m)"),
             # ── Risk & Kontrol (3) ──
             BotCommand("risk_hub", "Risk yonetimi (tab menu)"),
             BotCommand("kill", "Acil durdur"),
