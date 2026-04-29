@@ -104,24 +104,4 @@ if exist "scripts\delete_becker_files_2026_04_28.bat" (
 REM 11. Orphan .pyc bytecode (Becker modülleri silindi ama __pycache__ kaldı)
 echo [DEL]   __pycache__\*becker*.pyc orphan bytecode
 del /F /Q /S "__pycache__\*becker*.pyc" >nul 2>&1
-del /F /Q "backtest\__pycache__\*becker*.pyc" >nul 2>&1
-del /F /Q "core\__pycache__\*becker*.pyc" >nul 2>&1
-del /F /Q "data\__pycache__\*becker*.pyc" >nul 2>&1
-del /F /Q "scripts\__pycache__\*becker*.pyc" >nul 2>&1
-del /F /Q "telegram_bot\handlers\__pycache__\*becker*.pyc" >nul 2>&1
-
-REM 12. Eski Becker download batch
-if exist "scripts\download_becker.bat" (
-    echo [DEL]   scripts\download_becker.bat (eski)
-    del /F /Q "scripts\download_becker.bat"
-)
-
-echo.
-echo [AFTER] data_store boyutu:
-dir data_store /s /-c | find "File(s)"
-echo.
-echo Bitti. Disk alanı temizlendi.
-echo Sonraki adım: git add -A; git commit -m "chore: Becker full disk cleanup"
-echo.
-pause
-endlocal
+del /F /Q "backtest\__pycache__\*bec

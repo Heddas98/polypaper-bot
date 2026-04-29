@@ -133,7 +133,7 @@
 | `LIFECYCLE_MIN_OVERRIDE` | `'false'` |  |  | `core/engine_signals.py:737` |
 | `LIQUIDITY_MIN_DEPTH_PCT` | `'0.50'` |  |  | `core/risk_manager.py:522` |
 | `LIVE_BUDGET` | `'1.49'` | ✅ |  | `core/live_trader.py:83` |
-| `LIVE_ENABLED` | `'false'` |  | ✅ | `core/live_trader.py:162`, `telegram_bot/handlers/live_guards_handler.py:77` |
+| `LIVE_ENABLED` | `'false'` |  | ✅ | `core/live_trader.py:162`, `telegram_bot/handlers/live_guards_handler.py:77`, `telegram_bot/templates/mode_banner.py:25` |
 | `LIVE_MAX_DAILY_LOSS` | `'1.00'` | ✅ |  | `core/live_trader.py:53` |
 | `LIVE_MAX_TRADE` | `'1.00'` | ✅ |  | `core/live_trader.py:45` |
 | `LIVE_MIN_ODDS` | `'0.75'` | ✅ |  | `core/live_trader.py:69` |

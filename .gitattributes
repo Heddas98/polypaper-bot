@@ -1,0 +1,22 @@
+# Auto-detect text files and normalize line endings to LF
+* text=auto eol=lf
+
+# Force LF for source code
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Force CRLF for Windows-only files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary
+*.db binary
+*.duckdb binary
+*.parquet binary
+*.zst binary
+*.gz binary
+*.png binary
+*.jpg binary
