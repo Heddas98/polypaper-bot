@@ -971,16 +971,11 @@ class EngineSignalsMixin:
                     _surface_2d,
                     best_ask,
                     hours_remaining=minutes_remaining / 60.0 if minutes_remaining else None,
-                    fallback_1d_curve=self._becker_poly_curve or None,
+                    fallback_1d_curve=None,  # Becker removed 2026-04-28
                 )
                 if _surf_result.source not in ("disabled", "no_surface", "out_of_range", "1d_no_data"):
                     bboost = _surf_result.boost
-                    if getattr(self, "becker_weight", None) is not None:
-                        try:
-                            bboost *= float(self.becker_weight.get_multiplier(asset))
-                        except (AttributeError, TypeError, ValueError):
-                            # Epic 8 T8.1: narrow — becker_weight optional multiplier
-                            pass
+                    # becker_weight multiplier removed 2026-04-28 (Becker silindi)
                     if abs(bboost) > 1e-4:
                         signal_score = max(min(signal_score + bboost, 1.0), -1.0)
                         signal_reason += f" | 2d={bboost:+.3f}"
@@ -1001,118 +996,12 @@ class EngineSignalsMixin:
                 # Epic 8 T8.1: narrow — calibration.surface_2d import + math
                 logger.debug(f"  [{sid}] surface_2d_error: {_s2e}")
 
-        # ── Becker δ(p) calibration boost (1D fallback when 2D not used) ──
-        if (not _surface_2d_used
-                and getattr(self.settings, "BECKER_CALIB_ENABLED", False)
-                and self._becker_poly_curve):
-            try:
-                delta_poly = self._becker_delta(best_ask, source="poly")
-                delta_kalshi = self._becker_delta(best_ask, source="kalshi") if self._becker_kalshi_curve else None
-                if delta_poly is not None:
-                    k_w = float(getattr(self.settings, "BECKER_KALSHI_WEIGHT", 0.30))
-                    if delta_kalshi is not None:
-                        delta = delta_poly * (1.0 - k_w) + delta_kalshi * k_w
-                        src_tag = "p+k"
-                    else:
-                        delta = delta_poly
-                        src_tag = "p"
-                    # S3-03: Becker Calibration Weight Increase
-                    # Default 0.10 → ENV override via BECKER_CALIB_WEIGHT
-                    # When |δ| > 3c, apply higher weight (0.25 recommended)
-                    bweight = float(getattr(self.settings, "BECKER_CALIB_WEIGHT", 0.10))
-                    # Apply higher weight if delta is strong (|δ| > 0.03)
-                    if abs(delta) > 0.03:
-                        bweight_boost = float(os.getenv("BECKER_SIGNAL_WEIGHT", "0.25"))
-                        if bweight_boost > bweight:
-                            bweight = bweight_boost
-                    if getattr(self, "becker_weight", None) is not None:
-                        try:
-                            bweight *= float(self.becker_weight.get_multiplier(asset))
-                        except (AttributeError, TypeError, ValueError):
-                            # Epic 8 T8.1: narrow — becker_weight optional multiplier
-                            pass
-                    bclamp = float(getattr(self.settings, "BECKER_CALIB_CLAMP", 0.15))
-                    bboost = max(min(delta * bweight, bclamp), -bclamp)
-                    if abs(bboost) > 1e-4:
-                        signal_score = max(min(signal_score + bboost, 1.0), -1.0)
-                        signal_reason += f" | δ={bboost:+.3f}"
-                        becker_delta_value = bboost
-                        if verbose:
-                            logger.info(
-                                f"  [{sid}] 📈 becker[{src_tag}] δ(p={best_ask:.3f})={delta:+.3f} "
-                                f"(poly={delta_poly:+.3f}"
-                                f"{', kalshi=%+.3f' % delta_kalshi if delta_kalshi is not None else ''}) "
-                                f"→ boost={bboost:+.3f}")
-            except (AttributeError, TypeError, ValueError, KeyError) as _de:
-                # Epic 8 T8.1: narrow — becker delta computation on curve
-                logger.debug(f"  [{sid}] becker_delta_error: {_de}")
-
-        # ── Becker decision-mode (veto / flip) ──
-        decision_mode = (getattr(self.settings, "BECKER_DECISION_MODE", "boost") or "boost").strip().lower()
-        if (not _classic_free
-                and decision_mode in ("veto", "flip")
-                and getattr(self.settings, "BECKER_CALIB_ENABLED", False)
-                and self._becker_poly_curve):
-            wl_raw = (getattr(self.settings, "BECKER_DECISION_STRATEGY_WHITELIST", "") or "")
-            wl = {x.strip().lower() for x in wl_raw.split(",") if x.strip()}
-            stype = ctx["stype"]
-            if wl and (stype or "").strip().lower() in wl:
-                try:
-                    delta_poly_d = self._becker_delta(best_ask, source="poly")
-                    delta_kalshi_d = (self._becker_delta(best_ask, source="kalshi")
-                                      if self._becker_kalshi_curve else None)
-                    if delta_poly_d is not None:
-                        k_w_d = float(getattr(self.settings, "BECKER_KALSHI_WEIGHT", 0.30))
-                        if delta_kalshi_d is not None:
-                            delta_d = delta_poly_d * (1.0 - k_w_d) + delta_kalshi_d * k_w_d
-                        else:
-                            delta_d = delta_poly_d
-                        thresh_d = float(getattr(self.settings, "BECKER_DECISION_THRESHOLD", 0.01))
-                        if delta_d <= -thresh_d:
-                            if decision_mode == "veto":
-                                self.skips.record("BECKER_VETO")
-                                if verbose:
-                                    logger.info(f"  [{sid}] ⛔ becker veto: δ={delta_d:+.3f} ≤ -{thresh_d}")
-                                return None
-                            # flip mode
-                            new_dir = Direction.DOWN if direction == Direction.UP else Direction.UP
-                            new_tok = (cached.get("up_token") if new_dir == Direction.UP
-                                       else cached.get("down_token"))
-                            if not new_tok:
-                                self.skips.record("BECKER_FLIP_NO_TOK")
-                                return None
-                            new_ask = await self.client.get_live_price(new_tok, "BUY")
-                            if not new_ask or new_ask <= 0.02 or new_ask >= 0.99:
-                                self.skips.record("BECKER_FLIP_BAD_PRICE")
-                                return None
-                            if verbose:
-                                logger.info(
-                                    f"  [{sid}] 🔄 becker flip: {direction.value}→{new_dir.value} "
-                                    f"δ={delta_d:+.3f} ask {best_ask:.3f}→{new_ask:.3f}")
-                            direction = new_dir
-                            token_id = new_tok
-                            best_ask = new_ask
-                            signal_reason += f" | flip(δ={delta_d:+.3f})"
-                except (AttributeError, TypeError, ValueError, KeyError,
-                        httpx.HTTPError, asyncio.TimeoutError) as _ed:
-                    # Epic 8 T8.1: narrow — becker decision + live price fetch
-                    logger.debug(f"  [{sid}] becker_decision_error: {_ed}")
-
-        # ── Probability Gap log (observation only) ──
-        _pgap_log = os.getenv("PROB_GAP_LOG", "true").lower() == "true"
-        if _pgap_log and getattr(self.settings, "BECKER_CALIB_ENABLED", False) and self._becker_poly_curve:
-            try:
-                _pg_delta = self._becker_delta(best_ask, source="poly")
-                if _pg_delta is not None and abs(_pg_delta) > 0.001:
-                    _gap_bps = _pg_delta * 10000
-                    _gap_dir = "UP_EDGE" if _pg_delta > 0 else "DOWN_EDGE"
-                    logger.info(
-                        f"  [{sid}] 📊 PROB_GAP: δ={_pg_delta:+.4f} ({_gap_bps:+.1f}bps) "
-                        f"model_wr={best_ask + _pg_delta:.3f} crowd={best_ask:.3f} "
-                        f"→ {_gap_dir} | dir={trade_direction}")
-            except (AttributeError, TypeError, ValueError, KeyError) as _pge:
-                # Epic 8 T8.1: narrow + observability fix (was silent pass)
-                logger.debug(f"prob_gap log err: {_pge}")
+        # Becker 1D boost + decision-mode (veto/flip) + prob_gap log blocks
+        # removed 2026-04-28 (Heddas direktifi). Becker calibration system
+        # tamamen silindi — bu 110 satırlık dead code (BECKER_CALIB_ENABLED
+        # default false → blok asla girmiyordu) cosmetic temizlik kapsamında
+        # kaldırıldı. Surface 2D fallback yukarıda fallback_1d_curve=None ile
+        # düzgün çalışır.
 
         # T1.3 Commit 1 (2026-04-20): Phase 60 Cascade/LagArb/Whale + Phase 71
         # Spread + Phase 76 Markov boost blokları silindi — hepsi ghost modüllere
@@ -1866,15 +1755,7 @@ class EngineSignalsMixin:
             except (AttributeError, TypeError, ValueError, KeyError) as _mwo:
                 # Epic 8 T8.1: narrow — micro_weight tracker record
                 logger.debug(f"micro_weight.record_open: {_mwo}")
-        # Phase 48: Becker δ tracker
-        if getattr(self, "becker_weight", None) is not None and abs(becker_delta_value) > 1e-4:
-            try:
-                self.becker_weight.record_open(
-                    order_key=f"{s.id}:{slug}", asset=ctx["asset"].upper(),
-                    signed_delta=becker_delta_value)
-            except (AttributeError, TypeError, ValueError, KeyError) as _bwo:
-                # Epic 8 T8.1: narrow — becker_weight tracker record
-                logger.debug(f"becker_weight.record_open: {_bwo}")
+        # Phase 48 becker_weight tracker removed 2026-04-28 (Heddas direktifi)
 
         mode = "MAKER" if is_maker else "TAKER"
         fee_pct = (fee / trade_amount * 100) if trade_amount > 0 else 0

@@ -331,6 +331,58 @@ Polymarket Apr 2026'da pUSD'ye geçişten bahsediyor (`/concepts/pusd.mdx`, `/tr
 
 ---
 
+## 9.5 Phase C Detailed Audit (2026-04-29)
+
+Endpoint-by-endpoint deep audit (sub-agent ile yapıldı). 9 yeni bulgu, **compliance score: %47** (mainnet için yetersiz).
+
+### CRITICAL & HIGH bulgular
+
+**Bulgu 5 — Heartbeat eksik (CRITICAL):**
+- Docs `/trading/orders/overview#heartbeat`: 10s + 5s buffer sonrası tüm açık orderlar otomatik cancel
+- Bot Sprint 5 HOTFIX v6 "Classic TAKER pattern" surrogate var ama 120s stuck timeout — Polymarket 10s'de cancel, bot 120s sonra detect → 110s ghost state
+- **Fix:** `core/live_trader.py` async heartbeat loop, her 5 saniyede `client.post_heartbeat(heartbeat_id)`
+- Severity: 🔴 CRITICAL
+
+**Bulgu 6 — Order type explicit değil (HIGH):**
+- `live_trader.py:480` `client.create_order(order_args, options=options)` — `order_type` parametresi yok
+- SDK default davranış belirsiz; `INVALID_ORDER_*` reject riski
+- **Fix:** `OrderType.FOK` veya `FAK` explicit (taker semantics — bot zaten taker pattern)
+- Severity: 🟠 HIGH
+
+**Bulgu 7 — Builder code kullanılmıyor (HIGH):**
+- Heddas'ın `POLYMARKET_BUILDER_API_KEY=019c87d9-...` set edilmiş
+- Bot kodunda `builder_code` veya `builderCode` arandı: 0 sonuç
+- Docs `/builders/fees`: builder fee revenue + attribution için orders'a `builder_code` pass edilmeli
+- **Fix:** `options` dict'e `"builder_code": os.getenv("POLYMARKET_BUILDER_CODE", "")` ekle. ENV var ekle (`.env` + `.env.example`).
+- Severity: 🟠 HIGH
+
+### MEDIUM bulgular (Phase D backlog)
+
+**Bulgu 8 — Gamma bulk rate limit risk:** `_query_slug` 10+ paralel slug query 300 req/10s limit'i delebilir → request queueing.
+**Bulgu 9 — Allowance pre-flight yok:** Order place etmeden önce balance/allowance check yok. `INVALID_ORDER_NOT_ENOUGH_BALANCE` reject silent.
+**Bulgu 10 — Taker pattern logic ambiguity:** "Classic TAKER" yorumu var ama `post_only=False` explicit değil; GTC default ile resting maker olabilir.
+
+### LOW bulgular
+
+**Bulgu 11 — Error code mapping:** 16 `INVALID_ORDER_*` error code'una specific log/handle yok.
+**Bulgu 12 — Order status polling:** `live`/`matched`/`delayed`/`unmatched` lifecycle takip eksik.
+
+### Compliance Score Breakdown
+
+| Alan | Score |
+|---|---:|
+| Market Data Endpoints | 85% |
+| WebSocket | 95% |
+| Rate Limits | 80% |
+| Order Types | 33% |
+| Builder Fees | 0% |
+| Heartbeat | 0% |
+| **OVERALL** | **47%** |
+
+**Live trading readiness:** 🔴 BLOCKED on CRITICAL/HIGH (5+6+7).
+
+---
+
 ## 10. Phase B Backlog
 
 Bu audit'in **devamı** olarak yapılacak detaylı endpoint-by-endpoint:

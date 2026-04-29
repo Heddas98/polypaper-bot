@@ -141,10 +141,9 @@ ENV_WHITELIST: dict[str, dict[str, Any]] = {
         "type": "bool", "default": "true", "group": "logging",
         "desc": "Trade karar reasoning logu",
     },
-    "PROB_GAP_LOG": {
-        "type": "bool", "default": "true", "group": "logging",
-        "desc": "PROB_GAP satirlari log",
-    },
+    # PROB_GAP_LOG removed 2026-04-28: Becker calibration silindi, prob_gap
+    # log Becker δ ile çalışıyordu. Yeni surface_2d-based gap log eklenirse
+    # whitelist'e geri ekle.
     # ── Risk / auto-pause ────────────────────────────────────────────────
     "PNL_PAUSE_THRESHOLD": {
         "type": "float", "default": "-8.0", "min": -1000.0, "max": 0.0,

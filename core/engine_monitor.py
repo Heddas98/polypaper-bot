@@ -154,18 +154,10 @@ class EngineMonitorMixin:
                     # handling ileri gürbüzlük için dahil), AttributeError
                     # (_cat int/None durumunda .replace yok).
                     pass
-            if not _skip_grace:
-                try:
-                    await self._smart_exit_check(row, entry, shares, direction, now, end)
-                except (aiosqlite.Error, AttributeError, KeyError, TypeError,
-                        ValueError, IndexError) as _se:
-                    # T1.4 Faz 3: _smart_exit_check — Becker δ, getattr,
-                    # client/scanner calls (network yutuluyor), safe_float.
-                    # Realistic modes: AttributeError (self.settings /
-                    # _becker_poly_curve None), KeyError (row dict),
-                    # TypeError/ValueError (float/arithmetic), IndexError
-                    # (event_slug[:30] slice).
-                    logger.debug(f"smart_exit error {row['id'][:8]}: {_se}")
+            # _smart_exit_check call removed 2026-04-28 (Becker silindi —
+            # bu Phase 60 smart exit Becker δ'ya bağlıydı). Aşama 3'te
+            # surface_2d-based smart exit eklenecek (forward work).
+            _ = _skip_grace  # silenced unused-var warning
 
         if end and now > end:
             # ══ Phase 18: UMA Oracle resolution — API FIRST ══

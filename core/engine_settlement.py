@@ -506,17 +506,7 @@ class EngineSettlementMixin:
                 # (Phase 47a). Log type so regressions are visible.
                 # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.debug(f"micro_weight.record_close ({type(_mwc).__name__}): {_mwc}")
-        # Phase 48: feed realized PnL back into the adaptive Becker tracker
-        if getattr(self, "becker_weight", None) is not None:
-            try:
-                self.becker_weight.record_close(
-                    order_key=pk, pnl_usd=float(pnl),
-                )
-            except Exception as _bwc:  # noqa: BLE001
-                # T1.4 Faz 1: catch-all kept — adaptive Becker weight internals
-                # (Phase 48). Log type so regressions are visible.
-                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
-                logger.debug(f"becker_weight.record_close ({type(_bwc).__name__}): {_bwc}")
+        # Phase 48 becker_weight tracker removed 2026-04-28 (Becker tam silme)
         # Phase 28: Persist risk state to DB
         await self.risk.save_state(self.db)
         # Phase 33: Update Thompson Sampling

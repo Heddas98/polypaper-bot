@@ -86,16 +86,7 @@ class EngineFillsMixin:
             return 0.0
         return (bid_sum - ask_sum) / total
 
-    def _becker_delta(self, price: float, source: str = "poly") -> Optional[float]:
-        """Phase 47f: look up empirical δ(p) from the Becker calibration curve.
-
-        Thin wrapper around core.becker_calibration.becker_delta() so that the
-        pure logic can be unit-tested without importing the full engine graph.
-        """
-        from core.becker_calibration import becker_delta as _bd
-        curve = (self._becker_poly_curve if source == "poly"
-                 else self._becker_kalshi_curve)
-        return _bd(curve, price)
+    # _becker_delta removed 2026-04-28 (Heddas direktifi: Becker tam silme)
 
     @staticmethod
     def _compute_queue_ahead_usd(orderbook: dict, limit_price: float,

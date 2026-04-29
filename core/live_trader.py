@@ -433,7 +433,7 @@ class LiveTrader:
         """
         try:
             from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import OrderArgs
+            from py_clob_client.clob_types import OrderArgs, OrderType
             from py_clob_client.order_builder.constants import BUY
 
             pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
@@ -502,20 +502,41 @@ class LiveTrader:
                 side=BUY,
                 token_id=token_id)
 
-            # 2026-04-28 Bulgu 2.3: pass options dict explicitly. Two-step
-            # create_order + post_order kept (not atomic create_and_post_order)
-            # for visibility into signing failures; same effective behavior.
+            # 2026-04-28 Bulgu 2.3 + 2026-04-29 Bulgu 7: options dict explicit
+            # (tick_size, neg_risk, builder_code). Builder code Heddas'ın
+            # POLYMARKET_BUILDER_CODE env var'ından gelir; set edilmemişse
+            # vanilla order (no builder fee attribution).
+            builder_code = os.getenv("POLYMARKET_BUILDER_CODE", "").strip()
             options = {"tick_size": meta["tick_size"], "neg_risk": meta["neg_risk"]}
+            if builder_code:
+                options["builder_code"] = builder_code
             try:
                 signed = client.create_order(order_args, options=options)
             except TypeError:
-                # py-clob-client 0.18.0 fallback: older signature without
-                # options kwarg — SDK uses defaults (tick=0.01, neg_risk=False)
-                # which match crypto BTC Up/Down. Logged so we know if upgrade
-                # path is needed.
+                # SDK older signature without options kwarg fallback
                 logger.debug("create_order options kwarg not supported; SDK default")
                 signed = client.create_order(order_args)
-            result = client.post_order(signed)
+
+            # 2026-04-29 Phase C Bulgu 6 fix: order_type explicit. FOK (Fill-
+            # Or-Kill) = taker semantics — order ya tam fill ya iptal, hiçbir
+            # zaman resting maker olmaz. Bot'un "Classic TAKER pattern"
+            # (Sprint 5 HOTFIX v6) ile aynı niyet.
+            try:
+                result = client.post_order(signed, OrderType.FOK)
+            except TypeError:
+                # SDK older post_order signature without order_type kwarg
+                logger.debug("post_order order_type kwarg not supported; SDK default")
+                result = client.post_order(signed)
+
+            # 2026-04-29 Phase C Bulgu 5 fix: post-order heartbeat. Polymarket
+            # cancels open orders 10s+5s after last heartbeat. Even though FOK
+            # orders fill or cancel immediately, this heartbeat covers
+            # marketable-but-delayed scenarios + signals session liveness.
+            try:
+                client.post_heartbeat("")
+            except (AttributeError, Exception) as _hb_err:  # noqa: BLE001
+                # SDK eski version'larda post_heartbeat yok; warn-and-continue.
+                logger.debug(f"post_heartbeat unavailable: {_hb_err}")
 
             if result and result.get("orderID"):
                 logger.info(f"  ✅ CLOB order: {result['orderID'][:16]}")

@@ -202,11 +202,11 @@ class TradingEngine(
             # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init failures
             logger.warning(f"micro_weight init failed: {_mwe}")
             self.micro_weight = None
-        # Becker calibration removed 2026-04-28 (Heddas direktifi: gereksiz,
-        # kendi veri toplama yeterli). Backward-compat stub: Aşama 1 kapsamında
-        # engine.py functional unwire; Aşama 2'de engine_signals/engine_fills
-        # dead code'u temizlenecek. Ref: docs/audits/fee_reality_check_2026_04.md.
-        self.becker_weight = None
+        # Becker calibration system removed 2026-04-28 (Aşama 1 functional
+        # unwire) + 2026-04-29 (Aşama 2 cosmetic cleanup). becker_weight,
+        # _becker_poly_curve, _becker_kalshi_curve attribute'ları tamamen
+        # kaldırıldı — engine_signals + engine_fills dead code temizlendi,
+        # downstream referans yok. Ref: docs/audits/fee_reality_check_2026_04.md.
 
         # Phase 59: Event calendar monitor — pre-event volatility adjustment
         try:
@@ -222,13 +222,6 @@ class TradingEngine(
         # cascade_detector, lag_arbitrage, whale_signal modülleri archive'a
         # taşınmıştı ve import her bootta sessiz fail ediyordu. Temizlendi.
         # (Aktif whale akışı için core/signals/whale_flow.py kullanılıyor.)
-
-        # Becker calibration curves removed 2026-04-28 (Heddas direktifi).
-        # Backward-compat stub: empty lists ensure engine_signals dead-code
-        # `if self._becker_poly_curve:` short-circuits to False and never
-        # invokes Becker logic. Aşama 2 cosmetic cleanup'ta tamamen silinecek.
-        self._becker_poly_curve: list[tuple[float, float]] = []
-        self._becker_kalshi_curve: list[tuple[float, float]] = []
 
         # Phase 70: EV Threshold Tracker
         try:
