@@ -3,9 +3,9 @@
 > **Auto-generated** by `scripts/gen_env_reference.py` (T11.7 doctrine).
 > Do not hand-edit. Run the generator after adding any new `os.getenv(...)` call in production code.
 >
-> **Total keys:** 258 distinct env vars read across production dirs.
+> **Total keys:** 259 distinct env vars read across production dirs.
 > **Whitelist coverage:** 40 / 40 whitelisted keys have at least one reader.
-> **`.env.example` coverage:** 117 / 258 runtime keys are documented in `.env.example`.
+> **`.env.example` coverage:** 117 / 259 runtime keys are documented in `.env.example`.
 
 ## Legend
 
@@ -29,8 +29,8 @@
 | `ADAPTIVE_PNL_FLOOR` | `'-10.0'` |  | ✅ | `core/auto_optimizer.py:112` |
 | `ADAPTIVE_PNL_STEP` | `'0.5'` |  | ✅ | `core/auto_optimizer.py:110` |
 | `ADAPTIVE_PNL_TRADES_PER_STEP` | `'20'` |  | ✅ | `core/auto_optimizer.py:111` |
-| `ADMIN_CHAT_ID` | `None` |  |  | `core/engine.py:610`, `core/engine.py:868`, `core/engine_settlement.py:196` (+6 more) |
-| `ADMIN_TELEGRAM_ID` | `'0'` |  | ✅ | `core/auto_optimizer.py:581`, `core/engine.py:610`, `core/engine.py:868` (+14 more) |
+| `ADMIN_CHAT_ID` | `None` |  |  | `core/engine.py:612`, `core/engine.py:870`, `core/engine_settlement.py:196` (+6 more) |
+| `ADMIN_TELEGRAM_ID` | `'0'` |  | ✅ | `core/auto_optimizer.py:581`, `core/engine.py:612`, `core/engine.py:870` (+14 more) |
 | `AI_AUTO_CONFIDENCE` | `'0.70'` |  | ✅ | `core/ai_brain.py:415`, `core/ai_brain.py:1856` |
 | `AI_BRAIN_CYCLE` | `'3600'` |  | ✅ | `core/ai_brain.py:109` |
 | `AI_BRAIN_FALLBACK_CHAIN` | `'groq,claude'` |  | ✅ | `core/ai_brain.py:239` |
@@ -49,6 +49,7 @@
 | `AUTO_RESUME_MIN_PNL` | `'0.0'` |  | ✅ | `core/auto_optimizer.py:424` |
 | `AUTO_RESUME_MIN_WR` | `'50.0'` |  | ✅ | `core/auto_optimizer.py:425` |
 | `AUTO_RESUME_ON_STARTUP` | `'false'` |  | ✅ | `core/auto_optimizer.py:421` |
+| `BALANCE_PREFLIGHT` | `'true'` |  |  | `core/live_trader.py:505` |
 | `BAYESIAN_SIGNAL_ACCURACY` | `'0.60'` |  | ✅ | `core/signal_fusion.py:547` |
 | `BAYESIAN_UPDATER_ENABLED` | `'false'` |  | ✅ | `core/ai_brain.py:738`, `core/signal_fusion.py:546` |
 | `BECKER_DECISION_MODE` | `'boost'` |  |  | `telegram_bot/jobs/shadow_report_job.py:255` |
@@ -100,8 +101,8 @@
 | `EDGE_ZONE_5065_MIN` | `'0.45'` | ✅ | ✅ | `core/engine_signals.py:1081` |
 | `ENABLE_DAILY_DB_SNAPSHOT` | `'true'` |  |  | `telegram_bot/jobs/maintenance_jobs.py:45` |
 | `ENABLE_WAL_CHECKPOINT` | `'true'` |  |  | `telegram_bot/jobs/maintenance_jobs.py:186` |
-| `ENGINE_STALL_ENABLED` | `'1'` |  |  | `core/engine.py:584` |
-| `ENGINE_STALL_TIMEOUT` | `'90'` |  |  | `core/engine.py:587` |
+| `ENGINE_STALL_ENABLED` | `'1'` |  |  | `core/engine.py:586` |
+| `ENGINE_STALL_TIMEOUT` | `'90'` |  |  | `core/engine.py:589` |
 | `EVENT_CALENDAR_ENABLED` | `'true'` |  |  | `data/event_monitor.py:60` |
 | `EV_FEE_OVERRIDE` | `'0.0'` |  |  | `calibration/ev_threshold.py:41` |
 | `EV_MINIMUM` | `'0.005'` |  | ✅ | `calibration/ev_threshold.py:38` |
@@ -163,7 +164,7 @@
 | `MIN_BALANCE_FLOOR` | `None` |  | ✅ | `core/engine.py:133`, `core/engine.py:134` |
 | `MIN_COMPOSITE` | `'0.30'` | ✅ | ✅ | `core/ai_brain.py:731`, `core/engine_signals.py:741`, `core/signal_fusion.py:116` |
 | `MIN_EDGE_OVER_FEE` | `'2.0'` | ✅ |  | `core/engine_signals.py:1107` |
-| `MIN_ORDER_SHARES` | `'1.0'` |  | ✅ | `core/engine.py:1190`, `core/engine_signals.py:52`, `telegram_bot/handlers/diagnose_handler.py:171` (+1 more) |
+| `MIN_ORDER_SHARES` | `'1.0'` |  | ✅ | `core/engine.py:1192`, `core/engine_signals.py:52`, `telegram_bot/handlers/diagnose_handler.py:171` (+1 more) |
 | `MIN_ORDER_USD` | `'2.0'` |  |  | `telegram_bot/handlers/diagnose_handler.py:170`, `telegram_bot/handlers/diagnose_handler.py:344` |
 | `MIN_TRADES_BEFORE_PAUSE` | `'20'` |  |  | `core/auto_optimizer.py:33` |
 | `NEWS_LOOKBACK_MINUTES` | `'30'` |  |  | `data_feeds/news_scanner.py:39` |
@@ -195,10 +196,10 @@
 | `PNL_PAUSE_THRESHOLD` | `'-8.0'` | ✅ |  | `core/auto_optimizer.py:45` |
 | `POLYBACKTEST_API_KEY` | `''` |  | ✅ | `backtest/data_sources/polybacktest.py:49` |
 | `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:160`, `core/live_trader.py:439` |
-| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:628`, `core/live_trader.py:161`, `core/live_trader.py:440` |
+| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:679`, `core/live_trader.py:161`, `core/live_trader.py:440` |
 | `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:243` |
 | `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:244` |
-| `POLYMARKET_BUILDER_CODE` | `''` |  | ✅ | `core/live_trader.py:509` |
+| `POLYMARKET_BUILDER_CODE` | `''` |  | ✅ | `core/live_trader.py:535` |
 | `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:245` |
 | `POLYPAPER_DB` | `<expr>` |  |  | `backtest/archive_reader.py:112` |
 | `PORT` | `8080` |  |  | `core/keepalive.py:22` |
@@ -240,7 +241,7 @@
 | `SMART_EXIT_GRACE_SEC` | `'60'` |  | ✅ | `core/engine_monitor.py:48` |
 | `STOP_LOSS_DELTA` | `'0.12'` |  | ✅ | `core/engine_monitor.py:44` |
 | `STRATEGY_SUGGESTER_ENABLED` | `'true'` |  |  | `telegram_bot/bot.py:748` |
-| `STRATS_ZERO_WARN_MINUTES` | `'10'` |  |  | `core/engine.py:855` |
+| `STRATS_ZERO_WARN_MINUTES` | `'10'` |  |  | `core/engine.py:857` |
 | `STREAK_COOLDOWN_HOURS` | `'6'` |  |  | `core/risk_manager.py:262`, `core/risk_manager.py:644` |
 | `SURFACE_2D_ANTISYM_THRESHOLD` | `'0.03'` |  |  | `calibration/surface_2d.py:51` |
 | `SURFACE_2D_CLAMP` | `'0.20'` |  | ✅ | `calibration/surface_2d.py:49` |
@@ -262,7 +263,7 @@
 | `UNSELLABLE_MIN_ENTRY_DEPTH` | `'5.0'` |  |  | `core/risk_manager.py:560` |
 | `WAL_CHECKPOINT_FIRST_SEC` | `'1200'` |  |  | `telegram_bot/bot.py:682` |
 | `WAL_CHECKPOINT_INTERVAL_HOURS` | `'6'` |  |  | `telegram_bot/bot.py:680` |
-| `WARMUP_MAX_WAIT` | `'120'` |  |  | `core/engine.py:779` |
+| `WARMUP_MAX_WAIT` | `'120'` |  |  | `core/engine.py:781` |
 | `WEEKEND_SAT_MULT` | `'2.4'` |  | ✅ | `core/signal_fusion.py:535` |
 | `WEEKEND_SUN_MULT` | `'2.1'` |  | ✅ | `core/signal_fusion.py:536` |
 | `WHALE_LOOKBACK_SECONDS` | `None` |  | ✅ | `core/signals/whale_flow.py:51` |
@@ -276,7 +277,7 @@
 | `WS_FORCE_RECONNECT_SEC` | `'300'` |  |  | `data/websocket_client.py:226` |
 | `WS_STALE_MIN_THRESHOLD` | `'0.70'` | ✅ |  | `core/engine_signals.py:405` |
 | `WS_STALE_SEC` | `'60'` |  |  | `data/websocket_client.py:404` |
-| `WS_STALE_THRESHOLD` | `'60.0'` | ✅ |  | `core/engine.py:986`, `data/websocket_client.py:404`, `telegram_bot/handlers/diagnose_handler.py:172` (+2 more) |
+| `WS_STALE_THRESHOLD` | `'60.0'` | ✅ |  | `core/engine.py:988`, `data/websocket_client.py:404`, `telegram_bot/handlers/diagnose_handler.py:172` (+2 more) |
 
 ## Drift Detection
 
