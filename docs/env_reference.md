@@ -3,9 +3,9 @@
 > **Auto-generated** by `scripts/gen_env_reference.py` (T11.7 doctrine).
 > Do not hand-edit. Run the generator after adding any new `os.getenv(...)` call in production code.
 >
-> **Total keys:** 259 distinct env vars read across production dirs.
+> **Total keys:** 262 distinct env vars read across production dirs.
 > **Whitelist coverage:** 40 / 40 whitelisted keys have at least one reader.
-> **`.env.example` coverage:** 117 / 259 runtime keys are documented in `.env.example`.
+> **`.env.example` coverage:** 120 / 262 runtime keys are documented in `.env.example`.
 
 ## Legend
 
@@ -35,17 +35,17 @@
 | `AI_BRAIN_CYCLE` | `'3600'` |  | ✅ | `core/ai_brain.py:109` |
 | `AI_BRAIN_FALLBACK_CHAIN` | `'groq,claude'` |  | ✅ | `core/ai_brain.py:239` |
 | `AI_MIN_TRADES` | `'15'` |  | ✅ | `core/ai_brain.py:111` |
-| `AI_STRATEGY_SUGGEST_FIRST` | `'1800'` |  |  | `telegram_bot/bot.py:760` |
-| `AI_STRATEGY_SUGGEST_INTERVAL` | `'14400'` |  |  | `core/strategy_suggester.py:24`, `telegram_bot/bot.py:759` |
+| `AI_STRATEGY_SUGGEST_FIRST` | `'1800'` |  |  | `telegram_bot/bot.py:782` |
+| `AI_STRATEGY_SUGGEST_INTERVAL` | `'14400'` |  |  | `core/strategy_suggester.py:24`, `telegram_bot/bot.py:781` |
 | `AI_TWO_AGENT_MODE` | `'true'` |  | ✅ | `core/ai_brain.py:378` |
 | `ALERT_DAILY_PNL_PCT` | `'0.4'` |  |  | `core/risk_manager.py:406` |
 | `ALERT_LOSS_STREAK` | `'5'` |  |  | `core/risk_manager.py:389` |
 | `ALLOWED_ZONES` | `'(tumu)'` |  | ✅ | `core/ai_brain.py:744`, `core/engine_signals.py:55` |
 | `ANTHROPIC_API_KEY` | `''` |  | ✅ | `core/ai_brain.py:32`, `core/intent_parser.py:47` |
 | `ARCHIVE_DIR` | `<expr>` |  |  | `backtest/archive_reader.py:115` |
-| `AUTO_PROMOTE_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:723` |
-| `AUTO_PROMOTE_FIRST_SEC` | `'1200'` |  |  | `telegram_bot/bot.py:725` |
-| `AUTO_PROMOTE_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:724` |
+| `AUTO_PROMOTE_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:745` |
+| `AUTO_PROMOTE_FIRST_SEC` | `'1200'` |  |  | `telegram_bot/bot.py:747` |
+| `AUTO_PROMOTE_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:746` |
 | `AUTO_RESUME_MIN_PNL` | `'0.0'` |  | ✅ | `core/auto_optimizer.py:424` |
 | `AUTO_RESUME_MIN_WR` | `'50.0'` |  | ✅ | `core/auto_optimizer.py:425` |
 | `AUTO_RESUME_ON_STARTUP` | `'false'` |  | ✅ | `core/auto_optimizer.py:421` |
@@ -84,16 +84,16 @@
 | `CONFLUENCE_SIGNAL_THRESHOLD` | `'0.05'` |  |  | `core/signal_fusion.py:552` |
 | `CONVICTION_ENABLED` | `'true'` |  |  | `core/engine_signals.py:1295` |
 | `CONVICTION_MIN` | `'0.3'` | ✅ | ✅ | `core/engine_signals.py:1310` |
-| `DB_ARCHIVE_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:740` |
-| `DB_ARCHIVE_FIRST_SEC` | `'600'` |  |  | `telegram_bot/bot.py:742` |
-| `DB_ARCHIVE_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:741` |
-| `DB_RETENTION_FIRST_SEC` | `'900'` |  | ✅ | `telegram_bot/bot.py:691` |
-| `DB_RETENTION_INTERVAL_SEC` | `'86400'` |  | ✅ | `telegram_bot/bot.py:690` |
+| `DB_ARCHIVE_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:762` |
+| `DB_ARCHIVE_FIRST_SEC` | `'600'` |  |  | `telegram_bot/bot.py:764` |
+| `DB_ARCHIVE_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:763` |
+| `DB_RETENTION_FIRST_SEC` | `'900'` |  | ✅ | `telegram_bot/bot.py:702` |
+| `DB_RETENTION_INTERVAL_SEC` | `'86400'` |  | ✅ | `telegram_bot/bot.py:701` |
 | `DB_RETENTION_MODE` | `'report'` |  | ✅ | `telegram_bot/jobs/db_retention_job.py:245` |
 | `DB_RETENTION_NOTIFY` | `'1'` |  | ✅ | `telegram_bot/jobs/db_retention_job.py:353` |
 | `DB_RETENTION_VACUUM_ENABLED` | `'1'` |  | ✅ | `telegram_bot/jobs/db_retention_job.py:317` |
-| `DB_SNAPSHOT_FIRST_SEC` | `'300'` |  |  | `telegram_bot/bot.py:671` |
-| `DB_SNAPSHOT_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:670` |
+| `DB_SNAPSHOT_FIRST_SEC` | `'300'` |  |  | `telegram_bot/bot.py:682` |
+| `DB_SNAPSHOT_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:681` |
 | `DEBUG_SHOW_EXC` | `'false'` |  |  | `telegram_bot/handlers/_exc_render.py:56` |
 | `DECISION_EXPLAINER_ENABLED` | `'true'` |  | ✅ | `core/decision_explainer.py:30`, `core/engine.py:252` |
 | `DECISION_NOTIFY_DETAIL` | `'medium'` |  | ✅ | `core/decision_explainer.py:31` |
@@ -119,7 +119,7 @@
 | `FORCE_EXIT_SECONDS` | `'0'` |  | ✅ | `core/engine_monitor.py:32` |
 | `FUSION_BLOCKED_ZONES` | `'30-40'` |  |  | `core/engine_signals.py:62` |
 | `GROK_API_KEY` | `''` |  | ✅ | `core/ai_brain.py:33` |
-| `HEARTBEAT_INTERVAL_SEC` | `'600'` |  |  | `telegram_bot/bot.py:665` |
+| `HEARTBEAT_INTERVAL_SEC` | `'600'` |  |  | `telegram_bot/bot.py:676` |
 | `INTENT_PARSER_MODEL` | `'claude-haiku-4-5-20251001'` |  |  | `core/intent_parser.py:48` |
 | `KELLY_BANKROLL_MAX` | `'10000.0'` |  | ✅ | `core/kelly.py:65` |
 | `KELLY_BANKROLL_MIN` | `'10.0'` |  | ✅ | `core/kelly.py:64` |
@@ -179,32 +179,35 @@
 | `OPENROUTER_API_KEY` | `''` |  |  | `core/ai_brain.py:211` |
 | `OPTIMISM_TAX_ENABLED` | `'true'` | ✅ | ✅ | `core/engine_signals.py:1541` |
 | `OPTIMISM_TAX_TICKS` | `'1'` | ✅ | ✅ | `core/engine_signals.py:1542` |
-| `PATTERN_DISCOVERY_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:731` |
-| `PATTERN_DISCOVERY_FIRST_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:734` |
-| `PATTERN_DISCOVERY_INTERVAL_SEC` | `'604800'` |  |  | `telegram_bot/bot.py:733` |
+| `PATTERN_DISCOVERY_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:753` |
+| `PATTERN_DISCOVERY_FIRST_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:756` |
+| `PATTERN_DISCOVERY_INTERVAL_SEC` | `'604800'` |  |  | `telegram_bot/bot.py:755` |
 | `PENNY_ZONE_ENABLED` | `'true'` |  | ✅ | `core/strategy_plugins.py:632` |
 | `PENNY_ZONE_MAX_CONFIDENCE` | `'0.70'` |  |  | `core/strategy_plugins.py:636` |
 | `PENNY_ZONE_MAX_PRICE` | `'0.05'` |  |  | `core/strategy_plugins.py:633` |
 | `PENNY_ZONE_MIN_HIGH_PRICE` | `'0.95'` |  |  | `core/strategy_plugins.py:634` |
 | `PENNY_ZONE_MIN_SPREAD` | `'0.01'` |  |  | `core/strategy_plugins.py:635` |
 | `PNL_DIVERGENCE_ALERT_PCT` | `'5.0'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:191`, `telegram_bot/jobs/pnl_divergence_job.py:58` |
-| `PNL_DIVERGENCE_ENABLED` | `'true'` | ✅ |  | `telegram_bot/bot.py:704`, `telegram_bot/handlers/live_guards_handler.py:189`, `telegram_bot/jobs/pnl_divergence_job.py:48` |
-| `PNL_DIVERGENCE_FIRST_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:706` |
-| `PNL_DIVERGENCE_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:705` |
+| `PNL_DIVERGENCE_ENABLED` | `'true'` | ✅ |  | `telegram_bot/bot.py:726`, `telegram_bot/handlers/live_guards_handler.py:189`, `telegram_bot/jobs/pnl_divergence_job.py:48` |
+| `PNL_DIVERGENCE_FIRST_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:728` |
+| `PNL_DIVERGENCE_INTERVAL_SEC` | `'86400'` |  |  | `telegram_bot/bot.py:727` |
 | `PNL_DIVERGENCE_MIN_TRADES` | `'5'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:192`, `telegram_bot/jobs/pnl_divergence_job.py:59` |
 | `PNL_DIVERGENCE_WINDOW_H` | `'24'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:190`, `telegram_bot/jobs/pnl_divergence_job.py:57` |
 | `PNL_PAUSE_THRESHOLD` | `'-8.0'` | ✅ |  | `core/auto_optimizer.py:45` |
 | `POLYBACKTEST_API_KEY` | `''` |  | ✅ | `backtest/data_sources/polybacktest.py:49` |
 | `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:160`, `core/live_trader.py:439` |
-| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:679`, `core/live_trader.py:161`, `core/live_trader.py:440` |
+| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:696`, `core/live_trader.py:161`, `core/live_trader.py:440` |
 | `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:243` |
 | `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:244` |
-| `POLYMARKET_BUILDER_CODE` | `''` |  | ✅ | `core/live_trader.py:535` |
+| `POLYMARKET_BUILDER_CODE` | `''` |  | ✅ | `core/live_trader.py:552` |
 | `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:245` |
 | `POLYPAPER_DB` | `<expr>` |  |  | `backtest/archive_reader.py:112` |
 | `PORT` | `8080` |  |  | `core/keepalive.py:22` |
-| `PRICE_ALERT_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:715` |
-| `PRICE_ALERT_INTERVAL_SEC` | `'30'` |  |  | `telegram_bot/bot.py:716` |
+| `PORTFOLIO_REFRESH_ENABLED` | `'true'` |  | ✅ | `telegram_bot/bot.py:715` |
+| `PORTFOLIO_REFRESH_FIRST_SEC` | `'30'` |  | ✅ | `telegram_bot/bot.py:717` |
+| `PORTFOLIO_REFRESH_SEC` | `'60'` |  | ✅ | `telegram_bot/bot.py:716` |
+| `PRICE_ALERT_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:737` |
+| `PRICE_ALERT_INTERVAL_SEC` | `'30'` |  |  | `telegram_bot/bot.py:738` |
 | `PRICE_SANITY_HI` | `'0.99'` |  |  | `core/engine_signals.py:800` |
 | `PRICE_SANITY_LO` | `'0.02'` |  |  | `core/engine_signals.py:799` |
 | `PROTECTED_STRATEGY_TYPES` | `'classic'` |  |  | `core/auto_optimizer.py:84`, `core/strategy_lifecycle.py:45`, `telegram_bot/handlers/live_guards_handler.py:214` |
@@ -219,14 +222,14 @@
 | `ROUND_NUM_ALPHA` | `'0.024'` |  | ✅ | `core/signal_fusion.py:539` |
 | `ROUND_NUM_BETA` | `'0.03'` |  | ✅ | `core/signal_fusion.py:540` |
 | `SCAN_INTERVAL_S` | `'5'` |  |  | `data/market_scanner.py:32` |
-| `SHADOW_COMPARE_FIRST_SEC` | `'1800'` |  |  | `telegram_bot/bot.py:698` |
-| `SHADOW_COMPARE_INTERVAL_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:697` |
+| `SHADOW_COMPARE_FIRST_SEC` | `'1800'` |  |  | `telegram_bot/bot.py:709` |
+| `SHADOW_COMPARE_INTERVAL_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:708` |
 | `SHADOW_COMPARE_MIN_TRADES` | `'10'` |  | ✅ | `telegram_bot/jobs/shadow_vs_paper_job.py:94` |
 | `SHADOW_COMPARE_PNL_ALERT` | `'5.0'` |  | ✅ | `telegram_bot/jobs/shadow_vs_paper_job.py:92` |
 | `SHADOW_COMPARE_WINDOW_H` | `'24'` |  | ✅ | `telegram_bot/jobs/shadow_vs_paper_job.py:91` |
 | `SHADOW_COMPARE_WR_ALERT` | `'15.0'` |  | ✅ | `telegram_bot/jobs/shadow_vs_paper_job.py:93` |
-| `SHADOW_REPORT_FIRST_SEC` | `'60'` |  |  | `telegram_bot/bot.py:659` |
-| `SHADOW_REPORT_INTERVAL_SEC` | `'1800'` |  |  | `telegram_bot/bot.py:658` |
+| `SHADOW_REPORT_FIRST_SEC` | `'60'` |  |  | `telegram_bot/bot.py:670` |
+| `SHADOW_REPORT_INTERVAL_SEC` | `'1800'` |  |  | `telegram_bot/bot.py:669` |
 | `SHADOW_WATCHED_TYPES` | `None` |  |  | `telegram_bot/jobs/shadow_report_job.py:73` |
 | `SIGNAL_DRIFT_WINDOW` | `'100'` |  |  | `core/regime.py:136` |
 | `SIGNAL_W_EMA` | `'0.25'` |  |  | `core/ai_brain.py:733`, `core/signal_fusion.py:59` |
@@ -240,7 +243,7 @@
 | `SMART_EXIT_ENABLED` | `'true'` |  | ✅ | `core/ai_brain.py:743`, `core/engine_monitor.py:38` |
 | `SMART_EXIT_GRACE_SEC` | `'60'` |  | ✅ | `core/engine_monitor.py:48` |
 | `STOP_LOSS_DELTA` | `'0.12'` |  | ✅ | `core/engine_monitor.py:44` |
-| `STRATEGY_SUGGESTER_ENABLED` | `'true'` |  |  | `telegram_bot/bot.py:748` |
+| `STRATEGY_SUGGESTER_ENABLED` | `'true'` |  |  | `telegram_bot/bot.py:770` |
 | `STRATS_ZERO_WARN_MINUTES` | `'10'` |  |  | `core/engine.py:857` |
 | `STREAK_COOLDOWN_HOURS` | `'6'` |  |  | `core/risk_manager.py:262`, `core/risk_manager.py:644` |
 | `SURFACE_2D_ANTISYM_THRESHOLD` | `'0.03'` |  |  | `calibration/surface_2d.py:51` |
@@ -261,8 +264,8 @@
 | `UNSELLABLE_CHECK_ENABLED` | `'true'` | ✅ |  | `core/engine_signals.py:1144` |
 | `UNSELLABLE_CLOSE_WARNING_MINS` | `'2.0'` |  |  | `core/risk_manager.py:561` |
 | `UNSELLABLE_MIN_ENTRY_DEPTH` | `'5.0'` |  |  | `core/risk_manager.py:560` |
-| `WAL_CHECKPOINT_FIRST_SEC` | `'1200'` |  |  | `telegram_bot/bot.py:682` |
-| `WAL_CHECKPOINT_INTERVAL_HOURS` | `'6'` |  |  | `telegram_bot/bot.py:680` |
+| `WAL_CHECKPOINT_FIRST_SEC` | `'1200'` |  |  | `telegram_bot/bot.py:693` |
+| `WAL_CHECKPOINT_INTERVAL_HOURS` | `'6'` |  |  | `telegram_bot/bot.py:691` |
 | `WARMUP_MAX_WAIT` | `'120'` |  |  | `core/engine.py:781` |
 | `WEEKEND_SAT_MULT` | `'2.4'` |  | ✅ | `core/signal_fusion.py:535` |
 | `WEEKEND_SUN_MULT` | `'2.1'` |  | ✅ | `core/signal_fusion.py:536` |

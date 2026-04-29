@@ -156,6 +156,11 @@ from telegram_bot.handlers.roadmap_handler import (  # Phase 70-73
     ev_stats_command, metrics_command, surface_command, latency_command,
 )
 from telegram_bot.handlers.lifecycle_handler import lifecycle_command  # Phase 74b
+# 2026-04-29 Polymarket Portfolio (Aşama 1): gerçek Proxy cüzdan view
+from telegram_bot.handlers.portfolio_handler import (
+    portfolio_command, portfolio_callback,
+)
+from telegram_bot.jobs.polymarket_portfolio_job import polymarket_portfolio_job
 # Becker recal handler removed 2026-04-28 (Heddas direktifi)
 # T1.3 Commit 4 (2026-04-20): phase76_handler silindi —
 # markov_command + capital_command ghost modüllere (core.markov_estimator,
@@ -330,6 +335,8 @@ class PolyPaperBot:
             ("surface", surface_command),
             ("latency", latency_command),
             # Becker recal commands removed 2026-04-28 (Heddas direktifi)
+            # 2026-04-29 Polymarket gerçek cüzdan view (Aşama 1)
+            ("portfolio", portfolio_command), ("pf", portfolio_command),
             # Phase 74b: Per-strategy lifecycle
             ("lifecycle", lifecycle_command), ("lc", lifecycle_command),
             # T1.3 Commit 4 (2026-04-20): Phase 76 markov + capital
@@ -500,6 +507,9 @@ class PolyPaperBot:
         self.app.add_handler(CallbackQueryHandler(cancel_operation_callback, pattern="^cancel_backtest$"))
         # Hyperopt cancel + apply callback handlers removed 2026-04-28 (Heddas direktifi)
 
+        # 2026-04-29 Polymarket Portfolio inline tab callbacks (Aşama 1)
+        self.app.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^pf_(tab_|refresh)"))
+
         for pat in ["show_api", "share_pnl", "import_wallet", "wallet_info_",
                      "wallet_key_", "wallet_delete_", "select_wallet_"]:
             self.app.add_handler(CallbackQueryHandler(self._ph(pat), pattern=f"^{pat}"))
@@ -575,6 +585,7 @@ class PolyPaperBot:
             BotCommand("stats_hub", "Tum istatistikler (tab menu)"),
             BotCommand("daily", "Gunluk ozet"),
             BotCommand("trades", "Son trade listesi"),
+            BotCommand("portfolio", "Polymarket gercek cuzdan (alias: /pf)"),
             # ── Risk & Kontrol (3) ──
             BotCommand("risk_hub", "Risk yonetimi (tab menu)"),
             BotCommand("kill", "Acil durdur"),
@@ -699,6 +710,17 @@ class PolyPaperBot:
                 jq.run_repeating(shadow_vs_paper_job, interval=svp_interval,
                                  first=svp_first, name="shadow_vs_paper")
                 logger.info(f"✅ shadow_vs_paper job scheduled (every {svp_interval}s, first in {svp_first}s)")
+
+                # 2026-04-29 Polymarket Portfolio refresh (Aşama 1)
+                if os.getenv("PORTFOLIO_REFRESH_ENABLED", "true").lower() == "true":
+                    pf_interval = int(os.getenv("PORTFOLIO_REFRESH_SEC", "60"))
+                    pf_first = int(os.getenv("PORTFOLIO_REFRESH_FIRST_SEC", "30"))
+                    jq.run_repeating(polymarket_portfolio_job, interval=pf_interval,
+                                     first=pf_first, name="polymarket_portfolio")
+                    logger.info(
+                        f"✅ polymarket_portfolio job scheduled "
+                        f"(every {pf_interval}s, first in {pf_first}s)"
+                    )
 
                 # Phase 66: Daily PnL divergence alert (paper vs live aggregate)
                 if os.getenv("PNL_DIVERGENCE_ENABLED", "true").lower() == "true":

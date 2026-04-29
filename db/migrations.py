@@ -212,6 +212,26 @@ MIGRATIONS = [
             "DROP TABLE IF EXISTS hyperopt_results",
         ],
     },
+
+    # ── 2026-04-29 Polymarket Portfolio Cache (Aşama 1) ──────────────────
+    # data/polymarket_portfolio.py PortfolioSnapshot'u JSON blob olarak
+    # cache'ler. Telegram /portfolio komutu cache'ten okur (anlık), 60s
+    # refresh job tarafından güncellenir. Tek satır row pattern (id=1).
+    {
+        "version": 17,
+        "name": "polymarket_portfolio_cache",
+        "sql": [
+            "CREATE TABLE IF NOT EXISTS polymarket_portfolio_cache ("
+            "id INTEGER PRIMARY KEY,"
+            "user_address TEXT NOT NULL,"
+            "snapshot_json TEXT NOT NULL,"
+            "fetched_at TEXT NOT NULL,"
+            "fetch_latency_ms INTEGER DEFAULT 0,"
+            "error_count INTEGER DEFAULT 0)",
+            "CREATE INDEX IF NOT EXISTS idx_pm_portfolio_fetched "
+            "ON polymarket_portfolio_cache(fetched_at)",
+        ],
+    },
 ]
 
 

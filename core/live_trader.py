@@ -504,7 +504,13 @@ class LiveTrader:
             # env false ise kontrol atlanır).
             if os.getenv("BALANCE_PREFLIGHT", "true").lower() == "true":
                 try:
-                    bal = client.get_balance_allowance({"asset_type": "COLLATERAL"})
+                    # py-clob-client 0.34.6: BalanceAllowanceParams dataclass
+                    # bekler. Eski SDK fallback için ImportError yakala.
+                    from py_clob_client.clob_types import (
+                        BalanceAllowanceParams, AssetType,
+                    )
+                    bal_params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+                    bal = client.get_balance_allowance(bal_params)
                     avail = float(bal.get("balance", 0) or 0) / 1e6  # raw USDC.e units
                     allow = float(bal.get("allowance", 0) or 0) / 1e6
                     if avail < amount:
@@ -517,9 +523,20 @@ class LiveTrader:
                             f"  ⚠ pre-flight: allowance yetersiz ${allow:.2f} < ${amount:.2f} "
                             f"— Polymarket UI'dan allowance approve gerekli")
                         return {"id": "", "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}"}
+                except ImportError:
+                    # Eski SDK fallback — dict pattern dene, hata olursa skip
+                    try:
+                        bal = client.get_balance_allowance({"asset_type": "COLLATERAL"})
+                        avail = float(bal.get("balance", 0) or 0) / 1e6
+                        allow = float(bal.get("allowance", 0) or 0) / 1e6
+                        if avail < amount:
+                            return {"id": "", "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}"}
+                        if allow < amount:
+                            return {"id": "", "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}"}
+                    except Exception as _bal_err2:  # noqa: BLE001
+                        logger.debug(f"  ⓘ pre-flight skip dict-fallback ({type(_bal_err2).__name__}): {_bal_err2}")
                 except (AttributeError, KeyError, ValueError, TypeError) as _bal_err:
-                    # SDK'da get_balance_allowance method yoksa veya response format
-                    # değişmişse uyar ve devam (CLOB'a güven, post_order'a izin ver).
+                    # Response format değişmiş — log, devam (CLOB'a güven)
                     logger.debug(f"  ⓘ pre-flight skip ({type(_bal_err).__name__}): {_bal_err}")
 
             order_args = OrderArgs(
