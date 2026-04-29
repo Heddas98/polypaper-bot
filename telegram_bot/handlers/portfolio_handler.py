@@ -88,15 +88,29 @@ def _age_human(fetched_at_iso: Optional[str]) -> str:
 
 
 def _build_keyboard(active_tab: str = "summary") -> InlineKeyboardMarkup:
-    """4-tab navigation + refresh button."""
+    """6-tab navigation (4 view + 2 actions row) + refresh button."""
     def _btn(label: str, tab: str) -> InlineKeyboardButton:
         prefix = "▸ " if tab == active_tab else "  "
         return InlineKeyboardButton(prefix + label, callback_data=f"pf_tab_{tab}")
 
     return InlineKeyboardMarkup([
+        # Row 1-2: Read-only tabs
         [_btn("💼 Özet", "summary"), _btn("💰 Bakiye", "balance")],
         [_btn("📊 Pozisyonlar", "positions"), _btn("📜 Trades", "trades")],
-        [InlineKeyboardButton("🔄 Yenile", callback_data="pf_refresh")],
+        # Row 3-4: Actions (Aşama 2)
+        [
+            InlineKeyboardButton("📥 Yatır", callback_data="pf_act_deposit"),
+            InlineKeyboardButton("📤 Çek", callback_data="pf_act_withdraw"),
+        ],
+        [
+            InlineKeyboardButton("🔓 Allowance", callback_data="pf_act_approve"),
+            InlineKeyboardButton("📂 Wallet Yönet", callback_data="pf_act_wallet"),
+        ],
+        # Row 5: Refresh + danger zone
+        [
+            InlineKeyboardButton("🔄 Yenile", callback_data="pf_refresh"),
+            InlineKeyboardButton("🔑 PK Export", callback_data="pf_act_pk"),
+        ],
     ])
 
 
@@ -350,3 +364,161 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await q.edit_message_text(
             text, parse_mode="HTML", reply_markup=_build_keyboard(tab)
         )
+        return
+
+    # 2026-04-29 Aşama 2 Actions
+    if data.startswith("pf_act_"):
+        action = data.replace("pf_act_", "")
+        await _handle_action(q, context, action)
+        return
+
+
+async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
+    """A1-A5 inline action handler."""
+    from data.polymarket_actions import (
+        approve_allowance, deposit_info, withdraw_info,
+        wallet_import_steps, export_private_key,
+    )
+
+    # A2 — Deposit info
+    if action == "deposit":
+        await q.answer("Deposit bilgileri yükleniyor...")
+        info = deposit_info()
+        if info.get("error"):
+            await q.edit_message_text(
+                f"❌ Deposit hatası: {esc(info['error'])}",
+                parse_mode="HTML",
+                reply_markup=_back_keyboard(),
+            )
+            return
+        text = (
+            "<b>📥 Polymarket Deposit Rehberi</b>\n\n"
+            f"<b>Ağ:</b> {esc(info['chain'])}\n"
+            f"<b>Token:</b> USDC.e (auto → pUSD)\n"
+            f"<b>Min:</b> {esc(info['min_deposit'])}\n\n"
+            f"<b>Deposit Adresi:</b>\n<code>{esc(info['address'])}</code>\n\n"
+            f"<a href=\"{info['polymarket_ui']}\">🔗 Polymarket UI'dan deposit</a>\n"
+            f"<a href=\"{info['polygonscan']}\">🔗 Polygonscan'da gör</a>\n\n"
+            "<i>QR kod indirildi — Telegram resim olarak gönderiyor.</i>\n\n"
+            "<b>EIP-681 URI:</b>\n"
+            f"<code>{esc(info['eip681_uri'])}</code>\n\n"
+            "Rabby/MetaMask → Send → Polygon → bu adres → USDC tutar gönder."
+        )
+        try:
+            await q.edit_message_text(
+                text, parse_mode="HTML",
+                reply_markup=_back_keyboard(),
+                disable_web_page_preview=True,
+            )
+            # Send QR image as separate photo
+            await context.bot.send_photo(
+                chat_id=q.message.chat_id,
+                photo=info['qr_image_url'],
+                caption=f"QR: {info['address']}",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"deposit QR send fail: {e}")
+        return
+
+    # A3 — Withdraw info (Polymarket UI)
+    if action == "withdraw":
+        await q.answer()
+        info = withdraw_info()
+        text = (
+            "<b>📤 Polymarket Withdraw</b>\n\n"
+            f"<b>Yöntem:</b> {esc(info['method'])}\n"
+            f"<b>Fee:</b> {esc(info['fee'])}\n"
+            f"<b>Min:</b> {esc(info['min_withdraw'])}\n\n"
+            f"<a href=\"{info['ui_url']}\">🔗 Polymarket Withdraw Sayfası</a>\n"
+            f"<a href=\"{info['polygonscan']}\">🔗 Polygonscan: Proxy işlemleri</a>\n\n"
+            f"<i>{esc(info['note'])}</i>"
+        )
+        await q.edit_message_text(
+            text, parse_mode="HTML",
+            reply_markup=_back_keyboard(),
+            disable_web_page_preview=True,
+        )
+        return
+
+    # A1 — Allowance approve
+    if action == "approve":
+        await q.answer("Allowance approve gönderiliyor...")
+        await q.edit_message_text(
+            "<b>🔓 Allowance Approve</b>\n\n"
+            "<i>Polygon network'te transaction imzalanıyor + gönderiliyor "
+            "(~10-30 saniye)...</i>",
+            parse_mode="HTML",
+        )
+        ok, msg = await approve_allowance()
+        emoji = "✅" if ok else "❌"
+        await q.edit_message_text(
+            f"<b>{emoji} Allowance Approve</b>\n\n{esc(msg)}\n\n"
+            "<i>Sonuç /portfolio Bakiye sekmesinde 60s içinde görünür.</i>",
+            parse_mode="HTML",
+            reply_markup=_back_keyboard(),
+        )
+        return
+
+    # A4 — Wallet import rehberi
+    if action == "wallet":
+        await q.answer()
+        steps = wallet_import_steps()
+        text = (
+            "<b>📂 Yeni Wallet Import / Switch</b>\n\n"
+            f"<b>1.</b> {esc(steps['step_1'])}\n\n"
+            f"<b>2.</b> {esc(steps['step_2'])}\n\n"
+            f"<b>3.</b> <pre>{esc(steps['step_3'])}</pre>\n\n"
+            f"<b>4.</b> {esc(steps['step_4'])}\n\n"
+            f"{esc(steps['warning'])}"
+        )
+        await q.edit_message_text(
+            text, parse_mode="HTML",
+            reply_markup=_back_keyboard(),
+        )
+        return
+
+    # A5 — PK Export (no rate limit, no confirm, no auto-delete — Heddas direktifi)
+    if action == "pk":
+        await q.answer()
+        info = export_private_key()
+        if info.get("error"):
+            await q.edit_message_text(
+                f"❌ PK export hatası: {esc(info['error'])}",
+                parse_mode="HTML",
+                reply_markup=_back_keyboard(),
+            )
+            return
+        warnings = "\n".join(f"• {esc(w)}" for w in info.get("risk_warnings", []))
+        derive_status = (
+            f"<b>Derived EOA:</b> <code>{esc(info['derived_eoa'])}</code>"
+            if info.get("derived_eoa") else
+            f"⚠ <b>Derive hatası:</b> <code>{esc(info.get('derive_error', ''))}</code>"
+        )
+        text = (
+            "<b>🔑 Private Key Export</b>\n\n"
+            f"<b>Polymarket Proxy:</b>\n<code>{esc(info['polymarket_proxy'])}</code>\n\n"
+            f"<b>Private Key (Rabby owner):</b>\n<code>{esc(info['private_key'])}</code>\n\n"
+            f"{derive_status}\n\n"
+            "<b>⚠ GÜVENLİK UYARILARI:</b>\n"
+            f"{warnings}\n\n"
+            "<i>Heddas direktifi: rate limit + double confirm + auto-delete yok. "
+            "Bot kapalı dünya — kendi sorumluluğunda paylaş.</i>"
+        )
+        await q.edit_message_text(
+            text, parse_mode="HTML",
+            reply_markup=_back_keyboard(),
+        )
+        # Audit log — operatöre PK export'un yapıldığı görünsün
+        logger.warning(
+            f"🔑 PK_EXPORT: user_id={q.from_user.id} username={q.from_user.username}"
+        )
+        return
+
+    await q.answer(f"Bilinmeyen aksiyon: {action}", show_alert=True)
+
+
+def _back_keyboard() -> InlineKeyboardMarkup:
+    """Single 'Geri' button leading to portfolio summary tab."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("◂ Geri", callback_data="pf_tab_summary")],
+    ])

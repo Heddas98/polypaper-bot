@@ -507,8 +507,9 @@ class PolyPaperBot:
         self.app.add_handler(CallbackQueryHandler(cancel_operation_callback, pattern="^cancel_backtest$"))
         # Hyperopt cancel + apply callback handlers removed 2026-04-28 (Heddas direktifi)
 
-        # 2026-04-29 Polymarket Portfolio inline tab callbacks (Aşama 1)
-        self.app.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^pf_(tab_|refresh)"))
+        # 2026-04-29 Polymarket Portfolio inline callbacks (Aşama 1+2)
+        # tab_<name>, refresh, act_<deposit|withdraw|approve|wallet|pk>
+        self.app.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^pf_(tab_|refresh|act_)"))
 
         for pat in ["show_api", "share_pnl", "import_wallet", "wallet_info_",
                      "wallet_key_", "wallet_delete_", "select_wallet_"]:
