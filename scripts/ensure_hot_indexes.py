@@ -2,9 +2,11 @@
 Phase 82e Sprint 4.2 — Hot Indexes Maintenance Script
 ======================================================
 
-Ensures the ob_snapshots composite index used by hyperopt's
-_discover_market_windows GROUP BY exists, with EXPLAIN QUERY PLAN
-verification before and after.
+Ensures the ob_snapshots composite index for backtest discovery + replay
+GROUP BY queries exists, with EXPLAIN QUERY PLAN verification before and
+after. (Önceden hyperopt'un _discover_market_windows için yazılmıştı,
+2026-04-28 Hyperopt silindikten sonra backtest_v2 + replay_engine için
+hâlâ gerekli.)
 
 Why a standalone script instead of db/migrations.py:
   * The 10GB+ production DB can take several minutes to build a new

@@ -496,6 +496,32 @@ class LiveTrader:
                     )
                     meta = {"tick_size": "0.01", "neg_risk": False}
 
+            # 2026-04-29 Phase D Bulgu 9: pre-flight balance/allowance check.
+            # Polymarket docs `/trading/orders/overview#allowances` — BUY için
+            # funder pUSD bakiyesi >= amount olmalı. Eksikse `INVALID_ORDER_
+            # NOT_ENOUGH_BALANCE` reject. Pre-flight check ile silent reject'i
+            # diagnostic log'a çeviriyoruz; opsiyonel skip (BALANCE_PREFLIGHT
+            # env false ise kontrol atlanır).
+            if os.getenv("BALANCE_PREFLIGHT", "true").lower() == "true":
+                try:
+                    bal = client.get_balance_allowance({"asset_type": "COLLATERAL"})
+                    avail = float(bal.get("balance", 0) or 0) / 1e6  # raw USDC.e units
+                    allow = float(bal.get("allowance", 0) or 0) / 1e6
+                    if avail < amount:
+                        logger.warning(
+                            f"  ⚠ pre-flight: bakiye yetersiz ${avail:.2f} < ${amount:.2f} "
+                            f"(allowance ${allow:.2f}) — order skip")
+                        return {"id": "", "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}"}
+                    if allow < amount:
+                        logger.warning(
+                            f"  ⚠ pre-flight: allowance yetersiz ${allow:.2f} < ${amount:.2f} "
+                            f"— Polymarket UI'dan allowance approve gerekli")
+                        return {"id": "", "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}"}
+                except (AttributeError, KeyError, ValueError, TypeError) as _bal_err:
+                    # SDK'da get_balance_allowance method yoksa veya response format
+                    # değişmişse uyar ve devam (CLOB'a güven, post_order'a izin ver).
+                    logger.debug(f"  ⓘ pre-flight skip ({type(_bal_err).__name__}): {_bal_err}")
+
             order_args = OrderArgs(
                 price=price,
                 size=round(amount / price, 2),
@@ -541,7 +567,32 @@ class LiveTrader:
             if result and result.get("orderID"):
                 logger.info(f"  ✅ CLOB order: {result['orderID'][:16]}")
                 return {"id": result["orderID"], "status": "placed"}
-            return {"id": "", "status": f"rejected:{result}"}
+
+            # 2026-04-29 Phase D Bulgu 11: explicit error code mapping for
+            # diagnostic clarity. Polymarket docs error codes:
+            # https://docs.polymarket.com/trading/orders/overview#error-messages
+            err_msg = (result or {}).get("errorMsg", "") if isinstance(result, dict) else ""
+            err_msg_str = str(err_msg) if err_msg else f"unknown:{result}"
+            # Surface common reject reasons with friendly hints
+            _hint = ""
+            if "MIN_TICK_SIZE" in err_msg_str:
+                _hint = " (tick_size mismatch — meta cache invalidate önerisi)"
+            elif "NOT_ENOUGH_BALANCE" in err_msg_str:
+                _hint = " (Polymarket bakiye/allowance yetersiz — Bulgu 9 pre-flight check)"
+            elif "MIN_SIZE" in err_msg_str:
+                _hint = " (order size eşiği altında — amount artırın)"
+            elif "DUPLICATED" in err_msg_str:
+                _hint = " (aynı order önceden post edildi — race condition?)"
+            elif "EXPIRATION" in err_msg_str:
+                _hint = " (GTD expiration past — saat senkron?)"
+            elif "POST_ONLY" in err_msg_str:
+                _hint = " (post_only + market type çelişkisi)"
+            elif "FOK_ORDER_NOT_FILLED" in err_msg_str:
+                _hint = " (FOK marketable ama orderbook yetersiz — beklenebilir)"
+            elif "MARKET_NOT_READY" in err_msg_str:
+                _hint = " (market henüz live değil — wait + retry)"
+            logger.warning(f"  ❌ CLOB reject: {err_msg_str}{_hint}")
+            return {"id": "", "status": f"rejected:{err_msg_str}"}
 
         except ImportError:
             logger.warning("py-clob-client not installed — mock order")

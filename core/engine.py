@@ -303,11 +303,13 @@ class TradingEngine(
         # Phase 74b: Ensure strategy_params column exists
         await self.lifecycle.ensure_column()
 
-        # ══ Phase 82d: Restore HyperOpt-persisted plugin params ══
+        # ══ Phase 82d: Restore Persisted Plugin Params ══
         # Aktif stratejilerin strategy_params JSON'undaki plugin_params
         # alt-dict'ini registry.set_config() ile plugin runtime'a uygula.
-        # Böylece Apply Callback sonrası bot restart edilince HyperOpt
-        # sonuçları (örn. momentum.trend_threshold=0.035) yaşar.
+        # Bot restart edilince manuel parametre ayarları (AI Brain TUNE,
+        # /strategies edit, vs.) yaşar. 2026-04-28: Hyperopt silindi, eski
+        # "HyperOpt Apply Callback" referansları temizlendi — pattern artık
+        # generic plugin config persistence.
         # NOT: set_config plugin TYPE bazında çalışır; aynı type'tan birden
         # çok aktif strateji varsa son yazan kazanır (uzun vade borç).
         try:
@@ -328,14 +330,14 @@ class TradingEngine(
                 except (json.JSONDecodeError, ValueError, TypeError) as _pe:
                     # Epic 8 T8.1: corrupt strategy_params JSON — skip quietly
                     # but leave a breadcrumb for audit (previously silent pass).
-                    logger.debug(f"HyperOpt restore: skip sid={sid[:8]} bad JSON: {_pe}")
+                    logger.debug(f"plugin_params restore: skip sid={sid[:8]} bad JSON: {_pe}")
                     continue
                 plugin_params = sp.get("plugin_params") or {}
                 if not plugin_params:
                     continue
                 if stype in seen_types:
                     logger.warning(
-                        f"HyperOpt restore: {stype} plugin config overwritten "
+                        f"plugin_params restore: {stype} plugin config overwritten "
                         f"by sid={sid[:8]} (prev sid={seen_types[stype][:8]})")
                 seen_types[stype] = sid
                 for param, value in plugin_params.items():
@@ -344,19 +346,19 @@ class TradingEngine(
                             applied_count += 1
                         else:
                             logger.warning(
-                                f"HyperOpt restore: set_config rejected "
+                                f"plugin_params restore: set_config rejected "
                                 f"{stype}.{param}={value}")
                     except (ValueError, TypeError, AttributeError, KeyError) as _e:
                         # Epic 8 T8.1: plugin config cast / missing attr / bad key
                         logger.warning(
-                            f"HyperOpt restore {stype}.{param}: {_e}")
+                            f"plugin_params restore {stype}.{param}: {_e}")
             if applied_count > 0:
                 logger.info(
-                    f"🔧 HyperOpt plugin params restored: {applied_count} "
+                    f"🔧 plugin params restored: {applied_count} "
                     f"param(s) across {len(seen_types)} strategy type(s)")
         except (aiosqlite.Error, AttributeError) as _e:
             # Epic 8 T8.1: DB fetchall / connection down / db.conn missing
-            logger.warning(f"HyperOpt startup restore failed: {_e}")
+            logger.warning(f"plugin_params startup restore failed: {_e}")
 
         # T1.3 Commit 1 (2026-04-20): capital_allocator.initialize() kaldırıldı
         # (Phase 76 ghost modül temizliği — yukarıdaki init bloğuyla beraber).

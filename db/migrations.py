@@ -195,6 +195,23 @@ MIGRATIONS = [
             "ON hyperopt_results(strategy_name, asset, timeframe)",
         ],
     },
+
+    # ── 2026-04-28 Heddas direktifi: Hyperopt tam silme ────────────────
+    # Phase 82d hyperopt_results table'ı drop edildi. Hyperopt subsistemi
+    # tamamen kaldırıldı (5 backtest dosyası, AI Brain hyperopt fonksiyonları,
+    # bot.py register, .env HYPEROPT_*). Geçmiş hyperopt sonuçları read-only
+    # arşiv olarak DB'de kalmasına gerek yok — DROP IF EXISTS güvenli.
+    {
+        "version": 16,
+        "name": "drop_hyperopt_results",
+        "sql": [
+            "DROP INDEX IF EXISTS idx_hopt_strat",
+            "DROP INDEX IF EXISTS idx_hopt_ts",
+            "DROP INDEX IF EXISTS idx_hopt_applied",
+            "DROP INDEX IF EXISTS idx_hopt_atf",
+            "DROP TABLE IF EXISTS hyperopt_results",
+        ],
+    },
 ]
 
 
