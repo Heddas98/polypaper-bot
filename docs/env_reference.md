@@ -76,7 +76,7 @@
 | `CLASSIC_RESPECT_UNSELLABLE` | `'false'` | ✅ | ✅ | `core/engine_signals.py:1142` |
 | `CLASSIC_RESPECT_ZONES` | `'false'` | ✅ | ✅ | `core/engine_signals.py:813` |
 | `CLASSIC_TAKER_LIMIT_CEIL` | `'0.99'` | ✅ |  | `core/engine_signals.py:1563` |
-| `CLOB_SIGNATURE_TYPE` | `'2'` |  | ✅ | `core/live_trader.py:217`, `core/live_trader.py:447`, `data/polymarket_portfolio.py:294` |
+| `CLOB_SIGNATURE_TYPE` | `'2'` |  | ✅ | `core/live_trader.py:217`, `core/live_trader.py:447`, `data/polymarket_actions.py:57` (+1 more) |
 | `CLOB_TIMEOUT` | `'5.0'` |  | ✅ | `data/polymarket_client.py:21` |
 | `CONFLUENCE_K` | `'3'` |  | ✅ | `core/ai_brain.py:741`, `core/signal_fusion.py:551` |
 | `CONFLUENCE_MODE` | `'true'` |  | ✅ | `core/signal_fusion.py:550` |
@@ -195,12 +195,12 @@
 | `PNL_DIVERGENCE_WINDOW_H` | `'24'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:190`, `telegram_bot/jobs/pnl_divergence_job.py:57` |
 | `PNL_PAUSE_THRESHOLD` | `'-8.0'` | ✅ |  | `core/auto_optimizer.py:45` |
 | `POLYBACKTEST_API_KEY` | `''` |  | ✅ | `backtest/data_sources/polybacktest.py:49` |
-| `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:160`, `core/live_trader.py:439`, `data/polymarket_portfolio.py:290` |
-| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:696`, `core/live_trader.py:161`, `core/live_trader.py:440` (+2 more) |
+| `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:160`, `core/live_trader.py:439`, `data/polymarket_actions.py:230` (+2 more) |
+| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:696`, `core/live_trader.py:161`, `core/live_trader.py:440` (+5 more) |
 | `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:243` |
 | `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:244` |
 | `POLYMARKET_BUILDER_CODE` | `''` |  | ✅ | `core/live_trader.py:552` |
-| `POLYMARKET_CLOB_HOST` | `'https://clob.polymarket.com'` |  | ✅ | `data/polymarket_portfolio.py:44` |
+| `POLYMARKET_CLOB_HOST` | `'https://clob.polymarket.com'` |  | ✅ | `data/polymarket_actions.py:42`, `data/polymarket_portfolio.py:44` |
 | `POLYMARKET_DATA_API` | `'https://data-api.polymarket.com'` |  | ✅ | `data/polymarket_portfolio.py:43` |
 | `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:245` |
 | `POLYPAPER_DB` | `<expr>` |  |  | `backtest/archive_reader.py:112` |
@@ -257,7 +257,7 @@
 | `SURFACE_2D_FALLBACK_1D` | `'true'` |  |  | `calibration/surface_2d.py:52` |
 | `SURFACE_2D_TIME_BINS` | `'6'` |  |  | `calibration/surface_2d.py:50` |
 | `SURFACE_2D_WEIGHT` | `'0.12'` |  | ✅ | `calibration/surface_2d.py:48` |
-| `TAKER_STUCK_TIMEOUT_SEC` | `'120'` | ✅ |  | `core/engine_fills.py:214` |
+| `TAKER_STUCK_TIMEOUT_SEC` | `'120'` | ✅ |  | `core/engine_fills.py:223` |
 | `TECHNICAL_INDICATORS_ENABLED` | `'false'` |  | ✅ | `core/ai_brain.py:739`, `core/signal_fusion.py:556` |
 | `THOMPSON_TOP_PCT` | `'0.40'` |  |  | `core/strategy_selector.py:26` |
 | `TRADE_MEMORY_BOOST_MAX` | `'0.15'` |  | ✅ | `core/trade_memory.py:43` |

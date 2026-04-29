@@ -384,3 +384,48 @@ async def build_snapshot() -> PortfolioSnapshot:
         (datetime.now(timezone.utc) - t0).total_seconds() * 1000
     )
     return snap
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 2026-04-29 Aşama 3.A — Cüzdan tutarlılığı helpers
+# Tüm Telegram handler'ları (live, dashboard, start, portfolio) AYNI
+# kaynaktan okur: polymarket_portfolio_cache table (60s job ile güncelli).
+# ════════════════════════════════════════════════════════════════════════
+async def read_cached_snapshot(db) -> Optional[dict]:
+    """DB cache'ten son snapshot oku. Returns dict or None.
+
+    Cache var ama stale (>5dk) ise yine döner — caller cache yaşına bakar.
+    Cache hiç yoksa None döner.
+    """
+    if db is None or getattr(db, "conn", None) is None:
+        return None
+    try:
+        import json
+        async with db.conn.execute(
+            "SELECT snapshot_json, fetched_at FROM polymarket_portfolio_cache "
+            "WHERE id=1"
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        snap = json.loads(row[0])
+        snap["_fetched_at"] = row[1]  # caller'a yaş hesabı için
+        return snap
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"read_cached_snapshot: {type(e).__name__}: {e}")
+        return None
+
+
+def cache_age_seconds(snap: Optional[dict]) -> int:
+    """Cache yaşı (saniye). None / parse hatası → 99999."""
+    if not snap or not snap.get("_fetched_at"):
+        return 99999
+    try:
+        fetched = datetime.fromisoformat(
+            snap["_fetched_at"].replace("Z", "+00:00")
+        )
+        if fetched.tzinfo is None:
+            fetched = fetched.replace(tzinfo=timezone.utc)
+        return int((datetime.now(timezone.utc) - fetched).total_seconds())
+    except (ValueError, TypeError):
+        return 99999

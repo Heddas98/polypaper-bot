@@ -44,10 +44,11 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             confirm_text = (
                 "⚠️ <b>Live Mode'u etkinleştir?</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Bu adım gerçek <b>USDC</b> kullanacaktır.\n\n"
-                f"💰 Bütçe: <b>${st.get('budget', 1.49):.2f}</b>\n"
+                "Bu adım gerçek <b>pUSD</b> kullanacaktır.\n\n"
+                f"🤖 Bot risk limit: <b>${st.get('budget', 1.49):.2f}</b> (LIVE_BUDGET)\n"
                 f"📌 Trade başı: <b>$1.00</b>\n"
-                f"🎯 Strateji sayısı: <b>3 (top)</b>\n\n"
+                f"🎯 Strateji sayısı: <b>3 (whitelist)</b>\n\n"
+                "<i>Polymarket gerçek bakiyeni /portfolio'dan kontrol et.</i>\n\n"
                 "Emin misin?"
             )
             kb = InlineKeyboardMarkup([
@@ -118,7 +119,14 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _build_main(engine, db):
-    """Main dashboard — paper + live side by side."""
+    """Main dashboard — paper + live side by side.
+
+    2026-04-29 Aşama 3.A: cüzdan tutarlılığı fix. Eski 'Bütçe $1.49' satırı
+    LIVE_BUDGET env (bot risk limit) idi — Heddas bunu 'gerçek bakiye'
+    gibi görüyordu. Yeni format ayrım yapar:
+      - 💰 Polymarket Bakiye (gerçek pUSD, portfolio cache'ten)
+      - 🤖 Bot Risk Limit (LIVE_BUDGET env, harcama limiti)
+    """
     st = engine.live.get_status()
     active = st.get("active", False)  # is_enabled() = _enabled and not _paused
     on = st["enabled"]
@@ -147,19 +155,43 @@ async def _build_main(engine, db):
             # SELECT + row[0][n] indexing + division by zero (defensive).
             pass
 
+    # 2026-04-29 Aşama 3.A: Polymarket gerçek cüzdan bilgileri ortak
+    # cache'ten oku. Eğer cache yok ise placeholder göster, tüm UI'lar
+    # aynı kaynaktan beslenir (live + dashboard + start + portfolio).
+    pm_balance = "N/A"
+    pm_allowance = "N/A"
+    pm_nav = "N/A"
+    pm_age = ""
+    try:
+        from data.polymarket_portfolio import read_cached_snapshot, cache_age_seconds
+        pm_snap = await read_cached_snapshot(db)
+        if pm_snap:
+            pm_balance = f"${float(pm_snap.get('pusd_balance', 0)):.2f}"
+            pm_allowance = f"${float(pm_snap.get('pusd_allowance', 0)):.2f}"
+            pm_nav = f"${float(pm_snap.get('portfolio_value_usd', 0)):.2f}"
+            age_s = cache_age_seconds(pm_snap)
+            pm_age = f" (veri {age_s}s önce)" if age_s < 999 else " (stale)"
+    except Exception as _pe:  # noqa: BLE001
+        logger.debug(f"pm cache read in live_handler: {_pe}")
+
     text = (
-        f"💰 <b>PolyPaper — Dual Mode Dashboard</b>\n"
+        f"💰 <b>PolyPaper — Live Trader</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📋 <b>PAPER</b> (simülasyon)\n"
         f"  PnL: {p_pnl:+.2f} | {p_trades}t | WR: {p_wr:.0f}%\n\n"
-        f"💰 <b>LIVE</b> (gerçek USDC)\n"
+        f"💰 <b>POLYMARKET CÜZDAN</b> (gerçek){pm_age}\n"
+        f"  pUSD Bakiye:     <b>{pm_balance}</b>\n"
+        f"  Allowance:       {pm_allowance}\n"
+        f"  Açık Pozisyon NAV: {pm_nav}\n\n"
+        f"🤖 <b>BOT LIVE TRADER</b>\n"
         f"  Durum: {status_text}\n"
-        f"  Cuzdan: {st['wallet']}\n"
-        f"  Butce: ${st.get('remaining', 0):.2f} / ${st.get('budget', 1.49):.2f}\n"
-        f"  PnL: <b>${st['total_pnl']:+.4f}</b>\n"
-        f"  Gunluk: ${st['daily_pnl']:+.4f} ({st['daily_trades']}t)\n"
-        f"  Pozisyon: {'📌 ACIK' if st.get('open') else '—'}\n\n"
-        f"<b>Güvenlik:</b> $1.00/trade, 1 poz, 3 best strat\n"
+        f"  Cüzdan: {st['wallet']}\n"
+        f"  Risk Limit: ${st.get('remaining', 0):.2f} / ${st.get('budget', 1.49):.2f}\n"
+        f"  Trade başı:    $1.00 (LIVE_MAX_TRADE)\n"
+        f"  Bot PnL: <b>${st['total_pnl']:+.4f}</b> | Bugün ${st['daily_pnl']:+.4f} ({st['daily_trades']}t)\n"
+        f"  Pozisyon: {'📌 AÇIK' if st.get('open') else '—'}\n\n"
+        f"<i>'Risk Limit' = bot toplam harcama tavanı (LIVE_BUDGET env). "
+        f"'Bakiye' = Polymarket'taki gerçek pUSD. Detay → /portfolio</i>"
     )
 
     toggle_btn = "⏸ Duraklat" if active else "▶️ Devam Et"
