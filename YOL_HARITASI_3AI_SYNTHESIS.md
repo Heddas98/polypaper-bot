@@ -1,6 +1,25 @@
 # PolyPaper Bot — Konsolide Yol Haritası
 **3 AI Analizi (Grok + DeepSeek + Opus 4.7) Sentezi**
-*Hazırlanma: 2026-04-28 · Versiyon: 1.0*
+*Hazırlanma: 2026-04-28 · Son güncelleme: 2026-04-29 · Versiyon: 1.1*
+
+---
+
+## 🚦 İlerleme Snapshot (2026-04-29)
+
+| Faz / Görev | Durum | Notlar |
+|---|---|---|
+| **FAZ 0.1** Fee reality check | ✅ KAPALI | crypto bit-identical Polymarket docs. F-01..F-04 fix. `docs/audits/fee_reality_check_2026_04.md` |
+| **FAZ 0.2** Live-vs-Paper drift | 🟡 INSUFFICIENT_DATA | Pre-fix path bozuktu, gerçek trade=0. Heddas: deposit + /mode REAL + ilk trade sonrası recheck. |
+| **FAZ 0.3** Statistical significance | ⏳ Bekliyor | FAZ 0.2 PASS sonrası |
+| **Becker tam silme** | ✅ KAPALI | Aşama 1 + 2 + 3.A + 3.B + 3.C. ~7 dosya rm + ~441 satır net cleanup. NUL pad fix doktrini. |
+| **Hyperopt tam silme** | ✅ KAPALI | 699 occurrence × 31 dosya. AI Brain refactor + 7 dosya rm + DB v16 backlog. |
+| **Polymarket compliance** | ✅ %95 | Phase A+B+C+D. SDK 0.18→0.34.6. signature_type=2 + tick_size + neg_risk + FOK + post_heartbeat + pUSD. 11/12 finding kapalı, 1 backlog. |
+| **Wallet UX** | ✅ KAPALI | Aşama 1 (/portfolio) + 2 (5 action) + 3.A/3.B (mode toggle + banner). 20 trade history Polymarket'tan eşleşti. |
+| **Mainnet readiness** | 🟢 GREEN | Pre-mainnet gate (T11.1+T11.2+T11.3+T9.8-REG) ✅. Heddas 3-step: deposit $3-5 + /mode REAL + drift recheck. |
+
+**Şu anki üst-seviye karar:** FAZ 0 final adımı (drift PASS) → FAZ 1 cleanup → FAZ 2 disiplin (ruff/mypy/CI/Docker) → FAZ 3 ablation/OOS/single-hypothesis → FAZ 4 karar (A/B/C).
+
+**Coverage durumu:** ~%21 baseline (Windows full suite). Plan: `docs/audits/coverage_status_2026_04_29.md` — Fase A (5 küçük modül +%2-3) → Fase B (engine_signals/strategy_plugins +%10-15) → Fase C (FAZ 2.4 ana iş +%20-25). Hedef %60.
 
 ---
 
