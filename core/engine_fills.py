@@ -67,20 +67,29 @@ class EngineFillsMixin:
             return 0.0
         bids = (orderbook.get("bids") or [])[:3]
         asks = (orderbook.get("asks") or [])[:3]
+
+        def _level_to_pair(lvl):
+            """Polymarket orderbook level normalize: dict {price,size} veya
+            list/tuple [price, size] formatında olabilir. 2026-04-29 bug
+            (engine_fills.py:73 AttributeError 'list' has no attribute 'get'):
+            yeni Polymarket API list-of-lists döndürüyor."""
+            try:
+                if isinstance(lvl, dict):
+                    return float(lvl.get("price", 0) or 0), float(lvl.get("size", 0) or 0)
+                if isinstance(lvl, (list, tuple)) and len(lvl) >= 2:
+                    return float(lvl[0] or 0), float(lvl[1] or 0)
+            except (TypeError, ValueError):
+                pass
+            return 0.0, 0.0
+
         bid_sum = 0.0
         for lvl in bids:
-            try:
-                bid_sum += float(lvl.get("size", 0)) * float(lvl.get("price", 0))
-            except (TypeError, ValueError):
-                # T1.4 Faz 1: malformed level (None/non-numeric); skip
-                continue
+            price, size = _level_to_pair(lvl)
+            bid_sum += price * size
         ask_sum = 0.0
         for lvl in asks:
-            try:
-                ask_sum += float(lvl.get("size", 0)) * float(lvl.get("price", 0))
-            except (TypeError, ValueError):
-                # T1.4 Faz 1: malformed level (None/non-numeric); skip
-                continue
+            price, size = _level_to_pair(lvl)
+            ask_sum += price * size
         total = bid_sum + ask_sum
         if total <= 0:
             return 0.0
