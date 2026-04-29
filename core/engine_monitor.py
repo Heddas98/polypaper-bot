@@ -292,85 +292,9 @@ class EngineMonitorMixin:
         if DISPOSITION_TRACKING and cur is not None:
             await self._update_disposition(row, entry, cur)
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # Phase 60: Smart Exit — Remaining Edge + Becker-based Stop Loss
-    # ═══════════════════════════════════════════════════════════════════════
-    async def _smart_exit_check(self, row, entry, shares, direction, now, end):
-        """3-tier smart exit using Becker δ(p) as estimated probability.
-
-        Tier 1 (remaining edge):
-            Becker δ(current_price) < REMAINING_EDGE_MIN → edge exhausted, exit.
-            Top wallet'lar winner'ları %91'de kapatıyor çünkü edge tükenince
-            beklemek risk/reward'ı bozuyor.
-
-        Tier 2 (stop loss):
-            Becker estimated_prob < (entry_price - STOP_LOSS_DELTA) → wrong side.
-            Top wallet'lar loser'ları -%12'de kesiyor, ortalama -%41 tutuyor.
-
-        Both tiers only activate if Becker calibration is available AND
-        we can get a live price for the position.
-
-        Returns None if no exit triggered — caller continues with TP/SL checks.
-        """
-        # Check if Becker calibration is loaded
-        if not getattr(self, "_becker_poly_curve", None):
-            return
-        if not getattr(self.settings, "BECKER_CALIB_ENABLED", False):
-            return
-
-        # Get current live price for this position's token
-        token_id = row.get("market_token_id")
-        cur = None
-        if token_id:
-            cur = await self.client.get_live_price(token_id, "SELL")
-        if cur is None:
-            slug = row.get("event_slug", "")
-            odds = self.scanner.get_current_odds(slug)
-            if odds:
-                cur = safe_float(
-                    odds.get("up_odds") if direction == "up"
-                    else odds.get("down_odds"))
-        if cur is None or cur <= 0.02 or cur >= 0.99:
-            return
-
-        # Compute Becker δ(p) at current price
-        delta = self._becker_delta(cur, source="poly")
-        if delta is None:
-            return
-
-        # estimated_prob = current_price + delta (calibration-adjusted true probability)
-        estimated_prob = cur + delta
-
-        # Tier 1: Remaining Edge Check
-        # If the remaining edge is below threshold, the mispricing has been consumed
-        # — holding further adds risk with diminishing return.
-        remaining_edge = estimated_prob - cur  # = delta, effectively
-        _rem_min = _remaining_edge_min()
-        if remaining_edge < _rem_min:
-            # Only exit if position is in profit or edge is significantly negative
-            unrealized = cur - entry
-            if unrealized > 0 or remaining_edge < 0:
-                logger.info(
-                    f"  🧠 SMART-EXIT [edge_exhausted]: {row['event_slug'][:30]} "
-                    f"δ={delta:+.4f} edge={remaining_edge:.4f}<{_rem_min} "
-                    f"cur={cur:.4f} entry={entry:.4f} unreal={unrealized:+.4f}")
-                if not hasattr(self, '_smart_exits_today'):
-                    self._smart_exits_today = 0
-                self._smart_exits_today += 1
-                return await self._exit(row, shares, cur, "smart_exit_edge")
-
-        # Tier 2: Stop Loss — estimated probability much lower than entry
-        # If the Becker-adjusted probability says we're significantly below
-        # our entry price, the trade thesis has broken down.
-        if estimated_prob < (entry - STOP_LOSS_DELTA):
-            logger.info(
-                f"  🛑 SMART-EXIT [stop_loss]: {row['event_slug'][:30]} "
-                f"est_prob={estimated_prob:.4f} < entry({entry:.4f})-{STOP_LOSS_DELTA} "
-                f"δ={delta:+.4f} cur={cur:.4f}")
-            if not hasattr(self, '_smart_exits_today'):
-                self._smart_exits_today = 0
-            self._smart_exits_today += 1
-            return await self._exit(row, shares, cur, "smart_exit_stoploss")
+    # _smart_exit_check method removed 2026-04-29 (Heddas direktifi: Becker
+    # tam silme). Phase 60 3-tier exit Becker δ'ya bağlıydı, ~80 satır body
+    # silindi. Forward work: surface_2d-based smart exit (Aşama 4 backlog).
 
     # ═══════════════════════════════════════════════════════════════════════
     # Phase 60: Disposition Coefficient Tracking

@@ -55,13 +55,11 @@ from backtest.simulation.fill_model import FillSimulator, FillMode
 from backtest.simulation.fee_model_v3 import FeeCalculatorV3 as FeeCalculator  # T4.1 unified
 from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats
 
-# Phase 47f.2 — pure δ(p) helpers for backtest signal consumer
-try:
-    from core.becker_calibration import becker_delta as _becker_delta_fn
-    from core.becker_calibration import becker_boost as _becker_boost_fn
-except Exception:  # pragma: no cover — defensive, missing core is a packaging bug
-    _becker_delta_fn = None
-    _becker_boost_fn = None
+# Becker δ(p) helpers removed 2026-04-29 (Heddas direktifi: Becker tam silme).
+# _apply_becker_boost no-op'a indirgendi, becker_curves attribute kalır
+# (replay_engine_v3 wrapper hala set ediyor — Aşama 3.D'de o da silinecek).
+_becker_delta_fn = None
+_becker_boost_fn = None
 
 logger = logging.getLogger("polypaper.backtest.replay")
 
@@ -136,16 +134,14 @@ class ReplayEngine:
         self._markets_skipped = 0
         self._signals_generated = 0
         self._total_snapshots = 0
-        # Phase 47f.2 — Becker δ(p) consumer (optional, v3 wrapper injects).
-        # Each entry: engine-compat list[(bin_low, delta_at_midpoint)].
+        # Becker δ(p) consumer + decision-mode removed 2026-04-29 (Heddas
+        # direktifi: Becker tam silme). _becker_curves dict empty kept for
+        # backward-compat with replay_engine_v3 wrapper (Aşama 3.D'de
+        # wrapper da silinecek). Attributes ghost referans için kalır,
+        # _apply_becker_* method'ları silindi.
         self._becker_curves: dict[str, list] = {}
         self._becker_boost_count = 0
         self._becker_boost_sum = 0.0
-        # Phase 47f.6 — decision-mode effects (veto / flip).
-        # These only fire when BECKER_DECISION_MODE env var != "boost" (the
-        # default). Pure additive-on-confidence is the 47f.2 live-parity path;
-        # decision mode lets the backtest try alternative application points
-        # without touching the live engine.
         self._becker_veto_count = 0
         self._becker_flip_count = 0
         # Phase 82e Sprint B.2 — optional archive reader (SQLite + Parquet)
@@ -612,198 +608,9 @@ class ReplayEngine:
     #  MARKET EPISODE REPLAY
     # ═══════════════════════════════════════════════
 
-    # ── Phase 47f.2 Becker δ(p) consumer ─────────────────────────────
-    def _apply_becker_boost(self, signal: "Signal",
-                            snap: "OrderbookSnapshot") -> None:
-        """Mutate `signal.confidence` by the same δ(p) ensemble boost the
-        live engine applies in `_evaluate`. No-op if becker helpers failed
-        to import or curves are empty.
-
-        Mirrors core.engine._evaluate Phase 47f.1 block:
-          delta = delta_poly*(1-k_w) + delta_kalshi*k_w  (fallback to poly)
-          boost = clamp(delta * weight, ±clamp)
-
-        The direction-specific price is chosen from the snapshot — we boost
-        the token we would actually be buying.
-        """
-        if _becker_delta_fn is None or _becker_boost_fn is None:
-            return
-        poly = self._becker_curves.get("poly") or []
-        kalshi = self._becker_curves.get("kalshi") or []
-        if not poly:
-            return
-        # Price the engine would see at order placement time
-        try:
-            is_up = signal.direction == Direction.UP
-        except Exception:
-            return
-        price = snap.up_best_ask if is_up else snap.down_best_ask
-        if not price or price <= 0:
-            return
-
-        dp = _becker_delta_fn(poly, price)
-        if dp is None:
-            return
-        dk = _becker_delta_fn(kalshi, price) if kalshi else None
-        # Pull knobs from settings with sane defaults so the backtest works
-        # even when the full Settings object is not wired.
-        try:
-            from config.settings import Settings  # lightweight import
-            _s = Settings()
-            weight = float(getattr(_s, "BECKER_CALIB_WEIGHT", 0.10))
-            clamp = float(getattr(_s, "BECKER_CALIB_CLAMP", 0.15))
-            k_w = float(getattr(_s, "BECKER_KALSHI_WEIGHT", 0.30))
-        except Exception:
-            weight, clamp, k_w = 0.10, 0.15, 0.30
-
-        if dk is not None:
-            delta = dp * (1.0 - k_w) + dk * k_w
-        else:
-            delta = dp
-        boost = _becker_boost_fn(delta, weight, clamp)
-        if abs(boost) < 1e-4:
-            return
-
-        # confidence ∈ [0,1] in backtest (vs signal_score ∈ [-1,1] live).
-        # A positive δ means the token is underpriced → more confident.
-        new_conf = max(0.0, min(1.0, float(signal.confidence) + boost))
-        signal.confidence = new_conf
-        # Tag for traceability
-        try:
-            signal.metadata.setdefault("becker", {})
-            signal.metadata["becker"] = {
-                "price": round(float(price), 4),
-                "delta_poly": round(float(dp), 4),
-                "delta_kalshi": round(float(dk), 4) if dk is not None else None,
-                "delta_blend": round(float(delta), 4),
-                "boost": round(float(boost), 4),
-                "source": "p+k" if dk is not None else "p",
-            }
-        except Exception:
-            pass
-        self._becker_boost_count += 1
-        self._becker_boost_sum += boost
-
-    # ── Phase 47f.6 Becker decision-mode intercept ───────────────────
-    def _apply_becker_decision(self, signal: "Signal",
-                               snap: "OrderbookSnapshot"
-                               ) -> tuple[bool, Optional["Direction"]]:
-        """Phase 47f.6 - intercept the decision path instead of mutating
-        confidence (which is a dead field given min_confidence=0.0).
-
-        Reads env vars (re-read on every call so sweeps work):
-          BECKER_DECISION_MODE:
-            "boost"  (default) -> no-op, live-parity behavior
-            "veto"   -> if |delta| >= threshold AND sign contradicts the
-                        strategy's chosen direction, skip the trade
-            "flip"   -> if |delta| >= threshold, force direction to the
-                        underpriced side (positive delta on UP -> UP)
-            "off"    -> no-op
-          BECKER_DECISION_THRESHOLD (float): absolute delta gate, default 0.0
-
-        Returns (keep_signal, new_direction_or_None). When keep_signal is
-        False the caller must drop the signal (no trade this market).
-        When new_direction is not None the caller must overwrite
-        signal.direction before passing the signal downstream.
-        """
-        import os as _os
-        mode = (_os.environ.get("BECKER_DECISION_MODE") or "boost").strip().lower()
-        if mode in ("boost", "off", ""):
-            return True, None
-        if _becker_delta_fn is None:
-            return True, None
-        poly = self._becker_curves.get("poly") or []
-        if not poly:
-            return True, None
-        # Phase 47f.7 — strategy whitelist gate. Only strategies explicitly
-        # listed in BECKER_DECISION_STRATEGY_WHITELIST get the veto/flip
-        # treatment. Default matches config/settings.py (`late_convergence`)
-        # so backtest is consistent with live engine when env var is unset.
-        # Empty string => dead-gated (no strategy). 47f.8 sweep proved only
-        # late_convergence is calibration-friendly; the rest are HOSTILE,
-        # NEUTRAL, or TOO_THIN.
-        whitelist_raw = _os.environ.get("BECKER_DECISION_STRATEGY_WHITELIST", "late_convergence")
-        whitelist = {s.strip().lower() for s in whitelist_raw.split(",") if s.strip()}
-        if not whitelist:
-            return True, None
-        current_strategy = (self.config.strategy_name or "").strip().lower()
-        if current_strategy not in whitelist:
-            return True, None
-        try:
-            thresh = float(_os.environ.get("BECKER_DECISION_THRESHOLD") or 0.0)
-        except ValueError:
-            thresh = 0.0
-
-        try:
-            is_up = signal.direction == Direction.UP
-        except Exception:
-            return True, None
-        price = snap.up_best_ask if is_up else snap.down_best_ask
-        if not price or price <= 0:
-            return True, None
-
-        dp = _becker_delta_fn(poly, price)
-        if dp is None:
-            return True, None
-        kalshi = self._becker_curves.get("kalshi") or []
-        dk = _becker_delta_fn(kalshi, price) if kalshi else None
-        try:
-            from config.settings import Settings
-            _s = Settings()
-            k_w = float(getattr(_s, "BECKER_KALSHI_WEIGHT", 0.30))
-        except Exception:
-            k_w = 0.30
-        if dk is not None:
-            delta = dp * (1.0 - k_w) + dk * k_w
-        else:
-            delta = dp
-
-        # `delta > 0` on the UP token price means the UP side is
-        # underpriced (actual_wr > price). On the DOWN side, a DOWN-token
-        # price delta > 0 means DOWN is underpriced.
-        # Sign convention: positive delta == the side we sampled is good.
-        if abs(delta) < thresh:
-            return True, None
-
-        if mode == "veto":
-            # Contradiction: strategy picked a side but Becker says that
-            # side is overpriced (delta < 0 on the chosen side's price).
-            if delta < 0:
-                self._becker_veto_count += 1
-                try:
-                    signal.metadata.setdefault("becker_decision", {})
-                    signal.metadata["becker_decision"] = {
-                        "mode": "veto",
-                        "delta": round(float(delta), 4),
-                        "thresh": thresh,
-                        "price": round(float(price), 4),
-                    }
-                except Exception:
-                    pass
-                return False, None
-            return True, None
-
-        if mode == "flip":
-            # Positive delta -> the sampled side is underpriced -> keep it.
-            # Negative delta -> the *other* side is underpriced -> flip.
-            if delta < 0:
-                new_dir = Direction.DOWN if is_up else Direction.UP
-                self._becker_flip_count += 1
-                try:
-                    signal.metadata.setdefault("becker_decision", {})
-                    signal.metadata["becker_decision"] = {
-                        "mode": "flip",
-                        "delta": round(float(delta), 4),
-                        "thresh": thresh,
-                        "from": "UP" if is_up else "DOWN",
-                        "to": "UP" if new_dir == Direction.UP else "DOWN",
-                    }
-                except Exception:
-                    pass
-                return True, new_dir
-            return True, None
-
-        return True, None
+    # _apply_becker_boost + _apply_becker_decision removed 2026-04-29
+    # (Heddas direktifi: Becker tam silme). ~190 satır dead method silindi.
+    # Caller satırları (L823-846) zaten kaldırıldı, başka çağıran yok.
 
     def _run_market(self, market: MarketData,
                     raw_snapshots: list[dict], winner: str):
@@ -824,29 +631,12 @@ class ReplayEngine:
             # Call strategy
             result = self._strategy.on_snapshot(snap)
 
-            # Phase 47f.2 — apply Becker δ(p) boost BEFORE min_confidence gate
-            # so the backtest mirrors the live engine decision path.
-            if result is not None and self._becker_curves:
-                self._apply_becker_boost(result, snap)
-
+            # Becker boost + decision-mode removed 2026-04-29 (Heddas direktifi).
+            # _becker_curves zaten {} (replay_engine_v3 wrapper artık inject
+            # etmiyor — Aşama 3.D backlog). Live engine pure backtest path.
             if result and signal is None:
                 if result.confidence >= self.config.min_confidence:
                     if self._direction_ok(result):
-                        # Phase 47f.6 — decision-mode veto/flip intercept.
-                        # This ONLY fires when BECKER_DECISION_MODE env var
-                        # is set to "veto" or "flip"; otherwise it's a no-op
-                        # and the live-parity path is preserved.
-                        keep = True
-                        new_dir = None
-                        if self._becker_curves:
-                            keep, new_dir = self._apply_becker_decision(result, snap)
-                        if not keep:
-                            continue
-                        if new_dir is not None:
-                            try:
-                                result.direction = new_dir
-                            except Exception:
-                                pass
                         signal = result
                         signal_snapshot = snap
                         self._signals_generated += 1

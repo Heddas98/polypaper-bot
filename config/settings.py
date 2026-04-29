@@ -116,34 +116,11 @@ class Settings:
     FUNDING_TILT_WEIGHT: float = field(default_factory=lambda: float(os.environ.get("FUNDING_TILT_WEIGHT", "0.05")))
     # Phase 47a — Adaptive micro weight tracker
     ADAPTIVE_MICRO_WEIGHT_ENABLED: bool = field(default_factory=lambda: os.environ.get("ADAPTIVE_MICRO_WEIGHT_ENABLED", "false").lower() == "true")
-    # Phase 47f — Becker δ(p) calibration boost (poly+kalshi ensemble)
-    BECKER_CALIB_ENABLED: bool = field(default_factory=lambda: os.environ.get("BECKER_CALIB_ENABLED", "false").lower() == "true")
-    BECKER_CALIB_WEIGHT: float = field(default_factory=lambda: float(os.environ.get("BECKER_CALIB_WEIGHT", "0.10")))
-    BECKER_CALIB_CLAMP: float = field(default_factory=lambda: float(os.environ.get("BECKER_CALIB_CLAMP", "0.15")))
-    # Phase 47f.1 — kalshi cross-platform ensemble weight (0=poly only, 1=kalshi only)
-    BECKER_KALSHI_WEIGHT: float = field(default_factory=lambda: float(os.environ.get("BECKER_KALSHI_WEIGHT", "0.30")))
-    # Phase 47f.7 — Becker decision-mode wiring (data-driven, strategy-specific).
-    # Default "boost" preserves Phase 47f.2 live-parity behavior. Backtest sweep
-    # 47f.8 (BTC 5m 400m, 30 runs across 6 strategies) found late_convergence is
-    # the only calibration-FRIENDLY strategy with flip@0.01 producing +$19.52
-    # PnL gain (+105% on baseline). All other strategies are HOSTILE or NEUTRAL.
-    # Whitelist is the data-driven gate: only listed strategies use the new
-    # decision-mode path; everything else continues with the additive boost.
-    #   BECKER_DECISION_MODE: boost (default, no-op) | veto | flip | off
-    #   BECKER_DECISION_THRESHOLD: |delta| floor for veto/flip to fire
-    #   BECKER_DECISION_STRATEGY_WHITELIST: CSV of strategies decision-mode
-    #     applies to (empty = no strategy). Case-insensitive match.
-    BECKER_DECISION_MODE: str = field(default_factory=lambda: os.environ.get("BECKER_DECISION_MODE", "boost").strip().lower())
-    BECKER_DECISION_THRESHOLD: float = field(default_factory=lambda: float(os.environ.get("BECKER_DECISION_THRESHOLD", "0.01")))
-    BECKER_DECISION_STRATEGY_WHITELIST: str = field(default_factory=lambda: os.environ.get("BECKER_DECISION_STRATEGY_WHITELIST", "late_convergence"))
-    # Phase 48 — Adaptive per-asset Becker weight (BeckerWeightTracker).
-    # Disabled by default. When enabled, the engine multiplies the Becker boost
-    # by a per-asset factor in [0.50, 1.50] tuned online from the Pearson
-    # correlation between (signed delta at order open) and (pnl sign at close).
-    # Wiring is opt-in: tracker class is built but not yet referenced from
-    # core/engine.py — that happens in a follow-up phase after live shadow
-    # data confirms the 47f.7 wins are stable.
-    ADAPTIVE_BECKER_WEIGHT_ENABLED: bool = field(default_factory=lambda: os.environ.get("ADAPTIVE_BECKER_WEIGHT_ENABLED", "false").lower() == "true")
+    # Becker calibration system removed 2026-04-29 (Heddas direktifi: Becker
+    # tam silme). Kaldırılan settings: BECKER_CALIB_ENABLED, BECKER_CALIB_WEIGHT,
+    # BECKER_CALIB_CLAMP, BECKER_KALSHI_WEIGHT, BECKER_DECISION_MODE,
+    # BECKER_DECISION_THRESHOLD, BECKER_DECISION_STRATEGY_WHITELIST,
+    # ADAPTIVE_BECKER_WEIGHT_ENABLED. Ref: docs/audits/fee_reality_check_2026_04.md.
     BOT_NAME: str = "PolyPaper Bot"
     # BOT_VERSION removed — single source of truth is telegram_bot/version.py
     # (was: BOT_VERSION: str = "9.7.3", drifted from v9.7.9). T0.2 fix 2026-04-20.

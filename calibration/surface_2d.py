@@ -226,29 +226,17 @@ class CalibrationSurface:
                 return i
         return len(self.time_edges) - 2  # Last bin
 
-    def _fallback_1d(self, price: float, curve: Curve) -> SurfaceResult:
-        """Fall back to 1D Becker δ(p) when no 2D surface."""
-        from core.becker_calibration import becker_delta, becker_boost
-        delta = becker_delta(curve, price)
-        if delta is None:
-            return SurfaceResult(source="1d_no_data")
-        boost = becker_boost(delta, _WEIGHT, _CLAMP)
-        return SurfaceResult(
-            delta=round(delta, 6),
-            c_k=round(delta, 6),
-            boost=round(boost, 6),
-            confidence=0.7,  # Lower than 2D
-            source="1d_fallback",
-        )
+    # _fallback_1d removed 2026-04-29 (Heddas direktifi: Becker tam silme).
+    # core.becker_calibration modülü silindi, fallback path artık geçersiz.
 
     def _price_only_lookup(
         self, price: float, price_bin: float, curve: Curve
     ) -> SurfaceResult:
         """Use price marginal when time is unknown."""
         c_k = self.price_marginal.get(price_bin, 0.0)
-        if abs(c_k) < 1e-6 and curve:
-            # Price marginal empty → use 1D curve
-            return self._fallback_1d(price, curve)
+        if abs(c_k) < 1e-6:
+            # Price marginal empty + no Becker fallback → no data
+            return SurfaceResult(source="2d_no_data")
 
         boost = max(min(c_k * _WEIGHT * 0.8, _CLAMP), -_CLAMP)
         return SurfaceResult(
@@ -289,8 +277,10 @@ class SurfaceBuilder:
     CONF_LOW = 10     # n >= 10 → confidence 0.4
 
     def __init__(self, calib_db: Optional[Path] = None):
-        from data.becker_loader import CALIB_DB
-        self.calib_db = calib_db or CALIB_DB
+        # 2026-04-29 Aşama 3.C: Becker calibration DB silindi.
+        # SurfaceBuilder.build() now no-op'a indirgendi (DB yok → empty surface).
+        from pathlib import Path as _P
+        self.calib_db = calib_db or _P("data_store/becker_calibration.db")
 
     def build(self, source: str = "kalshi") -> CalibrationSurface:
         """Build a 2D calibration surface from the Becker calibration DB.
@@ -554,13 +544,10 @@ def surface_delta(
     """
     Main entry point for engine_signals.py integration.
 
-    Replaces / augments becker_delta() in the signal boosters pipeline.
+    2026-04-29: Becker fallback removed (fallback_1d_curve param kept for
+    backward-compat, ignored). Surface 2D pure path only.
     """
     if surface is None:
-        if _FALLBACK_1D and fallback_1d_curve:
-            # No surface at all → pure 1D fallback
-            temp = CalibrationSurface()
-            return temp._fallback_1d(price, fallback_1d_curve)
         return SurfaceResult(source="no_surface")
 
     return surface.lookup(price, hours_remaining, fallback_1d_curve)

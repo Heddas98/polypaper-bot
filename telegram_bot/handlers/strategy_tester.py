@@ -3,12 +3,14 @@ PolyPaper Bot - Strategy Tester Handler (Phase 79+)
 Test user-created strategies against historical snapshot data.
 
 Commands:
-  /test_strategy <id_prefix> [recorder|becker]
-  /test <id_prefix> [recorder|becker]
+  /test_strategy <id_prefix>
+  /test <id_prefix>
 
 Example:
   /test_strategy abc123
-  /test abc123 becker
+
+2026-04-29 Aşama 3.C: Becker data source kaldırıldı (Heddas direktifi).
+Sadece recorder (snapshot DB) data source.
 """
 import asyncio
 import logging
@@ -30,8 +32,10 @@ _cancel_events: dict[int, asyncio.Event] = {}
 
 async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handle /test_strategy <id_prefix> [recorder|becker] command.
-    Tests a user-created strategy against historical data.
+    Handle /test_strategy <id_prefix> command.
+    Tests a user-created strategy against recorder snapshot data.
+
+    2026-04-29 Aşama 3.C: Becker data source removed (Heddas direktifi).
     """
     try:
         args = context.args if context.args else []
@@ -39,27 +43,16 @@ async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TY
         if not args:
             await update.message.reply_text(
                 "🧪 <b>Strateji Test Komutu</b>\n\n"
-                "Kullanım: <code>/test_strategy &lt;strateji_id&gt; [recorder|becker]</code>\n\n"
-                "Örnek:\n"
-                "  <code>/test_strategy abc123</code> — Recorder verileriyle test et\n"
-                "  <code>/test_strategy abc123 becker</code> — Becker verileriyle test et\n\n"
-                "📌 <b>Veri Kaynakları:</b>\n"
-                "  • <b>recorder</b> (default): Son 4 gün, 2.5M snapshot\n"
-                "  • <b>becker</b>: 6 yıl, 1.4GB DuckDB\n",
+                "Kullanım: <code>/test_strategy &lt;strateji_id&gt;</code>\n\n"
+                "Örnek: <code>/test_strategy abc123</code>\n\n"
+                "📌 <b>Veri Kaynağı:</b> Recorder (son 30 gün snapshot)\n",
                 parse_mode="HTML"
             )
             return
 
         id_prefix = args[0].lower()
-        data_source = args[1].lower() if len(args) > 1 else "recorder"
-
-        if data_source not in ["recorder", "becker"]:
-            await update.message.reply_text(
-                f"❌ Bilinmeyen veri kaynağı: {esc(data_source)}\n\n"
-                "Seçenekler: <code>recorder</code> veya <code>becker</code>",
-                parse_mode="HTML"
-            )
-            return
+        # Becker option removed 2026-04-29; only recorder source supported
+        data_source = "recorder"
 
         # Get user
         user_id = str(update.effective_user.id)
@@ -160,9 +153,8 @@ async def _run_test(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
         zone_text = "\n".join(zone_lines) if zone_lines else "  (Verisi yok)"
 
-        # Format data source info
-        data_source_label = "Recorder (2.5M snapshot, son 4 gün)" if data_source == "recorder" \
-                            else "Becker (6 yıl, 1.4GB)"
+        # Format data source info (Becker removed 2026-04-29)
+        data_source_label = "Recorder (snapshot DB, son 30 gün)"
 
         # Duration
         duration_s = stats.get("duration_s", 0.0)
@@ -200,11 +192,7 @@ async def _run_test(update: Update, context: ContextTypes.DEFAULT_TYPE,
             ]
         ]
 
-        if data_source == "recorder":
-            keyboard.append([
-                InlineKeyboardButton("📊 Becker Test", callback_data=f"test_becker_{strategy.id}"),
-            ])
-
+        # Becker test button removed 2026-04-29 (Heddas direktifi)
         keyboard.append([
             InlineKeyboardButton("❌ Kapat", callback_data="test_close"),
         ])
@@ -304,13 +292,8 @@ async def _test_strategy_async(db: Database, user_id: str, id_prefix: str,
                 "error": "Strateji yüklenemedi"
             }
 
-        # Get snapshot data from appropriate source
-        if data_source == "becker":
-            # Use Becker (DuckDB calibration data)
-            stats = await _test_with_becker(strategy)
-        else:
-            # Use Recorder (ob_snapshots)
-            stats = await _test_with_recorder(db, strategy)
+        # Use Recorder (ob_snapshots) — Becker removed 2026-04-29
+        stats = await _test_with_recorder(db, strategy)
 
         return {
             "success": True,
@@ -392,33 +375,7 @@ async def _test_with_recorder(db: Database, strategy: Strategy) -> dict:
         }
 
 
-async def _test_with_becker(strategy: Strategy) -> dict:
-    """
-    Test strategy using Becker (DuckDB calibration data).
-    """
-    try:
-        # This would use becker_loader.py to load calibration data
-        # For now, return mock stats
-        return {
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "pnl": 0.0,
-            "trades": [],
-            "zone_breakdown": {},
-        }
-
-    except Exception as e:  # noqa: BLE001
-        # T11.8-B (2026-04-24): becker backtest wrapper — same surface.
-        logger.error(f"_test_with_becker error: {e}", exc_info=True)
-        return {
-            "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "pnl": 0.0,
-            "trades": [],
-            "zone_breakdown": {},
-        }
+# _test_with_becker removed 2026-04-29 (Heddas direktifi: Becker tam silme)
 
 
 async def test_strategy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -450,11 +407,7 @@ async def test_strategy_callback(update: Update, context: ContextTypes.DEFAULT_T
             # TODO: Call AI brain analysis
             return
 
-        if data.startswith("test_becker_"):
-            strategy_id = data[12:]
-            await query.answer("Becker testi başlatılıyor...")
-            # TODO: Rerun test with becker data source
-            return
+        # test_becker_* callback removed 2026-04-29 (Heddas direktifi)
 
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): callback outer wrapper. Test trigger
