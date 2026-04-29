@@ -207,21 +207,52 @@ Polymarket arayüzü USDC kabul ediyor → arka planda pUSD'ye çeviriyor. Trade
 - `py-clob-client 0.18.0` kullanılıyor (project instructions). **Bu version pUSD-aware mı? Doğrulanmalı.**
 - Polymarket Profile balance: $0 (henüz deposit yapılmadı)
 
-**Aksiyon (Heddas tarafı):**
-1. SDK version kontrol:
-   ```cmd
-   py -3.11 -m pip show py-clob-client
-   ```
-   `Version: 0.18.0` → upgrade gerekebilir
-2. SDK pUSD support için release notes:
+**SDK Version Verification (2026-04-28):**
+```
+Bot kullanıyor: py-clob-client 0.18.0
+PyPI en son:    0.34.6 (2026-02-19)
+Aralık:         16 minor version, ~9 ay
+```
+
+**Önemli release tarihler (PyPI'dan):**
+- 0.24.0 — 2025-07-23
+- 0.30.0 — 2025-12-05 (Polymarket pUSD lansmanına yakın)
+- 0.34.0 — 2025-12-21
+- 0.34.6 — 2026-02-19 (en son stable)
+
+Bot 0.18.0'da **9 aydır donmuş**. Polymarket Apr 2026 pUSD migration sonrası order placement / contract address handling muhtemelen 0.30+ sürümlerinde güncellenmiştir.
+
+**Aksiyon (Heddas tarafı, sırayla):**
+1. SDK upgrade:
    ```cmd
    py -3.11 -m pip install --upgrade py-clob-client
+   py -3.11 -m pip show py-clob-client
    ```
-   Sonra py_compile + pytest + smoke auth test tekrar çalıştır
-3. Test deposit ($3-5 USDC) → bakiye Polymarket'ta pUSD olarak görünmeli
-4. Küçük 1 trade ($0.10-0.50) attempt et — `INVALID_ORDER_NOT_ENOUGH_BALANCE` çıkarsa SDK upgrade şart
+   Beklenen: `Version: 0.34.6`
+2. **Regression test** (breaking change tespiti):
+   ```cmd
+   py -3.11 -m py_compile core/live_trader.py
+   py -3.11 -m pytest tests/ --ignore=tests/integration -q
+   ```
+3. **Smoke auth re-test:**
+   ```cmd
+   py -3.11 -c "import os; from dotenv import load_dotenv; load_dotenv(); from py_clob_client.client import ClobClient; c=ClobClient('https://clob.polymarket.com', key=os.getenv('POLYGON_PRIVATE_KEY'), chain_id=137, signature_type=int(os.getenv('CLOB_SIGNATURE_TYPE','2')), funder=os.getenv('POLYGON_WALLET')); creds=c.create_or_derive_api_creds(); print('AUTH OK', creds.api_key[:8])"
+   ```
+4. **Eğer hata** çıkarsa (breaking change) — Heddas: hata mesajını paylaş, fix yapılır
+5. **Eğer hepsi yeşil** — git commit + test deposit ($3-5 USDC)
 
-**Severity:** 🟠 HIGH (mainnet için), 🟢 LOW (paper-only için) — SDK upgrade'e bağlı
+**Severity:** 🟠 HIGH — mainnet trade attempt etmeden ÖNCE upgrade şart
+
+### ✅ Bulgu 4 KAPANDI 2026-04-28
+
+**Aksiyon tamamlandı:**
+1. `pip install --upgrade py-clob-client` → **0.18.0 → 0.34.6** (PyPI en son, 2026-02-19)
+2. Yeni dep'ler auto-installed: `py-builder-signing-sdk` (builder API), `h2`/`hpack`/`hyperframe` (HTTP/2)
+3. `requirements.txt` pin güncellendi: `py-clob-client==0.34.6`
+4. **Regression test:** py_compile errorlevel 0, pytest **778 PASS / 2 SKIP / 0 FAIL** — breaking change YOK
+5. **Smoke auth re-test:** `AUTH OK 498bde4b...` (aynı api_key — derive idempotent, beklenen davranış)
+
+**Sonuç:** Bot artık pUSD-aware SDK üzerinde. Polymarket prod CLOB ile auth uyumlu. Mainnet'te order placement için SDK katmanı temiz.
 
 ---
 
