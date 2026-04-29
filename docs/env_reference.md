@@ -76,7 +76,7 @@
 | `CLASSIC_RESPECT_UNSELLABLE` | `'false'` | ✅ | ✅ | `core/engine_signals.py:1253` |
 | `CLASSIC_RESPECT_ZONES` | `'false'` | ✅ | ✅ | `core/engine_signals.py:813` |
 | `CLASSIC_TAKER_LIMIT_CEIL` | `'0.99'` | ✅ |  | `core/engine_signals.py:1674` |
-| `CLOB_SIGNATURE_TYPE` | `'2'` |  | ✅ | `core/live_trader.py:210`, `core/live_trader.py:440` |
+| `CLOB_SIGNATURE_TYPE` | `'2'` |  | ✅ | `core/live_trader.py:217`, `core/live_trader.py:447` |
 | `CLOB_TIMEOUT` | `'5.0'` |  | ✅ | `data/polymarket_client.py:21` |
 | `CONFLUENCE_K` | `'3'` |  | ✅ | `core/ai_brain.py:741`, `core/signal_fusion.py:551` |
 | `CONFLUENCE_MODE` | `'true'` |  | ✅ | `core/signal_fusion.py:550` |
@@ -133,7 +133,7 @@
 | `LIFECYCLE_MIN_OVERRIDE` | `'false'` |  |  | `core/engine_signals.py:737` |
 | `LIQUIDITY_MIN_DEPTH_PCT` | `'0.50'` |  |  | `core/risk_manager.py:522` |
 | `LIVE_BUDGET` | `'1.49'` | ✅ |  | `core/live_trader.py:83` |
-| `LIVE_ENABLED` | `'false'` |  | ✅ | `core/live_trader.py:155`, `telegram_bot/handlers/live_guards_handler.py:77` |
+| `LIVE_ENABLED` | `'false'` |  | ✅ | `core/live_trader.py:162`, `telegram_bot/handlers/live_guards_handler.py:77` |
 | `LIVE_MAX_DAILY_LOSS` | `'1.00'` | ✅ |  | `core/live_trader.py:53` |
 | `LIVE_MAX_TRADE` | `'1.00'` | ✅ |  | `core/live_trader.py:45` |
 | `LIVE_MIN_ODDS` | `'0.75'` | ✅ |  | `core/live_trader.py:69` |
@@ -195,11 +195,11 @@
 | `PNL_DIVERGENCE_WINDOW_H` | `'24'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:190`, `telegram_bot/jobs/pnl_divergence_job.py:57` |
 | `PNL_PAUSE_THRESHOLD` | `'-8.0'` | ✅ |  | `core/auto_optimizer.py:45` |
 | `POLYBACKTEST_API_KEY` | `''` |  | ✅ | `backtest/data_sources/polybacktest.py:49` |
-| `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:153`, `core/live_trader.py:432` |
-| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:561`, `core/live_trader.py:154`, `core/live_trader.py:433` |
-| `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:236` |
-| `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:237` |
-| `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:238` |
+| `POLYGON_PRIVATE_KEY` | `''` |  | ✅ | `core/live_trader.py:160`, `core/live_trader.py:439` |
+| `POLYGON_WALLET` | `''` |  | ✅ | `core/live_trader.py:607`, `core/live_trader.py:161`, `core/live_trader.py:440` |
+| `POLYMARKET_API_KEY` | `''` |  | ✅ | `core/live_trader.py:243` |
+| `POLYMARKET_API_SECRET` | `''` |  | ✅ | `core/live_trader.py:244` |
+| `POLYMARKET_PASSPHRASE` | `''` |  | ✅ | `core/live_trader.py:245` |
 | `POLYPAPER_DB` | `<expr>` |  |  | `backtest/archive_reader.py:112` |
 | `PORT` | `8080` |  |  | `core/keepalive.py:22` |
 | `PRICE_ALERT_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:715` |

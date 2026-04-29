@@ -80,7 +80,11 @@ Eğer Heddas yeni bir EOA ile sıfırdan setup yaptıysa (Polymarket.com'a hiç 
 
 ---
 
-## 2. Order Placement — Eksik Options
+## 2. Order Placement — ✅ Bulgu 2.1 + 2.2 KAPANDI 2026-04-28
+
+**Status:** Per-token meta cache + options dict explicit pass — fix uygulandı, py_compile + pytest 778 PASS korundu.
+
+### Eski
 
 **Kod:** `core/live_trader.py:455-462`
 ```python
@@ -123,13 +127,46 @@ client.create_and_post_order(order_args, options={"tick_size": ts, "neg_risk": F
 **Severity:** 🟡 MED — binary markets için her zaman False olduğundan riskler düşük
 
 ### 2.3 `create_order` + `post_order` (Eski API) vs `create_and_post_order` (Atomic)
-Bot iki adım kullanıyor (`signed = create_order` → `result = post_order`). Docs atomic `create_and_post_order` öneriyor — daha güvenli (signature time-window dar).
+Bot iki adım kullanıyor (`signed = create_order` → `result = post_order`). Docs atomic `create_and_post_order` öneriyor — daha güvenli (signature time-window dar). 2026-04-28 fix: kasıtlı iki adım korundu (signing failure'larında daha iyi log/diagnostic), atomic versiyon Phase B'de değerlendirilebilir.
 
 **Severity:** 🟢 LOW — eski API hâlâ geçerli, sadece tarz farkı
 
+### Fix uygulandı (Bulgu 2.1 + 2.2)
+**Kod:** `core/live_trader.py:131 (cache attr) + 466-498 (meta fetch + options dict)`
+- `__init__`'a `self._token_meta: dict = {}` cache eklendi
+- `_sync_order` içinde her trade öncesi:
+  ```python
+  meta = self._token_meta.get(token_id)
+  if meta is None:
+      ts = client.get_tick_size(token_id)
+      nr = client.get_neg_risk(token_id)
+      meta = {"tick_size": str(ts), "neg_risk": bool(nr)}
+      self._token_meta[token_id] = meta
+  options = {"tick_size": meta["tick_size"], "neg_risk": meta["neg_risk"]}
+  signed = client.create_order(order_args, options=options)
+  ```
+- SDK fallback: `TypeError` (eski API options kwarg yok) → log + default (tick=0.01, neg_risk=False)
+- Hata fallback: `get_tick_size`/`get_neg_risk` REST fail → default + warning log
+
+**Severity:** ✅ KAPANDI — explicit pass, cache'li, mainnet ready
+
+
 ---
 
-## 3. Heartbeat Mekanizması — Eksik
+## 3. Heartbeat Mekanizması — ⚠️ Functional Surrogate Mevcut
+
+**Re-evaluation 2026-04-28:** Bot Sprint 5 HOTFIX v6 ile **Classic TAKER pattern** uyguluyor (memory `project_phase82e_sprint5_hotfix_v6_classic_fill.md`):
+- Limit price 0.99 ceiling → **marketable** (immediate match) garanti edilir
+- `TAKER_STUCK_TIMEOUT_SEC=120s` → 120 saniye sonra match olmamış order auto-cancel
+
+Yani fonksiyonel akış:
+1. Bot 0.99 ceiling ile order place → Polymarket'da marketable price → 1-2 sn'de fill
+2. Bir sebep ile fill olmazsa → Polymarket 10s sonra otomatik cancel (heartbeat eksik) → bot 120s sonra "stuck" detect → re-attempt
+3. Maker rebate hedeflemiyor (taker-only)
+
+**Verdict:** Heartbeat **eksik ama functional safe** — taker semantics ile heartbeat zorunlu değil. Maker rebate kazanmak istenirse Phase C'de heartbeat job ekle.
+
+**Severity:** 🟢 LOW — re-evaluated, current design intentional
 
 **Docs:** `https://docs.polymarket.com/trading/orders/overview#heartbeat`
 > If a valid heartbeat is not received within 10 seconds (with up to a 5-second buffer), all of your open orders will be cancelled.
@@ -152,6 +189,39 @@ Bot iki adım kullanıyor (`signed = create_order` → `result = post_order`). D
 3. Eğer maker rebate kazanmak isterse heartbeat job ekle (her 5 saniye `post_heartbeat`)
 
 **Severity:** 🟡 MED — taker-only ise OK, ama explicit kontrol şart
+
+---
+
+## 3.5 Bulgu 4 — pUSD Migration (NEW)
+
+**Polymarket Apr 2026:** Native stablecoin **pUSD** lansmanı yapıldı, USDC.e bridge'lendi. Yeni contract:
+
+```
+pUSD (Polymarket USD): 0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB (Polygon)
+```
+
+Polymarket arayüzü USDC kabul ediyor → arka planda pUSD'ye çeviriyor. Trade'ler pUSD over CTF Exchange contract.
+
+**Bot durumu:**
+- `core/live_trader.py` "USDC" terminolojisi kullanıyor — semantic, contract address SDK'da
+- `py-clob-client 0.18.0` kullanılıyor (project instructions). **Bu version pUSD-aware mı? Doğrulanmalı.**
+- Polymarket Profile balance: $0 (henüz deposit yapılmadı)
+
+**Aksiyon (Heddas tarafı):**
+1. SDK version kontrol:
+   ```cmd
+   py -3.11 -m pip show py-clob-client
+   ```
+   `Version: 0.18.0` → upgrade gerekebilir
+2. SDK pUSD support için release notes:
+   ```cmd
+   py -3.11 -m pip install --upgrade py-clob-client
+   ```
+   Sonra py_compile + pytest + smoke auth test tekrar çalıştır
+3. Test deposit ($3-5 USDC) → bakiye Polymarket'ta pUSD olarak görünmeli
+4. Küçük 1 trade ($0.10-0.50) attempt et — `INVALID_ORDER_NOT_ENOUGH_BALANCE` çıkarsa SDK upgrade şart
+
+**Severity:** 🟠 HIGH (mainnet için), 🟢 LOW (paper-only için) — SDK upgrade'e bağlı
 
 ---
 

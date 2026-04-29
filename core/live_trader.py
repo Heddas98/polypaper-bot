@@ -132,6 +132,13 @@ class LiveTrader:
         # Phase 49 A-01: derived L2 credentials cache (derived from POLYGON_PRIVATE_KEY)
         self._api_creds = None  # type: Optional[object]
         self._auth_verified = False
+        # 2026-04-28 Heddas docs audit fix Bulgu 2 (tick_size + neg_risk):
+        # Per-token metadata cache so we don't hammer get_tick_size /
+        # get_neg_risk on every order placement. token_id → {"tick_size": str,
+        # "neg_risk": bool}. Polymarket docs: order rejection codes
+        # INVALID_ORDER_MIN_TICK_SIZE / Neg Risk CTF Exchange contract require
+        # explicit pass-through of these per-market parameters.
+        self._token_meta: dict = {}
 
     # T11.2 [B] (2026-04-22): T6.1 parity property — read ``LIVE_BUDGET``
     # from env on every access so ``/envt LIVE_BUDGET <X>`` takes effect
@@ -462,13 +469,52 @@ class LiveTrader:
 
             client.set_api_creds(creds)
 
+            # 2026-04-28 Heddas docs audit Bulgu 2: per-market tick_size +
+            # neg_risk explicit. Polymarket docs:
+            #   - tick_size 0.1/0.01/0.001/0.0001 (market-specific)
+            #   - neg_risk True → multi-outcome (3+) markets use Neg Risk CTF
+            #     Exchange contract; binary BTC Up/Down → False.
+            # Cache per-token to avoid extra REST calls every trade.
+            meta = self._token_meta.get(token_id)
+            if meta is None:
+                try:
+                    ts = client.get_tick_size(token_id)
+                    nr = client.get_neg_risk(token_id)
+                    meta = {"tick_size": str(ts), "neg_risk": bool(nr)}
+                    self._token_meta[token_id] = meta
+                    logger.info(
+                        f"  📐 token meta cached: tick={meta['tick_size']} "
+                        f"neg_risk={meta['neg_risk']}"
+                    )
+                except Exception as _meta_err:  # noqa: BLE001
+                    # SDK / HTTP failure → defaults safe for crypto BTC Up/Down
+                    # (tick=0.01, neg_risk=False). Rejected orders surface in
+                    # post_order response.
+                    logger.warning(
+                        f"  ⚠ token meta fetch failed ({type(_meta_err).__name__}): "
+                        f"{_meta_err}; defaulting tick=0.01 neg_risk=False"
+                    )
+                    meta = {"tick_size": "0.01", "neg_risk": False}
+
             order_args = OrderArgs(
                 price=price,
                 size=round(amount / price, 2),
                 side=BUY,
                 token_id=token_id)
 
-            signed = client.create_order(order_args)
+            # 2026-04-28 Bulgu 2.3: pass options dict explicitly. Two-step
+            # create_order + post_order kept (not atomic create_and_post_order)
+            # for visibility into signing failures; same effective behavior.
+            options = {"tick_size": meta["tick_size"], "neg_risk": meta["neg_risk"]}
+            try:
+                signed = client.create_order(order_args, options=options)
+            except TypeError:
+                # py-clob-client 0.18.0 fallback: older signature without
+                # options kwarg — SDK uses defaults (tick=0.01, neg_risk=False)
+                # which match crypto BTC Up/Down. Logged so we know if upgrade
+                # path is needed.
+                logger.debug("create_order options kwarg not supported; SDK default")
+                signed = client.create_order(order_args)
             result = client.post_order(signed)
 
             if result and result.get("orderID"):
