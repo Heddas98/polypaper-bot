@@ -124,11 +124,12 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
         engine = context.bot_data.get("engine")
         if engine and getattr(engine, "db", None):
             db = engine.db
-            # Paper bakiye = bot internal (env LIVE_BUDGET değil, paper budget)
+            # 2026-05-08 FIX: bot DB schema kullan — executions tablosu (trades degil),
+            # column 'pnl' (pnl_usd degil), strategy status 'started' (active=1 degil).
             try:
                 async with db.conn.execute(
-                    "SELECT COALESCE(SUM(pnl_usd), 0) FROM trades "
-                    "WHERE date(matched_at) = date('now')"
+                    "SELECT COALESCE(SUM(pnl), 0) FROM executions "
+                    "WHERE status='filled' AND date(closed_at) = date('now')"
                 ) as cur:
                     row = await cur.fetchone()
                     if row:
@@ -137,14 +138,15 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
                 pass
             try:
                 async with db.conn.execute(
-                    "SELECT COUNT(*) FROM strategies WHERE active = 1"
+                    "SELECT COUNT(*) FROM strategies WHERE status='started'"
                 ) as cur:
                     row = await cur.fetchone()
                     if row:
                         summary["open_strategies"] = int(row[0] or 0)
             except Exception:
                 pass
-            # Paper balance (memory'de paper $10,386 idi)
+            # Paper balance: ENV display (gerçek paper bakiye trade journal'dan).
+            # Default $10,386 (memory: 1417 trade, +$355 PnL, baseline $10,000)
             summary["balance"] = float(
                 os.getenv("PAPER_BUDGET_DISPLAY", "10386.0")
             )

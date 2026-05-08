@@ -157,7 +157,10 @@ class PolymarketWebSocket:
             ordered = ordered[:avail]
 
         for tid in ordered:
-            await self._send(json.dumps({"type": "market", "assets_ids": [tid]}))
+            await self._send(json.dumps({
+                "type": "market", "assets_ids": [tid],
+                "custom_feature_enabled": True,  # 2026-05-08 V2 meta events
+            }))
             self._subscribed.add(tid)
         logger.info(f"  WS +{len(ordered)} tokens (total: {len(self._subscribed)})")
 
@@ -287,6 +290,13 @@ class PolymarketWebSocket:
                 self._extract_trade(ev)
             except Exception as _tr_err:  # noqa: BLE001
                 logger.debug(f"WS _extract_trade: {type(_tr_err).__name__}: {_tr_err}")
+            # 2026-05-08 Sprint 3 Paket B: Polymarket V2 spec event handlers
+            # tick_size_change + new_market + market_resolved
+            # (custom_feature_enabled=true subscription required)
+            try:
+                self._handle_meta_event(ev)
+            except Exception as _me_err:  # noqa: BLE001
+                logger.debug(f"WS _handle_meta_event: {type(_me_err).__name__}: {_me_err}")
 
     def _extract_trade(self, ev):
         """Phase 39 (P1.1): Extract real trade fills from `last_trade_price`
@@ -366,6 +376,63 @@ class PolymarketWebSocket:
                 self._on_price_callback(asset_id, price)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _handle_meta_event(self, ev):
+        """2026-05-08 Sprint 3 Paket B — Polymarket V2 meta event handlers.
+
+        Polymarket /api-reference/wss/market spec events:
+          - tick_size_change: market'in min tick size'i değişti (price > 0.96
+            veya price < 0.04 olunca). Bot live_trader._token_meta cache'i
+            invalidate edilmeli, yoksa eski tick ile order reject olur.
+          - new_market: yeni market açıldı (custom_feature_enabled flag req).
+          - market_resolved: market resolve oldu (UMA report).
+
+        Bu fonksiyon sadece **callback fire** eder — gerçek invalidation
+        live_trader tarafında olur. Callback set edilmeden no-op.
+        """
+        if not isinstance(ev, dict):
+            return
+        et = (ev.get("event_type") or ev.get("type") or "").lower()
+        if et not in ("tick_size_change", "new_market", "market_resolved"):
+            return
+
+        if et == "tick_size_change":
+            asset_id = str(ev.get("asset_id", "") or "")
+            old_tick = ev.get("old_tick_size")
+            new_tick = ev.get("new_tick_size")
+            logger.info(
+                f"📐 tick_size_change asset={asset_id[:12]}... "
+                f"{old_tick} → {new_tick}"
+            )
+            if hasattr(self, "_on_tick_change_callback") and \
+                    self._on_tick_change_callback:
+                try:
+                    self._on_tick_change_callback(asset_id, new_tick)
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning(f"tick_change cb: {_e}")
+
+        elif et == "new_market":
+            slug = ev.get("slug") or ev.get("market", "?")
+            logger.info(f"🆕 new_market detected: {slug}")
+            if hasattr(self, "_on_new_market_callback") and \
+                    self._on_new_market_callback:
+                try:
+                    self._on_new_market_callback(ev)
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning(f"new_market cb: {_e}")
+
+        elif et == "market_resolved":
+            cid = ev.get("condition_id") or ev.get("market", "?")
+            outcome = ev.get("outcome") or ev.get("winner", "?")
+            logger.info(
+                f"🏁 market_resolved cid={str(cid)[:12]}... outcome={outcome}"
+            )
+            if hasattr(self, "_on_market_resolved_callback") and \
+                    self._on_market_resolved_callback:
+                try:
+                    self._on_market_resolved_callback(ev)
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning(f"market_resolved cb: {_e}")
 
     def get_live_price(self, token_id: str) -> Optional[float]:
         """Get cached price. Returns None if stale (>WS_STALE_THRESHOLD, default 60s).

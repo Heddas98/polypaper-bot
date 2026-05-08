@@ -716,19 +716,24 @@ def test_engine_module_class_inspection():
 ])
 @pytest.mark.asyncio
 async def test_backtest_data_source_fetch(module_path, fn_name):
-    """Backtest data source async fetch helpers."""
+    """Backtest data source async fetch helpers.
+
+    Skip CLI entry points (main, run, cli) — those use argparse + sys.argv
+    and raise SystemExit which isn't a regular Exception subclass.
+    """
     try:
         mod = importlib.import_module(module_path)
     except ImportError:
         pytest.skip()
         return
-    # Try to find any function matching
+    # Skip CLI entry point names — they call argparse → SystemExit
+    SKIP_NAMES = {"main", "run", "cli", "entry", "__main__"}
     for name in dir(mod):
-        if name.startswith("_") or name.isupper():
+        if name.startswith("_") or name.isupper() or name in SKIP_NAMES:
             continue
         try:
             obj = getattr(mod, name)
-        except Exception:
+        except BaseException:  # noqa: BLE001 — also catch SystemExit
             continue
         if asyncio.iscoroutinefunction(obj):
             for args in [(), ("BTC",), ("BTC", "5m"),
@@ -737,7 +742,7 @@ async def test_backtest_data_source_fetch(module_path, fn_name):
                 try:
                     await obj(*args)
                     break
-                except Exception:
+                except BaseException:  # noqa: BLE001 — SystemExit, KeyboardInterrupt
                     continue
 
 
