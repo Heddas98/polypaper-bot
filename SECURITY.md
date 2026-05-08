@@ -22,6 +22,7 @@ PolyPaper Bot'un güvenlik politikası ve secret yönetimi.
 | `ANTHROPIC_API_KEY` | Yüksek | [console.anthropic.com](https://console.anthropic.com) → Settings → API Keys → revoke + generate new |
 | `POLYGON_PRIVATE_KEY` | Maksimum | **ASLA rotate edilemez** — yeni cüzdan oluştur, fonları transfer et, eskisini imha et |
 | `POLYMARKET_API_KEY` | Yüksek | Polymarket CLOB → API Keys → revoke + create new |
+| `RELAYER_API_KEY` | Yüksek | [polymarket.com/settings/api-keys](https://polymarket.com/settings/api-keys) → Relayer API Keys → revoke + create new |
 
 ## Pre-commit Hook
 

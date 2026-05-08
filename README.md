@@ -1,227 +1,275 @@
 # PolyPaper Bot
 
-> **Polymarket kripto Up/Down binary prediction market paper-trading + shadow-live-trading Telegram botu.**
-> Polyscout.io klonu · Python 3.11 · Tamamen gerçek canlı verilerle
+> **Polymarket'te kripto Up/Down piyasalarında otomatik kâğıt + canlı işlem yapan Telegram botu.**
+>
+> Polyscout.io klonu · Python 3.11 · Polymarket V2 SDK · Tek bir Telegram penceresinden tam kontrol
 
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
-[![Engine](https://img.shields.io/badge/engine-v34-brightgreen.svg)]()
-[![Bot](https://img.shields.io/badge/bot-v9.8.0-brightgreen.svg)]()
-[![Phase](https://img.shields.io/badge/phase-Sprint%202%20Mainnet%20Shadow-orange.svg)]()
-[![Tests](https://img.shields.io/badge/tests-3474%20pass-brightgreen.svg)]()
+[![Polymarket SDK](https://img.shields.io/badge/polymarket-V2-success.svg)](https://docs.polymarket.com)
+[![Tests](https://img.shields.io/badge/tests-3,474%20pass-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-43.7%25-yellow.svg)]()
-[![Security](https://img.shields.io/badge/security-13%20regex%20%C3%97%200%20match-brightgreen.svg)]()
+[![Mode](https://img.shields.io/badge/mode-paper%20%2B%20live-orange.svg)]()
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-Mainnet%20Live-green.svg)]()
 
 ---
 
-## Hızlı Bakış
+## Neye Yarıyor
 
-**Ne yapar:** Polymarket'in BTC/ETH/SOL kripto Up/Down binary piyasalarında, gerçek canlı verilerle kâğıt üstünde işlem yapar. Aynı sinyalleri aynı anda "shadow-live" modunda küçük gerçek USDC miktarıyla da çalıştırır — tam otomasyon, Telegram üzerinden tek tuş kontrol.
+PolyPaper Bot, Polymarket'in **BTC / ETH / SOL / XRP "Up/Down 5dk-1h" binary piyasalarında** otomatik karar veren bir trading bot'udur. İki modu vardır:
 
-**Mevcut durum (2026-05-06):**
+- **📋 PAPER MODE** — Gerçek piyasa verileriyle simülasyon. Para risk yok.
+- **💰 LIVE MODE** — Gerçek pUSD ile gerçek emirler. Polymarket Relayer üzerinden gasless onay (kullanıcı gas ödemez).
 
-| Metric | Value |
-|---|---|
-| Paper bakiye | ~$10,386 |
-| Live bakiye (gerçek pUSD) | $12.18 |
-| Toplam PnL | +$355 |
-| Trade sayısı | 1,417+ |
-| Win Rate | 57% |
-| Aktif strateji | 18 engine + Classic plugin + AI |
-| Live Mode | ✅ Manuel BUY/SELL UI + auto-redeem (gasless) |
-| Allowance | ✅ 3-contract (CTF + CTF Exchange + Neg Risk) MAX |
-| AI Brain | Claude Sonnet, 10 dk cycle |
-| Test baseline | **3,474 pass** + 41 skip + 0 fail |
-| Coverage | **43.7%** (24-wave test push) |
-| Security | 13 secret regex × 3 scope = 0 match · pip-audit 0 CVE |
-| Sprint 2 mainnet | 17 May decision gate (~10 gün) |
-| Son milestone | Mod-first dashboard + Live history CSV export (2026-05-06) |
-
-**Neden özel:** 18+ stratejinin her biri kendi lifecycle'ında (exploration → evaluation → proven) otomatik gate filtresi öğrenir. 2-Agent AI Brain (Optimist+Critic) her saat parametreleri optimize eder, HyperOpt (Optuna TPE) gecelik overfit-gate'li parametre taraması yapar, Becker Calibrator gerçek Polymarket geçmişinden kalibre probability sağlar.
-
-**Mühendislik temeli (Epic 1-11):** Tek fee oracle (`core/fees_v2.py`), 5 ghost-class doctrine, canonical 6-flag set, paper×0.66 ≈ live fill heuristic, advisory bare-except sweep (56 dosya × 373 site), 6 live-guard runtime validation (kill switch / live budget / PNL divergence / rolling WR kill / staleness), atomik backup + rollback dry-run plan, 13 secret leak regex × 3 scope. Tüm geliştirme tarihçesi: [docs/PHASES.md](docs/PHASES.md) · [TASKS.md](TASKS.md).
+Tek bir Telegram penceresinden:
+- Stratejileri başlat / durdur / düzenle
+- Anlık BUY / SELL emir ver
+- Kazanan pozisyonları tek tıkla **redeem** et
+- Trade geçmişini CSV olarak indir
+- AI Brain'in (Claude Sonnet) önerilerini onayla / reddet
 
 ---
 
-## Tech Stack
-
-| Layer | Tool |
-|---|---|
-| Runtime | Python 3.11 (Windows yerel) |
-| Telegram | python-telegram-bot 21.6 |
-| DB | aiosqlite + WAL (busy_timeout 10s) |
-| HTTP | httpx 0.27 + aiohttp |
-| WS | websockets + reconnect-guard |
-| Polymarket | py-clob-client-v2 1.0.0 (Gnosis Safe Proxy sig_type=2 + V2 API) |
-| Relayer | py-builder-relayer-client (gasless approve + redeem) |
-| Schedule | APScheduler 3.10 |
-| Data | pandas, numpy |
-| AI | Anthropic Claude Sonnet (primary), Groq/OpenRouter fallback |
-| Optimization | Optuna TPE + overfit gate + MC Kelly |
-
----
-
-## Başlarken
+## Hızlı Başlangıç (10 dakika)
 
 ### Önkoşullar
-- Windows 10/11
-- Python 3.11 (`py -3.11 --version` çalışmalı)
-- Telegram hesabı + [@BotFather](https://t.me/BotFather)'dan alınmış bot token
-- Anthropic API key (ücretsiz tier yeterli)
+
+| Gereksinim | Açıklama |
+|---|---|
+| Windows 10/11 | Bot Windows yerelde çalışıyor |
+| Python 3.11 | `py -3.11 --version` çalışmalı |
+| Telegram bot token | [@BotFather](https://t.me/BotFather)'dan al |
+| Anthropic API key | [console.anthropic.com](https://console.anthropic.com) — ücretsiz başlangıç paketi yeterli |
+| Polymarket hesap | LIVE mode için — sadece paper test edeceksen gerek yok |
 
 ### Kurulum
 
 ```powershell
 # 1. Repo'yu klonla
-git clone https://github.com/YOUR_USERNAME/polyPaper-bot.git
-cd polyPaper-bot
+git clone https://github.com/Heddas98/polypaper-bot.git
+cd polypaper-bot
 
 # 2. Sanal ortam (önerilir)
 py -3.11 -m venv .venv
 .venv\Scripts\activate
 
-# 3. Paketler
+# 3. Bağımlılıklar
 pip install -r requirements.txt
 
-# 4. Environment template'i kopyala ve doldur
+# 4. Environment dosyasını hazırla
 copy .env.example .env
 notepad .env
 ```
 
-`.env` içinde doldurulması zorunlu alanlar:
-- `TELEGRAM_BOT_TOKEN` — @BotFather'dan
-- `ADMIN_TELEGRAM_ID` — sayısal kullanıcı kimliğin ([@userinfobot](https://t.me/userinfobot))
-- `ANTHROPIC_API_KEY` — Claude için
-- Polymarket CLOB kimlikleri (sadece shadow-live açılacaksa)
+`.env` içinde **mutlaka doldurulması gerekenler**:
 
-Detaylı kurulum: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+```ini
+TELEGRAM_BOT_TOKEN=...      # @BotFather'dan
+ADMIN_TELEGRAM_ID=...       # @userinfobot ile öğren
+ANTHROPIC_API_KEY=...       # AI Brain için (paper mode için bile lazım)
+```
 
-### İlk Çalıştırma
+LIVE mode için ek olarak:
+
+```ini
+POLYGON_PRIVATE_KEY=0x...   # Rabby/MetaMask private key
+POLYGON_WALLET=0x...        # Polymarket Profile/Safe Proxy address
+RELAYER_API_KEY=...         # polymarket.com/settings/api-keys
+RELAYER_API_KEY_ADDRESS=0x...
+LIVE_ENABLED=true           # Gerçekten canlı için (default false)
+```
+
+### Çalıştır
 
 ```powershell
-# Tekil çalıştırma (test)
 py -3.11 -m telegram_bot.bot
-
-# Watchdog ile arka plan (production)
-watchdog.bat
 ```
 
-Telegram'da bot'a `/start` gönder. Ana komut hub'ı açılır.
+Telegram'da bot'una **`/start`** yaz → mod seçim ekranı açılır.
 
 ---
 
-## Mimari
+## Telegram Komutları
 
-```
-polyPaper-bot/
-├── core/              # Engine, risk, signals, AI brain, Becker calibrator
-├── backtest/          # ReplayEngine, data_sources, strategy adapters
-├── telegram_bot/      # Bot, handlers/, jobs/, templates/
-├── indicators/        # RSI, MACD, BB, confluence gate
-├── skills/            # EMA, vol, orderbook skill modülleri (Phase 73)
-├── data_feeds/        # Polymarket WS, Chainlink oracle, whale tracker
-├── calibration/       # 2D C(K,τ) surface + MCI quality score
-├── scripts/           # HyperOpt runner, migrations, backfills
-├── config/            # Per-strategy YAML configs
-├── db/                # Schema migrations, RO connection pool
-├── docs/              # Full documentation
-└── analysis/          # Ad-hoc analysis notebooks + reports
-```
+### Mod Seçimi
 
-Derinlemesine mimari: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
----
-
-## Telegram Komutları (seçki)
-
-**2026-05-06 yeni Mod-First Dashboard:**
-
-| Command | Açıklama |
+| Komut | Açıklama |
 |---|---|
-| `/start` | **Mod seçim ekranı** (PAPER vs LIVE) |
-| `/paper` | Paper-only menü |
-| `/live` | Live-only menü (gerçek USDC) |
-| `/lh`, `/livehistory` | Live trade history detay + CSV export |
+| `/start` | Mod seçim ekranı (PAPER vs LIVE) |
+| `/paper` | Paper-only menüye direkt geç |
+| `/live` | Live-only menüye direkt geç |
 
-**Live Mode (gerçek pUSD):**
+### LIVE Mode (gerçek pUSD)
 
-| Command | Açıklama |
+| Komut | Açıklama |
 |---|---|
-| `/buy {coin} {UP/DOWN} {amount}` | Manuel BUY market order (FOK) |
-| `/sell` | SELL panel (PnL ile pozisyon listesi) |
-| `/allowance`, `/approve` | 3-contract approve via Polymarket Relayer (gasless) |
-| `/portfolio`, `/pf` | Polymarket bakiye + pozisyonlar + closed |
+| `/buy {coin} {UP/DOWN} {amount}` | Manuel BUY market emri (ör: `/buy BTC UP 5`) |
+| `/sell` | SELL paneli — açık pozisyonları PnL ile listele, % bazlı sat |
+| `/allowance`, `/approve` | 3 contract için pUSD onayı (gasless, Polymarket Relayer öder) |
+| `/portfolio`, `/pf` | Polymarket bakiyesi + açık pozisyonlar + closed history |
+| `/lh`, `/livehistory` | On-chain trade geçmişi + CSV export |
 
-**Paper Mode:**
+### Paper Mode (simülasyon)
 
-| Command | Açıklama |
+| Komut | Açıklama |
 |---|---|
-| `/dashboard`, `/d` | Ana dashboard |
-| `/balance`, `/pnl`, `/wr` | Anlık performans |
-| `/strategies`, `/s` | Strateji durumları |
-| `/trades`, `/open` | Aktif + geçmiş trade'ler |
-| `/quick_strategy`, `/qs` | Sihirbaz ile yeni strateji oluştur |
-| `/hyperopt {strat}` | Tek strateji için Optuna taraması |
-| `/backtest`, `/bt_v2` | Natural-language backtest |
-| `/why {trade_id}` | Decision explainer |
+| `/dashboard`, `/d` | Ana panel: bakiye, PnL, win rate |
+| `/strategies`, `/s` | Strateji listesi: başlat/durdur/düzenle/sil |
+| `/trades` | Aktif + kapalı işlemler |
+| `/quick_strategy`, `/qs` | Sihirbazla yeni strateji oluştur (5 adımda) |
+| `/backtest`, `/bt_v2` | Doğal dil ile backtest (örn: "fade rip btc 30 gün") |
+| `/why {trade_id}` | Karar açıklayıcı: bu trade neden açıldı? |
 
-**Operasyon:**
+### Operasyon (her iki modda)
 
-| Command | Açıklama |
+| Komut | Açıklama |
 |---|---|
 | `/health`, `/db_health` | Modül sağlığı |
-| `/diagnose` | Sistem health check |
-| `/lg`, `/live_guards` | 6 guard runtime snapshot |
-| `/envt`, `/env_toggle` | Runtime ENV hot-tune (24 whitelisted) |
-| `/mode` | Paper/Live banner toggle |
+| `/diagnose` | Sistem health check + uyarılar |
+| `/lg`, `/live_guards` | 6 koruma katmanı durumu (kill switch, PnL pause, ...) |
+| `/envt`, `/env_toggle` | Runtime ayar değiştir (24 onaylı parametre) |
+| `/mode` | Paper ↔ Live banner toggle |
 
 Tam komut listesi `/help` içinde.
 
 ---
 
+## Mimari Özet
+
+```
+polypaper-bot/
+├── core/                  # Engine — sinyaller, risk, fill, AI Brain
+│   ├── engine.py            # Ana orkestrasyon
+│   ├── engine_signals.py    # Strateji değerlendirme
+│   ├── engine_fills.py      # Fill simülasyonu (paper)
+│   ├── engine_settlement.py # Pozisyon kapatma
+│   ├── live_trader.py       # Live emir yönetimi
+│   ├── ai_brain.py          # Claude Sonnet entegrasyonu
+│   ├── risk_manager.py      # Risk limitleri
+│   └── strategy_plugins.py  # 12 strateji modülü
+│
+├── data/                  # Polymarket API + WebSocket katmanı
+│   ├── polymarket_client.py    # CLOB V2 SDK wrapper
+│   ├── polymarket_actions.py   # approve / redeem (gasless)
+│   ├── polymarket_portfolio.py # Bakiye / pozisyonlar
+│   ├── websocket_client.py     # WSS V2 market feed
+│   └── market_scanner.py       # Aktif piyasa keşfi
+│
+├── telegram_bot/          # Telegram Bot katmanı
+│   ├── bot.py                  # Boot + handler register
+│   ├── handlers/               # 30+ komut handler'ı
+│   │   ├── main_dashboard.py     # Mod-first /start ekranı
+│   │   ├── live_handler.py       # BUY/SELL/Redeem UI
+│   │   ├── live_history_handler.py  # Trade history + CSV
+│   │   └── ...
+│   └── jobs/                   # APScheduler periodic job'lar
+│       ├── auto_redeem_job.py    # Otomatik kazanan pozisyon redeem
+│       ├── shadow_report_job.py  # 30dk shadow report
+│       └── ...
+│
+├── backtest/              # Backtest motoru + 12 strateji
+│   ├── replay_engine.py        # Real L2 history replay
+│   ├── strategies/             # fade_rip, streak_reversal, ...
+│   └── data_sources/           # gamma, polybacktest, binance
+│
+├── db/                    # SQLite + WAL migrations
+└── tests/                 # 3,474 test (43.7% coverage)
+```
+
+Detaylı mimari: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+---
+
+## Polymarket V2 Uyumluluğu
+
+Bot, Polymarket'in 28 Nisan 2026'da yapılan V2 cutover'ına tamamen uygundur:
+
+| Bileşen | V2 Implementation |
+|---|---|
+| Python SDK | `py-clob-client-v2==1.0.0` (resmi en güncel) |
+| Relayer SDK | `py-builder-relayer-client` (gasless) |
+| WSS endpoint | `wss://ws-subscriptions-clob.polymarket.com/ws/market` |
+| Order types | `MarketOrderArgs` + `PartialCreateOrderOptions` (typed dataclass) |
+| Allowance format | `bal["allowances"]` dict (per-spender) |
+| 3-contract approve | pUSD → CTF + CTF Exchange + Neg Risk (gasless) |
+| Redeem flow | `CTF.redeemPositions` (gasless) |
+| WSS events | `book`, `price_change`, `tick_size_change`, `last_trade_price`, `new_market`, `market_resolved` |
+| Subscribe flag | `custom_feature_enabled: true` |
+
+**Onaylı contract adresleri:**
+- pUSD: `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB`
+- CTF: `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045`
+- CTF Exchange: `0xE111180000d2663C0091e4f400237545B87B996B`
+- Neg Risk CTF Exchange: `0xe2222d279d744050d28e00520010520000310F59`
+
+---
+
 ## Stratejiler
 
-Bot içinde 3 stratejik katman:
-1. **Engine stratejileri** — late convergence, fusion, fade, breakout, mean reversion, penny contract, bonding yield vb. (18+ adet)
-2. **Classic plugin** — algoritmasız, sadece direction_filter + threshold + TP/SL. Hyperopt'a girmez.
-3. **AI stratejileri** — AI Brain'in önerdiği parametre setleriyle. $1 ile başlar, 20+ trade sonrası scale.
+12 backtest stratejisi + Classic plugin + AI Brain önerileri:
 
-Her strateji kendi **lifecycle**'ında:
-- `exploration` — ilk 30 trade, gevşek filtreler
-- `evaluation` — 30-100, orta filtreler
-- `proven` — 100+, sıkı filtreler
+| Strateji | Açıklama |
+|---|---|
+| `fade_rip` | Aşırı yükselişe karşı satış |
+| `streak_reversal` | Üst üste hareketin terse dönüşü |
+| `opening_breakout` | Açılış kırılımı |
+| `late_convergence` | Bitime yakın dengelenme |
+| `hour_edge` | Saat-bazlı sapmalar |
+| `taker_flow` | Alıcı/satıcı baskısı |
+| `orderbook_imbalance` | Emir defteri dengesizliği |
+| `calibration_arb` | Brier-kalibre arbitraj |
+| `composite` | Çoklu sinyal birleştirme |
+| `cross_coin` | BTC↔ETH↔SOL korelasyon |
+| `funding_rate` | Funding rate temelli |
+| `bonding_yield` | Bonding curve verim |
 
-Detaylar: [docs/STRATEGIES.md](docs/STRATEGIES.md)
+Her strateji 3 yaşam evresinde gelişir:
+
+| Evre | Trade sayısı | Filtre seviyesi |
+|---|---|---|
+| `exploration` | 0–30 | Gevşek |
+| `evaluation` | 30–100 | Orta |
+| `proven` | 100+ | Sıkı |
+
+Detaylı: [docs/STRATEGIES.md](docs/STRATEGIES.md)
 
 ---
 
 ## Güvenlik
 
-`.env` dosyası **asla commit edilmez** — `.gitignore` ile koruma altında, `pre-commit` hook'u pattern tarar. Detay ve rotation prosedürü: [SECURITY.md](SECURITY.md)
+- **`.env` asla commit edilmez** (`.gitignore` koruması)
+- 13 secret leak regex × 3 scope = **0 match**
+- `pip-audit` → 0 known CVE
+- 6 runtime guard (kill switch, PnL pause, rolling WR, staleness, ...)
+- 3-contract allowance whitelisted
 
-Eğer yanlışlıkla bir API key leak olursa: tüm key'leri derhal rotate et ([SECURITY.md](SECURITY.md) → "Incident Response").
-
----
-
-## Bilinen Sorunlar / Troubleshooting
-
-WAL busy_timeout, CLASSIC_BYPASS flag'leri, shadow report sorunları, CLOB signature fix — [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+`SECURITY.md` → vulnerability disclosure + key rotation prosedürü.
 
 ---
 
-## Geliştirme Geçmişi
+## Geliştirme & Test
 
-82+ phase, Phase 47'den Phase 82e Sprint 5'e kadar evrim. Tüm milestone'lar: [docs/PHASES.md](docs/PHASES.md) · Yakın değişiklikler: [CHANGELOG.md](CHANGELOG.md)
+```powershell
+# Tüm testleri çalıştır
+py -3.11 -m pytest tests/ -v
+
+# Coverage raporu
+py -3.11 -m pytest --cov=core --cov=data --cov=telegram_bot --cov=backtest
+
+# Belirli bir wave
+scripts\coverage_v24.bat
+```
+
+**Mevcut test profili:**
+- 3,474 test pass / 41 skip / 0 fail
+- 43.7% coverage (24-wave incremental push)
+- Wave 23 integration suite Linux/WSL'de aktive edilebilir (env-gated)
 
 ---
 
-## Lisans
+## Lisans & İletişim
 
-Proprietary — şahsi kullanım için. Detay: [LICENSE](LICENSE)
+**Lisans:** Proprietary — kişisel kullanım. Detay: [LICENSE](LICENSE)
 
----
+**Repo:** Private — issue ve PR sadece owner tarafından açılır.
 
-## İletişim
-
-Private repo — issue ve PR'lar sadece owner tarafından açılabilir. Bot'un kendi Telegram arayüzünden `/support` ya da `/feedback` komutlarıyla geribildirim verilebilir.
+**Geri bildirim:** Bot içinden `/support` veya `/feedback` komutları.
