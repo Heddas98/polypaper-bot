@@ -7,6 +7,68 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versiyonlama
 ## [Unreleased]
 Aktif geliştirme branch'i.
 
+## [Mod-First UX + Live Trading Stack] — 2026-05-05/06
+
+### Added — Mod-First Dashboard (Heddas direktifi UX redesign)
+- `/start` artık **mod seçim ekranı** (PAPER vs LIVE)
+- `telegram_bot/handlers/main_dashboard.py` (yeni) — paper/live menü ayrımı
+- Cross-mod geçiş butonları (her menüde "diğer mod'a geç")
+- `_get_paper_summary()` + `_get_live_summary()` — overview kartları
+
+### Added — Live Trade History + CSV Export
+- `telegram_bot/handlers/live_history_handler.py` (yeni)
+- `/lh`, `/livehistory` komutu — paginated trade list (5/sayfa)
+- Per-trade detay ekran: tarih, market, outcome, USDC, TX hash, Polygonscan link
+- CSV export — **15 zengin alan** (`timestamp_iso`, `usdc_size`, `condition_id`,
+  `transaction_hash`, `polygonscan_url`, vs.)
+- PnL detay paneli — bugün+7gün, win rate, best/worst trade
+
+### Added — Polymarket Live Trading Stack
+- `data/polymarket_actions.py::approve_allowance()` — **3-contract approve**
+  via Polymarket Relayer (gasless, $0 gas)
+- `data/polymarket_actions.py::redeem_position()` — winning shares → pUSD
+  (gasless via CTF.redeemPositions)
+- `telegram_bot/jobs/auto_redeem_job.py` (yeni) — opsiyonel periodic redeem
+- Live BUY/SELL UI (Heddas direktifi, mod-first içinde)
+  - 4-ekran flow: Timeframe → Asset → Amount → Confirm
+  - SELL panel PnL ile pozisyon listesi + 25/50/75/100% sat butonları
+  - Settled detection: 🏆 winner → Redeem button | ⚰️ loser → "değersiz" mesaj
+
+### Added — Polymarket Data API Coverage
+- `data/polymarket_portfolio.py::fetch_activity()` — `/activity` endpoint
+  (TRADE/REDEEM/SPLIT/MERGE)
+- `data/polymarket_portfolio.py::fetch_closed_positions()` — `/closed-positions`
+- `ActivityRow` + `ClosedPositionRow` dataclasses
+- `PortfolioSnapshot` 6 paralel fetch (önceki 4'ten +2)
+
+### Fixed — V2 SDK Breaking Changes (Polymarket V2 cutover 2026-04-28)
+- `bal["allowance"]` (V1) → `bal["allowances"]` dict (V2) — 4 dosyada fix
+- `OrderArgs(builder_code=...)` — V2'de field, V1'de options dict
+- `PartialCreateOrderOptions` typed dataclass — V1 plain dict yerine
+- `MarketOrderArgs + create_and_post_market_order` — decimal precision auto
+- 3-adres sistemi netleştirildi: Profile/Safe Proxy (POLYGON_WALLET) ≠ Deposit ≠ Rabby EOA
+
+### Added — Test Coverage Push (Wave 13-24)
+- **3,474 tests pass** (önceki 2,999), **0 fail**
+- Coverage **%21.2 → %43.7** (+22.5 pt, 24 wave)
+- `tests/unit/conftest.py` shared fixtures (`db_stub`, `_AsyncCM`)
+- `tests/unit/test_wave22_mega.py` — 130 modül parametrik import test
+- Wave 13-24 sırasıyla: market UI, handler smoke, big modules, AI/engine real path,
+  V2 fix verify, async CM mock, integration-lite, redeem flow
+
+### Removed — Cleanup (Heddas direktifi)
+- 14 `coverage_v*.txt` runtime raporları (artık gitignore'da)
+- `_archive/_commit_msg_*.txt` (12 dosya, git log'da var)
+- `_archive/commit_*.bat` (14 dosya, one-time kullanıldı)
+- `scripts/cleanup_*_2026_04_29.bat` (3 dosya)
+- `scripts/commit_fase_a_*.bat` + `scripts/final_cleanup_*.bat`
+
+### Changed — Documentation
+- `README.md` — yeni komut tablosu (mod-first, live, paper, ops kategorileri)
+- `.gitignore` — `coverage_v*.txt` regex eklendi
+- `.env.example` — Polymarket 3-adres sistemi açıklaması, `RELAYER_API_KEY`,
+  `AUTO_REDEEM_ENABLED` flag'leri
+
 ## [T9.8-REG — Windows Integration Smoke] — 2026-04-24
 
 ### Verified

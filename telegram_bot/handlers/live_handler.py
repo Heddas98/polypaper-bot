@@ -5,6 +5,7 @@ Real data feeds back into paper model calibration.
 """
 import asyncio
 import logging
+import os  # 2026-05-05: market BUY/SELL slippage env read
 
 import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -117,6 +118,1006 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
+    # ═══════════════════════════════════════════════════════════════════
+    # 2026-05-05 Heddas direktifi: /live ekranı = LIVE mod manuel trade
+    # PAPER trade'ler bot tarafından otomatik yapılır, /live UI içinde yok.
+    # Bildirimler ayrı prefix ile gelir ("💰 LIVE TRADE" / "📋 PAPER TRADE").
+    # ═══════════════════════════════════════════════════════════════════
+    elif data in ("live_market_buy", "live_market_sell"):
+        side = "BUY" if data == "live_market_buy" else "SELL"
+        try:
+            await _show_market_form(q, engine, side)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"market_form: {_ex}")
+            await q.message.reply_text(
+                f"⚠️ Market form hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("live_market_tf:"):
+        # format: live_market_tf:BUY:5m
+        try:
+            _, side, tf = data.split(":")
+            await _show_market_asset_chooser(q, engine, side, tf)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"market_tf: {_ex}")
+            await q.message.reply_text(
+                f"⚠️ Timeframe hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("live_market_asset:"):
+        # format: live_market_asset:BUY:BTC_UP:5m
+        try:
+            _, side, asset, tf = data.split(":")
+            await _show_market_amount_picker(q, engine, side, asset, tf)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"market_asset: {_ex}")
+            await q.message.reply_text(
+                f"⚠️ Asset hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("live_market_amount:"):
+        # format: live_market_amount:BUY:BTC_UP:5m:1
+        try:
+            _, side, asset, tf, amount_str = data.split(":")
+            await _show_market_confirm(q, engine, side, asset, tf, amount_str)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"market_amount: {_ex}")
+            await q.message.reply_text(
+                f"⚠️ Tutar hata: <code>{esc(str(_ex)[:200])}</code>\n\n"
+                f"<i>Custom tutar için: /buy {{coin}} {{UP/DOWN}} {{tutar}}</i>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("live_market_exec:"):
+        # format: live_market_exec:BUY:BTC_UP:5m:1
+        try:
+            _, side, asset, tf, amount_str = data.split(":")
+            await _execute_market_trade(q, engine, db, side, asset, tf, amount_str)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"market_exec: {_ex}")
+            await q.message.reply_text(
+                f"❌ Trade hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("live_redeem:"):
+        # 2026-05-05 Heddas direktifi: bot direct redeem (Relayer gasless)
+        # format: live_redeem:BTC_UP
+        try:
+            _, asset_key = data.split(":", 1)
+            await q.edit_message_text(
+                f"⏳ <b>Redeem gönderiliyor...</b>\n\n"
+                f"<i>{asset_key.replace('_', ' ')}</i>\n"
+                f"Polymarket Relayer (gasless) — 1-2 dk sürer.",
+                parse_mode="HTML",
+            )
+            positions = await _get_open_positions(engine)
+            info = positions.get(asset_key)
+            if not info:
+                await q.message.reply_text(
+                    f"⚠️ Pozisyon bulunamadı: {asset_key}",
+                    parse_mode="HTML",
+                )
+                return
+            cid = info.get("condition_id", "")
+            if not cid:
+                await q.message.reply_text(
+                    f"⚠️ condition_id eksik — Polymarket data-api'den çekilemedi.\n"
+                    f"Manuel: polymarket.com/portfolio → Redeem",
+                    parse_mode="HTML",
+                )
+                return
+            from data.polymarket_actions import redeem_position
+            ok, detail = await redeem_position(cid)
+            kb_post = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Pozisyon Paneli",
+                                       callback_data="live_market_sell")],
+                [InlineKeyboardButton("📊 Portfolio",
+                                       callback_data="live_main")],
+            ])
+            try:
+                await q.edit_message_text(detail, parse_mode="HTML",
+                                           reply_markup=kb_post,
+                                           disable_web_page_preview=True)
+            except (BadRequest, TelegramError, asyncio.TimeoutError):
+                await q.message.reply_text(detail, parse_mode="HTML",
+                                            reply_markup=kb_post,
+                                            disable_web_page_preview=True)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"redeem: {_ex}")
+            await q.message.reply_text(
+                f"❌ Redeem hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("live_sell_pct:"):
+        # 2026-05-05 Heddas direktifi: SELL flow PnL panel + % satış
+        # format: live_sell_pct:BTC_UP
+        try:
+            _, asset_key = data.split(":", 1)
+            await _show_sell_pct_picker(q, engine, asset_key)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"sell_pct: {_ex}")
+            await q.message.reply_text(
+                f"⚠️ Sell hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+    elif data == "live_approve_allowance":
+        # 2026-05-05: Allowance approve via UI tuş
+        try:
+            await q.edit_message_text(
+                "⏳ Allowance approve gönderiliyor...\n"
+                "Polygon network on-chain TX, 1-2dk sürer.",
+                parse_mode="HTML",
+            )
+            from data.polymarket_actions import approve_allowance
+            ok, detail = await approve_allowance()
+            if ok:
+                text_post = (
+                    f"✅ <b>Allowance Approve Gönderildi</b>\n\n"
+                    f"<i>{esc(detail[:300])}</i>\n\n"
+                    f"🕐 1-2dk içinde Polygon onaylar.\n"
+                    f"Sonrasında /live BUY/SELL tuşları çalışır."
+                )
+            else:
+                text_post = (
+                    f"❌ <b>Approve BAŞARISIZ</b>\n\n"
+                    f"<i>{esc(detail[:300])}</i>\n\n"
+                    f"Manuel: polymarket.com/portfolio → Approve"
+                )
+            kb_post = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+            ])
+            await q.edit_message_text(text_post, parse_mode="HTML",
+                                       reply_markup=kb_post,
+                                       disable_web_page_preview=True)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"approve_allowance UI: {_ex}")
+            await q.message.reply_text(
+                f"❌ Approve hata: <code>{esc(str(_ex)[:200])}</code>",
+                parse_mode="HTML",
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Market BUY/SELL UI (Heddas 2026-05-05)
+# ═══════════════════════════════════════════════════════════════════
+# Manuel tek-tıkla satın alma/satma. Strateji bağımsız, doğrudan Polymarket.
+# Akış: tuş → asset seç → tutar seç → onay → execute.
+# Asset seçimi: BTC/ETH/SOL/XRP × UP/DOWN (8 token).
+# Tutar: $1, $5, $10, $25, custom (env LIVE_MAX_MARKET_TRADE).
+# Güvenlik: live trader auth gerekli, allowance check, FOK order.
+
+async def _show_market_form(q, engine, side: str):
+    """Timeframe seçici (BUY) veya pozisyon paneli (SELL).
+
+    2026-05-05 Heddas direktifi: SELL'de "tutar/timeframe seç" mantıksız —
+    elindeki pozisyonu satıyorsun. SELL doğrudan position listesine atlar.
+    """
+    side_emoji = "🟢" if side == "BUY" else "🔴"
+
+    if side == "SELL":
+        # 2026-05-05 SELL = position panel (PnL + % satış)
+        await _show_position_panel(q, engine)
+        return
+
+    # BUY = normal timeframe akışı
+    text = (
+        f"{side_emoji} <b>LIVE {side} — Timeframe</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "⚠️ <b>GERÇEK USDC</b>\n\n"
+        "<b>Hangi timeframe?</b>\n"
+        "5dk hızlı | 15dk orta | 1h uzun"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚡ 5m", callback_data=f"live_market_tf:{side}:5m"),
+         InlineKeyboardButton("⏱ 15m", callback_data=f"live_market_tf:{side}:15m")],
+        [InlineKeyboardButton("🕐 1h", callback_data=f"live_market_tf:{side}:1h"),
+         InlineKeyboardButton("🕓 4h", callback_data=f"live_market_tf:{side}:4h")],
+        [InlineKeyboardButton("◀️ İptal", callback_data="live_main")],
+    ])
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _show_position_panel(q, engine):
+    """SELL ekranı — açık pozisyonları PnL ile listele.
+
+    Her pozisyon için:
+      - asset (BTC UP / ETH DOWN vs)
+      - shares + cost basis + current value
+      - PnL ($ ve %)
+    Tıklanınca: o pozisyonun % satış (25/50/75/100) ekranına geç.
+    """
+    positions = await _get_open_positions(engine)
+
+    if not positions:
+        text = (
+            "🔴 <b>SELL — Açık Pozisyon Yok</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Satılacak token yok.\n\n"
+            "İpucu: önce <b>BUY</b> ile pozisyon aç,\n"
+            "sonra burada karını/zararını görüp sat."
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🟢 BUY (Yeni Pozisyon)",
+                                   callback_data="live_market_buy")],
+            [InlineKeyboardButton("◀️ Ana Panel",
+                                   callback_data="live_main")],
+        ])
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    total_value = sum(p["current_value"] for p in positions.values())
+    total_cost = sum(p["cost_basis"] for p in positions.values())
+    total_pnl = total_value - total_cost
+    total_pnl_pct = (total_pnl / total_cost * 100.0) if total_cost > 0 else 0.0
+    pnl_emoji = "🟢" if total_pnl >= 0 else "🔴"
+
+    text = (
+        f"🔴 <b>SELL — Açık Pozisyonlar</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Toplam:</b> ${total_value:.2f} "
+        f"({pnl_emoji} {total_pnl:+.2f} / {total_pnl_pct:+.1f}%)\n"
+        f"<i>Maliyet: ${total_cost:.2f}</i>\n\n"
+        f"<b>Pozisyon listesi:</b>\n"
+    )
+
+    rows = []
+    for asset_key, info in positions.items():
+        shares = info["shares"]
+        cost = info["cost_basis"]
+        cur_val = info["current_value"]
+        cur_price = info["current_price"]
+        pnl = info["pnl"]
+        pnl_pct = info["pnl_pct"]
+        asset_label = asset_key.replace("_", " ")
+
+        # 2026-05-05 SETTLED detection: cur_value = 0 ya da cur_price = 0
+        # Polymarket binary market'inde kaybeden taraf 0'a düşer.
+        # Kazanan taraf 1.0 olur ve "redeem" gerektirir (sell yerine).
+        is_settled = cur_val < 0.01 or cur_price < 0.001
+        # Kazanan side detection: shares > 0 ve cur_price ≈ 1.0
+        is_winning = cur_price > 0.95
+        # Resolved kazanan = redeem; resolved kaybeden = değersiz; aktif = sell
+
+        if is_settled and not is_winning:
+            # Kaybeden taraf — settle, sat imkansız (zaten 0)
+            text += (
+                f"\n<b>{asset_label}</b> ⚰️ <i>SETTLED (kaybetti)</i>\n"
+                f"  • {shares:.2f} hisse, değer $0.00\n"
+                f"  • Maliyet: ${cost:.2f} → kayıp -${cost:.2f}\n"
+                f"  • <i>Otomatik silinecek (Polymarket settle)</i>\n"
+            )
+            # Buton yok — bu pozisyon zaten kayıp
+        elif is_winning:
+            # Kazanan taraf — redeem gerekir
+            cid = info.get("condition_id", "")
+            text += (
+                f"\n<b>{asset_label}</b> 🏆 <i>KAZANDI — Redeem gerekli</i>\n"
+                f"  • {shares:.2f} hisse @${cur_price:.3f}\n"
+                f"  • Değer: ${cur_val:.2f} (maliyet ${cost:.2f})\n"
+                f"  • Kar: 🟢 +${pnl:.2f} ({pnl_pct:+.1f}%)\n"
+            )
+            if cid:
+                # Bot direct redeem (Relayer gasless) — asset_key ile lookup
+                rows.append([InlineKeyboardButton(
+                    f"🏆 {asset_label} Redeem (gasless)",
+                    callback_data=f"live_redeem:{asset_key}",
+                )])
+            else:
+                # Fallback UI link (condition_id eksik)
+                rows.append([InlineKeyboardButton(
+                    f"🏆 {asset_label} Redeem (UI)",
+                    url="https://polymarket.com/portfolio",
+                )])
+        else:
+            # Aktif pozisyon — normal sat akışı
+            emoji = "🟢" if pnl >= 0 else "🔴"
+            text += (
+                f"\n<b>{asset_label}</b>\n"
+                f"  • {shares:.2f} hisse @${cur_price:.3f}\n"
+                f"  • Değer: ${cur_val:.2f} (maliyet ${cost:.2f})\n"
+                f"  • PnL: {emoji} {pnl:+.2f} USDC ({pnl_pct:+.1f}%)\n"
+            )
+            rows.append([InlineKeyboardButton(
+                f"{emoji} {asset_label} sat → ${cur_val:.2f}",
+                callback_data=f"live_sell_pct:{asset_key}",
+            )])
+
+    rows.append([InlineKeyboardButton("🔄 Yenile",
+                                       callback_data="live_market_sell")])
+    rows.append([InlineKeyboardButton("◀️ Ana Panel",
+                                       callback_data="live_main")])
+    kb = InlineKeyboardMarkup(rows)
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _show_sell_pct_picker(q, engine, asset_key: str):
+    """Bir pozisyon için % satış seçici (25/50/75/100)."""
+    positions = await _get_open_positions(engine)
+    info = positions.get(asset_key)
+
+    if not info or info["shares"] <= 0:
+        text = (
+            "⚠️ <b>Pozisyon bulunamadı</b>\n\n"
+            f"<i>{asset_key.replace('_', ' ')}</i> artık açık değil.\n"
+            "Belki settle oldu ya da satıldı."
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Geri", callback_data="live_market_sell")],
+        ])
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    # 2026-05-05 SETTLED guard: cur_value=0 → satılamaz
+    cur_val_check = info.get("current_value", 0.0)
+    cur_price_check = info.get("current_price", 0.0)
+    if cur_val_check < 0.01 or cur_price_check < 0.001:
+        # Kaybeden side veya kazanan-redeem-required
+        is_winning = cur_price_check > 0.95
+        if is_winning:
+            text = (
+                f"🏆 <b>{asset_key.replace('_', ' ')} — Redeem Gerekli</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Bu market resolve oldu, kazandın!\n"
+                f"  • {info['shares']:.2f} hisse @$1.000\n"
+                f"  • Beklenen redeem: ${info['shares']:.2f} pUSD\n\n"
+                f"<b>Polymarket UI'dan 'Redeem' bas:</b>\n"
+                f"polymarket.com/portfolio\n\n"
+                f"<i>(Bot otomatik redeem henüz yok — Aşama 3 backlog)</i>"
+            )
+        else:
+            text = (
+                f"⚰️ <b>{asset_key.replace('_', ' ')} — Settled (kaybetti)</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Bu market resolve oldu, kaybettin.\n"
+                f"  • {info['shares']:.2f} hisse, değer $0.00\n"
+                f"  • Kayıp: -${info['cost_basis']:.2f}\n\n"
+                f"<i>Polymarket pozisyonu otomatik kapatır.</i>\n"
+                f"Satılabilecek bir şey yok."
+            )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Geri",
+                                   callback_data="live_market_sell")],
+        ])
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    shares = info["shares"]
+    cur_val = info["current_value"]
+    cost = info["cost_basis"]
+    pnl = info["pnl"]
+    pnl_pct = info["pnl_pct"]
+    cur_price = info["current_price"]
+    emoji = "🟢" if pnl >= 0 else "🔴"
+    asset_label = asset_key.replace("_", " ")
+
+    text = (
+        f"🔴 <b>SELL — {asset_label}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Pozisyon:</b>\n"
+        f"  • {shares:.2f} hisse @${cur_price:.3f}\n"
+        f"  • Değer: <b>${cur_val:.2f}</b> "
+        f"(maliyet ${cost:.2f})\n"
+        f"  • PnL: {emoji} <b>{pnl:+.2f} USDC ({pnl_pct:+.1f}%)</b>\n\n"
+        f"<b>Ne kadarını sat?</b>"
+    )
+
+    base = "live_market_amount"
+    coin, direction = asset_key.split("_")
+    rows = []
+    # % butonları — value bazlı amount hesapla
+    for label, pct in [("25%", 0.25), ("50%", 0.50),
+                        ("75%", 0.75), ("100%", 1.00)]:
+        amt = round(cur_val * pct, 2)
+        rows.append([InlineKeyboardButton(
+            f"{label} sat → ${amt:.2f}",
+            callback_data=f"{base}:SELL:{asset_key}:5m:{amt}",
+        )])
+    rows.append([InlineKeyboardButton("◀️ Geri",
+                                       callback_data="live_market_sell")])
+    kb = InlineKeyboardMarkup(rows)
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _show_market_asset_chooser(q, engine, side: str, tf: str):
+    """Asset chooser. SELL için açık pozisyon kontrol (sadece elinde olanlar)."""
+    side_emoji = "🟢" if side == "BUY" else "🔴"
+    base = "live_market_asset"
+
+    if side == "SELL":
+        positions = await _get_open_positions(engine)
+        if not positions:
+            text = (
+                f"{side_emoji} <b>SELL — Açık Pozisyon Yok</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"⚠️ Satılacak token yok.\n"
+                f"Önce <b>BUY</b> ile pozisyon aç."
+            )
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+            ])
+            try:
+                await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+            except (BadRequest, TelegramError, asyncio.TimeoutError):
+                await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+            return
+
+        # Pozisyon var → sadece onları göster
+        text = (
+            f"{side_emoji} <b>SELL — Açık pozisyonların ({tf}):</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        )
+        rows = []
+        for asset_key, info in positions.items():
+            shares = info.get("shares", 0)
+            cost = info.get("cost_basis", 0)
+            text += f"  • {asset_key.replace('_', ' ')}: {shares:.0f} hisse (cost ${cost:.2f})\n"
+            rows.append([InlineKeyboardButton(
+                f"{asset_key.replace('_', ' ')}",
+                callback_data=f"{base}:{side}:{asset_key}:{tf}",
+            )])
+        rows.append([InlineKeyboardButton("◀️ Geri", callback_data=f"live_market_{side.lower()}")])
+        kb = InlineKeyboardMarkup(rows)
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    # BUY: 8 token grid
+    text = (
+        f"{side_emoji} <b>BUY — Asset Seç ({tf})</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📊 <b>Polymarket Up/Down kripto</b>\n"
+        "  • UP = fiyat yükselirse kazanır\n"
+        "  • DOWN = fiyat düşerse kazanır"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("BTC ⬆", callback_data=f"{base}:{side}:BTC_UP:{tf}"),
+         InlineKeyboardButton("BTC ⬇", callback_data=f"{base}:{side}:BTC_DOWN:{tf}")],
+        [InlineKeyboardButton("ETH ⬆", callback_data=f"{base}:{side}:ETH_UP:{tf}"),
+         InlineKeyboardButton("ETH ⬇", callback_data=f"{base}:{side}:ETH_DOWN:{tf}")],
+        [InlineKeyboardButton("SOL ⬆", callback_data=f"{base}:{side}:SOL_UP:{tf}"),
+         InlineKeyboardButton("SOL ⬇", callback_data=f"{base}:{side}:SOL_DOWN:{tf}")],
+        [InlineKeyboardButton("XRP ⬆", callback_data=f"{base}:{side}:XRP_UP:{tf}"),
+         InlineKeyboardButton("XRP ⬇", callback_data=f"{base}:{side}:XRP_DOWN:{tf}")],
+        [InlineKeyboardButton("◀️ İptal", callback_data="live_main")],
+    ])
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _get_open_positions(engine) -> dict:
+    """LIVE açık pozisyonları döndür (Polymarket portfolio cache).
+
+    Returns dict[asset_key, info] where info has:
+      shares, cost_basis, current_value, current_price, pnl, pnl_pct,
+      slug, token_id, condition_id, closed, is_winner, redeemable
+    """
+    positions = {}
+    try:
+        from data.polymarket_portfolio import read_cached_snapshot
+        snap = await read_cached_snapshot(engine.db) if engine.db else None
+        if snap and snap.get("positions"):
+            for p in snap.get("positions", []):
+                slug = p.get("market_slug", "")
+                outcome = p.get("outcome", "").upper()
+                coin = slug.split("-")[0].upper() if "-" in slug else "?"
+                direction = "UP" if "up" in outcome.lower() or outcome == "YES" else "DOWN"
+                key = f"{coin}_{direction}"
+                shares = float(p.get("shares", 0))
+                cost = float(p.get("cost_basis_usd", 0))
+                cur_val = float(p.get("cur_value_usd", 0))
+                cur_price = float(p.get("cur_price", 0)) or (
+                    (cur_val / shares) if shares > 0 else 0.0
+                )
+                pnl = cur_val - cost
+                pnl_pct = (pnl / cost * 100.0) if cost > 0 else 0.0
+                # 2026-05-05 Redeem support
+                cid = p.get("condition_id", "")
+                closed = bool(p.get("closed", False))
+                is_winner = bool(p.get("is_winner", False)) or (
+                    closed and cur_price > 0.999
+                )
+                redeemable = bool(p.get("redeemable", False)) or (
+                    closed and is_winner and shares > 0
+                )
+                positions[key] = {
+                    "shares": shares,
+                    "cost_basis": cost,
+                    "current_value": cur_val,
+                    "current_price": cur_price,
+                    "pnl": pnl,
+                    "pnl_pct": pnl_pct,
+                    "slug": slug,
+                    "token_id": p.get("token_id", ""),
+                    "condition_id": cid,
+                    "closed": closed,
+                    "is_winner": is_winner,
+                    "redeemable": redeemable,
+                }
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"_get_open_positions: {_e}")
+    return positions
+
+
+async def _show_market_amount_picker(q, engine, side: str, asset: str, tf: str):
+    """Tutar seçici. Custom amount için /buy /sell komutu (UI'dan değil)."""
+    side_emoji = "🟢" if side == "BUY" else "🔴"
+    asset_label = asset.replace("_", " ")
+    base = "live_market_amount"
+
+    st = engine.live.get_status()
+    remaining = float(st.get("remaining", 0))
+    balance_label = f"💰 Bot risk limit kalan: <b>${remaining:.2f}</b>"
+
+    text = (
+        f"{side_emoji} <b>LIVE {side} — {asset_label} ({tf})</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Tutar (USDC):</b>\n\n"
+        f"{balance_label}\n\n"
+        f"<i>Custom: <code>/{side.lower()} {asset.split('_')[0]} {asset.split('_')[1]} 3.50</code></i>"
+    )
+    rows = [
+        [InlineKeyboardButton("$1", callback_data=f"{base}:{side}:{asset}:{tf}:1"),
+         InlineKeyboardButton("$5", callback_data=f"{base}:{side}:{asset}:{tf}:5"),
+         InlineKeyboardButton("$10", callback_data=f"{base}:{side}:{asset}:{tf}:10")],
+        [InlineKeyboardButton("$25", callback_data=f"{base}:{side}:{asset}:{tf}:25"),
+         InlineKeyboardButton("$50", callback_data=f"{base}:{side}:{asset}:{tf}:50"),
+         InlineKeyboardButton("$100", callback_data=f"{base}:{side}:{asset}:{tf}:100")],
+        [InlineKeyboardButton("◀️ Geri", callback_data=f"live_market_tf:{side}:{tf}")],
+    ]
+    kb = InlineKeyboardMarkup(rows)
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _show_market_confirm(q, engine, side: str, asset: str,
+                                 tf: str, amount_str: str):
+    """Onay ekranı — fiyat + hisse + fee + slippage. LIVE-only."""
+    side_emoji = "🟢" if side == "BUY" else "🔴"
+    asset_label = asset.replace("_", " ")
+    amount = float(amount_str)
+    coin, direction = asset.split("_")
+
+    # Auth check
+    st = engine.live.get_status()
+    if not st.get("auth_verified", False):
+        text = (
+            f"⚠️ <b>Live Trader auth henüz hazır değil</b>\n\n"
+            f"/live ekranında 'Live Aç' butonuna tıkla ve auth verify'i bekle."
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+        ])
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    # Market lookup + price
+    info = await _peek_market_info(engine, coin, direction, tf)
+    if not info["ok"]:
+        text = (
+            f"⚠️ <b>Market bilgisi alınamadı</b>\n\n"
+            f"<i>{info['error']}</i>\n\n"
+            f"Bot scanner offline veya {coin} {tf} market yok olabilir."
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+        ])
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (BadRequest, TelegramError, asyncio.TimeoutError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    price = info["price"]
+    best_ask = info["best_ask"]
+    best_bid = info["best_bid"]
+    slug = info["slug"]
+    end_str = info["end_iso"]
+
+    # Slippage tolerance — best_ask + 2% for BUY, best_bid - 2% for SELL
+    slip_pct = float(os.getenv("LIVE_SLIPPAGE_PCT", "2.0")) / 100
+    if side == "BUY":
+        limit_price = min(0.999, best_ask * (1 + slip_pct)) if best_ask > 0 else price
+    else:
+        limit_price = max(0.001, best_bid * (1 - slip_pct)) if best_bid > 0 else price
+
+    shares = amount / limit_price if limit_price > 0 else 0
+
+    # Fee tahmini (Crypto category, 0.072 rate)
+    fee_est = 0
+    try:
+        from core.fees_v2 import polymarket_taker_fee_v2
+        fee_est = polymarket_taker_fee_v2(limit_price, amount, category="crypto")
+    except Exception:  # noqa: BLE001
+        fee_est = amount * 0.018  # rough %1.8 estimate
+
+    # Bakiye kontrol
+    st = engine.live.get_status()
+    remaining = float(st.get("remaining", 0))
+    balance_text = f"💼 Bot risk limit kalan: <b>${remaining:.2f}</b>\n"
+    if amount > remaining and side == "BUY":
+        balance_text = f"❌ <b>YETERSİZ BAKİYE</b> (kalan ${remaining:.2f} &lt; istek ${amount:.2f})\n"
+
+    text = (
+        f"{side_emoji} <b>LIVE {side} ONAYLA</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📊 Market: <b>{coin} {direction} {tf}</b>\n"
+        f"📍 Slug: <code>{esc(slug[:32])}</code>\n"
+        f"⏰ End: <code>{esc(str(end_str)[:19])}</code>\n\n"
+        f"💵 Tutar: <b>${amount:.2f} USDC</b>\n"
+        f"📈 Best ask: {best_ask:.4f}\n"
+        f"📉 Best bid: {best_bid:.4f}\n"
+        f"🎯 Limit fiyat: <b>{limit_price:.4f}</b> "
+        f"({'best_ask' if side == 'BUY' else 'best_bid'} ± {slip_pct*100:.1f}%)\n"
+        f"📊 Beklenen hisse: <b>{shares:.2f}</b>\n"
+        f"💸 Tahmini fee: <b>${fee_est:.4f}</b>\n\n"
+        f"{balance_text}\n"
+        f"⚡ Tip: FOK (Fill-Or-Kill)\n"
+        f"⚠️ <b>GERÇEK USDC harcanır!</b>\n\nEmin misin?"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            f"✅ EVET, {side} et",
+            callback_data=f"live_market_exec:{side}:{asset}:{tf}:{amount_str}",
+        )],
+        [InlineKeyboardButton("❌ İptal", callback_data="live_main")],
+    ])
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
+    """Market metadata + best ask/bid çek (onay ekranı için)."""
+    out = {"ok": False, "error": "", "price": 0.0, "best_ask": 0.0,
+           "best_bid": 0.0, "slug": "", "end_iso": ""}
+    if not hasattr(engine, "scanner"):
+        out["error"] = "scanner unavailable"
+        return out
+    try:
+        market = engine.scanner.get_current_market(coin, tf)
+    except Exception as e:  # noqa: BLE001
+        out["error"] = f"scanner: {type(e).__name__}: {e}"
+        return out
+    if not market:
+        out["error"] = f"{coin} {tf} active market not found"
+        return out
+
+    out["slug"] = market.get("slug", "")
+    out["end_iso"] = market.get("endDate", "")
+    odds = engine.scanner.get_current_odds(out["slug"]) if hasattr(
+        engine.scanner, "get_current_odds") else None
+    if not odds:
+        out["error"] = "odds unavailable"
+        return out
+
+    if direction == "UP":
+        out["price"] = float(odds.get("up_odds", 0))
+    else:
+        out["price"] = float(odds.get("down_odds", 0))
+
+    # Try to fetch full orderbook for best ask/bid
+    try:
+        token_ids = market.get("clobTokenIds")
+        if isinstance(token_ids, str):
+            try:
+                import json as _json
+                token_ids = _json.loads(token_ids)
+            except (ValueError, TypeError):
+                token_ids = []
+        if token_ids and len(token_ids) >= 2:
+            tid = token_ids[0] if direction == "UP" else token_ids[1]
+            if hasattr(engine, "polymarket_client") and engine.polymarket_client:
+                book = await engine.polymarket_client.get_orderbook(tid)
+                if book:
+                    asks = book.get("asks") or []
+                    bids = book.get("bids") or []
+                    if asks:
+                        out["best_ask"] = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0].get("price", 0))
+                    if bids:
+                        out["best_bid"] = float(bids[0][0]) if isinstance(bids[0], (list, tuple)) else float(bids[0].get("price", 0))
+    except Exception as _ob_e:  # noqa: BLE001
+        logger.debug(f"orderbook peek: {_ob_e}")
+
+    # Fallback: spread synthetic
+    if out["best_ask"] <= 0:
+        out["best_ask"] = out["price"] + 0.005
+    if out["best_bid"] <= 0:
+        out["best_bid"] = max(0.001, out["price"] - 0.005)
+    out["ok"] = True
+    return out
+
+
+async def _execute_market_trade(q, engine, db, side: str, asset: str,
+                                  tf: str, amount_str: str):
+    """LIVE manuel trade execute. Polymarket FOK."""
+    asset_label = asset.replace("_", " ")
+    amount = float(amount_str)
+    coin, direction = asset.split("_")
+
+    text_pre = (
+        f"⏳ <b>LIVE {side} işleniyor...</b>\n\n"
+        f"Asset: {asset_label} ({tf})\n"
+        f"Tutar: ${amount:.2f}\n\n"
+        f"Polymarket'e gönderiliyor..."
+    )
+    try:
+        await q.edit_message_text(text_pre, parse_mode="HTML")
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        pass
+
+    # Execute via live_trader
+    try:
+        if hasattr(engine.live, "execute_market_order"):
+            result = await engine.live.execute_market_order(
+                side=side, coin=coin, direction=direction, amount=amount,
+            )
+        else:
+            result = await _fallback_market_execute(
+                engine, side, coin, direction, amount,
+            )
+    except Exception as e:  # noqa: BLE001
+        result = {"status": "error", "error": str(e)[:200]}
+
+    # Result rendering
+    status = (result or {}).get("status", "unknown")
+    if status in ("placed", "filled", "matched"):
+        emoji = "✅"
+        title = f"LIVE {side} BAŞARILI"
+    elif status == "mock":
+        emoji = "🟡"
+        title = f"LIVE {side} (MOCK)"
+    else:
+        emoji = "❌"
+        title = f"LIVE {side} BAŞARISIZ"
+
+    detail = (result or {}).get("detail") or (result or {}).get("error") or ""
+    order_id = (result or {}).get("order_id", "")
+
+    text_post = (
+        f"{emoji} <b>{title}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📊 Asset: {asset_label} ({tf})\n"
+        f"💵 Tutar: ${amount:.2f}\n"
+        f"📋 Status: <code>{esc(status)}</code>\n"
+    )
+    if order_id:
+        text_post += f"🆔 Order ID: <code>{esc(str(order_id)[:24])}</code>\n"
+    if detail:
+        text_post += f"\n<i>{esc(detail[:200])}</i>\n"
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
+         InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+    ])
+    try:
+        await q.edit_message_text(text_post, parse_mode="HTML", reply_markup=kb)
+    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.message.reply_text(text_post, parse_mode="HTML", reply_markup=kb)
+
+    # ── Bildirim — manuel LIVE trade için "💰 LIVE TRADE" prefix ──
+    settings = getattr(engine, "settings", None)
+    aid = getattr(settings, "ADMIN_TELEGRAM_ID", None) if settings else None
+    bot_app = getattr(engine, "bot_app", None)
+    if aid and bot_app:
+        try:
+            await bot_app.bot.send_message(
+                chat_id=aid,
+                text=(
+                    f"💰 <b>LIVE TRADE (manuel)</b>\n"
+                    f"{side} {asset_label} ${amount:.2f}\n"
+                    f"Status: {status}"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Audit log
+    if db is not None:
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            await db.conn.execute(
+                "INSERT INTO changelog (event, ts, detail) VALUES (?, ?, ?)",
+                (
+                    f"MANUAL_LIVE_{side}",
+                    _dt.now(_tz.utc).isoformat(),
+                    f"asset={asset} amount=${amount} tf={tf} status={status} order={order_id}",
+                ),
+            )
+            await db.conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Custom amount: /buy BTC UP 3.50 (LIVE MARKET BUY)"""
+    await _custom_command(update, context, side="BUY")
+
+
+async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Custom amount: /sell BTC UP 3.50 (LIVE MARKET SELL)"""
+    await _custom_command(update, context, side="SELL")
+
+
+async def allowance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """2026-05-05: Allowance approve — Polymarket Exchange contract'a
+    USDC harcama izni verir. Trade yapmadan önce 1 kez yapılır.
+    """
+    msg = await update.message.reply_text(
+        "⏳ Allowance approve gönderiliyor...\n"
+        "Polygon network on-chain TX, gas öder.",
+    )
+    try:
+        from data.polymarket_actions import approve_allowance
+        ok, detail = await approve_allowance()
+    except Exception as e:  # noqa: BLE001
+        ok, detail = False, f"unexpected: {type(e).__name__}: {e}"
+
+    if ok:
+        text = (
+            "✅ <b>Allowance Approve Gönderildi</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"<i>{esc(detail[:300])}</i>\n\n"
+            "🕐 TX 1-2 dakika içinde Polygon'da onaylanır.\n"
+            "Onay sonrası /buy /sell veya /live tuşları çalışır.\n\n"
+            "Kontrol: <code>/portfolio</code> — Allowance satırı"
+        )
+    else:
+        text = (
+            "❌ <b>Allowance Approve BAŞARISIZ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"<i>{esc(detail[:400])}</i>\n\n"
+            "<b>Manuel çözüm:</b>\n"
+            "1. <a href='https://polymarket.com/portfolio'>polymarket.com/portfolio</a> "
+            "git\n"
+            "2. Wallet bağla (Rabby/MetaMask)\n"
+            "3. 'Approve' tuşuna bas (her contract için)\n"
+            "4. Polygon'da TX onayla (gas Polygon ödenir)\n"
+            "5. Bot'ta /portfolio ile kontrol et"
+        )
+    try:
+        await msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception:  # noqa: BLE001
+        await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, side: str):
+    """Custom amount handler — /buy /sell ortak. Direkt LIVE moda gönderir."""
+    args = context.args or []
+    if len(args) < 3:
+        await update.message.reply_text(
+            f"Kullanım: <code>/{side.lower()} &lt;coin&gt; &lt;UP/DOWN&gt; &lt;tutar&gt;</code>\n"
+            f"Örnek: <code>/{side.lower()} BTC UP 3.50</code>",
+            parse_mode="HTML",
+        )
+        return
+    coin = args[0].upper()
+    direction = args[1].upper()
+    if coin not in ("BTC", "ETH", "SOL", "XRP"):
+        await update.message.reply_text(f"❌ Bilinmeyen coin: {coin}. BTC/ETH/SOL/XRP kullan.")
+        return
+    if direction not in ("UP", "DOWN"):
+        await update.message.reply_text(f"❌ Direction UP veya DOWN olmalı, '{direction}' verildi.")
+        return
+    try:
+        amount = float(args[2])
+    except ValueError:
+        await update.message.reply_text(f"❌ Tutar sayı olmalı: '{args[2]}'")
+        return
+    if amount <= 0:
+        await update.message.reply_text("❌ Tutar pozitif olmalı.")
+        return
+
+    engine = context.bot_data.get("engine")
+    if not engine:
+        await update.message.reply_text("❌ Engine bulunamadı.")
+        return
+
+    asset = f"{coin}_{direction}"
+    fake_q = _MagicQueryStub(update)
+    await _show_market_confirm(fake_q, engine, side, asset, "5m", str(amount))
+
+
+class _MagicQueryStub:
+    """Callback query stub — /buy /sell command çağırırken kullanılır."""
+    def __init__(self, update):
+        self._update = update
+        self.message = update.message
+    async def answer(self):
+        return None
+    async def edit_message_text(self, text, parse_mode=None, reply_markup=None):
+        await self._update.message.reply_text(
+            text, parse_mode=parse_mode, reply_markup=reply_markup,
+        )
+
+
+async def _fallback_market_execute(engine, side: str, coin: str,
+                                    direction: str, amount: float) -> dict:
+    """Fallback: scanner → token_id → live_trader._execute_clob.
+
+    live_trader.execute_market_order() yoksa kullanılır. Aktif market'ten
+    güncel token_id alır, FOK ile mid-price'a yakın limit gönderir.
+    """
+    # Find current market for coin
+    if not hasattr(engine, "scanner"):
+        return {"status": "error", "error": "scanner unavailable"}
+
+    market = engine.scanner.get_current_market(coin, "5m") if hasattr(
+        engine.scanner, "get_current_market") else None
+    if not market:
+        return {"status": "error", "error": f"{coin} 5m market not found"}
+
+    slug = market.get("slug", "")
+    token_ids = market.get("clobTokenIds", [])
+    if isinstance(token_ids, str):
+        try:
+            import json as _json
+            token_ids = _json.loads(token_ids)
+        except (ValueError, TypeError):
+            token_ids = []
+    if len(token_ids) < 2:
+        return {"status": "error", "error": "tokens not found"}
+
+    # UP=index 0, DOWN=index 1 (Polymarket convention)
+    token_id = token_ids[0] if direction == "UP" else token_ids[1]
+
+    # Get current price
+    odds = engine.scanner.get_current_odds(slug) if hasattr(
+        engine.scanner, "get_current_odds") else None
+    if not odds:
+        return {"status": "error", "error": "odds unavailable"}
+
+    if direction == "UP":
+        price = float(odds.get("up_odds", 0))
+    else:
+        price = float(odds.get("down_odds", 0))
+    if price <= 0:
+        return {"status": "error", "error": "invalid price"}
+
+    # Execute via live_trader._execute_clob (sync wrapped to async)
+    try:
+        result = await engine.live._execute_clob(
+            token_id, amount, price,
+            "buy" if side == "BUY" else "sell",
+        )
+        return result or {"status": "failed", "error": "no result"}
+    except Exception as e:  # noqa: BLE001
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
 
 async def _build_main(engine, db):
     """Main dashboard — paper + live side by side.
@@ -200,12 +1201,34 @@ async def _build_main(engine, db):
     toggle_btn = "⏸ Duraklat" if active else "▶️ Devam Et"
     if not on:
         toggle_btn = "✅ Live Aç"
-    kb = InlineKeyboardMarkup([
+    # 2026-05-05 Heddas direktifi (revize): /live ekranı = LIVE MOD.
+    # Burada sadece LIVE BUY/SELL var (PAPER ayrı bir ekranda değil).
+    # Bot otomatik PAPER trade'leri ayrı bildirim prefix ile gelir ("📋 PAPER ...").
+    # Allowance düşükse uyarı + onay tuşu eksik
+    allowance_low = False
+    try:
+        if pm_allowance != "N/A":
+            _allow_val = float(str(pm_allowance).replace("$", "").replace(",", ""))
+            allowance_low = _allow_val < 1.0
+    except (ValueError, TypeError):
+        pass
+
+    kb_rows = [
         [InlineKeyboardButton(toggle_btn, callback_data="live_toggle")],
+        [InlineKeyboardButton("🟢 Market BUY", callback_data="live_market_buy"),
+         InlineKeyboardButton("🔴 Market SELL", callback_data="live_market_sell")],
+    ]
+    if allowance_low:
+        kb_rows.append([InlineKeyboardButton(
+            "⚠️ ALLOWANCE EKSİK — Approve",
+            callback_data="live_approve_allowance",
+        )])
+    kb_rows.extend([
         [InlineKeyboardButton("📊 Paper vs Real", callback_data="live_compare"),
          InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history")],
         [InlineKeyboardButton("🔄 Yenile", callback_data="live_main")],
     ])
+    kb = InlineKeyboardMarkup(kb_rows)
     return text, kb
 
 

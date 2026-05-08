@@ -118,7 +118,7 @@ from telegram_bot.handlers.brier_handler import brier_command  # Phase 66
 from telegram_bot.handlers.filters_handler import (  # Phase 66: filter toggle panel
     filters_command, filters_callback, _load_persisted_filters)
 from telegram_bot.handlers.live_handler import (  # Phase 51 P51-03 Faz-2 Cluster H
-    live_command, live_callback,
+    live_command, live_callback, buy_command, sell_command, allowance_command,
     ws_command, ws_callback,  # merged from ws_handler.py
     daily_command, daily_callback,  # merged from daily_handler.py
 )
@@ -225,8 +225,28 @@ class PolyPaperBot:
         self.app.add_handler(get_strategy_builder_handler())
 
         # 2. All commands with shortcuts
+        # 2026-05-06 Heddas direktifi: mod-first /start dashboard (paper vs live)
+        try:
+            from telegram_bot.handlers.main_dashboard import (
+                main_command, main_callback,
+            )
+            from telegram_bot.handlers.live_history_handler import (
+                live_history_callback, live_history_command,
+            )
+            _MOD_FIRST_OK = True
+        except ImportError as _md_err:
+            logger.warning(f"main_dashboard import: {_md_err}")
+            _MOD_FIRST_OK = False
+            main_command = start_command  # fallback
+            live_history_command = lambda *a, **kw: None  # noqa: E731
+
         cmds = [
-            ("start", start_command), ("dashboard", dashboard_command), ("d", dashboard_command),
+            ("start", main_command if _MOD_FIRST_OK else start_command),
+            ("paper", main_command if _MOD_FIRST_OK else dashboard_command),
+            ("legacy_start", start_command),  # eski davranış için fallback
+            ("lh", live_history_command),
+            ("livehistory", live_history_command),
+            ("dashboard", dashboard_command), ("d", dashboard_command),
             ("menu", menu_command),
             ("strategies", strategies_command), ("s", strategies_command),
             ("quick_strategy", quick_strategy_command),
@@ -250,6 +270,9 @@ class PolyPaperBot:
             ("recorder", recorder_command),
             ("backtest_replay", backtest_replay_command),
             ("live", live_command),
+            # 2026-05-05 Heddas: custom amount manuel BUY/SELL + allowance approve
+            ("buy", buy_command), ("sell", sell_command),
+            ("allowance", allowance_command), ("approve", allowance_command),
             # Analytics
             ("stats", stats_command), ("stats_chart", stats_chart_command), ("strategy_stats", strategy_stats_command), ("ss", strategy_stats_command),
             ("canary", canary_command), ("promote", promote_command), ("demote", demote_command),
@@ -402,6 +425,30 @@ class PolyPaperBot:
         for pattern in ["live_toggle", "live_toggle_confirm", "live_toggle_cancel",
                         "live_main", "live_compare", "live_history"]:
             self.app.add_handler(CallbackQueryHandler(live_callback, pattern=f"^{pattern}$"))
+        # 2026-05-05 Heddas: Market BUY/SELL UI callback'leri
+        # live_market_buy / live_market_sell / live_market_asset:* /
+        # live_market_amount:* / live_market_exec:* / live_market_tf:*
+        # live_approve_allowance
+        self.app.add_handler(CallbackQueryHandler(live_callback,
+                                                   pattern="^live_market_"))
+        self.app.add_handler(CallbackQueryHandler(live_callback,
+                                                   pattern="^live_approve_allowance$"))
+        # 2026-05-05 Heddas: SELL flow PnL panel + % satış
+        self.app.add_handler(CallbackQueryHandler(live_callback,
+                                                   pattern="^live_sell_pct:"))
+        # 2026-05-05 Heddas: Redeem winning shares (gasless via Relayer)
+        self.app.add_handler(CallbackQueryHandler(live_callback,
+                                                   pattern="^live_redeem:"))
+        # 2026-05-06 Heddas: Mod-first dashboard + Live history detay + CSV
+        if _MOD_FIRST_OK:
+            self.app.add_handler(CallbackQueryHandler(
+                main_callback, pattern="^main_"))
+            self.app.add_handler(CallbackQueryHandler(
+                live_history_callback, pattern="^live_history"))
+            self.app.add_handler(CallbackQueryHandler(
+                live_history_callback, pattern="^live_export_csv$"))
+            self.app.add_handler(CallbackQueryHandler(
+                live_history_callback, pattern="^live_pnl$"))
 
         # Phase 52 BUG #2 — /quick_strategy wizard callbacks (qs_*)
         self.app.add_handler(CallbackQueryHandler(quick_strategy_wizard_callback, pattern="^qs_"))
@@ -732,6 +779,23 @@ class PolyPaperBot:
                         f"(every {pf_interval}s, first in {pf_first}s)"
                     )
 
+                # 2026-05-05 Heddas direktifi: Auto-redeem winning positions
+                if os.getenv("AUTO_REDEEM_ENABLED", "false").lower() == "true":
+                    try:
+                        from telegram_bot.jobs.auto_redeem_job import auto_redeem_job
+                        ar_interval = int(os.getenv("AUTO_REDEEM_INTERVAL_SEC", "300"))
+                        ar_first = int(os.getenv("AUTO_REDEEM_FIRST_SEC", "120"))
+                        jq.run_repeating(auto_redeem_job, interval=ar_interval,
+                                         first=ar_first, name="auto_redeem")
+                        logger.info(
+                            f"✅ auto_redeem job scheduled "
+                            f"(every {ar_interval}s, first in {ar_first}s)"
+                        )
+                    except (ImportError, AttributeError) as _ar_err:
+                        logger.warning(f"auto_redeem skip: {_ar_err}")
+                else:
+                    logger.info("ⓘ auto_redeem job disabled (AUTO_REDEEM_ENABLED=false)")
+
                 # Phase 66: Daily PnL divergence alert (paper vs live aggregate)
                 if os.getenv("PNL_DIVERGENCE_ENABLED", "true").lower() == "true":
                     pnl_div_interval = int(os.getenv("PNL_DIVERGENCE_INTERVAL_SEC", "86400"))  # daily
@@ -776,27 +840,21 @@ class PolyPaperBot:
                                     first=ar_first, name="db_archive")
                     logger.info(f"✅ db_archive job scheduled (every {ar_interval}s, first in {ar_first}s)")
 
-                # Phase 79b: Strategy Suggester (every 4h, Claude finds niche edges)
-                if os.getenv("STRATEGY_SUGGESTER_ENABLED", "true").lower() == "true":
-                    try:
-                        from core.strategy_suggester import StrategySuggester, SUGGEST_INTERVAL
-                        _suggester = StrategySuggester(self.db, self.engine, self.app)
-                        self.app.bot_data["strategy_suggester"] = _suggester
-
-                        async def _suggest_job(context):
-                            s = context.application.bot_data.get("strategy_suggester")
-                            if s:
-                                await s.run()
-
-                        sg_interval = int(os.getenv("AI_STRATEGY_SUGGEST_INTERVAL", str(SUGGEST_INTERVAL)))
-                        sg_first = int(os.getenv("AI_STRATEGY_SUGGEST_FIRST", "1800"))  # 30min after startup
-                        jq.run_repeating(_suggest_job, interval=sg_interval,
-                                         first=sg_first, name="strategy_suggester")
-                        logger.info(f"✅ strategy_suggester job scheduled (every {sg_interval}s, first in {sg_first}s)")
-                    except Exception as _sg_e:  # noqa: BLE001
-                        logger.warning(f"Strategy Suggester schedule failed: {_sg_e}")
+                # 2026-05-05 Heddas direktifi sadeleştirme:
+                # Strategy Suggester emekliye ayrıldı.
+                # Sebep: AI Brain CREATE eylemi zaten yeni strateji öneriyor,
+                # iki LLM çağrısı çakışma + cost israfı. Tek karar verici: AI Brain.
+                # Eski default `STRATEGY_SUGGESTER_ENABLED=true` artık `false`.
+                if os.getenv("STRATEGY_SUGGESTER_ENABLED", "false").lower() == "true":
+                    logger.warning(
+                        "⚠ STRATEGY_SUGGESTER_ENABLED=true — Heddas 2026-05-05 "
+                        "direktifi gereği bu modül emekliye ayrıldı. "
+                        "Devre dışı bırakmak için ENV'den kaldır veya 'false' yap. "
+                        "Yeni stratejiler için AI Brain CREATE eylemi kullan."
+                    )
 
                 # Becker rolling recalibration job removed 2026-04-28 (Heddas direktifi)
+                # Strategy Suggester emekliye ayrıldı 2026-05-05 (Heddas direktifi)
             else:
                 logger.warning("JobQueue is None — shadow_report disabled. "
                                "Install python-telegram-bot[job-queue]")

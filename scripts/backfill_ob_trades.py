@@ -72,11 +72,10 @@ def _build_clob_client():
             "cannot backfill (endpoint requires L2 auth)")
         return None
     try:
-        from py_clob_client.client import ClobClient
-        from py_clob_client.clob_types import ApiCreds  # noqa: F401
-        from py_clob_client.clob_types import TradeParams  # noqa: F401
+        # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+        from py_clob_client_v2 import ClobClient, ApiCreds, TradeParams  # noqa: F401
     except ImportError:
-        logger.error("py-clob-client not installed or missing required types")
+        logger.error("py-clob-client-v2 not installed or missing required types")
         return None
 
     client = ClobClient(
@@ -88,7 +87,8 @@ def _build_clob_client():
 
     # Prefer fresh-derived creds over stored ones to sidestep stale triplets
     try:
-        derived = client.create_or_derive_api_creds()
+        # 2026-04-30 P0.11 V2 fix: V1 `_creds` → V2 `_key`
+        derived = client.create_or_derive_api_key()
         client.set_api_creds(derived)
         logger.info(
             f"derived L2 creds via wallet {wallet[:10]}... "
@@ -117,7 +117,8 @@ def _fetch_trades_sync(client, market_id: str) -> list[dict]:
     `'dict' object has no attribute 'market'`.
     """
     try:
-        from py_clob_client.clob_types import TradeParams
+        # 2026-04-30 P0.11: V1 → V2 migration
+        from py_clob_client_v2 import TradeParams
         params = TradeParams(market=market_id)
         trades = client.get_trades(params)
         if isinstance(trades, list):

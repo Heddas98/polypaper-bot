@@ -60,6 +60,11 @@ class PositionRow:
     pnl_usd: float = 0.0        # unrealized PnL
     pnl_pct: float = 0.0        # unrealized PnL %
     end_date: str = ""          # market resolution time (ISO)
+    # 2026-05-05 Heddas redeem flow: market resolution + redemption metadata
+    condition_id: str = ""      # CTF conditionId (bytes32 hex) — redeem için
+    closed: bool = False        # market.closed = resolved (Polymarket flag)
+    is_winner: bool = False     # True if this token = winning outcome
+    redeemable: bool = False    # closed + is_winner → eligible for redeem
 
 
 @dataclass
@@ -77,6 +82,50 @@ class TradeRow:
 
 
 @dataclass
+class ActivityRow:
+    """Onchain activity entry from data-api/activity.
+
+    type: TRADE | SPLIT | MERGE | REDEEM | REWARD | CONVERSION
+    """
+    timestamp: int                # unix seconds
+    type: str                     # TRADE / REDEEM / SPLIT / MERGE / REWARD
+    condition_id: str = ""
+    transaction_hash: str = ""    # polygonscan link
+    title: str = ""               # market title (human readable)
+    slug: str = ""
+    outcome: str = ""             # "Up" / "Down" / "Yes" / "No"
+    outcome_index: int = 0
+    side: str = ""                # BUY / SELL (only for TRADE)
+    size: float = 0.0             # shares
+    price: float = 0.0            # USDC per share
+    usdc_size: float = 0.0        # total USDC ($)
+    asset: str = ""               # token_id (large int as string)
+
+
+@dataclass
+class ClosedPositionRow:
+    """Settled/redeemed/closed position from data-api/closed-positions."""
+    condition_id: str = ""
+    asset: str = ""
+    title: str = ""
+    slug: str = ""
+    outcome: str = ""
+    outcome_index: int = 0
+    size: float = 0.0
+    avg_price: float = 0.0
+    initial_value: float = 0.0
+    current_value: float = 0.0
+    realized_pnl: float = 0.0     # gerçekleşen kar/zarar
+    percent_realized_pnl: float = 0.0
+    cash_pnl: float = 0.0
+    percent_pnl: float = 0.0
+    total_bought: float = 0.0     # toplam alış miktarı (USDC)
+    redeemed: bool = False
+    end_date: str = ""
+    icon: str = ""
+
+
+@dataclass
 class PortfolioSnapshot:
     """Cache-able snapshot of Polymarket Proxy wallet state."""
     fetched_at: str
@@ -88,6 +137,9 @@ class PortfolioSnapshot:
     portfolio_value_usd: float = 0.0
     positions_count: int = 0
     positions: list[dict] = field(default_factory=list)
+    # 2026-05-06 Heddas direktifi — Live history detay + closed positions
+    closed_positions: list[dict] = field(default_factory=list)
+    activity: list[dict] = field(default_factory=list)
     # Recent trades (from CLOB SDK get_trades)
     recent_trades: list[dict] = field(default_factory=list)
     # Diagnostic
@@ -133,15 +185,24 @@ async def fetch_balance_allowance(clob_client) -> tuple[float, float, Optional[s
     upgrade lazım — Aşama 2'de unify edilecek).
     """
     try:
-        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+        # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+        from py_clob_client_v2 import BalanceAllowanceParams, AssetType
         params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
         loop = asyncio.get_running_loop()
         bal = await loop.run_in_executor(
             None, lambda: clob_client.get_balance_allowance(params)
         )
-        # Response dict: {"balance": "...", "allowance": "..."}
+        # 2026-05-05 V2 API fix (Heddas debug session):
+        # V1: bal["allowance"] (string), V2: bal["allowances"] (dict per-spender)
         balance = float(bal.get("balance", 0) or 0) / 1e6
-        allowance = float(bal.get("allowance", 0) or 0) / 1e6
+        if "allowances" in bal and isinstance(bal["allowances"], dict):
+            max_raw = max(
+                (int(v or 0) for v in bal["allowances"].values()),
+                default=0,
+            )
+            allowance = float(max_raw) / 1e6
+        else:
+            allowance = float(bal.get("allowance", 0) or 0) / 1e6
         return balance, allowance, None
     except ImportError:
         # Older SDK fallback — try dict pattern
@@ -152,7 +213,14 @@ async def fetch_balance_allowance(clob_client) -> tuple[float, float, Optional[s
                 lambda: clob_client.get_balance_allowance({"asset_type": "COLLATERAL"})
             )
             balance = float(bal.get("balance", 0) or 0) / 1e6
-            allowance = float(bal.get("allowance", 0) or 0) / 1e6
+            if "allowances" in bal and isinstance(bal["allowances"], dict):
+                max_raw = max(
+                    (int(v or 0) for v in bal["allowances"].values()),
+                    default=0,
+                )
+                allowance = float(max_raw) / 1e6
+            else:
+                allowance = float(bal.get("allowance", 0) or 0) / 1e6
             return balance, allowance, None
         except Exception as e:  # noqa: BLE001
             return 0.0, 0.0, f"balance_allowance dict-fallback: {type(e).__name__}: {e}"
@@ -189,6 +257,12 @@ async def fetch_positions(user_address: str,
             value = cur * shares
             pnl = value - cost
             pnl_pct = (pnl / cost * 100) if cost > 0.001 else 0.0
+            # 2026-05-05 Redeem support — condition_id + closed + is_winner
+            cid = str(p.get("conditionId", p.get("condition_id", "")))
+            closed = bool(p.get("closed", False))
+            # Winning detection: cur_price ≈ 1.0 ± 0.001 (resolved winner = $1)
+            is_winner = closed and (cur > 0.999)
+            redeemable = closed and is_winner and shares > 0
             rows.append(PositionRow(
                 token_id=str(p.get("asset", p.get("tokenId", p.get("token_id", "")))),
                 market_slug=p.get("slug", p.get("eventSlug", "")),
@@ -202,12 +276,135 @@ async def fetch_positions(user_address: str,
                 pnl_usd=pnl,
                 pnl_pct=pnl_pct,
                 end_date=p.get("endDate", "") or p.get("end_date_iso", ""),
+                condition_id=cid,
+                closed=closed,
+                is_winner=is_winner,
+                redeemable=redeemable,
             ))
         return rows, None
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
         return [], f"positions fetch: {type(e).__name__}: {e}"
     except Exception as e:  # noqa: BLE001
         return [], f"positions unexpected: {type(e).__name__}: {e}"
+
+
+async def fetch_activity(
+    user_address: str,
+    http_client: httpx.AsyncClient,
+    limit: int = 100,
+    types: Optional[str] = None,
+) -> tuple[list[ActivityRow], Optional[str]]:
+    """Fetch onchain activity from data-api/activity.
+
+    Polymarket spec: returns TRADE/SPLIT/MERGE/REDEEM/REWARD/CONVERSION events
+    with timestamp, conditionId, transactionHash, usdcSize, etc.
+
+    Args:
+        user_address: Polymarket Profile/Safe Proxy address
+        http_client: httpx async client
+        limit: max records (default 100, max 500)
+        types: comma-separated filter (e.g. "TRADE,REDEEM")
+
+    Returns: (list[ActivityRow], error_or_None)
+    """
+    if not user_address:
+        return [], "user_address empty"
+    try:
+        url = f"{DATA_API_BASE}/activity"
+        params = {"user": user_address, "limit": min(limit, 500)}
+        if types:
+            params["type"] = types
+        data = await _http_get_json(http_client, url, params)
+        if data is None:
+            return [], "activity API returned None"
+        if not isinstance(data, list):
+            data = data.get("activity", []) if isinstance(data, dict) else []
+
+        rows: list[ActivityRow] = []
+        for a in data:
+            if not isinstance(a, dict):
+                continue
+            rows.append(ActivityRow(
+                timestamp=int(a.get("timestamp", 0) or 0),
+                type=str(a.get("type", "")),
+                condition_id=str(a.get("conditionId", "")),
+                transaction_hash=str(a.get("transactionHash", "")),
+                title=str(a.get("title", "")),
+                slug=str(a.get("slug", "")),
+                outcome=str(a.get("outcome", "")),
+                outcome_index=int(a.get("outcomeIndex", 0) or 0),
+                side=str(a.get("side", "")),
+                size=float(a.get("size", 0) or 0),
+                price=float(a.get("price", 0) or 0),
+                usdc_size=float(a.get("usdcSize", 0) or 0),
+                asset=str(a.get("asset", "")),
+            ))
+        return rows, None
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+        return [], f"activity fetch: {type(e).__name__}: {e}"
+    except Exception as e:  # noqa: BLE001
+        return [], f"activity unexpected: {type(e).__name__}: {e}"
+
+
+async def fetch_closed_positions(
+    user_address: str,
+    http_client: httpx.AsyncClient,
+    limit: int = 50,
+) -> tuple[list[ClosedPositionRow], Optional[str]]:
+    """Fetch closed (settled/redeemed) positions from data-api/closed-positions.
+
+    Polymarket spec: positions that have been resolved.
+    Returns realized PnL, redemption status.
+
+    Args:
+        user_address: Polymarket Profile/Safe Proxy address
+        http_client: httpx async client
+        limit: max records (default 50, max 500)
+
+    Returns: (list[ClosedPositionRow], error_or_None)
+    """
+    if not user_address:
+        return [], "user_address empty"
+    try:
+        url = f"{DATA_API_BASE}/closed-positions"
+        params = {"user": user_address, "limit": min(limit, 500)}
+        data = await _http_get_json(http_client, url, params)
+        if data is None:
+            return [], "closed-positions API returned None"
+        if not isinstance(data, list):
+            data = (
+                data.get("positions", []) if isinstance(data, dict) else []
+            )
+
+        rows: list[ClosedPositionRow] = []
+        for p in data:
+            if not isinstance(p, dict):
+                continue
+            rows.append(ClosedPositionRow(
+                condition_id=str(p.get("conditionId", "")),
+                asset=str(p.get("asset", "")),
+                title=str(p.get("title", "")),
+                slug=str(p.get("slug", "")),
+                outcome=str(p.get("outcome", "")),
+                outcome_index=int(p.get("outcomeIndex", 0) or 0),
+                size=float(p.get("size", 0) or 0),
+                avg_price=float(p.get("avgPrice", 0) or 0),
+                initial_value=float(p.get("initialValue", 0) or 0),
+                current_value=float(p.get("currentValue", 0) or 0),
+                realized_pnl=float(p.get("realizedPnl", 0) or 0),
+                percent_realized_pnl=float(p.get("percentRealizedPnl", 0) or 0),
+                cash_pnl=float(p.get("cashPnl", 0) or 0),
+                percent_pnl=float(p.get("percentPnl", 0) or 0),
+                total_bought=float(p.get("totalBought", 0) or 0),
+                redeemed=bool(p.get("redeemed", False)),
+                end_date=str(p.get("endDate", "")),
+                icon=str(p.get("icon", "")),
+            ))
+        return rows, None
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+        return [], f"closed-positions fetch: {type(e).__name__}: {e}"
+    except Exception as e:  # noqa: BLE001
+        return [], f"closed-positions unexpected: {type(e).__name__}: {e}"
 
 
 async def fetch_portfolio_value(user_address: str,
@@ -244,7 +441,8 @@ async def fetch_recent_trades(clob_client, limit: int = 20) -> tuple[list[TradeR
     SDK returns list of trade objects. We project to TradeRow.
     """
     try:
-        from py_clob_client.clob_types import TradeParams
+        # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+        from py_clob_client_v2 import TradeParams
         loop = asyncio.get_running_loop()
         # Note: SDK get_trades signature varies; pass empty TradeParams for all
         params = TradeParams()
@@ -276,17 +474,89 @@ async def fetch_recent_trades(clob_client, limit: int = 20) -> tuple[list[TradeR
             ))
         return rows, None
     except ImportError as e:
-        return [], f"py-clob-client not installed: {e}"
+        return [], f"py-clob-client-v2 not installed: {e}"
     except (AttributeError, KeyError, ValueError, TypeError) as e:
         return [], f"trades fetch: {type(e).__name__}: {e}"
     except Exception as e:  # noqa: BLE001
         return [], f"trades unexpected: {type(e).__name__}: {e}"
 
 
+# 2026-04-30 P1.X Cloudflare 403 fix:
+# Module-level client cache. Derive sadece 1 kere yapılır; sonraki job
+# çağrıları cache'den döner. Cache TTL = CLOB_CLIENT_CACHE_TTL_S (default 3600s).
+# Cloudflare 403 alınırsa cache invalidate + 1h cooldown.
+_CLOB_CLIENT_CACHE = {
+    "client": None,
+    "creds": None,
+    "fetched_at": 0.0,
+    "cooldown_until": 0.0,
+}
+
+
 def _build_clob_client():
-    """Construct authenticated CLOB client from .env. Returns client or None."""
+    """Construct (or fetch from cache) authenticated CLOB client.
+
+    Cache strategy:
+    - First: try SHARED_CREDS_CACHE from core.live_trader (boot derive)
+    - Else: local cache hit (1h TTL)
+    - Else: derive (Cloudflare risk) → cache or cooldown
+
+    Returns: client or None
+    """
+    import time
+    now = time.time()
+    ttl = int(os.getenv("CLOB_CLIENT_CACHE_TTL_S", "3600"))
+
+    # Cooldown active (Cloudflare 403 backoff)
+    if _CLOB_CLIENT_CACHE["cooldown_until"] > now:
+        remaining = int(_CLOB_CLIENT_CACHE["cooldown_until"] - now)
+        logger.debug(f"clob_client: cooldown active ({remaining}s remaining)")
+        return None
+
+    # Local cache hit
+    if _CLOB_CLIENT_CACHE["client"] is not None:
+        age = now - _CLOB_CLIENT_CACHE["fetched_at"]
+        if age < ttl:
+            return _CLOB_CLIENT_CACHE["client"]
+        # Expired
+        _CLOB_CLIENT_CACHE["client"] = None
+        _CLOB_CLIENT_CACHE["creds"] = None
+
+    # 2026-04-30 P1.X: Cross-module shared cache (live_trader boot derive)
+    # check ÖNCE — kendimiz derive etmek zorunda kalmayalım, Cloudflare 403 risk yok.
     try:
-        from py_clob_client.client import ClobClient
+        from core.live_trader import get_shared_creds
+        shared_creds, shared_ts = get_shared_creds()
+        if shared_creds and (now - shared_ts) < ttl:
+            try:
+                from py_clob_client_v2 import ClobClient as _CC
+                pk_local = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
+                wallet_local = os.getenv("POLYGON_WALLET", "").strip()
+                sig_local = int(os.getenv("CLOB_SIGNATURE_TYPE", "2"))
+                if pk_local and wallet_local:
+                    _client = _CC(
+                        CLOB_HOST,
+                        key=pk_local, chain_id=137,
+                        signature_type=sig_local,
+                        funder=wallet_local,
+                    )
+                    _client.set_api_creds(shared_creds)
+                    _CLOB_CLIENT_CACHE["client"] = _client
+                    _CLOB_CLIENT_CACHE["creds"] = shared_creds
+                    _CLOB_CLIENT_CACHE["fetched_at"] = now
+                    logger.debug(
+                        f"clob_client: REUSED shared cache from live_trader "
+                        f"(age={int(now-shared_ts)}s, key={str(getattr(shared_creds,'api_key',''))[:8]}...)"
+                    )
+                    return _client
+            except Exception as _share_err:  # noqa: BLE001
+                logger.debug(f"clob_client: shared cache reuse fail: {_share_err}")
+    except ImportError:
+        pass
+
+    try:
+        # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+        from py_clob_client_v2 import ClobClient
         pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
         wallet = os.getenv("POLYGON_WALLET", "").strip()
         if not pk or not wallet:
@@ -298,10 +568,51 @@ def _build_clob_client():
             signature_type=sig_type,
             funder=wallet,
         )
-        # Derive L2 creds (idempotent)
-        creds = client.create_or_derive_api_creds()
-        client.set_api_creds(creds)
-        return client
+        # 2026-04-30 P1.X v2: Stored ENV creds (eski Phase A, V1 ile derive)
+        # V2 ile incompatible (verify 401). Direkt derive yap, verify et,
+        # başarısızsa stored last-resort fallback.
+        # 2026-04-30 P0.11 V2 fix: V1 `_creds` → V2 `_key`
+        try:
+            creds = client.create_or_derive_api_key()
+            client.set_api_creds(creds)
+            # Verify cheap call (401 verify fail varsa düşer)
+            try:
+                from py_clob_client_v2 import TradeParams as _TP
+                _ = client.get_trades(_TP())
+            except Exception as _verify_err:  # noqa: BLE001
+                logger.warning(f"clob_client derive verify warn ({type(_verify_err).__name__}); cache anyway")
+            _CLOB_CLIENT_CACHE["client"] = client
+            _CLOB_CLIENT_CACHE["creds"] = creds
+            _CLOB_CLIENT_CACHE["fetched_at"] = now
+            logger.debug(f"clob_client: derived & cached (key={str(getattr(creds,'api_key',''))[:8]}..., TTL {ttl}s)")
+            return client
+        except Exception as derive_err:  # noqa: BLE001
+            err_str = str(derive_err)
+            # Cloudflare 403 → 1h cooldown
+            if "403" in err_str or "Cloudflare" in err_str or "blocked" in err_str.lower():
+                _CLOB_CLIENT_CACHE["cooldown_until"] = now + 3600
+                logger.warning(f"clob_client: Cloudflare 403 → 1h cooldown (derive bloke)")
+            else:
+                logger.warning(f"clob_client derive: {type(derive_err).__name__}: {err_str[:120]}")
+            # Last-resort: stored ENV creds (V2 uyumluysa belki çalışır)
+            api_key = os.getenv("POLYMARKET_API_KEY", "").strip()
+            api_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
+            api_pass = os.getenv("POLYMARKET_PASSPHRASE", "").strip()
+            if all([api_key, api_secret, api_pass]):
+                try:
+                    from py_clob_client_v2 import ApiCreds
+                    stored_creds = ApiCreds(
+                        api_key=api_key, api_secret=api_secret, api_passphrase=api_pass,
+                    )
+                    client.set_api_creds(stored_creds)
+                    _CLOB_CLIENT_CACHE["client"] = client
+                    _CLOB_CLIENT_CACHE["creds"] = stored_creds
+                    _CLOB_CLIENT_CACHE["fetched_at"] = now
+                    logger.debug(f"clob_client: stored ENV last-resort (key={api_key[:8]}...)")
+                    return client
+                except Exception as _se:  # noqa: BLE001
+                    logger.debug(f"stored last-resort fail: {_se}")
+            return None
     except (ImportError, ValueError, KeyError, TypeError) as e:
         logger.warning(f"clob_client build: {type(e).__name__}: {e}")
         return None
@@ -336,12 +647,20 @@ async def build_snapshot() -> PortfolioSnapshot:
             trades_task = None
         pos_task = fetch_positions(user, http_client)
         val_task = fetch_portfolio_value(user, http_client)
+        # 2026-05-06 Heddas direktifi — Live history detay
+        closed_task = fetch_closed_positions(user, http_client, limit=50)
+        activity_task = fetch_activity(
+            user, http_client, limit=100,
+            types="TRADE,REDEEM,SPLIT,MERGE",
+        )
 
         results = await asyncio.gather(
             bal_task if bal_task else asyncio.sleep(0, result=(0.0, 0.0, "clob_client unavailable")),
             pos_task,
             val_task,
             trades_task if trades_task else asyncio.sleep(0, result=([], "clob_client unavailable")),
+            closed_task,
+            activity_task,
             return_exceptions=True,
         )
 
@@ -379,6 +698,24 @@ async def build_snapshot() -> PortfolioSnapshot:
                 snap.fetch_errors.append(err)
         elif isinstance(results[3], Exception):
             snap.fetch_errors.append(f"trades: {type(results[3]).__name__}")
+
+        # Closed positions (2026-05-06)
+        if isinstance(results[4], tuple) and len(results[4]) == 2:
+            closed_positions, err = results[4]
+            snap.closed_positions = [asdict(c) for c in closed_positions]
+            if err:
+                snap.fetch_errors.append(err)
+        elif isinstance(results[4], Exception):
+            snap.fetch_errors.append(f"closed: {type(results[4]).__name__}")
+
+        # Activity (TRADE/REDEEM/SPLIT/MERGE) (2026-05-06)
+        if isinstance(results[5], tuple) and len(results[5]) == 2:
+            activity, err = results[5]
+            snap.activity = [asdict(a) for a in activity]
+            if err:
+                snap.fetch_errors.append(err)
+        elif isinstance(results[5], Exception):
+            snap.fetch_errors.append(f"activity: {type(results[5]).__name__}")
 
     snap.fetch_latency_ms = int(
         (datetime.now(timezone.utc) - t0).total_seconds() * 1000

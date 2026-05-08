@@ -175,7 +175,7 @@ AKSIYON TIPLERI:
   Ornek: {"type":"TUNE","id":"df8902ba","field":"odds_threshold","value":0.50,"reason":"WR yuksek, threshold dusur daha cok trade ac"}
 - RESTART: Durmus karli stratejiyi baslat
   Ornek: {"type":"RESTART","id":"4da8cbee","reason":"market trending'e dondu, momentum calisabilir"}
-- INSIGHT: Gozlem (aksiyon degil, sadece not)
+- (INSIGHT KALDIRILDI 2026-05-05: LLM cost israfı, sadece not yaziyordu)
 
 KARAR VERIRKEN DIKKAT ET:
 1. SKIP ANALIZI bloğuna bak — neden trade acilmiyor? SIG_WEAK coksa threshold dusur. REGIME coksa o strateji tipini durdur.
@@ -1225,9 +1225,9 @@ CONSENSUS KURALI:
                                      old={"status": "stopped"}, new={"status": "active"},
                                      reason=reason, label=label)
 
-                elif atype == "INSIGHT":
-                    results.append(f"💡 {action.get('message','')}")
-
+                # INSIGHT removed 2026-05-05 (Heddas direktifi sadeleştirme):
+                # Sadece not yazıyordu, hiçbir şey yapmıyordu — LLM cost israfı.
+                # Yeni mesaj geldiğinde sessizce ignore (results'a yazma).
                 # OPTIMIZE + APPLY_HYPEROPT actions removed 2026-04-28
                 # (Heddas direktifi: Hyperopt tam silme).
 

@@ -5,12 +5,13 @@
 
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Engine](https://img.shields.io/badge/engine-v34-brightgreen.svg)]()
-[![Bot](https://img.shields.io/badge/bot-v9.7.9-brightgreen.svg)]()
-[![Phase](https://img.shields.io/badge/phase-Epic%2011%20Pre--Gate-orange.svg)]()
-[![Tests](https://img.shields.io/badge/tests-735%20pass-brightgreen.svg)]()
+[![Bot](https://img.shields.io/badge/bot-v9.8.0-brightgreen.svg)]()
+[![Phase](https://img.shields.io/badge/phase-Sprint%202%20Mainnet%20Shadow-orange.svg)]()
+[![Tests](https://img.shields.io/badge/tests-3474%20pass-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-43.7%25-yellow.svg)]()
 [![Security](https://img.shields.io/badge/security-13%20regex%20%C3%97%200%20match-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-Mainnet%20Pre--Gate-yellow.svg)]()
+[![Status](https://img.shields.io/badge/status-Mainnet%20Live-green.svg)]()
 
 ---
 
@@ -18,21 +19,24 @@
 
 **Ne yapar:** Polymarket'in BTC/ETH/SOL kripto Up/Down binary piyasalarında, gerçek canlı verilerle kâğıt üstünde işlem yapar. Aynı sinyalleri aynı anda "shadow-live" modunda küçük gerçek USDC miktarıyla da çalıştırır — tam otomasyon, Telegram üzerinden tek tuş kontrol.
 
-**Mevcut durum (2026-04-25):**
+**Mevcut durum (2026-05-06):**
 
 | Metric | Value |
 |---|---|
-| Bakiye | ~$10,386 |
+| Paper bakiye | ~$10,386 |
+| Live bakiye (gerçek pUSD) | $12.18 |
 | Toplam PnL | +$355 |
 | Trade sayısı | 1,417+ |
 | Win Rate | 57% |
-| Aktif strateji | 18 engine + Classic plugin + AI + opening_breakout |
-| Shadow live | Aktif ($1.49 USDC, $1/trade, 3 strateji) |
+| Aktif strateji | 18 engine + Classic plugin + AI |
+| Live Mode | ✅ Manuel BUY/SELL UI + auto-redeem (gasless) |
+| Allowance | ✅ 3-contract (CTF + CTF Exchange + Neg Risk) MAX |
 | AI Brain | Claude Sonnet, 10 dk cycle |
-| Test baseline | 735 pass + 8 skip + 0 fail (3-seed deterministic) |
+| Test baseline | **3,474 pass** + 41 skip + 0 fail |
+| Coverage | **43.7%** (24-wave test push) |
 | Security | 13 secret regex × 3 scope = 0 match · pip-audit 0 CVE |
-| Pre-mainnet gate | T11.1 + T11.2 + T11.3 + T9.8-REG **3/3 ✅** |
-| Son milestone | T9.8-REG Windows integration 52/52 PASS (2026-04-24) |
+| Sprint 2 mainnet | 17 May decision gate (~10 gün) |
+| Son milestone | Mod-first dashboard + Live history CSV export (2026-05-06) |
 
 **Neden özel:** 18+ stratejinin her biri kendi lifecycle'ında (exploration → evaluation → proven) otomatik gate filtresi öğrenir. 2-Agent AI Brain (Optimist+Critic) her saat parametreleri optimize eder, HyperOpt (Optuna TPE) gecelik overfit-gate'li parametre taraması yapar, Becker Calibrator gerçek Polymarket geçmişinden kalibre probability sağlar.
 
@@ -49,7 +53,8 @@
 | DB | aiosqlite + WAL (busy_timeout 10s) |
 | HTTP | httpx 0.27 + aiohttp |
 | WS | websockets + reconnect-guard |
-| Polymarket | py-clob-client 0.18.0 (EOA type-0 + ApiCreds) |
+| Polymarket | py-clob-client-v2 1.0.0 (Gnosis Safe Proxy sig_type=2 + V2 API) |
+| Relayer | py-builder-relayer-client (gasless approve + redeem) |
 | Schedule | APScheduler 3.10 |
 | Data | pandas, numpy |
 | AI | Anthropic Claude Sonnet (primary), Groq/OpenRouter fallback |
@@ -130,22 +135,46 @@ Derinlemesine mimari: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Telegram Komutları (seçki)
 
+**2026-05-06 yeni Mod-First Dashboard:**
+
 | Command | Açıklama |
 |---|---|
-| `/start`, `/hub` | Ana komut paneli |
+| `/start` | **Mod seçim ekranı** (PAPER vs LIVE) |
+| `/paper` | Paper-only menü |
+| `/live` | Live-only menü (gerçek USDC) |
+| `/lh`, `/livehistory` | Live trade history detay + CSV export |
+
+**Live Mode (gerçek pUSD):**
+
+| Command | Açıklama |
+|---|---|
+| `/buy {coin} {UP/DOWN} {amount}` | Manuel BUY market order (FOK) |
+| `/sell` | SELL panel (PnL ile pozisyon listesi) |
+| `/allowance`, `/approve` | 3-contract approve via Polymarket Relayer (gasless) |
+| `/portfolio`, `/pf` | Polymarket bakiye + pozisyonlar + closed |
+
+**Paper Mode:**
+
+| Command | Açıklama |
+|---|---|
+| `/dashboard`, `/d` | Ana dashboard |
 | `/balance`, `/pnl`, `/wr` | Anlık performans |
-| `/strategies`, `/status` | Strateji durumları |
+| `/strategies`, `/s` | Strateji durumları |
 | `/trades`, `/open` | Aktif + geçmiş trade'ler |
-| `/hyperopt <strat>` | Tek strateji için Optuna taraması |
-| `/mc_kelly <strat>` | Monte Carlo Kelly validasyonu |
-| `/backtest_v2` | Natural-language backtest |
-| `/why <trade_id>` | Decision explainer |
-| `/experiment` | Güvenli parametre testi |
-| `/report` | Günlük performans raporu |
-| `/shadow` | Shadow-live mode status |
+| `/quick_strategy`, `/qs` | Sihirbaz ile yeni strateji oluştur |
+| `/hyperopt {strat}` | Tek strateji için Optuna taraması |
+| `/backtest`, `/bt_v2` | Natural-language backtest |
+| `/why {trade_id}` | Decision explainer |
+
+**Operasyon:**
+
+| Command | Açıklama |
+|---|---|
 | `/health`, `/db_health` | Modül sağlığı |
-| `/force_settle <mkt>` | Admin: manuel settle |
-| `/alert`, `/alerts` | Fiyat/PnL alarmları |
+| `/diagnose` | Sistem health check |
+| `/lg`, `/live_guards` | 6 guard runtime snapshot |
+| `/envt`, `/env_toggle` | Runtime ENV hot-tune (24 whitelisted) |
+| `/mode` | Paper/Live banner toggle |
 
 Tam komut listesi `/help` içinde.
 

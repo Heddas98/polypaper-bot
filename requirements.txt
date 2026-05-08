@@ -23,10 +23,17 @@ numpy==2.1.3
 # (Image.new() only, no .open()), upgraded for hygiene.
 Pillow==12.2.0
 
-# Polymarket
-# 2026-04-28 upgrade 0.18.0 → 0.34.6: pUSD-aware (Polymarket Apr 2026 migration)
-# + py-builder-signing-sdk auto-installed for builder API capability
-py-clob-client==0.34.6
+# Polymarket — V2 SDK (Heddas direktifi 2026-04-30: "en güncel ol")
+# 2026-04-30: py-clob-client 0.34.6 (V1) → py-clob-client-v2 1.0.0 (V2)
+# Polymarket V2 cutover (28 Nisan 2026) sonrası resmi paket. EIP-712 domain
+# version "2", V2 order struct (metadata + builder fields), getClobMarketInfo
+# native fee query, builder code SDK-native (HMAC + builder-signing-sdk gone).
+# API path differences: from py_clob_client → from py_clob_client_v2
+# Yeni class: PartialCreateOrderOptions (V1 dict → V2 typed class), MarketOrderArgs
+# Aynı kalan: ApiCreds, OrderArgs, OrderType, BalanceAllowanceParams, AssetType
+py-clob-client-v2==1.0.0
+# Relayer client gasless txns için (allowance + token approval + redeem):
+py-builder-relayer-client
 
 # Environment
 # Epic 10 T10.3: 1.0.1 → 1.2.2 — CVE-2026-28684 (set_key/unset_key

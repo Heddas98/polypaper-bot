@@ -57,6 +57,8 @@ htmlcov/
 coverage.xml
 coverage.json
 pytest-cache-files-*/
+# 2026-05-06: Coverage waves runtime reports
+coverage_v*.txt
 
 # ── T11.2 runtime validation evidence (local-only) ───────────────
 evidence/

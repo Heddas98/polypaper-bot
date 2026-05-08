@@ -527,6 +527,88 @@ class TradingEngine(
         await self.analyst.start()
         await self.live.start()  # Phase 34: Init mainnet shadow
 
+        # 2026-05-05 Heddas direktifi: Manuel Market BUY/SELL UI için
+        # live_trader.execute_market_order() scanner referansı bekler.
+        try:
+            self.live._engine_scanner = self.scanner
+        except (AttributeError, Exception):  # noqa: BLE001
+            pass
+
+        # ═══════════════════════════════════════════════════════════════
+        # Sprint 3 P1 WIRE (2026-05-05) — Heddas direktifi: paralel başla
+        # Tüm wire'lar ENV-gated, default OFF — Sprint 2 SHADOW ACTIVE
+        # mainnet'i bozmaz. ENV ile opt-in açılır:
+        #   STRUCTURED_LOG_ENABLED=true
+        #   ALLOWANCE_PREFLIGHT_ENABLED=true
+        #   KILL_SWITCH_ENABLED=true (default true ama permissive)
+        #   HEARTBEAT_ENABLED=true   (maker mode için zorunlu)
+        #   RECON_ENABLED=true       (off-chain ↔ on-chain sync)
+        # ═══════════════════════════════════════════════════════════════
+
+        # P1.7 — Structured Logging (ENV: STRUCTURED_LOG_ENABLED)
+        try:
+            from core.structured_logging import setup_structured_logging
+            setup_structured_logging()  # idempotent + ENV-gated
+        except Exception as _sl_err:  # noqa: BLE001
+            logger.debug(f"P1.7 structured_logging init: {_sl_err}")
+
+        # P0.5 — Allowance Pre-flight (ENV: ALLOWANCE_PREFLIGHT_ENABLED)
+        if os.getenv("ALLOWANCE_PREFLIGHT_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            try:
+                from core.allowance_preflight import run_preflight
+                if getattr(self.live, "_auth_verified", False):
+                    pf_client = getattr(self.live, "_client", None)
+                    if pf_client is not None:
+                        ok, report = await run_preflight(pf_client)
+                        if not ok:
+                            logger.warning(f"⚠️ P0.5 Allowance pre-flight FAILED:\n{report}")
+                        else:
+                            logger.info("✅ P0.5 Allowance pre-flight OK")
+            except Exception as _af_err:  # noqa: BLE001
+                logger.debug(f"P0.5 allowance preflight wire: {_af_err}")
+
+        # P0.8 — Portfolio Kill-Switch (ENV: KILL_SWITCH_ENABLED, default true)
+        try:
+            from core.portfolio_kill_switch import get_kill_switch
+            self.portfolio_kill_switch = get_kill_switch()
+            logger.info(
+                f"🛑 P0.8 Kill-switch wired "
+                f"(daily={self.portfolio_kill_switch.daily_max_loss_pct*100:.0f}% "
+                f"weekly={self.portfolio_kill_switch.weekly_max_dd_pct*100:.0f}% "
+                f"streak={self.portfolio_kill_switch.consecutive_limit})"
+            )
+        except Exception as _ks_err:  # noqa: BLE001
+            logger.debug(f"P0.8 kill_switch wire: {_ks_err}")
+            self.portfolio_kill_switch = None
+
+        # P1.6.1 — Heartbeat 5s (ENV: HEARTBEAT_ENABLED, maker mode için zorunlu)
+        if os.getenv("HEARTBEAT_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            try:
+                from core.heartbeat import HeartbeatTask
+                hb_client = getattr(self.live, "_client", None)
+                if hb_client is not None:
+                    self.heartbeat_task = HeartbeatTask(client=hb_client)
+                    await self.heartbeat_task.start()
+                    logger.info("💓 P1.6.1 Heartbeat task started (5s interval)")
+            except Exception as _hb_err:  # noqa: BLE001
+                logger.debug(f"P1.6.1 heartbeat wire: {_hb_err}")
+
+        # P1.4 — Reconciliation loop (ENV: RECON_ENABLED)
+        if os.getenv("RECON_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            try:
+                from core.reconciliation.onchain_sync import ReconciliationTask
+                self.recon_task = ReconciliationTask(
+                    db=self.db,
+                    wallet=os.getenv("POLYGON_WALLET", ""),
+                    alert_callback=getattr(self, "_notify_admin_html", None),
+                )
+                await self.recon_task.start()
+                logger.info("🔁 P1.4 Reconciliation task started")
+            except Exception as _rc_err:  # noqa: BLE001
+                logger.debug(f"P1.4 reconciliation wire: {_rc_err}")
+
+        # ═══ Sprint 3 P1 WIRE END ════════════════════════════════════════
+
         # Phase 39 (P1.2): Register trade listener with MarketRecorder so we
         # can advance maker queue position when real fills happen on the WS.
         recorder = getattr(self, "market_recorder", None)

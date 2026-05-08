@@ -30,6 +30,33 @@ except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
 
 logger = logging.getLogger("polypaper.core.live")
 
+
+# ═══ Cross-module shared creds cache (P1.X Cloudflare 403 fix) ═══
+# Boot'ta live_trader.start() derive PASS yapar; sonuçtaki creds bu global'e
+# yazılır. data/polymarket_portfolio.py ve diğer modüller buradan okur,
+# kendi derive denemesi yapmaz → Cloudflare 403 spam yok.
+SHARED_CREDS_CACHE = {
+    "creds": None,
+    "fetched_at": 0.0,
+    "wallet": "",
+}
+
+
+def get_shared_creds():
+    """Diğer modüller bu fonksiyonu çağırıp derived creds'i alır.
+
+    Returns: (creds, fetched_ts) tuple veya (None, 0).
+    """
+    return SHARED_CREDS_CACHE.get("creds"), SHARED_CREDS_CACHE.get("fetched_at", 0)
+
+
+def set_shared_creds(creds, wallet: str = ""):
+    """live_trader.start() derive PASS sonrası çağrılır."""
+    import time
+    SHARED_CREDS_CACHE["creds"] = creds
+    SHARED_CREDS_CACHE["fetched_at"] = time.time()
+    SHARED_CREDS_CACHE["wallet"] = wallet
+
 # ═══ SAFETY LIMITS (ENV-override, runtime re-read via /env_toggle) ═══
 # T7.6 A5 (2026-04-22): module-top floats caused the same ghost-toggle
 # defect as T6.1 PNL_PAUSE / T6.4 auto_optimizer — hot-tunes via
@@ -202,10 +229,10 @@ class LiveTrader:
         Returns (ok, detail_string). Runs sync in executor.
         """
         try:
-            from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import ApiCreds
+            # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+            from py_clob_client_v2 import ClobClient, ApiCreds
         except ImportError as e:
-            return (False, f"py-clob-client not installed: {e}")
+            return (False, f"py-clob-client-v2 not installed: {e}")
 
         try:
             # 2026-04-28 Heddas docs audit fix (Bulgu 1): Polymarket.com Rabby
@@ -227,24 +254,16 @@ class LiveTrader:
             # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             return (False, f"client init failed ({type(e).__name__}): {e}")
 
-        # Try derive first
-        try:
-            derived = client.create_or_derive_api_creds()
-            client.set_api_creds(derived)
-            self._api_creds = derived
-            detail_derived = (
-                f"derived key={str(getattr(derived, 'api_key', ''))[:8]}..."
-            )
-        except Exception as e:  # noqa: BLE001
-            # T1.4 Faz 1: catch-all kept — derive path wraps HTTP + signature
-            # internals from py-clob-client. Fallback path below is intentional.
-            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
-            # Fallback: stored triplet (may be stale — will be logged)
-            stored_key = os.getenv("POLYMARKET_API_KEY", "").strip()
-            stored_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
-            stored_pass = os.getenv("POLYMARKET_PASSPHRASE", "").strip()
-            if not all([stored_key, stored_secret, stored_pass]):
-                return (False, f"derive failed ({type(e).__name__}: {e}) and no fallback triplet")
+        # 2026-04-30 P1.X Cloudflare polish: stored creds VARSA derive ATLA.
+        # Derive endpoint Cloudflare bot-detect tetikliyor; stored creds yeterli.
+        stored_key = os.getenv("POLYMARKET_API_KEY", "").strip()
+        stored_secret = os.getenv("POLYMARKET_API_SECRET", "").strip()
+        stored_pass = os.getenv("POLYMARKET_PASSPHRASE", "").strip()
+        force_derive = os.getenv("CLOB_FORCE_DERIVE", "false").lower() in {"1", "true", "yes"}
+        detail_derived = ""
+
+        # PATH 1: Stored creds varsa direkt set + verify (derive bypass)
+        if all([stored_key, stored_secret, stored_pass]) and not force_derive:
             try:
                 creds = ApiCreds(
                     api_key=stored_key,
@@ -253,20 +272,80 @@ class LiveTrader:
                 )
                 client.set_api_creds(creds)
                 self._api_creds = creds
-                detail_derived = f"fallback stored key={stored_key[:8]}... (derive err: {type(e).__name__}: {e})"
-            except Exception as e2:  # noqa: BLE001
-                # T1.4 Faz 1: catch-all kept — both derive and stored-creds failed.
-                # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
-                return (False, f"both derive ({type(e).__name__}: {e}) and fallback ({type(e2).__name__}: {e2}) failed")
+                detail_derived = f"stored ENV creds (key={stored_key[:8]}...)"
+            except Exception as e_stored:  # noqa: BLE001
+                detail_derived = f"stored set fail ({type(e_stored).__name__}); will derive"
+                # Fall through to derive
+
+        # PATH 2: Stored creds yok veya force → derive
+        if not self._api_creds:
+            try:
+                # 2026-04-30 P0.11 V2 fix: V1 `_creds()` → V2 `_key()`
+                derived = client.create_or_derive_api_key()
+                client.set_api_creds(derived)
+                self._api_creds = derived
+                detail_derived = f"derived key={str(getattr(derived, 'api_key', ''))[:8]}..."
+            except Exception as e:  # noqa: BLE001
+                # T1.4 Faz 1: catch-all kept — derive path wraps HTTP + signature.
+                # T7.6 Faz 3 + 2026-04-30 P1.X: Cloudflare 403 graceful handling.
+                err_str = str(e)
+                if "403" in err_str or "Cloudflare" in err_str:
+                    return (False, f"Cloudflare 403 derive fail (no stored creds fallback). "
+                                   f"Set POLYMARKET_API_KEY/SECRET/PASSPHRASE in .env to bypass.")
+                # Generic fallback
+                if not all([stored_key, stored_secret, stored_pass]):
+                    return (False, f"derive failed ({type(e).__name__}: {e}) and no fallback triplet")
+                try:
+                    creds = ApiCreds(
+                        api_key=stored_key,
+                        api_secret=stored_secret,
+                        api_passphrase=stored_pass,
+                    )
+                    client.set_api_creds(creds)
+                    self._api_creds = creds
+                    detail_derived = f"fallback stored (derive err: {type(e).__name__})"
+                except Exception as e2:  # noqa: BLE001
+                    return (False, f"both derive ({type(e).__name__}: {e}) and fallback ({type(e2).__name__}: {e2}) failed")
 
         # Verify with a cheap authenticated call (get_trades with limit)
         try:
-            from py_clob_client.clob_types import TradeParams
+            # 2026-04-30 P0.11: V1 → V2 migration
+            from py_clob_client_v2 import TradeParams
             _ = client.get_trades(TradeParams())
+            # ✅ PASS: shared cache'e yaz (cross-module Cloudflare bypass)
+            set_shared_creds(self._api_creds, wallet=wallet)
             return (True, detail_derived)
         except Exception as e:  # noqa: BLE001
+            # 2026-04-30 P1.X Cloudflare polish: stored creds verify FAIL ise
+            # (eski/expired creds), derive fallback dene.
+            err_str = str(e)
+            is_auth_fail = "401" in err_str or "Unauthorized" in err_str or "Invalid" in err_str
+            stored_was_used = self._api_creds and detail_derived.startswith("stored")
+            if is_auth_fail and stored_was_used:
+                logger.warning(
+                    f"  ⚠ stored ENV creds invalid (verify 401); falling back to derive..."
+                )
+                self._api_creds = None  # reset
+                try:
+                    derived = client.create_or_derive_api_key()
+                    client.set_api_creds(derived)
+                    self._api_creds = derived
+                    derive_detail = f"derived after stored-fail key={str(getattr(derived, 'api_key', ''))[:8]}..."
+                    # Re-verify with new creds
+                    _ = client.get_trades(TradeParams())
+                    logger.info(f"  ✅ derive fallback PASS — stored creds were stale")
+                    # ✅ PASS: shared cache'e yaz (cross-module bypass)
+                    set_shared_creds(self._api_creds, wallet=wallet)
+                    return (True, derive_detail)
+                except Exception as e_derive:  # noqa: BLE001
+                    derive_err = str(e_derive)
+                    if "403" in derive_err or "Cloudflare" in derive_err:
+                        return (False, f"{detail_derived} verify 401 + derive Cloudflare 403. "
+                                       f"Manuel: ENV POLYMARKET_API_KEY/SECRET/PASSPHRASE update gerek "
+                                       f"veya CLOB_FORCE_DERIVE=true ile retry")
+                    return (False, f"{detail_derived} verify 401 + derive fallback "
+                                   f"({type(e_derive).__name__}: {derive_err[:120]})")
             # T1.4 Faz 1: catch-all kept — get_trades can raise HTTP/auth/network.
-            # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             return (False, f"{detail_derived} | verify failed ({type(e).__name__}): {e}")
 
     def is_enabled(self) -> bool:
@@ -425,6 +504,110 @@ class LiveTrader:
             logger.error(f"CLOB exec: {e}")
             return None
 
+    async def execute_market_order(
+        self, side: str, coin: str, direction: str, amount: float,
+    ) -> dict:
+        """Manuel market BUY/SELL — Heddas 2026-05-05 direktifi.
+
+        live_handler.py UI'ından çağrılır. Strateji bypass — doğrudan Polymarket
+        FOK order. Auth + budget + min/max checks yapılır, sonra _execute_clob.
+
+        Args:
+            side: "BUY" or "SELL"
+            coin: "BTC" / "ETH" / "SOL" / "XRP"
+            direction: "UP" or "DOWN"
+            amount: USDC tutarı
+
+        Returns:
+            {"status": "placed/filled/mock/error", "order_id": str,
+             "detail": str, "price": float, "shares": float}
+        """
+        # ── Pre-flight checks ─────────────────────────────────────
+        if not self._auth_verified:
+            return {"status": "error", "detail": "auth_verified=False — /live ekranında 'Live Aç' tıkla"}
+
+        if amount <= 0:
+            return {"status": "error", "detail": f"amount must be > 0 (got {amount})"}
+
+        max_market = float(os.getenv("LIVE_MAX_MARKET_TRADE", "25.0"))
+        if amount > max_market:
+            return {"status": "error", "detail": f"amount ${amount:.2f} > LIVE_MAX_MARKET_TRADE=${max_market:.2f}"}
+
+        # Budget check
+        remaining = self._budget - self._total_spent
+        if amount > remaining and side == "BUY":
+            return {"status": "error",
+                    "detail": f"yetersiz risk limit: kalan ${remaining:.2f} < istek ${amount:.2f}"}
+
+        # ── Find market via scanner ────────────────────────────────
+        scanner = getattr(self, "_engine_scanner", None)
+        # Wired by engine.start() if available — fallback: caller passes it.
+        if scanner is None:
+            return {"status": "error", "detail": "scanner not wired (engine ref missing)"}
+
+        try:
+            market = scanner.get_current_market(coin, "5m")
+        except Exception as e:  # noqa: BLE001
+            return {"status": "error", "detail": f"scanner: {type(e).__name__}: {e}"}
+
+        if not market:
+            return {"status": "error", "detail": f"{coin} 5m active market not found"}
+
+        slug = market.get("slug", "")
+        token_ids = market.get("clobTokenIds")
+        if isinstance(token_ids, str):
+            try:
+                token_ids = json.loads(token_ids)
+            except (ValueError, TypeError):
+                token_ids = []
+        if not token_ids or len(token_ids) < 2:
+            return {"status": "error", "detail": "tokens not parseable"}
+
+        # UP=index 0, DOWN=index 1 (Polymarket 5m kripto convention)
+        token_id = token_ids[0] if direction.upper() == "UP" else token_ids[1]
+
+        # ── Get current price ────────────────────────────────────
+        odds = scanner.get_current_odds(slug) if hasattr(
+            scanner, "get_current_odds") else None
+        if not odds:
+            return {"status": "error", "detail": "odds unavailable"}
+
+        if direction.upper() == "UP":
+            price = float(odds.get("up_odds", 0))
+        else:
+            price = float(odds.get("down_odds", 0))
+        if price <= 0.001 or price >= 0.999:
+            return {"status": "error", "detail": f"invalid price {price}"}
+
+        # ── Execute ──────────────────────────────────────────────
+        result = await self._execute_clob(
+            token_id, amount, price,
+            "buy" if side == "BUY" else "sell",
+        )
+        if not result:
+            return {"status": "failed", "detail": "_execute_clob returned None"}
+
+        # Update state
+        oid = result.get("id", "")
+        status = result.get("status", "failed")
+        if status in ("placed", "filled", "mock", "matched"):
+            self._total_spent += amount
+            self._daily_trades += 1
+            self._trade_count += 1
+            await self._save_state()
+            logger.info(
+                f"💰 MANUAL {side} {coin} {direction} ${amount:.2f} "
+                f"@{price:.3f} → {status} (id={oid[:12]})"
+            )
+
+        return {
+            "status": status,
+            "order_id": oid,
+            "detail": result.get("detail", "manual market order"),
+            "price": price,
+            "shares": round(amount / price, 4) if price > 0 else 0,
+        }
+
     def _sync_order(self, token_id, amount, price) -> Optional[dict]:
         """
         Phase 49 A-01: Uses cached self._api_creds from start()/derive path.
@@ -432,9 +615,11 @@ class LiveTrader:
         derives on the fly to avoid hard-failing on first trade.
         """
         try:
-            from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import OrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY
+            # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+            from py_clob_client_v2 import (
+                ClobClient, OrderArgs, OrderType, PartialCreateOrderOptions,
+            )
+            from py_clob_client_v2.order_builder.constants import BUY
 
             pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
             wallet = os.getenv("POLYGON_WALLET", "").strip()
@@ -456,7 +641,8 @@ class LiveTrader:
             creds = self._api_creds
             if creds is None:
                 try:
-                    creds = client.create_or_derive_api_creds()
+                    # 2026-04-30 P0.11 V2 fix: V1 `_creds` → V2 `_key`
+                    creds = client.create_or_derive_api_key()
                     self._api_creds = creds
                     logger.info(
                         f"  🔑 derived L2 creds on demand key="
@@ -504,15 +690,34 @@ class LiveTrader:
             # env false ise kontrol atlanır).
             if os.getenv("BALANCE_PREFLIGHT", "true").lower() == "true":
                 try:
-                    # py-clob-client 0.34.6: BalanceAllowanceParams dataclass
-                    # bekler. Eski SDK fallback için ImportError yakala.
-                    from py_clob_client.clob_types import (
+                    # 2026-04-30 P0.11: V1 → V2 migration. py-clob-client-v2
+                    # 1.0.0 BalanceAllowanceParams dataclass'ı korudu (V2 backward
+                    # compat). Eski SDK fallback için ImportError yakala.
+                    from py_clob_client_v2 import (
                         BalanceAllowanceParams, AssetType,
                     )
                     bal_params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
                     bal = client.get_balance_allowance(bal_params)
                     avail = float(bal.get("balance", 0) or 0) / 1e6  # raw USDC.e units
-                    allow = float(bal.get("allowance", 0) or 0) / 1e6
+
+                    # 2026-05-05 V2 API fix (Heddas debug session):
+                    # V1: bal["allowance"] (tekil string)
+                    # V2: bal["allowances"] (çoğul dict per-spender)
+                    # Backward-compat: V1 fallback for older SDK responses.
+                    allow_val = 0.0
+                    if "allowances" in bal and isinstance(bal["allowances"], dict):
+                        # V2: en yüksek allowance'ı al (genelde hepsi MAX_UINT256
+                        # zaten — 3 contract approve sonrası uniform).
+                        max_raw = max(
+                            (int(v or 0) for v in bal["allowances"].values()),
+                            default=0,
+                        )
+                        allow_val = float(max_raw) / 1e6
+                    elif "allowance" in bal:
+                        # V1 backward-compat
+                        allow_val = float(bal.get("allowance", 0) or 0) / 1e6
+
+                    allow = allow_val
                     if avail < amount:
                         logger.warning(
                             f"  ⚠ pre-flight: bakiye yetersiz ${avail:.2f} < ${amount:.2f} "
@@ -528,7 +733,15 @@ class LiveTrader:
                     try:
                         bal = client.get_balance_allowance({"asset_type": "COLLATERAL"})
                         avail = float(bal.get("balance", 0) or 0) / 1e6
-                        allow = float(bal.get("allowance", 0) or 0) / 1e6
+                        # V2 plural fallback in old SDK fallback path too
+                        if "allowances" in bal and isinstance(bal["allowances"], dict):
+                            max_raw = max(
+                                (int(v or 0) for v in bal["allowances"].values()),
+                                default=0,
+                            )
+                            allow = float(max_raw) / 1e6
+                        else:
+                            allow = float(bal.get("allowance", 0) or 0) / 1e6
                         if avail < amount:
                             return {"id": "", "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}"}
                         if allow < amount:
@@ -539,37 +752,62 @@ class LiveTrader:
                     # Response format değişmiş — log, devam (CLOB'a güven)
                     logger.debug(f"  ⓘ pre-flight skip ({type(_bal_err).__name__}): {_bal_err}")
 
-            order_args = OrderArgs(
-                price=price,
-                size=round(amount / price, 2),
-                side=BUY,
-                token_id=token_id)
-
-            # 2026-04-28 Bulgu 2.3 + 2026-04-29 Bulgu 7: options dict explicit
-            # (tick_size, neg_risk, builder_code). Builder code Heddas'ın
-            # POLYMARKET_BUILDER_CODE env var'ından gelir; set edilmemişse
-            # vanilla order (no builder fee attribution).
+            # 2026-05-05 V2 SDK fix: MarketOrderArgs + create_and_post_market_order.
+            # Polymarket V2 maker_amount max 2 decimals + taker_amount max 4
+            # decimals constraint. Limit FOK (OrderArgs+price+size) hesabıyla
+            # `price * size` 3+ decimal çıkıyor → reject. Market order method'u
+            # SDK otomatik decimal-correct yapar (amount sabit, price 0=auto).
             builder_code = os.getenv("POLYMARKET_BUILDER_CODE", "").strip()
-            options = {"tick_size": meta["tick_size"], "neg_risk": meta["neg_risk"]}
-            if builder_code:
-                options["builder_code"] = builder_code
             try:
-                signed = client.create_order(order_args, options=options)
-            except TypeError:
-                # SDK older signature without options kwarg fallback
-                logger.debug("create_order options kwarg not supported; SDK default")
-                signed = client.create_order(order_args)
-
-            # 2026-04-29 Phase C Bulgu 6 fix: order_type explicit. FOK (Fill-
-            # Or-Kill) = taker semantics — order ya tam fill ya iptal, hiçbir
-            # zaman resting maker olmaz. Bot'un "Classic TAKER pattern"
-            # (Sprint 5 HOTFIX v6) ile aynı niyet.
-            try:
-                result = client.post_order(signed, OrderType.FOK)
-            except TypeError:
-                # SDK older post_order signature without order_type kwarg
-                logger.debug("post_order order_type kwarg not supported; SDK default")
-                result = client.post_order(signed)
+                from py_clob_client_v2 import (
+                    MarketOrderArgs, PartialCreateOrderOptions,
+                )
+                market_kwargs = dict(
+                    token_id=token_id,
+                    amount=round(float(amount), 2),  # USDC, 2 decimals max
+                    side=BUY,
+                    order_type=OrderType.FOK,
+                )
+                if builder_code:
+                    market_kwargs["builder_code"] = builder_code
+                market_args = MarketOrderArgs(**market_kwargs)
+                opts = PartialCreateOrderOptions(
+                    tick_size=meta["tick_size"],
+                    neg_risk=meta["neg_risk"],
+                )
+                logger.info(
+                    f"  📤 V2 market order: amount=${amount:.2f} "
+                    f"tick={meta['tick_size']} neg_risk={meta['neg_risk']}"
+                )
+                result = client.create_and_post_market_order(market_args, opts)
+            except (ImportError, AttributeError) as _mo_err:
+                # SDK eski versiyon — limit FOK fallback (V1 pattern)
+                logger.warning(
+                    f"  ⚠ MarketOrderArgs unavailable ({type(_mo_err).__name__}): "
+                    f"{_mo_err}; falling back to limit FOK"
+                )
+                order_args_kwargs = dict(
+                    price=price,
+                    size=round(amount / price, 2),
+                    side=BUY,
+                    token_id=token_id,
+                )
+                if builder_code:
+                    order_args_kwargs["builder_code"] = builder_code
+                order_args = OrderArgs(**order_args_kwargs)
+                try:
+                    from py_clob_client_v2 import PartialCreateOrderOptions
+                    opts = PartialCreateOrderOptions(
+                        tick_size=meta["tick_size"],
+                        neg_risk=meta["neg_risk"],
+                    )
+                    signed = client.create_order(order_args, options=opts)
+                except (TypeError, ImportError):
+                    signed = client.create_order(order_args)
+                try:
+                    result = client.post_order(signed, OrderType.FOK)
+                except TypeError:
+                    result = client.post_order(signed)
 
             # 2026-04-29 Phase C Bulgu 5 fix: post-order heartbeat. Polymarket
             # cancels open orders 10s+5s after last heartbeat. Even though FOK

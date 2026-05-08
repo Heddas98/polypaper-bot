@@ -336,6 +336,123 @@ class PolymarketClient:
             "depth_usd": round(depth_usd, 2),
         }
 
+    # ═══════════════════════════════════════════════════════════════
+    # P3.X — POST /orders Bulk Endpoint (2026-05-05 Sprint 3)
+    # ═══════════════════════════════════════════════════════════════
+    # Polymarket V2 docs: bulk submit up to 15 signed orders per call.
+    # Burst limit 1000/10s, sustained 15000/10min (vs single 100/10s).
+    # 15× rate efficiency — multi-strategy paralel sinyal toplama için.
+    #
+    # Mainnet'e dokunmaz şu an (sadece module). Engine wire Sprint 4.
+    BULK_ORDER_MAX = 15
+    BULK_ORDER_ENDPOINT = "/orders"  # plural — V2 SDK docs
+
+    async def post_orders_bulk(self, signed_orders: list[dict],
+                                clob_client=None) -> dict:
+        """Submit bulk signed orders to Polymarket V2 CLOB.
+
+        Args:
+            signed_orders: list of EIP-712 signed order dicts (max 15).
+                Each order must have: orderID, salt, maker, signer, takerAmount,
+                makerAmount, signature, expiration, side, signatureType, etc.
+            clob_client: optional V2 SDK client; if None, fallback to httpx.
+
+        Returns:
+            dict with keys:
+              - "results": list of per-order outcomes (id, status)
+              - "submitted": int total
+              - "succeeded": int placed
+              - "failed": int rejected
+              - "error": str if request-level failure
+              - "count": int actual orders submitted
+
+        Example:
+            client = PolymarketClient(settings)
+            signed = [build_signed_order(...) for _ in range(15)]
+            result = await client.post_orders_bulk(signed)
+            for outcome in result["results"]:
+                if outcome.get("status") == "placed":
+                    process_fill(outcome["id"])
+
+        Forward work (Sprint 4 wire):
+          - core/live_trader maybe_mirror_bulk() collector window 100ms
+          - 15 sinyal birikir veya 100ms sona erer → bulk submit
+          - Fallback: tek POST /order (mevcut path) yine çalışır
+        """
+        if not signed_orders:
+            return {"results": [], "submitted": 0, "succeeded": 0,
+                    "failed": 0, "error": "empty list"}
+
+        if len(signed_orders) > self.BULK_ORDER_MAX:
+            return {"results": [], "submitted": 0, "succeeded": 0,
+                    "failed": 0, "count": len(signed_orders),
+                    "error": f"bulk limit {self.BULK_ORDER_MAX}, "
+                             f"got {len(signed_orders)}"}
+
+        # PATH 1: V2 SDK native (preferred)
+        if clob_client is not None:
+            try:
+                method = getattr(clob_client, "post_orders", None)
+                if method is not None:
+                    import asyncio as _asyncio
+                    loop = _asyncio.get_running_loop()
+                    response = await loop.run_in_executor(
+                        None, lambda: method(signed_orders))
+                    return self._parse_bulk_response(response, signed_orders)
+            except Exception as e:  # noqa: BLE001 — SDK fallback
+                logger.warning(
+                    f"post_orders SDK failed ({type(e).__name__}: {e}); "
+                    f"falling back to httpx")
+
+        # PATH 2: httpx direct (fallback)
+        try:
+            import httpx as _httpx
+            url = f"{self.CLOB_BASE}{self.BULK_ORDER_ENDPOINT}"
+            payload = {"orders": signed_orders}
+            async with _httpx.AsyncClient(timeout=10.0) as cli:
+                r = await cli.post(url, json=payload)
+            if r.status_code != 200:
+                return {"results": [], "submitted": 0, "succeeded": 0,
+                        "failed": len(signed_orders),
+                        "count": len(signed_orders),
+                        "error": f"HTTP {r.status_code}: {r.text[:200]}"}
+            return self._parse_bulk_response(r.json(), signed_orders)
+        except Exception as e:  # noqa: BLE001
+            return {"results": [], "submitted": 0, "succeeded": 0,
+                    "failed": len(signed_orders),
+                    "count": len(signed_orders),
+                    "error": f"{type(e).__name__}: {e}"}
+
+    def _parse_bulk_response(self, response, signed_orders: list[dict]) -> dict:
+        """Normalize bulk response to {results, submitted, succeeded, failed}."""
+        if not isinstance(response, dict):
+            return {"results": [], "submitted": 0, "succeeded": 0,
+                    "failed": len(signed_orders),
+                    "count": len(signed_orders),
+                    "error": f"non-dict response: {type(response).__name__}"}
+
+        # V2 SDK shape: {"results": [{"id": "...", "status": "placed"}, ...]}
+        # Alt shape: {"orders": [...]}
+        results = response.get("results") or response.get("orders") or []
+        if not isinstance(results, list):
+            results = []
+
+        succeeded = sum(1 for r in results
+                        if isinstance(r, dict)
+                        and r.get("status") in ("placed", "live", "matched", "filled"))
+        failed = len(signed_orders) - succeeded
+
+        return {
+            "results": results,
+            "submitted": len(signed_orders),
+            "succeeded": succeeded,
+            "failed": failed,
+            "count": len(signed_orders),
+            "error": None,
+        }
+
+    # ═══ P3.X bulk endpoint END ════════════════════════════════════
+
     async def check_market_resolved(self, slug):
         """Phase 82e Sprint 5 HOTFIX v4 — RESOLUTION PATH FIX.
 

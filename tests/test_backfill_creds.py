@@ -51,10 +51,11 @@ def check_backfill_imports():
         return False
 
     try:
-        from py_clob_client.client import ClobClient  # noqa: F401
-        print("  ✅ py-clob-client")
+        # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
+        from py_clob_client_v2 import ClobClient  # noqa: F401
+        print("  ✅ py-clob-client-v2")
     except ImportError:
-        print("  ❌ py-clob-client — pip install py-clob-client")
+        print("  ❌ py-clob-client-v2 — pip install py-clob-client-v2")
         return False
 
     return True

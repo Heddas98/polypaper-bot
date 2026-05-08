@@ -972,3 +972,124 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
   - **Faz 1 ✅ TAMAMLANDI 2026-04-20** (65 → 17 bare, T1.4 Epic 1 altında): `live_trader.py` (16→7), `engine_settlement.py` (28→8), `engine_fills.py` (12→2), `risk_manager.py` (9→0). Bonus: 30 satır dead code (2 ghost orphan pattern) silindi, 19 debug log upgrade, 4 dosya py_compile + AST temiz.
   - Faz 2 (123 blok, HIGH): Epic 8 T8.1 altında (ai_brain + engine_signals + engine) — bağımlılık: Faz 1 ✅
   - Faz 3 (96 blok, MED-LOW): Epic 7 T7.6 altında (auto_optimizer + 19 dosya) — bağımlılık: Faz 1 ✅ + T7.1-T7.3 dead code temizliği
+
+---
+
+## 🟢 Epic 12 — Polymarket Docs Compliance Mega Audit + 5AI Yol Haritası Sentezi (2026-04-30 BAŞLATILDI)
+
+> **🏆 SPRINT 1 SMOKE PASS 2026-04-30:**
+> - **pytest baseline: 963 pass / 2 skip / 0 fail** (önceki 778-800 → +165 test)
+> - 5 yeni modül smoke import: ALL OK
+> - V2 SDK auth: ✅ canlı doğrulandı (Budget $1.49)
+> - **ZERO REGRESSION** V2 migration + 8 yeni modül + 5 method rename + 12 import block sonrası
+> - Strategy pruning analyzer DB schema fix uygulandı (Heddas 2.run bekleniyor)
+
+> **Kaynaklar:** `uploads/COWORK_POLYMARKET_DOCS_COMPLIANCE_MEGA_PROMPT.md` (10 katmanlı audit) + `YOL_HARITASI_5AI_SYNTHESIS_2026_04_30.md` (Grok+Gemini+Deepseek+GPT+Audit) + Polymarket Docs MCP (canlı 2026-04-30 snapshot).
+> **Tam plan:** `docs/MASTER_PLAN_2026_04_30.md` — sentez, layer audit map, P0/P1/P2/P3 tablosu, Pre-Mainnet Gate, 30/60/90 takvim, risk register.
+> **Kural:** Hiçbir madde atlanmayacak. ✅ tamamlanan, ⏳ devam eden, ❌ yapılmayan, ⚠️ kısmen yapılan, 📋 planlı.
+> **Sıralama:** P0.1 (SDK V2 — KRİTİK) → P0.2 → P0.3 → P0.5 → P0.4 → P0.6 → P0.7 → P0.8 → Mega Audit Phase A-G → P0.9 → P0.10 → P1 → P2 → Mainnet Gate → Final Verification.
+
+### Epic 12.A — P0 Maddeleri (İlk 14 Gün — Mainnet Pre-Gate)
+
+| ID | Madde | Layer | Status | Kanıt / Notlar |
+|----|-------|-------|--------|----------------|
+| P0.1 | SDK V2 doğrulama (`py-clob-client-v2` vs V1 0.34.6) | L1, L2 | ✅ **KAPALI 2026-04-30** | V1 0.34.6 mainnet için yeterli — Phase A+B+C smoke PASS, EIP-712 SDK delegasyonu (manuel construct yok), builder code native attach (`options["builder_code"]` V2 contract field'ını dolduruyor). 5 dosya × 17 import V1 namespace, 778-800 test stabil. V2 migration **P1.9 backlog** (resmi destek + future-proof, acil değil). Smoke verify: Heddas yerel Windows $1 USDC mainnet order. Audit raporu: `docs/audits/sdk_v2_migration_check_2026_05.md` |
+| P0.2 | Heartbeat coroutine 5s zorunluluğu | L4 | ✅ **KAPALI 2026-04-30** | Bot **FOK-only** akış (`core/live_trader.py:568` tek `OrderType.FOK`). Phase C Bulgu 5 fix'i defansif post-order heartbeat ekli (`live_trader.py:579 client.post_heartbeat("")`). FOK = anlık resolve = resting order yok = 5s heartbeat coroutine **gerekli değil**. P1.6 (post-only GTC) eklenince P1.6.1 (5s coroutine) ZORUNLU. Audit raporu: `docs/audits/heartbeat_audit_2026_05.md` |
+| P0.3 | Reference price feed (Binance hourly + Chainlink 15m) | L3, L6 | ✅ **KAPALI 2026-04-30** | Bot Binance REST kullanıyor (`data/external_feed.py:33`, `candle_collector.py:33`, `ai_brain.py:949`, `backtest/binance_hist.py:23-24`). 4 asset BTCUSDT/ETHUSDT/SOLUSDT/XRPUSDT. **5m markets:** Polymarket de Binance ile resolve → ✅ uyumlu. **15m markets:** Polymarket Chainlink Data Stream ile resolve → Bot Binance kullanıyor → divergence riski (5-50 bps). **Heddas direktifi: "en güncel ol"** → **P0.12 Chainlink RTDS subscribe acil P0** olarak yükseltildi. Audit: `docs/audits/price_feed_divergence_2026_05.md` |
+| P0.5 | Allowance pre-flight 3 approval (Phase D Bulgu 9) | L9 | ✅ **KAPALI 2026-04-30** | `core/allowance_preflight.py` 250 satır yazıldı. **Polymarket V2 docs**: 3 approval (pUSD→CTF / CTF→CTFExch / CTF→NegRiskExch). 5AI Audit'in "5 approval" iddiası docs'a uymuyor — 3 kanonik. `check_collateral_allowance` (V2 SDK BalanceAllowanceParams COLLATERAL) + `check_conditional_allowance` (CONDITIONAL token_id veya inferred mode) + `check_all_allowances` orchestrator + `format_status_report` Telegram HTML + `run_preflight` top-level. Boot orchestrator pattern (never crash boot). Heddas yerel: engine.py startup wire + `/allowance_check` Telegram handler P1. Audit: `docs/audits/allowance_preflight_2026_05.md` |
+| P0.4 | Strategy pruning 18 → 3 | L10 | ⏳ AÇIK | _archive/strategies_pre_pruning_2026_05/ + Sharpe>1.2 OR PF>1.3 filter |
+| P0.6 | Walk-forward backtest + slippage modeli | L10 | ❌ YOK | Hyperopt silindi (Aşama 1 ✅), walk-forward eklenmedi. Train 30g rolling + test 7g forward + GET /book derinlik |
+| P0.7 | Fill heuristic recalibration (T4.7-C) | L5, L10 | ⏳ AÇIK | T4.6-B sweep paper×0.66≈live → FILL_SPREAD_COST 0.005→0.023 + IMPACT 0.01→0.025 + LATENCY_DRIFT 0.08→0.04. Haftalık empirical sweep cron |
+| P0.8 | Daily/weekly drawdown kill-switch | L8 | ⚠️ KISMİ | PNL_PAUSE pause-only. YENİ: günlük -%10 HALT + 5 ardışık kayıp 1h cooldown + haftalık -%20 manuel restart |
+| P0.9 | DRY_RUN default ON | L1 | ⚠️ KISMİ | Aşama 3.A+3.B mode toggle ✅ — banner doğrula + default ON kontrolü |
+| P0.10 | Per-trade hard caps (MAX_ORDER_USD=10, MIN/MAX_PRICE) | L2 | ❌ YOK | telegram_bot/handlers/order_validator.py |
+| **P0.11** | **py-clob-client V1 → V2 migration (en güncel)** | **L1, L2** | ✅ **TAMAMLANDI 2026-04-30** | **Heddas direktifi: "Polymarket V2'ye geçtiyse sen de geç. En güncel ol."** **2 commit'te kapatıldı:** (1) Sandbox apply: requirements.txt + 5 dosya × 12 import block + RTDS modülü + audit raporları. (2) V2 method rename hotfix: V1 `create_or_derive_api_creds()` → V2 `create_or_derive_api_key()` 5 yerde (`live_trader.py:232,462`, `polymarket_actions.py:65`, `polymarket_portfolio.py:305`, `backfill_ob_trades.py:90`). **CANLI DOĞRULAMA 13:28:51 UTC:** `🟡 Live Trader: STANDBY (LIVE_ENABLED=false) \| 0xA7e75855... \| auth=✅ \| Budget $1.49` — V2 SDK auth verify PASS, EIP-712 v2 domain çalışıyor, mevcut Phase A creds (498bde4b...) V2 ile uyumlu. Cloudflare 403 (initial derive) **cosmetic** — fallback stored creds ile auth=✅. Audit: `docs/audits/sdk_v2_migration_apply_2026_05.md` + canlı log evidence. **P1 backlog:** Cloudflare 403 polish (User-Agent override veya IPv4 bind). |
+| **P0.12** | **Polymarket RTDS Chainlink subscribe (15m parity)** | **L3, L4, L6** | ✅ **SANDBOX APPLY DONE 2026-04-30** + ⏳ Heddas yerel | **Heddas direktifi: "en güncel ol"** + P0.3 audit 15m divergence açığı. ✅ Yapılanlar: `data/polymarket_rtds.py` 304 satır class `PolymarketRTDS`. WS `wss://ws-live-data.polymarket.com`, Binance topic `crypto_prices` (5m parity) + Chainlink topic `crypto_prices_chainlink` (15m sponsored). Heartbeat 5s ping, reconnect chain T11.8-B doctrine (5s exp backoff, 60s cap, 10 fail offline), freshness 30s. Public API: `get_price(asset, source)`, `get_price_15m(Chainlink öncelik)`, `get_price_5m(Binance öncelik)`, `get_status()`. ⏳ **Heddas yerel adımları:** (1) Polymarket form ile sponsored Chainlink API key al (`docs.polymarket.com/market-data/websocket/rtds#chainlink-source`). (2) P1.10 boot integration: `core/engine.py` veya `main.py` startup'ta `rtds.start()` + signal pipeline `get_price_15m` plumb. (3) 30dk soak test + divergence ölçüm `scripts/rtds_divergence_smoke.py`. Audit: `docs/audits/rtds_chainlink_subscribe_2026_05.md` |
+
+### Epic 12.B — Mega Audit Phaseler (Polymarket Docs MCP × 10 Layer)
+
+| ID | Phase | Çıktı | Status |
+|----|-------|-------|--------|
+| MA.A | Recon (file inventory + api surface + dep graph) | audit_phase_polymarket_compliance/code_patches/analysis/ | ⏳ |
+| MA.B | Polymarket Docs Cache (40 mandatory query Q01-Q40 + full pages) | audit_phase_polymarket_compliance/docs_cache/ | ⏳ |
+| MA.C | 10 Layer analiz (L1 Auth → L10 Paper Fidelity) | 01_POLYMARKET_COMPLIANCE_AUDIT.md | ⏳ |
+| MA.D | Synthesis (00 EXEC + 02 DELTA + 03 ROADMAP + 04 RISK + ...) | 11 ana .md dosya | ⏳ |
+| MA.E | Patches (P0/P1 unified diff + snippets + MANUAL_REVIEW) | code_patches/proposed/ | ⏳ |
+| MA.F | Self-Check (CHECKLIST 50+ + COMPLETENESS_SCORE ≥80/100) | self_check/ | ⏳ |
+| MA.G | Heddas Teslim Raporu (TR) | _TESLIM_RAPORU_TR.md (proje root) | ⏳ |
+
+### Epic 12.C — P1 30-Gün İyileştirme Paketi
+
+| ID | Madde | Status |
+|----|-------|--------|
+| P1.1 | Linux/Docker desteği (Dockerfile multi-stage + docker-compose + systemd) | ❌ YOK |
+| P1.2 | core/ → 3 modül refactor (signal_engine + execution_engine + risk_engine) | ❌ YOK |
+| P1.3 | Test coverage 21% → 60% (critical path + 3-seed + CI gate) | ⏳ AÇIK |
+| P1.4 | Reconciliation loop (5dk Polygon RPC CTF balanceOf vs DB, mismatch>$1 halt) | ❌ YOK |
+| P1.5 | .env 100+ → 25 (audit + whitelist + array consolidation) | ❌ YOK |
+| P1.6 | Taker/maker karar matrisi (Phase D Bulgu 10) | ⏳ AÇIK |
+| P1.7 | Structured logging + secret scrubbing (loguru/structlog) | ⚠️ KISMİ (T10.8 13 regex ✅) |
+| P1.8 | Executor abstraction (LiveExecutor + PaperExecutor common interface) | ❌ YOK |
+
+### Epic 12.D — P2 SaaS Pivot Hazırlığı (30-90 Gün)
+
+| ID | Madde | Status |
+|----|-------|--------|
+| P2.1 | Multi-user + lisans (DB users, /redeem, 3-tier $9/$29/$79) | ❌ YOK |
+| P2.2 | Polymarket error code mapping (Phase D Bulgu 11, 15+ kod) | ⏳ AÇIK |
+| P2.3 | Status polling refinement (Phase D Bulgu 12, exp backoff) | ⏳ AÇIK |
+| P2.4 | Web dashboard MVP (Streamlit/React, public PnL link) | ❌ YOK |
+| P2.5 | Stripe + Coingate ödeme entegrasyonu | ❌ YOK |
+| P2.6 | Affiliate program (%20 lifetime commission) | ❌ YOK |
+
+### Epic 12.E — P3 Ölçek & Diversifikasyon (90+ Gün)
+
+| ID | Madde | Status |
+|----|-------|--------|
+| P3.1 | Multi-asset (Polymarket Geopolitics %0 fee, Politics/Sports/Finance) | ❌ YOK |
+| P3.2 | Multi-venue (Kalshi US-only, regülasyon karmaşası) | ❌ YOK |
+| P3.3 | Public API (Pro tier $99/ay, programatik erişim) | ❌ YOK |
+| P3.4 | White-label lisans ($500-2000 setup + %20 monthly revshare) | ❌ YOK |
+
+### Epic 12.F — Mainnet Go/No-Go Gate Doğrulaması
+
+**Pre-Mainnet Gate (10 koşul):** Hepsi ⏳ AÇIK. SDK V2 + heartbeat + price feed + pruning + allowance + walk-forward + kill-switch + dry_run + hard cap + recon.
+**$20 → $100 Gate:** ≥200 trade, paper-live <%10, PnL ≥+%5, Sharpe>1, DD<%15, recon=0, hb<%0.5, reject<%2.
+**$100 → $500 Gate:** ≥1000 trade, 3 ay üstüste pozitif, Sharpe>1.2, DD<%12, PF>1.4, mismatch<%1.
+**SaaS Pivot Gate:** uptime>%99.5, multi-user aktif, error<%1, dashboard public, 3 beta kullanıcı, TR vergi+KVKK kontrol.
+
+### Epic 12.G — Final Verification
+
+- [ ] 778+ test PASS, 0 fail, 3-seed deterministic
+- [ ] pip-audit 0 CVE
+- [ ] Secret scan 13 regex × 3 scope = 0 match
+- [ ] Polymarket docs %100 compliance (Phase A+B+C ✅ + Phase D 8/9/10/11/12 kapatıldı)
+- [ ] TASKS.md + MASTER_PLAN_2026_04_30.md ✅/⏳ tutarlı
+- [ ] Memory landmarks eklendi
+- [ ] Heddas teslim raporu Türkçe
+
+### Polymarket V2 Gerçeklik Kontrolü (Docs MCP 2026-04-30 Snapshot)
+
+| Madde | Docs gerçeği | Bot durumu | ✅/⚠️/❌ |
+|-------|--------------|------------|---------|
+| SDK | `pip install py-clob-client-v2`, `from py_clob_client_v2 import ClobClient` | `py-clob-client==0.34.6` (V1) | ⚠️ |
+| Signature types | EOA=0 / POLY_PROXY=1 / GNOSIS_SAFE=2 | signature_type=2 + funder=proxy | ✅ |
+| Crypto fee | `C × 0.072 × p × (1-p)`, peak $1.80, maker rebate %20 | `core/fees_v2.py` bit-identical | ✅ |
+| Heartbeat | POST /heartbeat 5s (10s+5s buffer death) | belirsiz (P0.2) | ⚠️ |
+| Order types | GTC/GTD/FOK/FAK + post-only | OrderType.FOK explicit (Phase B) | ✅ |
+| Tick size + neg_risk | per-market sorgula | `tick_size + neg_risk + builder_code` options dict (Phase A) | ✅ |
+| Min order | $5 | bot çoğunlukla $1 — config var | ⚠️ |
+| Rate limits | POST /order 3500/10s, /book 1500/10s vb. | Phase D Bulgu 8 | ⏳ |
+| Reference price | Binance 1H + Chainlink 15m | belirsiz (P0.3) | ⚠️ |
+| Allowance | 5 approval (pUSD×3 + CTF×2) | Aşama 1+2 SDK ile kısmi | ⚠️ |
+| HTTP 425 (restart window) | gracefully retry | belirsiz | ⚠️ |
+| Float vs Decimal | Decimal zorunlu (float = INVALID_SIGNATURE riski) | belirsiz | ⚠️ |
+| Geopolitics %0 fee | fırsat | henüz kullanılmıyor | 📋 |
+
+### Sıradaki İş
+
+**Şu an aktif:** Master TASKS.md sentezi (bu Epic 12 başlığı). Sırada **P0.1 SDK V2 doğrulama** — `requirements.txt` + `WebFetch docs.polymarket.com/v2-migration` + smoke trade (Heddas yerel).
+
+**Tam yol:** `docs/MASTER_PLAN_2026_04_30.md` §10 EXECUTION ORDER (19 task numaralı sıra).
+
+
