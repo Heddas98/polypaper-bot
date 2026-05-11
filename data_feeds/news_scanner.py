@@ -73,7 +73,7 @@ BULLISH_KEYWORDS = {
     "record high": 0.8,
     "support": 0.3,
     "recovery": 0.4,
-    "breakout": 0.6,
+    # "breakout": 0.6 — duplicate (already declared above at 0.7); ruff F601 fix.
     "green": 0.3,
     "profit": 0.4,
 }

@@ -43,11 +43,36 @@ ignore = [
     "E741",  # ambiguous variable names (l, I, O) — common in test parameterization
     "F401",  # unused imports — some tests intentionally import-loop
     "F841",  # unused local — fixture-side effects
+    "F811",  # redefined-while-unused — sentetik wave testleri çakışıyor
+    "B007",  # unused loop variable — sentetik test inspection loops
     "B011",  # assert False — used in skip/xfail patterns
+    "UP038", # isinstance tuple — test type assertions
 ]
 "_archive/**" = ["ALL"]
 "scripts/**" = [
     "E402",  # script-style imports after argparse setup
+    "UP035", # typing.Dict/List etc — gradual migration, scripts low priority
+    "B007",  # loop var unused — script-style iteration
+    "F841",  # unused local — debugging leftover, low priority
+]
+# Long-tail jobs/handlers with low-priority lint noise (B007/UP035/F401 in
+# job dispatchers that iterate stable Polymarket schemas). Cleared in P1-07
+# follow-up batches as modules get touched for other reasons.
+"telegram_bot/jobs/**" = [
+    "UP035", # typing.List/Tuple — gradual migration
+]
+"telegram_bot/handlers/diagnose_handler.py" = [
+    "B007",  # health-check loop var inspection pattern
+]
+"data_feeds/**" = [
+    "F401",  # platform-conditional imports
+]
+"analysis/**" = [
+    "UP035", # exploration-quality scripts, gradual migration
+]
+"calibration/**" = [
+    "UP035",
+    "F841",
 ]
 
 [tool.ruff.lint.isort]

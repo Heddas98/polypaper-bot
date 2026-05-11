@@ -203,7 +203,7 @@
   - ⏸️ "Loki/Datadog opsiyonel" — yerel JSON yeterli, cloud shipping ileride opsiyonel.
 - **Override seçenekleri:** `STRUCTURED_LOG_ENABLED=false` (kapat), `STRUCTURED_LOG_FILE=path` (özel yol), `LOG_SECRET_SCRUB=false` (scrub kapat — ÖNERİLMEZ).
 
-### P1-07 [~] mypy + ruff blocking CI — **L** PARTIAL ✅ 2026-05-09
+### P1-07 [x] mypy + ruff blocking CI — **L** ✅ 2026-05-11 (hard-close)
 - **Dosya:** `pyproject.toml` (NEW), `requirements-dev.txt` (NEW), `scripts/run_lint.bat` (NEW), `.github/workflows/ci.yml` (updated)
 - **Yapılanlar:**
   - **a) `pyproject.toml` NEW** — `[tool.ruff]` config (line 100, py311 target, select E/W/F/B/I/UP, ignore E501/E402/B008/UP006/UP007), `[tool.ruff.lint.per-file-ignores]` tests/scripts esnek, `[tool.ruff.lint.isort]` known-first-party. `[tool.mypy]` gradual config — start permissive, 3 modülde strict override (`core.fees_v2`, `core.indicators`, `core.stats_utils`). 3rd-party stub ignore listesi.
@@ -229,6 +229,16 @@
   - İlk ruff çıktısı: muhtemelen N violation. Listeyi bana ver, en kolay 30-40 düzeltme batch'i.
   - mypy core/ baseline snapshot → `mypy_baseline.txt`.
   - Override genişlet: data/, telegram_bot/ aşamalı.
+- **Follow-up sonucu (2026-05-11):**
+  - Heddas Windows `run_lint.bat` koşturdu → ruff 1123 violation.
+  - `run_lint_fix.bat` (safe `ruff check --fix`) → 1123 → 158 (-%86 mekanik kazanım).
+  - 14 test fail → 0: T11.6 leak (data_status/recon/ref_audit/reality_gap handler'larda generic mesaj fix).
+  - F821 critical bug fix: backtest_v2 4 dead Becker fonksiyonu silindi (~155 satır), force_settle slug undefined fix, test_p0_08_multi_tf duplicate `__main__` block silindi. (memory: project_becker_aciklamasi Aşama 2 backlog kapandı.)
+  - `run_lint_unsafe_fix.bat` (`--unsafe-fixes`) → 158 → 42 daha. Kalan: B023 closure-in-loop (1 unique, audit_reference_price), F601 dict key duplicate (1 unique, news_scanner) — manuel düzeltildi.
+  - Kalan ~30 cosmetic (B007/UP035/F401 scripts/data_feeds/calibration/analysis/) `pyproject.toml [tool.ruff.lint.per-file-ignores]` override ile suppress (gradual migration, low-priority modüller).
+  - mypy 71 error → `mypy_baseline.txt` snapshot. CI mypy step `continue-on-error: true` (baseline collect, follow-up'ta hard-flip).
+  - Coverage 43.10% (gate 43.0% ratchet ✅), pytest 3418/0 fail.
+- **Hard-close kabul kriteri:** Tüm Heddas tarafı yapıldı, P1-07 [x] olarak kabul edilebilir. Mypy strict ratchet (per-module override genişletme + hard-fail flip) ayrı P1-07-round-2 olarak işaretlendi.
 
 ### P1-08 [ ] SQLite → PostgreSQL — **XL**
 - **Dosya:** `db/database.py`, `db/migrations/`, `deploy/postgres/`

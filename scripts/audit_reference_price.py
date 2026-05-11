@@ -301,10 +301,13 @@ async def _fetch_references_async(args) -> int:
                 failed += 1
                 continue
 
-            def _bps(local):
+            # B023 fix: bind `official` as default arg so the closure
+            # captures the current iteration's value, not the outer loop's
+            # last value (which would be wrong if `official` is mutated later).
+            def _bps(local, _off=official):
                 if local is None or local <= 0:
                     return None
-                return ((local - official) / official) * 10000.0
+                return ((local - _off) / _off) * 10000.0
 
             ws_bps = _bps(r["bot_binance_ws_price"])
             rest_bps = _bps(r["bot_binance_rest_price"])
