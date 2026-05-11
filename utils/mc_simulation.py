@@ -33,12 +33,11 @@ ENV:
     MC_KELLY_TRADES=500          # Trades per path
     MC_KELLY_SEED=42             # Random seed for reproducibility
 """
+
 from __future__ import annotations
 
-import os
-import math
 import logging
-import json
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -46,6 +45,7 @@ logger = logging.getLogger("polypaper.utils.mc_kelly")
 
 try:
     import numpy as np
+
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
@@ -67,14 +67,15 @@ KELLY_FRACTIONS = {
     "third": 0.333,
     "half": 0.50,
     "full": 1.00,
-    "fixed_1": None,    # Fixed $1 bet
-    "fixed_2": None,    # Fixed $2 bet
+    "fixed_1": None,  # Fixed $1 bet
+    "fixed_2": None,  # Fixed $2 bet
 }
 
 
 @dataclass
 class FractionResult:
     """Result for a single Kelly fraction."""
+
     name: str = ""
     fraction: float = 0.0
     # Growth
@@ -82,25 +83,26 @@ class FractionResult:
     mean_final: float = 0.0
     geometric_growth_rate: float = 0.0  # log growth per trade
     # Risk
-    bankruptcy_pct: float = 0.0         # % of paths hitting < $1
+    bankruptcy_pct: float = 0.0  # % of paths hitting < $1
     max_drawdown_median: float = 0.0
-    drawdown_50pct_prob: float = 0.0    # % paths with 50%+ drawdown
+    drawdown_50pct_prob: float = 0.0  # % paths with 50%+ drawdown
     # Variance
     std_final: float = 0.0
-    cv: float = 0.0                     # coefficient of variation
+    cv: float = 0.0  # coefficient of variation
     # Percentiles
     p5: float = 0.0
     p25: float = 0.0
     p75: float = 0.0
     p95: float = 0.0
     # Efficiency
-    growth_retention: float = 0.0       # vs full Kelly
-    variance_ratio: float = 0.0         # vs full Kelly
+    growth_retention: float = 0.0  # vs full Kelly
+    variance_ratio: float = 0.0  # vs full Kelly
 
 
 @dataclass
 class MCKellyResult:
     """Full Monte Carlo validation result."""
+
     # Input params
     win_rate: float = 0.0
     avg_entry_price: float = 0.0
@@ -122,12 +124,12 @@ class MCKellyResult:
     def summary(self) -> str:
         """Human-readable summary."""
         lines = [
-            f"═══ Monte Carlo Kelly Validation ═══",
+            "═══ Monte Carlo Kelly Validation ═══",
             f"WR: {self.win_rate:.1%} | Entry: {self.avg_entry_price:.2f} | "
             f"Bankroll: ${self.initial_bankroll:,.0f}",
             f"Paths: {self.n_paths:,} | Trades/path: {self.n_trades}",
             f"Full Kelly: {self.full_kelly_pct:.1f}% | Quarter: {self.quarter_kelly_pct:.1f}%",
-            f"",
+            "",
             f"{'Fraction':<12} {'Median$':<12} {'Bankrupt%':<10} "
             f"{'Growth':<10} {'StdDev':<10} {'DD50%':<8}",
             f"{'─'*62}",
@@ -140,25 +142,25 @@ class MCKellyResult:
                 f"${fr.std_final:<9,.0f} "
                 f"{fr.drawdown_50pct_prob:<7.1f}%"
             )
-        lines.extend([
-            f"",
-            f"🏆 Optimal: {self.optimal_fraction_name} "
-            f"({self.optimal_fraction_value:.1%})",
-            f"{'✅' if self.is_quarter_kelly_optimal else '⚠️'} "
-            f"{self.recommendation}",
-        ])
+        lines.extend(
+            [
+                "",
+                f"🏆 Optimal: {self.optimal_fraction_name} " f"({self.optimal_fraction_value:.1%})",
+                f"{'✅' if self.is_quarter_kelly_optimal else '⚠️'} " f"{self.recommendation}",
+            ]
+        )
         return "\n".join(lines)
 
     def format_telegram(self) -> str:
         """Telegram HTML formatted report."""
         lines = [
-            f"🎲 <b>Monte Carlo Kelly Validation</b>",
-            f"━━━━━━━━━━━━━━━━━━━━━",
-            f"",
+            "🎲 <b>Monte Carlo Kelly Validation</b>",
+            "━━━━━━━━━━━━━━━━━━━━━",
+            "",
             f"📊 WR: <b>{self.win_rate:.1%}</b> | Entry: {self.avg_entry_price:.2f}",
             f"💰 Bankroll: ${self.initial_bankroll:,.0f}",
             f"🔢 {self.n_paths:,} paths × {self.n_trades} trades",
-            f"",
+            "",
         ]
 
         for fr in self.fractions:
@@ -170,18 +172,18 @@ class MCKellyResult:
                 f"DD50: {fr.drawdown_50pct_prob:.0f}%"
             )
 
-        lines.extend([
-            f"",
-            f"🏆 <b>Optimal: {self.optimal_fraction_name}</b> "
-            f"({self.optimal_fraction_value:.1%} of bankroll)",
-        ])
+        lines.extend(
+            [
+                "",
+                f"🏆 <b>Optimal: {self.optimal_fraction_name}</b> "
+                f"({self.optimal_fraction_value:.1%} of bankroll)",
+            ]
+        )
 
         if self.is_quarter_kelly_optimal:
             lines.append("✅ Quarter Kelly onaylandı — mevcut sizing doğru")
         else:
-            lines.append(
-                f"⚠️ {self.recommendation}"
-            )
+            lines.append(f"⚠️ {self.recommendation}")
 
         return "\n".join(lines)
 
@@ -189,6 +191,7 @@ class MCKellyResult:
 # ═══════════════════════════════════════════════════════════════
 # Monte Carlo Engine
 # ═══════════════════════════════════════════════════════════════
+
 
 class MonteCarloKelly:
     """
@@ -248,12 +251,10 @@ class MonteCarloKelly:
         if full_kelly_growth and full_kelly_growth > 0 and full_kelly_std > 0:
             for fr in fraction_results:
                 fr.growth_retention = (
-                    fr.geometric_growth_rate / full_kelly_growth
-                    if full_kelly_growth > 0 else 0
+                    fr.geometric_growth_rate / full_kelly_growth if full_kelly_growth > 0 else 0
                 )
                 fr.variance_ratio = (
-                    (fr.std_final ** 2) / (full_kelly_std ** 2)
-                    if full_kelly_std > 0 else 0
+                    (fr.std_final**2) / (full_kelly_std**2) if full_kelly_std > 0 else 0
                 )
 
         # Find optimal fraction (best risk-adjusted: median / (1 + bankruptcy%))
@@ -269,9 +270,7 @@ class MonteCarloKelly:
         optimal = scored[0][0] if scored else fraction_results[0]
 
         # Is quarter Kelly optimal?
-        quarter_result = next(
-            (fr for fr in fraction_results if fr.name == "quarter"), None
-        )
+        quarter_result = next((fr for fr in fraction_results if fr.name == "quarter"), None)
         is_qk_optimal = optimal.name == "quarter"
 
         # Recommendation
@@ -303,9 +302,7 @@ class MonteCarloKelly:
             n_trades=self.n_trades,
             full_kelly_pct=round(self.full_kelly * 100, 1),
             quarter_kelly_pct=round(self.quarter_kelly * 100, 1),
-            theoretical_edge=round(
-                self.payout_ratio * self.win_rate - (1 - self.win_rate), 4
-            ),
+            theoretical_edge=round(self.payout_ratio * self.win_rate - (1 - self.win_rate), 4),
             fractions=fraction_results,
             optimal_fraction_name=optimal.name,
             optimal_fraction_value=optimal.fraction,
@@ -317,7 +314,7 @@ class MonteCarloKelly:
         self,
         name: str,
         fraction: Optional[float],
-        outcomes: "np.ndarray",
+        outcomes: np.ndarray,
     ) -> FractionResult:
         """Simulate one Kelly fraction across all paths."""
         n_paths, n_trades = outcomes.shape
@@ -385,6 +382,7 @@ class MonteCarloKelly:
 # ═══════════════════════════════════════════════════════════════
 # Quick validation function (for AI Brain / auto_optimizer)
 # ═══════════════════════════════════════════════════════════════
+
 
 def validate_quarter_kelly(
     win_rate: float,

@@ -7,10 +7,11 @@ HTTP server on port 8080:
   /dashboard  → FULL HTML monitoring dashboard (auto-refresh 30s)
   /api/data   → JSON API for dashboard data
 """
+
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 from aiohttp import web
@@ -52,22 +53,26 @@ class KeepAlive:
                 logger.info(f"🌐 HEALTH: https://{domain}/health")
             elif replit_url:
                 logger.info(f"🌐 DASHBOARD: https://{replit_url}/dashboard")
-                logger.info(f"🌐 ⚠️ Dev URL — Deploy yap for public access")
+                logger.info("🌐 ⚠️ Dev URL — Deploy yap for public access")
             else:
                 logger.info(f"🌐 DASHBOARD: http://localhost:{PORT}/dashboard")
         except OSError as e:
             logger.warning(f"KeepAlive port {PORT}: {e}")
             return
         # Phase 82e Sprint 2.1: keepalive self-ping guarded
-        self._self_ping_task = safe_create_task(
-            self._self_ping_loop(), name="keepalive_self_ping")
+        self._self_ping_task = safe_create_task(self._self_ping_loop(), name="keepalive_self_ping")
 
     async def _handle_root(self, request):
-        return web.Response(text="PolyPaper Bot v33 — /dashboard for monitoring", content_type="text/plain")
+        return web.Response(
+            text="PolyPaper Bot v33 — /dashboard for monitoring", content_type="text/plain"
+        )
 
     async def _handle_health(self, request):
-        data = {"status": "ok", "version": "v33",
-                "engine": "running" if self.engine and self.engine._running else "stopped"}
+        data = {
+            "status": "ok",
+            "version": "v33",
+            "engine": "running" if self.engine and self.engine._running else "stopped",
+        }
         if self.engine:
             data["cycle"] = self.engine._cycle
             data["regime"] = self.engine.regime.regime
@@ -86,7 +91,7 @@ class KeepAlive:
 
     async def _handle_api_data(self, request):
         """JSON API with all monitoring data."""
-        data = {"ts": datetime.now(timezone.utc).isoformat(), "error": None}
+        data = {"ts": datetime.now(UTC).isoformat(), "error": None}
         try:
             if not self.db:
                 data["error"] = "No DB"
@@ -98,7 +103,8 @@ class KeepAlive:
 
             # All-time
             at = await self.db.conn.execute_fetchall(
-                "SELECT COALESCE(SUM(pnl),0), COUNT(*), COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM executions WHERE result IS NOT NULL")
+                "SELECT COALESCE(SUM(pnl),0), COUNT(*), COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM executions WHERE result IS NOT NULL"
+            )
             data["alltime_pnl"] = at[0][0] if at else 0
             data["total_trades"] = at[0][1] if at else 0
             data["total_wins"] = at[0][2] if at else 0
@@ -110,11 +116,20 @@ class KeepAlive:
                     COALESCE(SUM(CASE WHEN e.pnl>0 AND e.result IS NOT NULL THEN 1 ELSE 0 END),0) as w,
                     COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl
                 FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
-                GROUP BY s.id ORDER BY pnl DESC""")
+                GROUP BY s.id ORDER BY pnl DESC"""
+            )
             data["strategies"] = [
-                {"label": s[0], "type": s[1], "amount": s[2], "threshold": s[3],
-                 "status": s[4], "trades": s[5], "wins": s[6], "pnl": round(s[7], 2),
-                 "wr": round(s[6]/s[5]*100, 1) if s[5] > 0 else 0}
+                {
+                    "label": s[0],
+                    "type": s[1],
+                    "amount": s[2],
+                    "threshold": s[3],
+                    "status": s[4],
+                    "trades": s[5],
+                    "wins": s[6],
+                    "pnl": round(s[7], 2),
+                    "wr": round(s[6] / s[5] * 100, 1) if s[5] > 0 else 0,
+                }
                 for s in (strats or [])
             ]
 
@@ -130,7 +145,7 @@ class KeepAlive:
                 if self.engine.external_feed and self.engine.external_feed.is_available:
                     data["btc_price"] = self.engine.external_feed.get_price("BTC")
                 # Phase 34: Live trader status
-                if hasattr(self.engine, 'live'):
+                if hasattr(self.engine, "live"):
                     data["live"] = self.engine.live.get_status()
                     data["live_comparison"] = await self.engine.live.get_comparison()
 
@@ -138,24 +153,39 @@ class KeepAlive:
             recent = await self.db.conn.execute_fetchall(
                 """SELECT s.label, e.direction, e.execution_price, e.trade_amount, e.pnl, e.result, e.created_at
                 FROM executions e JOIN strategies s ON e.strategy_id=s.id
-                WHERE e.result IS NOT NULL ORDER BY e.created_at DESC LIMIT 15""")
+                WHERE e.result IS NOT NULL ORDER BY e.created_at DESC LIMIT 15"""
+            )
             data["recent_trades"] = [
-                {"label": r[0], "dir": r[1], "price": r[2], "amount": r[3],
-                 "pnl": round(r[4], 2), "result": r[5], "time": str(r[6])[11:16]}
+                {
+                    "label": r[0],
+                    "dir": r[1],
+                    "price": r[2],
+                    "amount": r[3],
+                    "pnl": round(r[4], 2),
+                    "result": r[5],
+                    "time": str(r[6])[11:16],
+                }
                 for r in (recent or [])
             ]
 
             # AI decisions
             decisions = await self.db.conn.execute_fetchall(
-                "SELECT ts, actions_executed, outcome_24h, was_correct FROM ai_decisions ORDER BY ts DESC LIMIT 5")
+                "SELECT ts, actions_executed, outcome_24h, was_correct FROM ai_decisions ORDER BY ts DESC LIMIT 5"
+            )
             data["ai_decisions"] = [
-                {"ts": str(d[0])[:16], "actions": d[1], "outcome": d[2],
-                 "correct": d[3]}
+                {"ts": str(d[0])[:16], "actions": d[1], "outcome": d[2], "correct": d[3]}
                 for d in (decisions or [])
             ]
 
-        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
-                IndexError, AttributeError, KeyError) as e:
+        except (
+            aiosqlite.Error,
+            ValueError,
+            TypeError,
+            ArithmeticError,
+            IndexError,
+            AttributeError,
+            KeyError,
+        ) as e:
             # T1.4 Faz 3: Large monitoring query block — multiple
             # execute_fetchall calls, per-row unpack (bal[0][0], at[0][1]),
             # arithmetic in strategy WR comprehension (s[6]/s[5]*100),
@@ -198,6 +228,7 @@ class KeepAlive:
 
     def _do_ping(self):
         import httpx as _httpx
+
         try:
             url = os.getenv("REPLIT_DEV_DOMAIN", "")
             target = f"https://{url}/health" if url else f"http://localhost:{PORT}/health"
@@ -210,8 +241,10 @@ class KeepAlive:
             pass
 
     async def stop(self):
-        if self._self_ping_task: self._self_ping_task.cancel()
-        if self._runner: await self._runner.cleanup()
+        if self._self_ping_task:
+            self._self_ping_task.cancel()
+        if self._runner:
+            await self._runner.cleanup()
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>

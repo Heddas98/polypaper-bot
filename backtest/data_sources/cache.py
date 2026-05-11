@@ -10,21 +10,23 @@ Tables:
   snapshot_cache — orderbook snapshots (bulk)
   kline_cache   — Binance OHLCV candles
 """
+
 import json
-import time
 import logging
-import aiosqlite
+import time
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any, Optional
+
+import aiosqlite
 
 logger = logging.getLogger("polypaper.backtest.cache")
 
 # Default TTL values (seconds)
-TTL_MARKETS = 3600          # 1 hour — market list
-TTL_SNAPSHOTS = 86400 * 7   # 7 days — historical snapshots don't change
-TTL_KLINES = 86400 * 7      # 7 days — historical klines don't change
-TTL_METADATA = 86400        # 1 day  — resolved market metadata
-TTL_DEFAULT = 3600          # 1 hour — generic fallback
+TTL_MARKETS = 3600  # 1 hour — market list
+TTL_SNAPSHOTS = 86400 * 7  # 7 days — historical snapshots don't change
+TTL_KLINES = 86400 * 7  # 7 days — historical klines don't change
+TTL_METADATA = 86400  # 1 day  — resolved market metadata
+TTL_DEFAULT = 3600  # 1 hour — generic fallback
 
 DB_PATH = Path(__file__).resolve().parent.parent.parent / "data_store" / "backtest_cache.db"
 
@@ -118,17 +120,14 @@ class BacktestCache:
         if not self.conn:
             return None
         cursor = await self.conn.execute(
-            "SELECT data, created_at, ttl FROM api_cache WHERE cache_key = ?",
-            (key,)
+            "SELECT data, created_at, ttl FROM api_cache WHERE cache_key = ?", (key,)
         )
         row = await cursor.fetchone()
         if not row:
             return None
         data, created_at, ttl = row
         if time.time() - created_at > ttl:
-            await self.conn.execute(
-                "DELETE FROM api_cache WHERE cache_key = ?", (key,)
-            )
+            await self.conn.execute("DELETE FROM api_cache WHERE cache_key = ?", (key,))
             await self.conn.commit()
             return None
         try:
@@ -136,8 +135,7 @@ class BacktestCache:
         except (json.JSONDecodeError, TypeError):
             return data
 
-    async def set(self, key: str, value: Any, ttl: float = TTL_DEFAULT,
-                  source: str = "") -> None:
+    async def set(self, key: str, value: Any, ttl: float = TTL_DEFAULT, source: str = "") -> None:
         """Store value with TTL."""
         if not self.conn:
             return
@@ -146,7 +144,7 @@ class BacktestCache:
             """INSERT OR REPLACE INTO api_cache
                (cache_key, data, source, created_at, ttl)
                VALUES (?, ?, ?, ?, ?)""",
-            (key, data, source, time.time(), ttl)
+            (key, data, source, time.time(), ttl),
         )
         await self.conn.commit()
 
@@ -163,7 +161,7 @@ class BacktestCache:
         if not row:
             return None
         cols = [d[0] for d in cursor.description]
-        return dict(zip(cols, row))
+        return dict(zip(cols, row, strict=False))
 
     async def set_market(self, market: dict) -> None:
         """Cache a resolved market."""
@@ -189,8 +187,8 @@ class BacktestCache:
                 market.get("up_token_id", ""),
                 market.get("down_token_id", ""),
                 json.dumps(market),
-                time.time()
-            )
+                time.time(),
+            ),
         )
         await self.conn.commit()
 
@@ -226,7 +224,7 @@ class BacktestCache:
             """SELECT raw_json FROM snapshot_cache
                WHERE market_id = ?
                ORDER BY timestamp_ms ASC""",
-            (market_id,)
+            (market_id,),
         )
         rows = await cursor.fetchall()
         results = []
@@ -242,8 +240,7 @@ class BacktestCache:
         if not self.conn:
             return False
         cursor = await self.conn.execute(
-            "SELECT COUNT(*) FROM snapshot_cache WHERE market_id = ?",
-            (market_id,)
+            "SELECT COUNT(*) FROM snapshot_cache WHERE market_id = ?", (market_id,)
         )
         row = await cursor.fetchone()
         return (row[0] or 0) > 0
@@ -271,8 +268,8 @@ class BacktestCache:
                         snap.get("down_best_ask", 0),
                         snap.get("spread", 0),
                         snap.get("binance_price", 0),
-                        json.dumps(snap)
-                    )
+                        json.dumps(snap),
+                    ),
                 )
                 inserted += 1
             except Exception:
@@ -282,8 +279,9 @@ class BacktestCache:
 
     # ── Kline cache ──────────────────────────────────────────
 
-    async def get_klines(self, symbol: str, interval: str,
-                         start_ms: int = 0, end_ms: int = 0) -> list:
+    async def get_klines(
+        self, symbol: str, interval: str, start_ms: int = 0, end_ms: int = 0
+    ) -> list:
         """Get cached klines for a symbol+interval range."""
         if not self.conn:
             return []
@@ -303,15 +301,19 @@ class BacktestCache:
         rows = await cursor.fetchall()
         return [
             {
-                "open_time": r[0], "open": r[1], "high": r[2],
-                "low": r[3], "close": r[4], "volume": r[5],
-                "close_time": r[6], "taker_buy_vol": r[7]
+                "open_time": r[0],
+                "open": r[1],
+                "high": r[2],
+                "low": r[3],
+                "close": r[4],
+                "volume": r[5],
+                "close_time": r[6],
+                "taker_buy_vol": r[7],
             }
             for r in rows
         ]
 
-    async def store_klines(self, symbol: str, interval: str,
-                           klines: list) -> int:
+    async def store_klines(self, symbol: str, interval: str, klines: list) -> int:
         """Bulk insert klines. Returns count of new rows."""
         if not self.conn or not klines:
             return 0
@@ -324,27 +326,23 @@ class BacktestCache:
                         close, volume, close_time, taker_buy_vol)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        symbol.upper(), interval,
-                        int(k.get("open_time", k[0]) if isinstance(k, dict)
-                            else k[0]),
-                        float(k.get("open", k[1]) if isinstance(k, dict)
-                              else k[1]),
-                        float(k.get("high", k[2]) if isinstance(k, dict)
-                              else k[2]),
-                        float(k.get("low", k[3]) if isinstance(k, dict)
-                              else k[3]),
-                        float(k.get("close", k[4]) if isinstance(k, dict)
-                              else k[4]),
-                        float(k.get("volume", k[5]) if isinstance(k, dict)
-                              else k[5]),
-                        int(k.get("close_time", k[6]) if isinstance(k, dict)
-                            else k[6]),
-                        float(k.get("taker_buy_vol",
-                                    k[9] if isinstance(k, list) and len(k) > 9
-                                    else 0)
-                              if isinstance(k, dict)
-                              else (k[9] if len(k) > 9 else 0))
-                    )
+                        symbol.upper(),
+                        interval,
+                        int(k.get("open_time", k[0]) if isinstance(k, dict) else k[0]),
+                        float(k.get("open", k[1]) if isinstance(k, dict) else k[1]),
+                        float(k.get("high", k[2]) if isinstance(k, dict) else k[2]),
+                        float(k.get("low", k[3]) if isinstance(k, dict) else k[3]),
+                        float(k.get("close", k[4]) if isinstance(k, dict) else k[4]),
+                        float(k.get("volume", k[5]) if isinstance(k, dict) else k[5]),
+                        int(k.get("close_time", k[6]) if isinstance(k, dict) else k[6]),
+                        float(
+                            k.get(
+                                "taker_buy_vol", k[9] if isinstance(k, list) and len(k) > 9 else 0
+                            )
+                            if isinstance(k, dict)
+                            else (k[9] if len(k) > 9 else 0)
+                        ),
+                    ),
                 )
                 inserted += 1
             except Exception:

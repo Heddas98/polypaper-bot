@@ -14,6 +14,7 @@ writes avoid core/ permission issues in WSL mount). Verifies:
  10. `_is_prod_path` correctly classifies dirs
  11. CLI entry: --all on clean core/ returns 0
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -21,7 +22,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "bare_except_check.py"
@@ -49,13 +49,7 @@ def test_clean_file_zero_violations(tmp_path: Path):
 
 def test_naked_except_caught(tmp_path: Path):
     f = tmp_path / "naked.py"
-    f.write_text(
-        "def foo():\n"
-        "    try:\n"
-        "        pass\n"
-        "    except:\n"
-        "        pass\n"
-    )
+    f.write_text("def foo():\n" "    try:\n" "        pass\n" "    except:\n" "        pass\n")
     viols = guard._check_file(f)
     assert len(viols) == 1
     assert "naked" in viols[0][2].lower()
@@ -64,11 +58,7 @@ def test_naked_except_caught(tmp_path: Path):
 def test_except_exception_caught(tmp_path: Path):
     f = tmp_path / "exc.py"
     f.write_text(
-        "def foo():\n"
-        "    try:\n"
-        "        pass\n"
-        "    except Exception:\n"
-        "        raise\n"
+        "def foo():\n" "    try:\n" "        pass\n" "    except Exception:\n" "        raise\n"
     )
     viols = guard._check_file(f)
     assert len(viols) == 1
@@ -91,11 +81,7 @@ def test_except_exception_as_caught(tmp_path: Path):
 def test_except_baseexception_caught(tmp_path: Path):
     f = tmp_path / "base.py"
     f.write_text(
-        "def foo():\n"
-        "    try:\n"
-        "        pass\n"
-        "    except BaseException:\n"
-        "        raise\n"
+        "def foo():\n" "    try:\n" "        pass\n" "    except BaseException:\n" "        raise\n"
     )
     viols = guard._check_file(f)
     assert len(viols) == 1
@@ -145,11 +131,7 @@ def test_silent_pass_detected(tmp_path: Path):
     """`except Exception: pass` anti-pattern flagged with extra marker."""
     f = tmp_path / "silent.py"
     f.write_text(
-        "def foo():\n"
-        "    try:\n"
-        "        pass\n"
-        "    except Exception:\n"
-        "        pass\n"
+        "def foo():\n" "    try:\n" "        pass\n" "    except Exception:\n" "        pass\n"
     )
     viols = guard._check_file(f)
     assert len(viols) == 1
@@ -172,7 +154,9 @@ def test_cli_all_on_clean_core_zero_exit():
     this test fails before the pre-commit hook blocks the commit."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--all"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     assert result.returncode == 0, (
         f"core/ strict zone must be clean (T7.6 doctrine); got FAIL:\n"

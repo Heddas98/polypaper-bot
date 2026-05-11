@@ -5,11 +5,12 @@ Semi-autonomous: AI analyzes → proposes actions → user approves via inline b
 Relaxed criteria so more strategies get suggestions.
 Actions persist to DB to survive restarts.
 """
+
 import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 import aiosqlite
@@ -44,7 +45,9 @@ class AutoPilot:
         """Analyze all strategies and generate proposed actions."""
         # Epic 6 T6.3c: brain_flags['autopilot'] gate — OFF → no new proposals
         if not self._autopilot_enabled():
-            logger.debug("🤖 AutoPilot OFF (brain_flags['autopilot']=False) — skipping proposal generation")
+            logger.debug(
+                "🤖 AutoPilot OFF (brain_flags['autopilot']=False) — skipping proposal generation"
+            )
             return []
         actions = []
         try:
@@ -56,9 +59,10 @@ class AutoPilot:
                     COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl,
                     COALESCE(AVG(CASE WHEN e.result IS NOT NULL THEN e.execution_price END),0.5) as avg_p
                 FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
-                GROUP BY s.id""")
+                GROUP BY s.id"""
+            )
 
-            for s in (strats or []):
+            for s in strats or []:
                 sid, label, stype = s[0], s[1] or "?", s[2] or "fusion"
                 amount, threshold, status = s[3], s[4], s[5]
                 trades, wins, pnl, avg_price = s[6], s[7], s[8], s[9]
@@ -71,73 +75,109 @@ class AutoPilot:
                 # ═══ STOP: losing strategy ═══
                 # Active + 8+ trades + WR<50% + negative PnL
                 if status == "active" and trades >= 8 and wr < 50 and pnl < -1:
-                    actions.append({
-                        "type": ACTION_STOP, "sid": sid, "label": label,
-                        "stype": stype, "emoji": "🛑",
-                        "reason": f"{trades}t {wr:.0f}% WR, PnL:{pnl:+.2f}, EV:{ev:+.3f}",
-                        "desc": f"Durdur: {label} ({trades}t {wr:.0f}% {pnl:+.2f})",
-                    })
+                    actions.append(
+                        {
+                            "type": ACTION_STOP,
+                            "sid": sid,
+                            "label": label,
+                            "stype": stype,
+                            "emoji": "🛑",
+                            "reason": f"{trades}t {wr:.0f}% WR, PnL:{pnl:+.2f}, EV:{ev:+.3f}",
+                            "desc": f"Durdur: {label} ({trades}t {wr:.0f}% {pnl:+.2f})",
+                        }
+                    )
 
                 # ═══ STOP: active but low WR with enough data ═══
                 elif status == "active" and trades >= 15 and wr < 45:
-                    actions.append({
-                        "type": ACTION_STOP, "sid": sid, "label": label,
-                        "stype": stype, "emoji": "🛑",
-                        "reason": f"{trades}t {wr:.0f}% WR (< 45%), PnL:{pnl:+.2f}",
-                        "desc": f"Durdur: {label} ({trades}t {wr:.0f}% kesin edge yok)",
-                    })
+                    actions.append(
+                        {
+                            "type": ACTION_STOP,
+                            "sid": sid,
+                            "label": label,
+                            "stype": stype,
+                            "emoji": "🛑",
+                            "reason": f"{trades}t {wr:.0f}% WR (< 45%), PnL:{pnl:+.2f}",
+                            "desc": f"Durdur: {label} ({trades}t {wr:.0f}% kesin edge yok)",
+                        }
+                    )
 
                 # ═══ SCALE: winning strategy ═══
                 elif status == "active" and trades >= 12 and wr > 62 and pnl > 1:
                     # Quarter Kelly
                     b = (1.0 / max(avg_price, 0.01)) - 1.0
                     if b > 0:
-                        fk = (b * (wr/100) - (1 - wr/100)) / b
+                        fk = (b * (wr / 100) - (1 - wr / 100)) / b
                         qk = max(fk * 0.25, 0)
                         kelly_amt = round(100 * qk, 2)
                         kelly_amt = max(1.0, min(kelly_amt, 15.0))
                         if kelly_amt > amount * 1.2:
-                            actions.append({
-                                "type": ACTION_SCALE, "sid": sid, "label": label,
-                                "stype": stype, "emoji": "📈",
-                                "old_amount": amount, "new_amount": kelly_amt,
-                                "reason": f"{trades}t {wr:.0f}% WR, Kelly=${kelly_amt:.2f}",
-                                "desc": f"Scale: {label} ${amount}→${kelly_amt:.2f}",
-                            })
+                            actions.append(
+                                {
+                                    "type": ACTION_SCALE,
+                                    "sid": sid,
+                                    "label": label,
+                                    "stype": stype,
+                                    "emoji": "📈",
+                                    "old_amount": amount,
+                                    "new_amount": kelly_amt,
+                                    "reason": f"{trades}t {wr:.0f}% WR, Kelly=${kelly_amt:.2f}",
+                                    "desc": f"Scale: {label} ${amount}→${kelly_amt:.2f}",
+                                }
+                            )
 
                 # ═══ RESTART: stopped but now might have edge ═══
                 if status == "stopped" and trades >= 10 and wr > 55 and pnl > 0:
-                    actions.append({
-                        "type": ACTION_TUNE, "sid": sid, "label": label,
-                        "stype": stype, "emoji": "🔄", "field": "status",
-                        "old_val": "stopped", "new_val": "active",
-                        "reason": f"Durmus ama {trades}t {wr:.0f}% WR, PnL:{pnl:+.2f} pozitif",
-                        "desc": f"Yeniden baslat: {label} ({wr:.0f}% {pnl:+.2f})",
-                    })
+                    actions.append(
+                        {
+                            "type": ACTION_TUNE,
+                            "sid": sid,
+                            "label": label,
+                            "stype": stype,
+                            "emoji": "🔄",
+                            "field": "status",
+                            "old_val": "stopped",
+                            "new_val": "active",
+                            "reason": f"Durmus ama {trades}t {wr:.0f}% WR, PnL:{pnl:+.2f} pozitif",
+                            "desc": f"Yeniden baslat: {label} ({wr:.0f}% {pnl:+.2f})",
+                        }
+                    )
 
                 # ═══ TUNE: threshold adjustment ═══
                 if status == "active" and trades >= 12:
                     if wr < 55 and threshold and threshold < 0.85:
                         new_thr = min(threshold + 0.05, 0.95)
-                        actions.append({
-                            "type": ACTION_TUNE, "sid": sid, "label": label,
-                            "stype": stype, "emoji": "🎯", "field": "odds_threshold",
-                            "old_val": threshold, "new_val": round(new_thr, 2),
-                            "reason": f"WR {wr:.0f}% < 55% → threshold yukari",
-                            "desc": f"Tune: {label} threshold {threshold}→{new_thr:.2f}",
-                        })
+                        actions.append(
+                            {
+                                "type": ACTION_TUNE,
+                                "sid": sid,
+                                "label": label,
+                                "stype": stype,
+                                "emoji": "🎯",
+                                "field": "odds_threshold",
+                                "old_val": threshold,
+                                "new_val": round(new_thr, 2),
+                                "reason": f"WR {wr:.0f}% < 55% → threshold yukari",
+                                "desc": f"Tune: {label} threshold {threshold}→{new_thr:.2f}",
+                            }
+                        )
                     elif wr > 75 and threshold and threshold > 0.55:
                         new_thr = max(threshold - 0.05, 0.40)
-                        actions.append({
-                            "type": ACTION_TUNE, "sid": sid, "label": label,
-                            "stype": stype, "emoji": "🎯", "field": "odds_threshold",
-                            "old_val": threshold, "new_val": round(new_thr, 2),
-                            "reason": f"WR {wr:.0f}% > 75% → threshold asagi (daha fazla trade)",
-                            "desc": f"Tune: {label} threshold {threshold}→{new_thr:.2f}",
-                        })
+                        actions.append(
+                            {
+                                "type": ACTION_TUNE,
+                                "sid": sid,
+                                "label": label,
+                                "stype": stype,
+                                "emoji": "🎯",
+                                "field": "odds_threshold",
+                                "old_val": threshold,
+                                "new_val": round(new_thr, 2),
+                                "reason": f"WR {wr:.0f}% > 75% → threshold asagi (daha fazla trade)",
+                                "desc": f"Tune: {label} threshold {threshold}→{new_thr:.2f}",
+                            }
+                        )
 
-        except (aiosqlite.Error, IndexError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: big JOIN SELECT + per-row tuple unpack (s[0]..s[9])
             # + WR/EV arithmetic. Realistic modes:
             #   - aiosqlite.Error: tables/columns missing, locked DB.
@@ -156,10 +196,11 @@ class AutoPilot:
             f"{json.dumps(action, default=str)}{int(time.time()//3600)}".encode()
         ).hexdigest()[:8]
         try:
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             await self.db.conn.execute(
                 "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, ?)",
-                (f"ap_pending.{aid}", json.dumps(action), now))
+                (f"ap_pending.{aid}", json.dumps(action), now),
+            )
             await self.db.conn.commit()
         except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: INSERT INTO bot_settings + commit + json.dumps(action).
@@ -176,12 +217,11 @@ class AutoPilot:
         """Retrieve pending action from DB."""
         try:
             rows = await self.db.conn.execute_fetchall(
-                "SELECT value FROM bot_settings WHERE key=?",
-                (f"ap_pending.{action_id}",))
+                "SELECT value FROM bot_settings WHERE key=?", (f"ap_pending.{action_id}",)
+            )
             if rows:
                 return json.loads(rows[0][0])
-        except (aiosqlite.Error, json.JSONDecodeError, IndexError, TypeError,
-                AttributeError):
+        except (aiosqlite.Error, json.JSONDecodeError, IndexError, TypeError, AttributeError):
             # T1.4 Faz 3: SELECT + rows[0][0] indexing + json.loads. Realistic
             # modes: aiosqlite.Error (table missing), JSONDecodeError (corrupt
             # stored JSON), IndexError (rows[0][0] when row shape changes),
@@ -194,7 +234,8 @@ class AutoPilot:
     async def _remove_pending(self, action_id: str):
         try:
             await self.db.conn.execute(
-                "DELETE FROM bot_settings WHERE key=?", (f"ap_pending.{action_id}",))
+                "DELETE FROM bot_settings WHERE key=?", (f"ap_pending.{action_id}",)
+            )
             await self.db.conn.commit()
         except (aiosqlite.Error, AttributeError):
             # T1.4 Faz 3: DELETE + commit on bot_settings. Realistic modes:
@@ -217,7 +258,8 @@ class AutoPilot:
             atype = action["type"]
             if atype == ACTION_STOP:
                 await self.db.conn.execute(
-                    "UPDATE strategies SET status='stopped' WHERE id=?", (action["sid"],))
+                    "UPDATE strategies SET status='stopped' WHERE id=?", (action["sid"],)
+                )
                 await self.db.conn.commit()
                 logger.info(f"🤖 AutoPilot STOP: {action['label']}")
                 await self._remove_pending(action_id)
@@ -225,9 +267,12 @@ class AutoPilot:
             elif atype == ACTION_SCALE:
                 await self.db.conn.execute(
                     "UPDATE strategies SET trade_amount=? WHERE id=?",
-                    (action["new_amount"], action["sid"]))
+                    (action["new_amount"], action["sid"]),
+                )
                 await self.db.conn.commit()
-                logger.info(f"🤖 AutoPilot SCALE: {action['label']} ${action['old_amount']}→${action['new_amount']}")
+                logger.info(
+                    f"🤖 AutoPilot SCALE: {action['label']} ${action['old_amount']}→${action['new_amount']}"
+                )
                 await self._remove_pending(action_id)
                 return f"✅ Olceklendi: {action['label']}\n${action['old_amount']}→${action['new_amount']:.2f}"
             elif atype == ACTION_TUNE:
@@ -235,18 +280,21 @@ class AutoPilot:
                 if field == "status":
                     await self.db.conn.execute(
                         "UPDATE strategies SET status=? WHERE id=?",
-                        (action["new_val"], action["sid"]))
+                        (action["new_val"], action["sid"]),
+                    )
                 else:
                     await self.db.conn.execute(
                         f"UPDATE strategies SET {field}=? WHERE id=?",
-                        (action["new_val"], action["sid"]))
+                        (action["new_val"], action["sid"]),
+                    )
                 await self.db.conn.commit()
-                logger.info(f"🤖 AutoPilot TUNE: {action['label']} {action.get('old_val')}→{action['new_val']}")
+                logger.info(
+                    f"🤖 AutoPilot TUNE: {action['label']} {action.get('old_val')}→{action['new_val']}"
+                )
                 await self._remove_pending(action_id)
                 return f"✅ Ayarlandi: {action['label']}\n{field}: {action.get('old_val')}→{action['new_val']}"
             return "❌ Bilinmeyen aksiyon tipi."
-        except (aiosqlite.Error, KeyError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: UPDATE strategies with f-string field (whitelisted
             # above) + commit + heavy dict key access on `action` (which was
             # rehydrated from DB JSON). Realistic modes:

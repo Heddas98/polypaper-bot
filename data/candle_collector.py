@@ -22,11 +22,10 @@ Single network blip should NOT crash the feed thread.
 
 Reference: memory/reference_polymarket_updown_discovery.md
 """
+
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Optional
 
 from core.bg_task import safe_create_task
 
@@ -37,10 +36,10 @@ CANDLE_INTERVAL = 300
 
 # Aggregation factor: 5m → target_tf
 AGGREGATION_FACTORS = {
-    "5m":  1,
+    "5m": 1,
     "15m": 3,
-    "1h":  12,
-    "4h":  48,
+    "1h": 12,
+    "4h": 48,
     "24h": 288,
 }
 
@@ -62,9 +61,16 @@ class CandleBuilder:
     def __init__(self):
         self._current: dict[tuple, dict] = {}
 
-    def tick(self, asset_id: str, timeframe: str, price: float,
-             slug: str = "", asset: str = "?",
-             volume: float = 0.0, ts: float | None = None):
+    def tick(
+        self,
+        asset_id: str,
+        timeframe: str,
+        price: float,
+        slug: str = "",
+        asset: str = "?",
+        volume: float = 0.0,
+        ts: float | None = None,
+    ):
         if price <= 0 or price >= 1.0:
             return
         ts = ts or time.time()
@@ -108,8 +114,15 @@ class CandleCollector:
     Binance: tek 5m polling, runtime aggregation.
     """
 
-    def __init__(self, db, odds_feed=None, ws_client=None,
-                 external_feed=None, httpx_client=None, scanner=None):
+    def __init__(
+        self,
+        db,
+        odds_feed=None,
+        ws_client=None,
+        external_feed=None,
+        httpx_client=None,
+        scanner=None,
+    ):
         self.db = db
         self.odds_feed = odds_feed
         self.ws_client = ws_client
@@ -128,8 +141,7 @@ class CandleCollector:
         if self._running:
             return
         self._running = True
-        self._task = safe_create_task(
-            self._collection_loop(), name="candle_collector_loop")
+        self._task = safe_create_task(self._collection_loop(), name="candle_collector_loop")
         logger.info("📊 CandleCollector: STARTED (5m base + multi-TF aggregation)")
 
     async def stop(self):
@@ -141,8 +153,7 @@ class CandleCollector:
             except asyncio.CancelledError:
                 pass
         await self._flush_poly_candles()
-        logger.info(
-            f"📊 CandleCollector: STOPPED (total candles: {self._candle_count})")
+        logger.info(f"📊 CandleCollector: STOPPED (total candles: {self._candle_count})")
 
     # ── MAIN LOOP ──
 
@@ -207,8 +218,11 @@ class CandleCollector:
                     if not slug:
                         continue
                     # Get up_odds from scanner cache
-                    odds = (self.scanner.get_current_odds(slug)
-                            if hasattr(self.scanner, "get_current_odds") else None)
+                    odds = (
+                        self.scanner.get_current_odds(slug)
+                        if hasattr(self.scanner, "get_current_odds")
+                        else None
+                    )
                     if not odds:
                         continue
                     up_odds = odds.get("up_odds")
@@ -238,18 +252,20 @@ class CandleCollector:
         rows = []
         for c in candles:
             open_ts_int = int(c["open_ts"])
-            rows.append((
-                c["asset_id"],
-                c["slug"],
-                c["asset"],
-                c["timeframe"],
-                open_ts_int,
-                c["open"],
-                c["high"],
-                c["low"],
-                c["close"],
-                c["volume"],
-            ))
+            rows.append(
+                (
+                    c["asset_id"],
+                    c["slug"],
+                    c["asset"],
+                    c["timeframe"],
+                    open_ts_int,
+                    c["open"],
+                    c["high"],
+                    c["low"],
+                    c["close"],
+                    c["volume"],
+                )
+            )
 
         if rows:
             try:
@@ -263,8 +279,7 @@ class CandleCollector:
                 await self.db.conn.commit()
                 self._candle_count += len(rows)
                 logger.info(
-                    f"📊 Flushed {len(rows)} poly candles "
-                    f"(total: {self._candle_count})"
+                    f"📊 Flushed {len(rows)} poly candles " f"(total: {self._candle_count})"
                 )
             except Exception as e:  # noqa: BLE001
                 logger.error(f"📊 poly candle write: {e}")
@@ -287,12 +302,18 @@ class CandleCollector:
                 klines = resp.json()
                 rows = []
                 for k in klines:
-                    rows.append((
-                        symbol, "5m",
-                        int(k[0]),  # open_ts in ms
-                        float(k[1]), float(k[2]), float(k[3]), float(k[4]),
-                        float(k[5]),
-                    ))
+                    rows.append(
+                        (
+                            symbol,
+                            "5m",
+                            int(k[0]),  # open_ts in ms
+                            float(k[1]),
+                            float(k[2]),
+                            float(k[3]),
+                            float(k[4]),
+                            float(k[5]),
+                        )
+                    )
                 if rows:
                     await self.db.conn.executemany(
                         """INSERT OR REPLACE INTO candles_ext
@@ -333,12 +354,19 @@ class CandleCollector:
                     continue
 
                 klines = resp.json()
-                rows = [(
-                    symbol, "5m",
-                    int(k[0]),
-                    float(k[1]), float(k[2]), float(k[3]), float(k[4]),
-                    float(k[5]),
-                ) for k in klines]
+                rows = [
+                    (
+                        symbol,
+                        "5m",
+                        int(k[0]),
+                        float(k[1]),
+                        float(k[2]),
+                        float(k[3]),
+                        float(k[4]),
+                        float(k[5]),
+                    )
+                    for k in klines
+                ]
 
                 if rows:
                     await self.db.conn.executemany(
@@ -361,9 +389,9 @@ class CandleCollector:
 
     # ── QUERY HELPERS — TF-aware ──
 
-    async def get_ext_candles(self, symbol: str = "BTCUSDT",
-                              interval: str = "5m",
-                              limit: int = 100) -> list[dict]:
+    async def get_ext_candles(
+        self, symbol: str = "BTCUSDT", interval: str = "5m", limit: int = 100
+    ) -> list[dict]:
         """Get external (Binance) candles. interval='5m' direct read; otherwise aggregate."""
         if interval == "5m":
             return await self._read_ext_5m(symbol, limit)
@@ -386,8 +414,9 @@ class CandleCollector:
         rows.reverse()
         return rows
 
-    async def aggregate_ext_candles(self, symbol: str, target_tf: str,
-                                    limit: int = 100) -> list[dict]:
+    async def aggregate_ext_candles(
+        self, symbol: str, target_tf: str, limit: int = 100
+    ) -> list[dict]:
         """Aggregate 5m candles → target TF (15m/1h/24h).
 
         Returns most-recent N target-TF candles.
@@ -417,21 +446,24 @@ class CandleCollector:
             group = buckets[bucket_ts]
             # Order by open_ts within bucket
             group.sort(key=lambda x: x["open_ts"])
-            aggregated.append({
-                "symbol": symbol,
-                "interval": target_tf,
-                "open_ts": bucket_ts,
-                "open": group[0]["open"],
-                "high": max(r["high"] for r in group),
-                "low":  min(r["low"]  for r in group),
-                "close": group[-1]["close"],
-                "volume": sum(r["volume"] for r in group),
-                "_n_5m_periods": len(group),
-            })
+            aggregated.append(
+                {
+                    "symbol": symbol,
+                    "interval": target_tf,
+                    "open_ts": bucket_ts,
+                    "open": group[0]["open"],
+                    "high": max(r["high"] for r in group),
+                    "low": min(r["low"] for r in group),
+                    "close": group[-1]["close"],
+                    "volume": sum(r["volume"] for r in group),
+                    "_n_5m_periods": len(group),
+                }
+            )
         return aggregated[-limit:]
 
-    async def get_poly_candles(self, asset: str = "BTC", timeframe: str = "5m",
-                               limit: int = 100) -> list[dict]:
+    async def get_poly_candles(
+        self, asset: str = "BTC", timeframe: str = "5m", limit: int = 100
+    ) -> list[dict]:
         """Get Polymarket odds candles for given asset+TF (per-market stream)."""
         rows = []
         try:
@@ -451,24 +483,29 @@ class CandleCollector:
         return rows
 
     async def get_candle_stats(self) -> dict:
-        stats = {"poly_total": 0, "ext_total": 0,
-                 "poly_by_tf": {}, "ext_oldest": None, "ext_newest": None}
+        stats = {
+            "poly_total": 0,
+            "ext_total": 0,
+            "poly_by_tf": {},
+            "ext_oldest": None,
+            "ext_newest": None,
+        }
         try:
-            async with self.db.conn.execute(
-                "SELECT COUNT(*) FROM candles_poly") as c:
+            async with self.db.conn.execute("SELECT COUNT(*) FROM candles_poly") as c:
                 stats["poly_total"] = (await c.fetchone())[0]
 
-            async with self.db.conn.execute(
-                "SELECT COUNT(*) FROM candles_ext") as c:
+            async with self.db.conn.execute("SELECT COUNT(*) FROM candles_ext") as c:
                 stats["ext_total"] = (await c.fetchone())[0]
 
             async with self.db.conn.execute(
-                "SELECT timeframe, COUNT(*) FROM candles_poly GROUP BY timeframe") as c:
+                "SELECT timeframe, COUNT(*) FROM candles_poly GROUP BY timeframe"
+            ) as c:
                 async for row in c:
                     stats["poly_by_tf"][row[0]] = row[1]
 
             async with self.db.conn.execute(
-                "SELECT MIN(open_ts), MAX(open_ts) FROM candles_ext") as c:
+                "SELECT MIN(open_ts), MAX(open_ts) FROM candles_ext"
+            ) as c:
                 row = await c.fetchone()
                 if row and row[0]:
                     stats["ext_oldest"] = row[0]

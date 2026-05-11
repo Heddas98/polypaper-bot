@@ -34,6 +34,7 @@ no longer pinned on the AUTO_OPTIMIZER_MODULE_TOP_ENV_VARS list.
 This prevents future Epic-6-style audits from re-discovering the same
 pattern: one catch-all test replaces the ad-hoc grep/audit cycle.
 """
+
 from __future__ import annotations
 
 import ast
@@ -41,7 +42,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,8 +52,10 @@ PROD_DIRS = ("core", "telegram_bot", "db")
 
 def _load_whitelist():
     import sys
+
     sys.path.insert(0, str(REPO_ROOT))
     from config.env_whitelist import ENV_WHITELIST  # type: ignore
+
     return ENV_WHITELIST
 
 
@@ -71,8 +73,7 @@ def _iter_prod_py_files():
 
 def _find_env_sites(key: str):
     """Return list of (path, line, is_module_top) for os.getenv("key")."""
-    pattern = re.compile(
-        rf'os\.getenv\s*\(\s*["\']{re.escape(key)}["\']')
+    pattern = re.compile(rf'os\.getenv\s*\(\s*["\']{re.escape(key)}["\']')
     sites = []
     for p in _iter_prod_py_files():
         try:
@@ -95,14 +96,14 @@ def _find_env_sites(key: str):
 
         for i, line in enumerate(src.splitlines(), 1):
             if pattern.search(line):
-                sites.append((str(p.relative_to(REPO_ROOT)), i,
-                              i not in runtime_line_set))
+                sites.append((str(p.relative_to(REPO_ROOT)), i, i not in runtime_line_set))
     return sites
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Baseline sanity — whitelist is non-empty
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def test_whitelist_nonempty():
     wl = _load_whitelist()
@@ -113,6 +114,7 @@ def test_whitelist_nonempty():
 # Core invariant — every whitelist key has at least one runtime read
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize("key", sorted(_load_whitelist().keys()))
 def test_whitelist_key_is_runtime_read(key):
     """Every whitelist-toggleable key must be read at runtime somewhere."""
@@ -120,7 +122,8 @@ def test_whitelist_key_is_runtime_read(key):
     assert sites, (
         f"Whitelist key {key!r} has NO os.getenv() references in "
         f"production dirs {PROD_DIRS}. Either the key is dead (remove "
-        "from whitelist) or it's read some other way (not supported).")
+        "from whitelist) or it's read some other way (not supported)."
+    )
     runtime_sites = [s for s in sites if not s[2]]
     module_top_sites = [s for s in sites if s[2]]
     assert runtime_sites, (
@@ -128,30 +131,32 @@ def test_whitelist_key_is_runtime_read(key):
         f"production code. Sites: {module_top_sites}. This is a silent "
         f"ghost — /env_toggle {key} will patch os.environ but the cached "
         "module-top value wins. Apply T6.1 pattern: move the read into a "
-        "helper like `_get_{}()` so it re-reads per call.".format(
-            key.lower().replace(".", "_")))
+        "helper like `_get_{}()` so it re-reads per call.".format(key.lower().replace(".", "_"))
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Regression pins — keys with documented helpers stay honored
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def test_pnl_pause_threshold_has_helper():
     """T6.1 landmark: PNL_PAUSE_THRESHOLD must keep its helper."""
     src = (REPO_ROOT / "core" / "auto_optimizer.py").read_text(encoding="utf-8")
     assert "_get_pnl_pause_threshold" in src, (
         "T6.1 regression: `_get_pnl_pause_threshold()` helper removed from "
-        "core/auto_optimizer.py — silent ghost returns.")
+        "core/auto_optimizer.py — silent ghost returns."
+    )
     # Helper must be called, not just defined (dead helpers don't help)
     tree = ast.parse(src)
     call_sites = [
-        n for n in ast.walk(tree)
+        n
+        for n in ast.walk(tree)
         if isinstance(n, ast.Call)
         and isinstance(n.func, ast.Name)
         and n.func.id == "_get_pnl_pause_threshold"
     ]
-    assert call_sites, (
-        "_get_pnl_pause_threshold defined but never called — T6.1 regression.")
+    assert call_sites, "_get_pnl_pause_threshold defined but never called — T6.1 regression."
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -185,4 +190,5 @@ def test_auto_optimizer_module_top_vars_not_in_whitelist():
         f"captured at module-top (silent ghost risk): {sorted(overlap)}. "
         f"Apply T6.1 pattern: convert to a `_get_*()` runtime helper in "
         "core/auto_optimizer.py BEFORE adding to whitelist. See commit "
-        "log for T6.1 (PNL_PAUSE_THRESHOLD) as the reference example.")
+        "log for T6.1 (PNL_PAUSE_THRESHOLD) as the reference example."
+    )

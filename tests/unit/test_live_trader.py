@@ -18,9 +18,11 @@ Scope: SYNC logic + pure gates only. ``_execute_clob`` and ``_place``
 (CLOB signature + DB writes) are out-of-scope — those belong to T9.8
 integration smoke, not a unit regression fill.
 """
+
 from __future__ import annotations
 
 import os
+from datetime import UTC
 
 import pytest
 
@@ -34,8 +36,8 @@ from core.live_trader import (
     _get_min_signal,
 )
 
-
 # ═══ ENV helpers: default + override + invalid fallback ═══════════════
+
 
 class TestEnvHelpers:
     """T7.6 A5 invariant: every call re-reads os.environ (no import-time freeze)."""
@@ -83,6 +85,7 @@ class TestEnvHelpers:
 
 
 # ═══ T11.2 [B]: LIVE_BUDGET runtime re-read (ghost-toggle class) ═══════
+
 
 class TestLiveBudgetRuntime:
     """``LIVE_BUDGET`` was ctor-fixed on ``self._budget`` pre-T11.2 [B].
@@ -162,6 +165,7 @@ class TestLiveBudgetRuntime:
 
 # ═══ is_enabled AND-gate ═══════════════════════════════════════════════
 
+
 class TestIsEnabled:
     """``is_enabled`` = ``_enabled`` AND ``!_paused`` AND ``_auth_verified``.
 
@@ -193,6 +197,7 @@ class TestIsEnabled:
 
 # ═══ toggle pause flip ═════════════════════════════════════════════════
 
+
 class TestToggle:
     def test_toggle_flips_paused_and_returns_active(self):
         """toggle() returns NEW active state (= !paused). Double-toggle = identity."""
@@ -208,11 +213,13 @@ class TestToggle:
 
 # ═══ _maybe_reset_daily day rollover ═══════════════════════════════════
 
+
 class TestDailyReset:
     def test_same_day_no_reset(self):
         lt = LiveTrader()
         from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         lt._daily_date = today
         lt._daily_pnl = -1.23
         lt._daily_trades = 7
@@ -234,6 +241,7 @@ class TestDailyReset:
 
 # ═══ get_status dict shape ═════════════════════════════════════════════
 
+
 class TestGetStatus:
     def test_keys_present(self, monkeypatch):
         """Handler UI contract — /live status reads these fields.
@@ -245,10 +253,20 @@ class TestGetStatus:
         lt = LiveTrader()
         s = lt.get_status()
         expected_keys = {
-            "enabled", "paused", "auth_verified", "active",
-            "wallet", "total_spent", "total_pnl", "daily_pnl",
-            "daily_trades", "trade_count", "open", "open_detail",
-            "budget", "remaining",
+            "enabled",
+            "paused",
+            "auth_verified",
+            "active",
+            "wallet",
+            "total_spent",
+            "total_pnl",
+            "daily_pnl",
+            "daily_trades",
+            "trade_count",
+            "open",
+            "open_detail",
+            "budget",
+            "remaining",
         }
         actual_keys = set(s.keys())
         # Epic 9 post-audit tightening: exact-match pin (replaces prior
@@ -272,6 +290,7 @@ class TestGetStatus:
 
 # ═══ LIVE_STRATEGIES whitelist invariant ════════════════════════════════
 
+
 class TestLiveStrategiesWhitelist:
     def test_whitelist_is_set_with_exactly_3_entries(self):
         """Whitelist is a closed set — new strategies require explicit add.
@@ -291,6 +310,7 @@ class TestLiveStrategiesWhitelist:
 
 # These mirror the gate ladder in L243-265 of live_trader.py. Each test
 # ensures a single gate rejects and returns None BEFORE _place is called.
+
 
 @pytest.fixture
 def active_trader(monkeypatch):
@@ -319,38 +339,44 @@ class TestMaybeMirrorRejections:
     async def test_rejects_when_disabled(self, active_trader):
         active_trader._enabled = False  # trip is_enabled
         result = await active_trader.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m")
+            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m"
+        )
         assert result is None
 
     @pytest.mark.asyncio
     async def test_rejects_strategy_not_in_whitelist(self, active_trader):
         result = await active_trader.maybe_mirror(
-            "NOT_A_LIVE_STRATEGY", 0.90, "up", "0xtok", 0.80, "btc-up-5m")
+            "NOT_A_LIVE_STRATEGY", 0.90, "up", "0xtok", 0.80, "btc-up-5m"
+        )
         assert result is None
 
     @pytest.mark.asyncio
     async def test_rejects_signal_below_threshold(self, active_trader, monkeypatch):
         monkeypatch.setenv("LIVE_MIN_SIGNAL", "0.80")
         result = await active_trader.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.70, "up", "0xtok", 0.80, "btc-up-5m")
+            "M_BTC_5m_any_0.92", 0.70, "up", "0xtok", 0.80, "btc-up-5m"
+        )
         assert result is None  # signal 0.70 < threshold 0.80
 
     @pytest.mark.asyncio
     async def test_rejects_odds_below_threshold(self, active_trader, monkeypatch):
         monkeypatch.setenv("LIVE_MIN_ODDS", "0.80")
         result = await active_trader.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.70, "btc-up-5m")
+            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.70, "btc-up-5m"
+        )
         assert result is None  # odds 0.70 < threshold 0.80
 
     @pytest.mark.asyncio
     async def test_rejects_on_daily_loss_trip(self, active_trader, monkeypatch):
         monkeypatch.setenv("LIVE_MAX_DAILY_LOSS", "1.00")
         from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         active_trader._daily_date = today  # prevent reset
         active_trader._daily_pnl = -1.50  # past -1.00 cutoff
         result = await active_trader.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m")
+            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m"
+        )
         assert result is None
 
     @pytest.mark.asyncio
@@ -358,18 +384,21 @@ class TestMaybeMirrorRejections:
         """Single-slot concurrency guard — ``if self._open: return None``."""
         active_trader._open = {"slug": "other-market"}  # occupied
         result = await active_trader.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m")
+            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m"
+        )
         assert result is None
 
     @pytest.mark.asyncio
     async def test_rejects_when_budget_exhausted(self, active_trader):
         active_trader._total_spent = active_trader._budget - 0.05  # < $0.10 left
         result = await active_trader.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m")
+            "M_BTC_5m_any_0.92", 0.90, "up", "0xtok", 0.80, "btc-up-5m"
+        )
         assert result is None
 
 
 # ═══ check_settlement slug matching ═════════════════════════════════════
+
 
 class TestCheckSettlement:
     """Settlement mirror — updates daily/total PnL only if slug matches open."""

@@ -10,10 +10,12 @@ Data types collected:
 All data cached to SQLite via BacktestCache — same data never fetched twice.
 Binance API docs: https://binance-docs.github.io/apidocs/spot/en/
 """
-import logging
+
 import asyncio
+import logging
 import time
 from typing import Optional
+
 import httpx
 
 from backtest.data_sources.cache import BacktestCache
@@ -24,8 +26,7 @@ BASE_URL = "https://api.binance.com"
 FAPI_URL = "https://fapi.binance.com"
 
 # Binance kline intervals
-VALID_INTERVALS = ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h",
-                    "6h", "8h", "12h", "1d"]
+VALID_INTERVALS = ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d"]
 
 # Rate limit: stay well under 1200/min → ~15 req/sec max
 RATE_LIMIT_DELAY = 0.1  # 100ms between requests
@@ -109,9 +110,14 @@ class BinanceHistClient:
 
     # ── Kline (OHLCV) ───────────────────────────────────────
 
-    async def get_klines(self, coin: str = "btc", interval: str = "5m",
-                         start_ms: int = 0, end_ms: int = 0,
-                         limit: int = 500) -> list:
+    async def get_klines(
+        self,
+        coin: str = "btc",
+        interval: str = "5m",
+        start_ms: int = 0,
+        end_ms: int = 0,
+        limit: int = 500,
+    ) -> list:
         """
         Fetch kline/candlestick data.
 
@@ -128,11 +134,9 @@ class BinanceHistClient:
 
         # Check cache first
         if self.cache and start_ms and end_ms:
-            cached = await self.cache.get_klines(symbol, interval,
-                                                  start_ms, end_ms)
+            cached = await self.cache.get_klines(symbol, interval, start_ms, end_ms)
             if cached:
-                logger.debug("Klines from cache: %s %s (%d)",
-                             symbol, interval, len(cached))
+                logger.debug("Klines from cache: %s %s (%d)", symbol, interval, len(cached))
                 return cached
 
         params = {
@@ -153,19 +157,21 @@ class BinanceHistClient:
         #   close_time, quote_vol, trades, taker_buy_base, taker_buy_quote, _]
         klines = []
         for k in data:
-            klines.append({
-                "open_time": int(k[0]),
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "close": float(k[4]),
-                "volume": float(k[5]),
-                "close_time": int(k[6]),
-                "quote_volume": float(k[7]),
-                "trades": int(k[8]),
-                "taker_buy_vol": float(k[9]),
-                "taker_buy_quote": float(k[10]),
-            })
+            klines.append(
+                {
+                    "open_time": int(k[0]),
+                    "open": float(k[1]),
+                    "high": float(k[2]),
+                    "low": float(k[3]),
+                    "close": float(k[4]),
+                    "volume": float(k[5]),
+                    "close_time": int(k[6]),
+                    "quote_volume": float(k[7]),
+                    "trades": int(k[8]),
+                    "taker_buy_vol": float(k[9]),
+                    "taker_buy_quote": float(k[10]),
+                }
+            )
 
         # Cache
         if self.cache and klines:
@@ -175,10 +181,9 @@ class BinanceHistClient:
         logger.info("Fetched %d klines: %s %s", len(klines), symbol, interval)
         return klines
 
-    async def get_klines_range(self, coin: str = "btc",
-                                interval: str = "5m",
-                                start_ms: int = 0,
-                                end_ms: int = 0) -> list:
+    async def get_klines_range(
+        self, coin: str = "btc", interval: str = "5m", start_ms: int = 0, end_ms: int = 0
+    ) -> list:
         """
         Fetch ALL klines in a time range (auto-pagination).
         Handles Binance's 1000-per-request limit.
@@ -202,9 +207,11 @@ class BinanceHistClient:
 
         while current_start < end_ms:
             batch = await self.get_klines(
-                coin=coin, interval=interval,
-                start_ms=current_start, end_ms=end_ms,
-                limit=MAX_KLINES_PER_REQUEST
+                coin=coin,
+                interval=interval,
+                start_ms=current_start,
+                end_ms=end_ms,
+                limit=MAX_KLINES_PER_REQUEST,
             )
             if not batch:
                 break
@@ -221,15 +228,14 @@ class BinanceHistClient:
             if len(batch) < 2:
                 break
 
-        logger.info("Range fetch complete: %s %s → %d klines",
-                     coin, interval, len(all_klines))
+        logger.info("Range fetch complete: %s %s → %d klines", coin, interval, len(all_klines))
         return all_klines
 
     # ── Taker Flow (aggTrades) ───────────────────────────────
 
-    async def get_taker_flow(self, coin: str = "btc",
-                              start_ms: int = 0, end_ms: int = 0,
-                              limit: int = 500) -> dict:
+    async def get_taker_flow(
+        self, coin: str = "btc", start_ms: int = 0, end_ms: int = 0, limit: int = 500
+    ) -> dict:
         """
         Fetch aggregate trades and calculate taker buy/sell flow.
         Key for taker_flow strategy.
@@ -261,8 +267,15 @@ class BinanceHistClient:
 
         data = await self._get(f"{BASE_URL}/api/v3/aggTrades", params)
         if not data:
-            return {"buy_volume": 0, "sell_volume": 0, "buy_count": 0,
-                    "sell_count": 0, "net_flow": 0, "ratio": 0.5, "trades": []}
+            return {
+                "buy_volume": 0,
+                "sell_volume": 0,
+                "buy_count": 0,
+                "sell_count": 0,
+                "net_flow": 0,
+                "ratio": 0.5,
+                "trades": [],
+            }
 
         buy_vol = 0.0
         sell_vol = 0.0
@@ -295,17 +308,20 @@ class BinanceHistClient:
         # Cache for 7 days (historical data doesn't change)
         if self.cache and start_ms:
             cache_key = f"taker_flow_{symbol}_{start_ms}_{end_ms}"
-            await self.cache.set(cache_key, result, ttl=86400 * 7,
-                                  source="binance")
+            await self.cache.set(cache_key, result, ttl=86400 * 7, source="binance")
 
-        logger.info("Taker flow %s: buy=%.0f sell=%.0f ratio=%.3f",
-                     symbol, buy_vol, sell_vol, result["ratio"])
+        logger.info(
+            "Taker flow %s: buy=%.0f sell=%.0f ratio=%.3f",
+            symbol,
+            buy_vol,
+            sell_vol,
+            result["ratio"],
+        )
         return result
 
     # ── Funding Rate ─────────────────────────────────────────
 
-    async def get_funding_rate(self, coin: str = "btc",
-                                limit: int = 100) -> list:
+    async def get_funding_rate(self, coin: str = "btc", limit: int = 100) -> list:
         """
         Fetch perpetual futures funding rate history.
         Key for funding_rate strategy.
@@ -326,27 +342,26 @@ class BinanceHistClient:
                 return cached
 
         data = await self._get(
-            f"{FAPI_URL}/fapi/v1/fundingRate",
-            {"symbol": symbol, "limit": min(limit, 1000)}
+            f"{FAPI_URL}/fapi/v1/fundingRate", {"symbol": symbol, "limit": min(limit, 1000)}
         )
         if not data:
             return []
 
         rates = []
         for r in data:
-            rates.append({
-                "symbol": r.get("symbol", symbol),
-                "funding_time": int(r.get("fundingTime", 0)),
-                "funding_rate": float(r.get("fundingRate", 0)),
-                "mark_price": float(r.get("markPrice", 0))
-                              if "markPrice" in r else 0.0,
-            })
+            rates.append(
+                {
+                    "symbol": r.get("symbol", symbol),
+                    "funding_time": int(r.get("fundingTime", 0)),
+                    "funding_rate": float(r.get("fundingRate", 0)),
+                    "mark_price": float(r.get("markPrice", 0)) if "markPrice" in r else 0.0,
+                }
+            )
 
         # Cache for 1 hour
         if self.cache and rates:
             cache_key = f"funding_{symbol}_{limit}"
-            await self.cache.set(cache_key, rates, ttl=3600,
-                                  source="binance")
+            await self.cache.set(cache_key, rates, ttl=3600, source="binance")
 
         logger.info("Fetched %d funding rates for %s", len(rates), symbol)
         return rates
@@ -356,10 +371,7 @@ class BinanceHistClient:
     async def get_price(self, coin: str = "btc") -> Optional[float]:
         """Get current spot price."""
         symbol = SYMBOL_MAP.get(coin.lower(), f"{coin.upper()}USDT")
-        data = await self._get(
-            f"{BASE_URL}/api/v3/ticker/price",
-            {"symbol": symbol}
-        )
+        data = await self._get(f"{BASE_URL}/api/v3/ticker/price", {"symbol": symbol})
         if data and "price" in data:
             return float(data["price"])
         return None
@@ -379,5 +391,4 @@ class BinanceHistClient:
         if self._client:
             await self._client.aclose()
             self._client = None
-        logger.info("Binance historical client closed (reqs=%d)",
-                     self._request_count)
+        logger.info("Binance historical client closed (reqs=%d)", self._request_count)

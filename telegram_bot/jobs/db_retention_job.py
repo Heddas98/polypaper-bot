@@ -25,12 +25,12 @@ All thresholds are env-driven:
   DB_RETENTION_INTERVAL_SEC       (default 86400)
   DB_RETENTION_FIRST_SEC          (default 900)  # 15 min after startup
 """
+
 from __future__ import annotations
 
-import asyncio
-import os
 import logging
-from datetime import datetime, timedelta, timezone
+import os
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import aiosqlite
@@ -49,7 +49,7 @@ ARCHIVE_DIR = os.path.join("data_store", "archives")
 def _archive_db_path(table: str, cutoff_days: int) -> str:
     """Monthly archive DB: data_store/archives/archive_YYYY_MM.db"""
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return os.path.join(ARCHIVE_DIR, f"archive_{now.strftime('%Y_%m')}.db")
 
 
@@ -57,7 +57,7 @@ async def _ensure_archive_table(archive_conn, table: str, main_db):
     """Copy table schema from main DB to archive DB if it doesn't exist."""
     try:
         cur = await main_db.conn.execute(
-            f"SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
             (table,),
         )
         row = await cur.fetchone()
@@ -73,8 +73,7 @@ async def _ensure_archive_table(archive_conn, table: str, main_db):
         # sqlite_master + CREATE TABLE IF NOT EXISTS surface aiosqlite.Error
         # (OperationalError on locked archive). Archive is best-effort;
         # failure falls through to caller.
-        logger.warning(f"[archive] schema copy for {table} failed: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"[archive] schema copy for {table} failed: " f"{type(e).__name__}: {e}")
 
 
 async def _archive_rows(db, table: str, where: str, label: str) -> int:
@@ -97,9 +96,7 @@ async def _archive_rows(db, table: str, where: str, label: str) -> int:
             # Chunked archive: read+insert+delete in 10k batches
             total = 0
             while True:
-                cur = await db.conn.execute(
-                    f"SELECT * FROM {table} WHERE {where} LIMIT 10000"
-                )
+                cur = await db.conn.execute(f"SELECT * FROM {table} WHERE {where} LIMIT 10000")
                 rows = await cur.fetchall()
                 if not rows:
                     break
@@ -115,9 +112,7 @@ async def _archive_rows(db, table: str, where: str, label: str) -> int:
                 # Delete the archived rows from main DB
                 ids = [r[0] for r in rows]  # id column (first)
                 id_list = ",".join(str(i) for i in ids)
-                await db.conn.execute(
-                    f"DELETE FROM {table} WHERE id IN ({id_list})"
-                )
+                await db.conn.execute(f"DELETE FROM {table} WHERE id IN ({id_list})")
                 await db.conn.commit()
                 total += len(rows)
 
@@ -148,8 +143,7 @@ async def _count_old(db, table: str, where: str, label: str) -> int:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT COUNT(*)
         # + fetchone + int() coercion. aiosqlite.Error (missing table),
         # IndexError (row None[0]), ValueError (non-int COUNT result).
-        logger.warning(f"[retention-report] {label}: count failed: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"[retention-report] {label}: count failed: " f"{type(e).__name__}: {e}")
         return 0
 
 
@@ -165,13 +159,13 @@ def _days(env_key: str, default: int) -> int:
 
 def _iso_cutoff(days: int) -> str:
     """ISO8601 UTC timestamp N days ago."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     return cutoff.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _ms_cutoff(days: int) -> int:
     """Unix epoch milliseconds N days ago."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     return int(cutoff.timestamp() * 1000)
 
 
@@ -226,7 +220,8 @@ async def _delete_old(db, table: str, where: str, label: str) -> int:
 
 async def db_retention_job(
     context: ContextTypes.DEFAULT_TYPE,
-    *, force_notify: Optional[bool] = None,
+    *,
+    force_notify: Optional[bool] = None,
 ) -> dict:
     """
     Execute retention pass. Returns summary dict {table: count}.
@@ -262,6 +257,7 @@ async def db_retention_job(
     try:
         db_path = "data_store/polypaper.db"
         from pathlib import Path
+
         pre_size_mb = Path(db_path).stat().st_size / (1024 * 1024)
     except OSError:
         # T11.8-B (2026-04-24): narrow from bare Exception. Path.stat()
@@ -295,21 +291,27 @@ async def db_retention_job(
     # 3) odds_history — timestamp TEXT (ISO)
     cutoff_iso = _iso_cutoff(odds_days)
     summary["odds_history"] = await action(
-        db, "odds_history", f"timestamp < '{cutoff_iso}'",
+        db,
+        "odds_history",
+        f"timestamp < '{cutoff_iso}'",
         f"odds_history>{odds_days}d",
     )
 
     # 4) candles_poly — close_ts TEXT (ISO)
     cutoff_iso = _iso_cutoff(candles_poly_days)
     summary["candles_poly"] = await action(
-        db, "candles_poly", f"close_ts < '{cutoff_iso}'",
+        db,
+        "candles_poly",
+        f"close_ts < '{cutoff_iso}'",
         f"candles_poly>{candles_poly_days}d",
     )
 
     # 5) candles_ext — close_ts TEXT (ISO)
     cutoff_iso = _iso_cutoff(candles_ext_days)
     summary["candles_ext"] = await action(
-        db, "candles_ext", f"close_ts < '{cutoff_iso}'",
+        db,
+        "candles_ext",
+        f"close_ts < '{cutoff_iso}'",
         f"candles_ext>{candles_ext_days}d",
     )
 
@@ -327,8 +329,7 @@ async def db_retention_job(
             # T11.8-B (2026-04-24): narrow from bare Exception. VACUUM
             # surfaces aiosqlite.OperationalError (locked DB, no space).
             # VACUUM is shrinkage-only; deletes already committed.
-            logger.warning(f"[retention] VACUUM failed: "
-                           f"{type(e).__name__}: {e}")
+            logger.warning(f"[retention] VACUUM failed: " f"{type(e).__name__}: {e}")
 
     # Post-retention DB size
     try:
@@ -360,8 +361,7 @@ async def db_retention_job(
             lines = [
                 f"<b>{mode_emoji.get(mode, '🔧')} DB Retention ({mode.upper()})</b>",
                 f"elapsed: <code>{elapsed:.1f}s</code>",
-                f"size: <code>{pre_size_mb:.1f}</code> → "
-                f"<code>{post_size_mb:.1f} MB</code>",
+                f"size: <code>{pre_size_mb:.1f}</code> → " f"<code>{post_size_mb:.1f} MB</code>",
             ]
             if mode == "delete":
                 lines.append(f"VACUUM: <code>{'yes' if vacuumed else 'no'}</code>")
@@ -373,12 +373,13 @@ async def db_retention_job(
                 lines.append(f"{table}: <code>{count:,}</code>")
             try:
                 await context.bot.send_message(
-                    chat_id=admin_id, text="\n".join(lines), parse_mode="HTML",
+                    chat_id=admin_id,
+                    text="\n".join(lines),
+                    parse_mode="HTML",
                 )
-            except (TelegramError, asyncio.TimeoutError) as e:
+            except (TimeoutError, TelegramError) as e:
                 # T11.8-B (2026-04-24): narrow from bare Exception. Retention
                 # pass already done; notify is best-effort.
-                logger.warning(f"[retention] notify failed: "
-                               f"{type(e).__name__}: {e}")
+                logger.warning(f"[retention] notify failed: " f"{type(e).__name__}: {e}")
 
     return summary

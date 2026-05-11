@@ -26,11 +26,13 @@ constants.
 
 ADMIN ONLY — leaks budget + daily loss + kill-reason text.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import time
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -49,9 +51,7 @@ def _is_admin(context, telegram_id: int) -> bool:
     """
     settings: Settings = context.bot_data.get("settings")
     if not settings:
-        logger.warning(
-            f"live_guards _is_admin: settings missing, denying user {telegram_id}"
-        )
+        logger.warning(f"live_guards _is_admin: settings missing, denying user {telegram_id}")
         return False
     return settings.is_admin(telegram_id)
 
@@ -96,6 +96,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             ks = engine.kill_switch.get_status()
         else:
             from core.kill_switch import KillSwitch
+
             ks = KillSwitch().get_status()
         kill_emoji = "🛑" if ks.get("killed") else "✅"
         kill_reason = ks.get("reason") or "Inactive"
@@ -113,9 +114,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         # file paths, mem state); wide catch ensures one failure doesn't
         # blank the whole /live_guards snapshot. Admin-only diagnostic.
         logger.exception("live_guards: G1 render failed")
-        lines.append(
-            f"<b>G1 Kill Switch</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
-        )
+        lines.append(f"<b>G1 Kill Switch</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n")
 
     # ── G2 — Live Budget ──────────────────────────────────────────
     # ``_get_live_budget()`` re-reads LIVE_BUDGET per call (T11.2 [B]).
@@ -125,6 +124,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     # uses at ``maybe_mirror`` time.
     try:
         from core.live_trader import _get_live_budget
+
         budget = _get_live_budget()
         if engine and hasattr(engine, "live"):
             ls = engine.live.get_status()
@@ -145,9 +145,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G2 render failed")
-        lines.append(
-            f"<b>G2 Live Budget</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
-        )
+        lines.append(f"<b>G2 Live Budget</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n")
 
     # ── G3 — Daily Loss ───────────────────────────────────────────
     # ``_get_max_daily_loss()`` re-reads LIVE_MAX_DAILY_LOSS.
@@ -156,6 +154,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     # -LIVE_MAX_DAILY_LOSS, ``maybe_mirror`` halts (not pause).
     try:
         from core.live_trader import _get_max_daily_loss
+
         max_daily_loss = _get_max_daily_loss()
         if engine and hasattr(engine, "live"):
             ls = engine.live.get_status()
@@ -177,9 +176,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G3 render failed")
-        lines.append(
-            f"<b>G3 Daily Loss</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
-        )
+        lines.append(f"<b>G3 Daily Loss</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n")
 
     # ── G4 — PnL Divergence (Paper ↔ Shadow) ──────────────────────
     # Job lives at ``telegram_bot/jobs/pnl_divergence_job.py``; ENV is
@@ -206,9 +203,10 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     # strategies (classic type) bypass this guard by design.
     try:
         from core.auto_optimizer import (
-            _get_rolling_wr_window,
             _get_rolling_wr_kill_threshold,
+            _get_rolling_wr_window,
         )
+
         wr_window = _get_rolling_wr_window()
         wr_kill = _get_rolling_wr_kill_threshold()
         protected = os.getenv("PROTECTED_STRATEGY_TYPES", "classic")
@@ -221,9 +219,7 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G5 render failed")
-        lines.append(
-            f"<b>G5 Rolling WR Kill</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
-        )
+        lines.append(f"<b>G5 Rolling WR Kill</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n")
 
     # ── G6 — WebSocket Staleness ──────────────────────────────────
     # Threshold is env-driven. Current age comes from engine scanner
@@ -253,18 +249,14 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): per-guard render — see G1 for rationale.
         logger.exception("live_guards: G6 render failed")
-        lines.append(
-            f"<b>G6 WS Stale</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n"
-        )
+        lines.append(f"<b>G6 WS Stale</b>\n  ⚠️ render error: {esc(str(e)[:60])}\n")
 
     # ── Hint footer ───────────────────────────────────────────────
     # Note: use square brackets instead of &lt;KEY&gt;. Telegram HTML parse
     # sometimes mangles `<KEY>` even after entity-escape (treats as unknown
     # tag), eating the preceding "/e" of "/envt". [KEY]/[VALUE] renders
     # cleanly in every client.
-    lines.append(
-        "\n<i>Tune any threshold at runtime with <code>/envt [KEY] [VALUE]</code>.</i>"
-    )
+    lines.append("\n<i>Tune any threshold at runtime with <code>/envt [KEY] [VALUE]</code>.</i>")
 
     full_text = "\n".join(lines)
     # Telegram hard limit 4096 — truncate defensively

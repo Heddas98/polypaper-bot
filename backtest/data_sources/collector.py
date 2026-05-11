@@ -21,26 +21,27 @@ Usage:
 
 Schedule: Windows Task Scheduler or start_collector.bat (every 8 hours)
 """
-import os
-import sys
+
+import argparse
 import asyncio
 import logging
-import argparse
+import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
+
 load_dotenv(PROJECT_ROOT / ".env")
 
-from backtest.data_sources.cache import BacktestCache
-from backtest.data_sources.polybacktest import PolyBackTestClient
 from backtest.data_sources.binance_hist import BinanceHistClient
+from backtest.data_sources.cache import BacktestCache
 from backtest.data_sources.gamma_hist import GammaHistClient
+from backtest.data_sources.polybacktest import PolyBackTestClient
 
 # Setup logging
 logging.basicConfig(
@@ -79,8 +80,9 @@ class DataCollector:
         await self.gamma.init()
         self.stats["start_time"] = time.time()
         logger.info("=" * 60)
-        logger.info("Data Collector initialized — %s",
-                     datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+        logger.info(
+            "Data Collector initialized — %s", datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        )
         logger.info("=" * 60)
 
     async def close(self):
@@ -92,8 +94,7 @@ class DataCollector:
 
     # ── Main Collection Routines ─────────────────────────────
 
-    async def collect_polybacktest(self, coins: list = None,
-                                    market_types: list = None):
+    async def collect_polybacktest(self, coins: list = None, market_types: list = None):
         """
         Collect markets + snapshots from PolyBackTest API.
         Free tier: 50 BTC 5m/15m, 24 1h/4h, 5 24h.
@@ -109,9 +110,7 @@ class DataCollector:
             for mtype in market_types:
                 try:
                     logger.info("Fetching %s %s markets...", coin, mtype)
-                    result = await self.pbt.fetch_backtest_data(
-                        coin=coin, market_type=mtype
-                    )
+                    result = await self.pbt.fetch_backtest_data(coin=coin, market_type=mtype)
                     n_markets = len(result.get("markets", []))
                     n_snaps = result.get("total_snapshots", 0)
                     errors = result.get("errors", 0)
@@ -122,15 +121,19 @@ class DataCollector:
 
                     logger.info(
                         "  %s %s: %d markets, %d snapshots, %d errors",
-                        coin.upper(), mtype, n_markets, n_snaps, errors
+                        coin.upper(),
+                        mtype,
+                        n_markets,
+                        n_snaps,
+                        errors,
                     )
                 except Exception as e:
                     logger.error("  %s %s failed: %s", coin, mtype, e)
                     self.stats["errors"] += 1
 
-    async def collect_binance(self, coins: list = None,
-                               intervals: list = None,
-                               lookback_hours: int = 24):
+    async def collect_binance(
+        self, coins: list = None, intervals: list = None, lookback_hours: int = 24
+    ):
         """
         Collect Binance kline data for backtesting.
         This is unlimited and free — we collect more aggressively.
@@ -148,15 +151,14 @@ class DataCollector:
         for coin in coins:
             for interval in intervals:
                 try:
-                    logger.info("Fetching %s %s klines (last %dh)...",
-                                coin, interval, lookback_hours)
+                    logger.info(
+                        "Fetching %s %s klines (last %dh)...", coin, interval, lookback_hours
+                    )
                     klines = await self.binance.get_klines_range(
-                        coin=coin, interval=interval,
-                        start_ms=start_ms, end_ms=end_ms
+                        coin=coin, interval=interval, start_ms=start_ms, end_ms=end_ms
                     )
                     self.stats["new_klines"] += len(klines)
-                    logger.info("  %s %s: %d klines",
-                                coin.upper(), interval, len(klines))
+                    logger.info("  %s %s: %d klines", coin.upper(), interval, len(klines))
                 except Exception as e:
                     logger.error("  %s %s failed: %s", coin, interval, e)
                     self.stats["errors"] += 1
@@ -174,12 +176,9 @@ class DataCollector:
         for coin in coins:
             try:
                 logger.info("Fetching %s resolved markets...", coin)
-                markets = await self.gamma.get_all_resolved(
-                    coin=coin, max_pages=max_pages
-                )
+                markets = await self.gamma.get_all_resolved(coin=coin, max_pages=max_pages)
                 self.stats["new_gamma_markets"] += len(markets)
-                logger.info("  %s: %d resolved markets", coin.upper(),
-                             len(markets))
+                logger.info("  %s: %d resolved markets", coin.upper(), len(markets))
             except Exception as e:
                 logger.error("  %s failed: %s", coin, e)
                 self.stats["errors"] += 1
@@ -193,10 +192,8 @@ class DataCollector:
 
         for coin in coins:
             try:
-                rates = await self.binance.get_funding_rate(coin=coin,
-                                                            limit=500)
-                logger.info("  %s: %d funding rates", coin.upper(),
-                             len(rates))
+                rates = await self.binance.get_funding_rate(coin=coin, limit=500)
+                logger.info("  %s: %d funding rates", coin.upper(), len(rates))
             except Exception as e:
                 logger.error("  %s funding failed: %s", coin, e)
 
@@ -214,9 +211,7 @@ class DataCollector:
     async def run_quick(self):
         """Quick collection — only PolyBackTest new markets."""
         logger.info("Starting QUICK collection (PBT only)...")
-        await self.collect_polybacktest(
-            coins=["btc"], market_types=["5m", "15m"]
-        )
+        await self.collect_polybacktest(coins=["btc"], market_types=["5m", "15m"])
         self._print_summary()
 
     async def run_binance_only(self):
@@ -225,7 +220,7 @@ class DataCollector:
         await self.collect_binance(
             coins=["btc", "eth", "sol"],
             intervals=["1m", "5m", "15m", "1h"],
-            lookback_hours=168  # 7 days
+            lookback_hours=168,  # 7 days
         )
         await self.collect_funding_rates()
         self._print_summary()
@@ -279,18 +274,17 @@ class DataCollector:
 
 # ── CLI Entry Point ──────────────────────────────────────────
 
+
 async def main():
-    parser = argparse.ArgumentParser(
-        description="PolyPaper Bot - Backtest Data Collector"
+    parser = argparse.ArgumentParser(description="PolyPaper Bot - Backtest Data Collector")
+    parser.add_argument("--quick", action="store_true", help="Quick mode: only new PBT markets")
+    parser.add_argument(
+        "--binance", action="store_true", help="Binance-only mode with deep backfill"
     )
-    parser.add_argument("--quick", action="store_true",
-                        help="Quick mode: only new PBT markets")
-    parser.add_argument("--binance", action="store_true",
-                        help="Binance-only mode with deep backfill")
-    parser.add_argument("--stats", action="store_true",
-                        help="Show cache statistics only")
-    parser.add_argument("--full", action="store_true", default=True,
-                        help="Full collection (default)")
+    parser.add_argument("--stats", action="store_true", help="Show cache statistics only")
+    parser.add_argument(
+        "--full", action="store_true", default=True, help="Full collection (default)"
+    )
     args = parser.parse_args()
 
     collector = DataCollector()

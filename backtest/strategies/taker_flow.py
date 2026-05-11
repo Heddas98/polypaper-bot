@@ -11,10 +11,15 @@ Parameters:
   - min_volume: min total taker volume in window (default 50000 USD)
   - max_elapsed_pct: max market progress for entry (default 0.30)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -24,9 +29,12 @@ class TakerFlowStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Binance taker buy/sell imbalance → directional signal"
 
-    def __init__(self, flow_ratio_threshold: float = 1.15,
-                 min_volume: float = 50000,
-                 max_elapsed_pct: float = 0.30):
+    def __init__(
+        self,
+        flow_ratio_threshold: float = 1.15,
+        min_volume: float = 50000,
+        max_elapsed_pct: float = 0.30,
+    ):
         self.flow_ratio_threshold = flow_ratio_threshold
         self.min_volume = min_volume
         self.max_elapsed_pct = max_elapsed_pct
@@ -67,9 +75,11 @@ class TakerFlowStrategy(BaseBacktestStrategy):
             confidence = min(0.95, 0.55 + (buy_ratio - 1.0) * 0.3)
             entry = snap.up_best_ask if snap.up_best_ask > 0 else 0.5
             return self.make_signal(
-                "up", confidence, entry,
+                "up",
+                confidence,
+                entry,
                 reason=f"taker_flow: buy_ratio={buy_ratio:.2f} "
-                       f"(buy={self._cum_buy:.0f} sell={self._cum_sell:.0f})",
+                f"(buy={self._cum_buy:.0f} sell={self._cum_sell:.0f})",
                 buy_ratio=buy_ratio,
             )
 
@@ -78,9 +88,11 @@ class TakerFlowStrategy(BaseBacktestStrategy):
             confidence = min(0.95, 0.55 + (sell_ratio - 1.0) * 0.3)
             entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
             return self.make_signal(
-                "down", confidence, entry,
+                "down",
+                confidence,
+                entry,
                 reason=f"taker_flow: sell_ratio={sell_ratio:.2f} "
-                       f"(buy={self._cum_buy:.0f} sell={self._cum_sell:.0f})",
+                f"(buy={self._cum_buy:.0f} sell={self._cum_sell:.0f})",
                 sell_ratio=sell_ratio,
             )
 

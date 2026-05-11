@@ -12,39 +12,34 @@ Usage:
         fmt_error("NOT_FOUND", what="Strategy", key="abc"),
         parse_mode="HTML")
 """
+
 from __future__ import annotations
 
 ERR: dict[str, str] = {
     # Infrastructure
-    "DB_UNAVAILABLE":       "❌ <b>Database unavailable.</b> Try again in a moment.",
-    "ENGINE_NOT_READY":     "⏳ Engine still warming up — try again in a few seconds.",
-    "ADMIN_ONLY":           "🔒 This command is admin-only.",
-
+    "DB_UNAVAILABLE": "❌ <b>Database unavailable.</b> Try again in a moment.",
+    "ENGINE_NOT_READY": "⏳ Engine still warming up — try again in a few seconds.",
+    "ADMIN_ONLY": "🔒 This command is admin-only.",
     # Argument errors
-    "USAGE":                "❓ Usage: <code>{usage}</code>",
-    "MISSING_ARG":          "❓ Missing argument: <code>{name}</code>",
-    "BAD_NUMBER":           "❌ Invalid number: <code>{val}</code>",
-
+    "USAGE": "❓ Usage: <code>{usage}</code>",
+    "MISSING_ARG": "❓ Missing argument: <code>{name}</code>",
+    "BAD_NUMBER": "❌ Invalid number: <code>{val}</code>",
     # Lookup failures
-    "NOT_FOUND":            "❌ {what} not found: <code>{key}</code>",
-    "AMBIGUOUS_PREFIX":     "⚠️ Ambiguous prefix <code>{key}</code> — matches {count} items.",
-    "NO_RESULTS":           "📭 No results.",
-
+    "NOT_FOUND": "❌ {what} not found: <code>{key}</code>",
+    "AMBIGUOUS_PREFIX": "⚠️ Ambiguous prefix <code>{key}</code> — matches {count} items.",
+    "NO_RESULTS": "📭 No results.",
     # Permission / state
-    "ALREADY_RUNNING":      "ℹ️ Already running.",
-    "ALREADY_STOPPED":      "ℹ️ Already stopped.",
-    "GATE_FAIL":            "⛔ <b>Gate fail:</b> {reason}",
-
+    "ALREADY_RUNNING": "ℹ️ Already running.",
+    "ALREADY_STOPPED": "ℹ️ Already stopped.",
+    "GATE_FAIL": "⛔ <b>Gate fail:</b> {reason}",
     # Risk
-    "RISK_HALTED":          "🛑 <b>Risk HALTED</b> — manual resume required (/resume).",
-    "RISK_DAILY_LIMIT":     "⚠️ Daily loss limit reached.",
-
+    "RISK_HALTED": "🛑 <b>Risk HALTED</b> — manual resume required (/resume).",
+    "RISK_DAILY_LIMIT": "⚠️ Daily loss limit reached.",
     # Network / external
-    "NETWORK_ERROR":        "🌐 Network error — please retry.",
-    "API_ERROR":            "🌐 External API error: {detail}",
-
+    "NETWORK_ERROR": "🌐 Network error — please retry.",
+    "API_ERROR": "🌐 External API error: {detail}",
     # Generic fallback
-    "UNEXPECTED":           "❌ Unexpected error — try again or check /health.",
+    "UNEXPECTED": "❌ Unexpected error — try again or check /health.",
 }
 
 

@@ -22,11 +22,18 @@ Parameters:
   min_price_move: minimum BTC price change to confirm direction (default 0)
   max_entry_price: don't buy above this price (EV guard) (default 0.95)
 """
-from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Resolution, Direction
-)
+
 from typing import Optional
+
+from backtest.strategies.base import (
+    BaseBacktestStrategy,
+    Direction,
+    MarketData,
+    OrderbookSnapshot,
+    Resolution,
+    Signal,
+    StrategyRegistryV2,
+)
 
 
 @StrategyRegistryV2.register
@@ -39,9 +46,9 @@ class LateConvergenceStrategy(BaseBacktestStrategy):
 
     def __init__(self):
         self.params = {
-            "min_elapsed_pct": 0.80,      # 80% of window = minute 4 of 5m
-            "min_price_move": 0.0,         # minimum Binance price change ($)
-            "max_entry_price": 0.95,       # don't buy above 95c
+            "min_elapsed_pct": 0.80,  # 80% of window = minute 4 of 5m
+            "min_price_move": 0.0,  # minimum Binance price change ($)
+            "max_entry_price": 0.95,  # don't buy above 95c
             "min_spread_threshold": 0.02,  # need at least 2c spread from 50/50
         }
         self._market: Optional[MarketData] = None
@@ -71,10 +78,10 @@ class LateConvergenceStrategy(BaseBacktestStrategy):
             return None
 
         # Determine dominant direction from orderbook prices
-        up_price = snapshot.up_best_bid if snapshot.up_best_bid > 0 else \
-                   snapshot.up_best_ask
-        down_price = snapshot.down_best_bid if snapshot.down_best_bid > 0 else \
-                     snapshot.down_best_ask
+        up_price = snapshot.up_best_bid if snapshot.up_best_bid > 0 else snapshot.up_best_ask
+        down_price = (
+            snapshot.down_best_bid if snapshot.down_best_bid > 0 else snapshot.down_best_ask
+        )
 
         if up_price <= 0 and down_price <= 0:
             return None
@@ -125,15 +132,15 @@ class LateConvergenceStrategy(BaseBacktestStrategy):
             confidence=confidence,
             entry_price=entry_price,
             reason=f"Late convergence: {direction} dominant @ "
-                   f"{dominant_price:.2f} ({snapshot.elapsed_pct:.0%} elapsed)",
+            f"{dominant_price:.2f} ({snapshot.elapsed_pct:.0%} elapsed)",
             metadata={
                 "elapsed_pct": snapshot.elapsed_pct,
                 "dominant_price": dominant_price,
                 "btc_change": snapshot.binance_price - self._first_binance_price
-                              if self._first_binance_price > 0 else 0,
+                if self._first_binance_price > 0
+                else 0,
             },
         )
 
-    def on_market_close(self, market: MarketData,
-                        result: Resolution) -> None:
+    def on_market_close(self, market: MarketData, result: Resolution) -> None:
         pass

@@ -9,6 +9,7 @@ Decay factor 0.995 per trade → adapts to shifting markets.
 
 Result: bot automatically routes capital to winning strategies.
 """
+
 import logging
 import os
 import random
@@ -29,8 +30,9 @@ THOMPSON_TOP_PCT = float(os.getenv("THOMPSON_TOP_PCT", "0.40"))
 @dataclass
 class ArmState:
     """Thompson Sampling state for one strategy."""
-    alpha: float = 2.0   # Prior wins (start optimistic)
-    beta: float = 2.0    # Prior losses
+
+    alpha: float = 2.0  # Prior wins (start optimistic)
+    beta: float = 2.0  # Prior losses
     total_trades: int = 0
     recent_pnl: float = 0.0
 
@@ -83,7 +85,7 @@ class StrategySelector:
         # Check if Thompson Sampling is disabled via brain_flags
         ts_enabled = True
         if engine:
-            ts_enabled = getattr(engine, 'brain_flags', {}).get('thompson_sampling', True)
+            ts_enabled = getattr(engine, "brain_flags", {}).get("thompson_sampling", True)
 
         if not ts_enabled:
             # Fallback: equal weights, allow all to trade during exploration
@@ -112,29 +114,33 @@ class StrategySelector:
         sorted_samples = sorted(samples.values(), reverse=True)
         if len(sorted_samples) <= threshold_rank:
             return True
-        cutoff = sorted_samples[min(threshold_rank, len(sorted_samples)-1)]
+        cutoff = sorted_samples[min(threshold_rank, len(sorted_samples) - 1)]
         return samples[strategy_id] >= cutoff
 
     def record_result(self, strategy_id: str, won: bool, pnl: float = 0):
         """Record trade result for Thompson Sampling update."""
         arm = self.get_or_create(strategy_id)
         arm.update(won, pnl)
-        logger.debug(f"TS update: {strategy_id[:8]} {'W' if won else 'L'} "
-                     f"α={arm.alpha:.1f} β={arm.beta:.1f} WR={arm.win_rate:.0%}")
+        logger.debug(
+            f"TS update: {strategy_id[:8]} {'W' if won else 'L'} "
+            f"α={arm.alpha:.1f} β={arm.beta:.1f} WR={arm.win_rate:.0%}"
+        )
 
     def get_rankings(self) -> list[dict]:
         """Get all strategies ranked by Thompson Sampling score."""
         rankings = []
         for sid, arm in self._arms.items():
-            rankings.append({
-                "id": sid,
-                "alpha": round(arm.alpha, 1),
-                "beta": round(arm.beta, 1),
-                "win_rate": round(arm.win_rate * 100, 1),
-                "sample": round(arm.sample() * 100, 1),
-                "trades": arm.total_trades,
-                "pnl": round(arm.recent_pnl, 2),
-            })
+            rankings.append(
+                {
+                    "id": sid,
+                    "alpha": round(arm.alpha, 1),
+                    "beta": round(arm.beta, 1),
+                    "win_rate": round(arm.win_rate * 100, 1),
+                    "sample": round(arm.sample() * 100, 1),
+                    "trades": arm.total_trades,
+                    "pnl": round(arm.recent_pnl, 2),
+                }
+            )
         return sorted(rankings, key=lambda x: x["sample"], reverse=True)
 
     def get_status(self) -> dict:
@@ -153,8 +159,9 @@ class StrategySelector:
                     SUM(CASE WHEN e.pnl > 0 THEN 1 ELSE 0 END) as w,
                     COALESCE(SUM(e.pnl), 0) as pnl
                 FROM executions e WHERE e.result IS NOT NULL
-                GROUP BY e.strategy_id""")
-            for r in (rows or []):
+                GROUP BY e.strategy_id"""
+            )
+            for r in rows or []:
                 arm = self.get_or_create(r[0])
                 wins, losses = r[2], r[1] - r[2]
                 # Apply decay for historical data (older = less weight)
@@ -163,8 +170,7 @@ class StrategySelector:
                 arm.total_trades = r[1]
                 arm.recent_pnl = r[3]
             logger.info(f"🎰 Thompson Sampling: loaded {len(self._arms)} strategies from history")
-        except (aiosqlite.Error, ValueError, TypeError, IndexError,
-                AttributeError) as e:
+        except (aiosqlite.Error, ValueError, TypeError, IndexError, AttributeError) as e:
             # T1.4 Faz 3: DB fetch + row unpack + Beta prior update. DB
             # failure is non-fatal (arms keep prior defaults), but the
             # failure class should surface loudly rather than silently.

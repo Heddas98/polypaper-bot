@@ -30,6 +30,7 @@ Usage:
     task = ReconciliationTask(db, wallet="0xA7e758...")
     await task.start()
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -111,10 +112,13 @@ async def get_pusd_balance(wallet: str) -> Optional[float]:
     addr_no_0x = wallet[2:].lower().zfill(64)
     data = ERC20_BALANCE_OF_SELECTOR + addr_no_0x
 
-    response = await rpc_call("eth_call", [
-        {"to": ADDR_PUSD, "data": data},
-        "latest",
-    ])
+    response = await rpc_call(
+        "eth_call",
+        [
+            {"to": ADDR_PUSD, "data": data},
+            "latest",
+        ],
+    )
     if not response or "result" not in response:
         return None
 
@@ -146,10 +150,13 @@ async def get_ctf_balance(wallet: str, token_id: str) -> Optional[float]:
     tid_padded = format(tid_int, "x").zfill(64)
     data = ERC1155_BALANCE_OF_SELECTOR + addr_padded + tid_padded
 
-    response = await rpc_call("eth_call", [
-        {"to": ADDR_CTF, "data": data},
-        "latest",
-    ])
+    response = await rpc_call(
+        "eth_call",
+        [
+            {"to": ADDR_CTF, "data": data},
+            "latest",
+        ],
+    )
     if not response or "result" not in response:
         return None
 
@@ -213,7 +220,9 @@ class ReconciliationTask:
             "enabled": self.enabled,
             "running": self._running,
             "wallet": self.wallet[:10] + "..." if self.wallet else "",
-            "last_check_age_s": (time.time() - self._last_check_ts) if self._last_check_ts else None,
+            "last_check_age_s": (time.time() - self._last_check_ts)
+            if self._last_check_ts
+            else None,
             "mismatch_count": len(self._mismatches),
             "interval_s": self.interval_s,
             "threshold_usd": self.mismatch_threshold_usd,
@@ -224,7 +233,8 @@ class ReconciliationTask:
             logger.info(
                 "🔗 Reconciliation: DISABLED "
                 "(RECON_ENABLED unset/false AND LIVE_ENABLED=false). "
-                "Auto-on activates when bot enters live mode.")
+                "Auto-on activates when bot enters live mode."
+            )
             return
         if not self.wallet:
             logger.warning("🔗 Reconciliation: wallet missing, cannot start")
@@ -236,8 +246,10 @@ class ReconciliationTask:
         self._running = True
         self._stop_requested = False
         self._task = asyncio.create_task(self._loop(), name="reconciliation")
-        logger.info(f"🔗 Reconciliation: STARTED (interval={self.interval_s}s, "
-                    f"threshold=${self.mismatch_threshold_usd}, wallet={self.wallet[:10]}...)")
+        logger.info(
+            f"🔗 Reconciliation: STARTED (interval={self.interval_s}s, "
+            f"threshold=${self.mismatch_threshold_usd}, wallet={self.wallet[:10]}...)"
+        )
 
     async def stop(self) -> None:
         self._stop_requested = True
@@ -245,7 +257,7 @@ class ReconciliationTask:
             try:
                 self._task.cancel()
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"recon stop: {e}")
@@ -294,8 +306,10 @@ class ReconciliationTask:
                 "delta_usd": delta,
             }
             self._mismatches.append(mismatch)
-            msg = (f"🚨 RECON MISMATCH: on-chain pUSD ${onchain_pusd:.2f} vs "
-                   f"DB ${db_balance:.2f} (Δ ${delta:.2f} > ${self.mismatch_threshold_usd:.2f})")
+            msg = (
+                f"🚨 RECON MISMATCH: on-chain pUSD ${onchain_pusd:.2f} vs "
+                f"DB ${db_balance:.2f} (Δ ${delta:.2f} > ${self.mismatch_threshold_usd:.2f})"
+            )
             logger.error(msg)
             if self.alert_callback:
                 try:
@@ -303,7 +317,9 @@ class ReconciliationTask:
                 except Exception as cb_err:  # noqa: BLE001
                     logger.warning(f"recon alert callback fail: {cb_err}")
         else:
-            logger.debug(f"🔗 recon OK: pUSD on-chain ${onchain_pusd:.2f} ≈ DB ${db_balance:.2f} (Δ ${delta:.4f})")
+            logger.debug(
+                f"🔗 recon OK: pUSD on-chain ${onchain_pusd:.2f} ≈ DB ${db_balance:.2f} (Δ ${delta:.4f})"
+            )
 
         return {
             "ok": ok,

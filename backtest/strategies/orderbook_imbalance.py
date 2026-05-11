@@ -12,10 +12,14 @@ Parameters:
   - max_elapsed_pct: max market progress for entry (default 0.25)
   - min_depth: minimum total depth to consider (default 100 USD)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -25,10 +29,13 @@ class OrderbookImbalanceStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Orderbook bid/ask depth imbalance → directional signal"
 
-    def __init__(self, imbalance_threshold: float = 1.30,
-                 min_elapsed_sec: float = 5.0,
-                 max_elapsed_pct: float = 0.25,
-                 min_depth: float = 100.0):
+    def __init__(
+        self,
+        imbalance_threshold: float = 1.30,
+        min_elapsed_sec: float = 5.0,
+        max_elapsed_pct: float = 0.25,
+        min_depth: float = 100.0,
+    ):
         self.imbalance_threshold = imbalance_threshold
         self.min_elapsed_sec = min_elapsed_sec
         self.max_elapsed_pct = max_elapsed_pct
@@ -58,9 +65,11 @@ class OrderbookImbalanceStrategy(BaseBacktestStrategy):
                 confidence = min(0.90, 0.55 + (up_ratio - 1.0) * 0.15)
                 entry = snap.up_best_ask if snap.up_best_ask > 0 else 0.5
                 return self.make_signal(
-                    "up", confidence, entry,
+                    "up",
+                    confidence,
+                    entry,
                     reason=f"ob_imbalance: UP bid/ask={up_ratio:.2f} "
-                           f"(bid={up_bid:.0f} ask={up_ask:.0f})",
+                    f"(bid={up_bid:.0f} ask={up_ask:.0f})",
                     up_ratio=up_ratio,
                 )
 
@@ -71,9 +80,11 @@ class OrderbookImbalanceStrategy(BaseBacktestStrategy):
                 confidence = min(0.90, 0.55 + (down_ratio - 1.0) * 0.15)
                 entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
                 return self.make_signal(
-                    "down", confidence, entry,
+                    "down",
+                    confidence,
+                    entry,
                     reason=f"ob_imbalance: DOWN bid/ask={down_ratio:.2f} "
-                           f"(bid={down_bid:.0f} ask={down_ask:.0f})",
+                    f"(bid={down_bid:.0f} ask={down_ask:.0f})",
                     down_ratio=down_ratio,
                 )
 
@@ -91,7 +102,9 @@ class OrderbookImbalanceStrategy(BaseBacktestStrategy):
                 else:
                     entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
                 return self.make_signal(
-                    direction, confidence, entry,
+                    direction,
+                    confidence,
+                    entry,
                     reason=f"ob_imbalance: net={net_imbalance:.2f}",
                     net_imbalance=net_imbalance,
                 )

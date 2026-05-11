@@ -16,6 +16,7 @@ Usage:
     py -3.11 scripts/phase51_html_sweep.py            # apply
     py -3.11 scripts/phase51_html_sweep.py --dry      # preview only
 """
+
 from __future__ import annotations
 
 import py_compile
@@ -28,16 +29,48 @@ HANDLERS = ROOT / "telegram_bot" / "handlers"
 
 SUSPICIOUS = {
     # generic text/label fields
-    "slug", "label", "name", "title", "question", "text", "reason",
-    "desc", "description", "note", "comment", "tag", "category",
+    "slug",
+    "label",
+    "name",
+    "title",
+    "question",
+    "text",
+    "reason",
+    "desc",
+    "description",
+    "note",
+    "comment",
+    "tag",
+    "category",
     # exception / error strings
-    "error", "err", "exc", "e", "msg", "message",
+    "error",
+    "err",
+    "exc",
+    "e",
+    "msg",
+    "message",
     # market / strategy domain
-    "market", "outcome", "condition", "side", "action", "event",
-    "symbol", "ticker", "strategy", "strat", "status", "state",
-    "token_id", "market_id", "cid", "correlation_id",
+    "market",
+    "outcome",
+    "condition",
+    "side",
+    "action",
+    "event",
+    "symbol",
+    "ticker",
+    "strategy",
+    "strat",
+    "status",
+    "state",
+    "token_id",
+    "market_id",
+    "cid",
+    "correlation_id",
     # user
-    "author", "user", "username", "chat",
+    "author",
+    "user",
+    "username",
+    "chat",
 }
 
 IMPORT_LINE = "from telegram_bot.templates.safe_html import esc\n"

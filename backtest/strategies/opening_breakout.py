@@ -11,10 +11,15 @@ Parameters:
   - entry_window_sec: how long to monitor for breakout (default 60)
   - max_elapsed_pct: latest entry point (default 0.35)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -24,9 +29,12 @@ class OpeningBreakoutStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "First-minute BTC price breakout → directional bet"
 
-    def __init__(self, breakout_usd: float = 10.0,
-                 entry_window_sec: float = 60.0,
-                 max_elapsed_pct: float = 0.35):
+    def __init__(
+        self,
+        breakout_usd: float = 10.0,
+        entry_window_sec: float = 60.0,
+        max_elapsed_pct: float = 0.35,
+    ):
         self.breakout_usd = breakout_usd
         self.entry_window_sec = entry_window_sec
         self.max_elapsed_pct = max_elapsed_pct
@@ -65,9 +73,10 @@ class OpeningBreakoutStrategy(BaseBacktestStrategy):
             else:
                 entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
             return self.make_signal(
-                direction, confidence, entry,
-                reason=f"opening_breakout: BTC ${move:+.1f} in "
-                       f"{snap.elapsed_seconds:.0f}s",
+                direction,
+                confidence,
+                entry,
+                reason=f"opening_breakout: BTC ${move:+.1f} in " f"{snap.elapsed_seconds:.0f}s",
                 btc_move_usd=move,
             )
 

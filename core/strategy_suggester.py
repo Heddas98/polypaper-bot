@@ -9,9 +9,10 @@ Usage:
     suggester = StrategySuggester(db, engine, bot_app)
     await suggester.run()  # Called by JobQueue every 4h
 """
+
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -19,7 +20,7 @@ logger = logging.getLogger("polypaper.core.strategy_suggester")
 
 # Timezone: Turkey = UTC+3
 NIGHT_START_UTC = 21  # 00:00 TR
-NIGHT_END_UTC = 6     # 09:00 TR
+NIGHT_END_UTC = 6  # 09:00 TR
 
 SUGGEST_INTERVAL = int(os.getenv("AI_STRATEGY_SUGGEST_INTERVAL", "14400"))  # 4h default
 
@@ -130,7 +131,7 @@ class StrategySuggester:
 
     def _is_night_utc(self) -> bool:
         """Check if current UTC hour is in Turkey night window."""
-        hour = datetime.now(timezone.utc).hour
+        hour = datetime.now(UTC).hour
         if NIGHT_START_UTC > NIGHT_END_UTC:  # Wraps midnight
             return hour >= NIGHT_START_UTC or hour < NIGHT_END_UTC
         return NIGHT_START_UTC <= hour < NIGHT_END_UTC
@@ -141,7 +142,7 @@ class StrategySuggester:
             logger.info("🔮 Strategy Suggester: starting cycle...")
 
             # Step 1: Gather data (reuse AI Brain's gather + extras)
-            brain = getattr(self.engine, 'analyst', None)
+            brain = getattr(self.engine, "analyst", None)
             if not brain:
                 logger.warning("Strategy Suggester: AI Brain not available")
                 return
@@ -167,7 +168,9 @@ class StrategySuggester:
             # Step 4: Parse response
             parsed = brain._parse(response)
             if not parsed or "strategy" not in parsed:
-                logger.warning(f"Strategy Suggester: parse failed. Response preview: {(response or '')[:200]}")
+                logger.warning(
+                    f"Strategy Suggester: parse failed. Response preview: {(response or '')[:200]}"
+                )
                 return
 
             strat = parsed["strategy"]
@@ -177,9 +180,11 @@ class StrategySuggester:
             risks = parsed.get("risks", "?")
             avoid = parsed.get("avoid_because", "")
 
-            logger.info(f"🔮 Suggested: {strat.get('label_hint', '?')} [{strat.get('strategy_type')}] "
-                        f"{strat.get('asset')}/{strat.get('timeframe')} {strat.get('direction')} "
-                        f"@{strat.get('odds_threshold')} | edge={edge}")
+            logger.info(
+                f"🔮 Suggested: {strat.get('label_hint', '?')} [{strat.get('strategy_type')}] "
+                f"{strat.get('asset')}/{strat.get('timeframe')} {strat.get('direction')} "
+                f"@{strat.get('odds_threshold')} | edge={edge}"
+            )
 
             # Step 5: Mini backtest
             backtest_result = await self._mini_backtest(strat)
@@ -201,10 +206,11 @@ class StrategySuggester:
                         f"WR={backtest_result.get('wr', 0):.0f}% "
                         f"PnL={backtest_result.get('pnl', 0):+.2f}\n\n"
                         f"Mantik: {reasoning[:300]}\n"
-                        f"Risk: {risks[:150]}")
+                        f"Risk: {risks[:150]}"
+                    )
             else:
                 # Day: send approval request
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
                 bt_str = "Backtest yok"
                 bt_engine = ""
@@ -229,7 +235,8 @@ class StrategySuggester:
                     f"📊 Backtest{bt_engine}: <b>{bt_str}</b>\n\n"
                     f"💡 Mantik: {reasoning[:400]}\n\n"
                     f"⚠️ Risk: {risks[:200]}\n"
-                    f"{'📚 Kacinilan: ' + avoid[:150] if avoid else ''}")
+                    f"{'📚 Kacinilan: ' + avoid[:150] if avoid else ''}"
+                )
 
                 # Store for callback
                 self.__class__._pending_suggest = {
@@ -238,18 +245,24 @@ class StrategySuggester:
                     "backtest": backtest_result,
                 }
 
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Onayla ve Ekle", callback_data="suggest_approve"),
-                     InlineKeyboardButton("❌ Reddet", callback_data="suggest_reject")]
-                ])
+                keyboard = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "✅ Onayla ve Ekle", callback_data="suggest_approve"
+                            ),
+                            InlineKeyboardButton("❌ Reddet", callback_data="suggest_reject"),
+                        ]
+                    ]
+                )
 
                 admin_id = os.getenv("ADMIN_TELEGRAM_ID")
                 if admin_id and self.bot_app:
                     await self.bot_app.bot.send_message(
-                        chat_id=admin_id, text=text, parse_mode="HTML",
-                        reply_markup=keyboard)
+                        chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=keyboard
+                    )
 
-            self._last_run = datetime.now(timezone.utc)
+            self._last_run = datetime.now(UTC)
 
         except Exception as e:  # noqa: BLE001
             # T1.4 Faz 3: JobQueue top-level umbrella (4h cycle). run() LLM
@@ -272,7 +285,8 @@ class StrategySuggester:
         try:
             # Get all existing combinations
             existing = await self.db.conn.execute_fetchall(
-                "SELECT DISTINCT asset, timeframe, direction, strategy_type FROM strategies")
+                "SELECT DISTINCT asset, timeframe, direction, strategy_type FROM strategies"
+            )
             existing_set = set()
             for r in existing:
                 existing_set.add(f"{r[0]}_{r[1]}_{r[2]}_{r[3]}")
@@ -309,8 +323,7 @@ class StrategySuggester:
             if m15_count < 3:
                 lines.append("  ⚠️ 15m NEREDEYSE HIC DENENMEMIS! Buyuk firsat.")
 
-        except (aiosqlite.Error, IndexError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: DISTINCT SELECT + tuple row access (r[0..3]) +
             # set/list building. Realistic modes: aiosqlite.Error (DB),
             # IndexError (r[0] boş tuple), TypeError/ValueError
@@ -336,7 +349,7 @@ class StrategySuggester:
 
         # ── Phase 81: Gerçek ReplayEngine backtest ──
         try:
-            from backtest.replay_engine import ReplayEngine, ReplayConfig
+            from backtest.replay_engine import ReplayConfig, ReplayEngine
 
             config = ReplayConfig(
                 strategy_name=stype,  # Live strateji adı (adaptör otomatik çalışır)
@@ -356,12 +369,14 @@ class StrategySuggester:
                     "wins": stats.wins,
                     "wr": round(stats.win_rate, 1),
                     "pnl": round(stats.total_pnl, 2),
-                    "sharpe": round(stats.sharpe_ratio, 2) if hasattr(stats, 'sharpe_ratio') else 0,
-                    "markets_checked": getattr(engine, '_markets_processed', 0),
+                    "sharpe": round(stats.sharpe_ratio, 2) if hasattr(stats, "sharpe_ratio") else 0,
+                    "markets_checked": getattr(engine, "_markets_processed", 0),
                     "engine": "ReplayEngine",
                 }
             # Yetersiz trade → legacy fallback'e düş
-            logger.info(f"ReplayEngine backtest: sadece {stats.total_trades} trade — legacy fallback")
+            logger.info(
+                f"ReplayEngine backtest: sadece {stats.total_trades} trade — legacy fallback"
+            )
 
         except Exception as e:  # noqa: BLE001
             # T1.4 Faz 3: ReplayEngine umbrella. Dinamik import
@@ -388,7 +403,8 @@ class StrategySuggester:
                    WHERE slug LIKE ? AND slug LIKE ?
                    ORDER BY timestamp DESC
                    LIMIT 1000""",
-                (f"%{asset.lower()}%", f"%{tf}%"))
+                (f"%{asset.lower()}%", f"%{tf}%"),
+            )
 
             if not rows or len(rows) < 20:
                 return {"trades": 0, "wins": 0, "wr": 0, "pnl": 0, "note": "yetersiz veri"}
@@ -431,8 +447,7 @@ class StrategySuggester:
                 last = snapshots[-1]
                 settled_up = last["up"] >= 0.80
 
-                won = (trade_dir == "up" and settled_up) or \
-                      (trade_dir == "down" and not settled_up)
+                won = (trade_dir == "up" and settled_up) or (trade_dir == "down" and not settled_up)
 
                 shares = 1.0 / entry_price if entry_price > 0 else 0
                 fee = entry_price * (1 - entry_price) * 2 * 1.0
@@ -445,13 +460,15 @@ class StrategySuggester:
 
             wr = (wins / trades * 100) if trades > 0 else 0
             return {
-                "trades": trades, "wins": wins, "wr": round(wr, 1),
-                "pnl": round(total_pnl, 2), "markets_checked": len(market_list),
+                "trades": trades,
+                "wins": wins,
+                "wr": round(wr, 1),
+                "pnl": round(total_pnl, 2),
+                "markets_checked": len(market_list),
                 "engine": "legacy",
             }
 
-        except (aiosqlite.Error, IndexError, KeyError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, IndexError, KeyError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: odds_history SELECT + tuple row access (r[0..3])
             # + dict building + fee/pnl arithmetic. Realistic modes:
             # aiosqlite.Error (DB), IndexError (r[0] boş), KeyError
@@ -477,41 +494,79 @@ class StrategySuggester:
             threshold = strat.get("odds_threshold", 0.50)
             hint = strat.get("label_hint", "")
 
-            label = f"AI_{hint}" if hint else f"AI_{stype[:1].upper()}_{asset}_{tf}_{direction}_{threshold}"
+            label = (
+                f"AI_{hint}"
+                if hint
+                else f"AI_{stype[:1].upper()}_{asset}_{tf}_{direction}_{threshold}"
+            )
             label = label[:50]  # Truncate
 
             # Check duplicate
             existing = await self.db.conn.execute_fetchall(
-                "SELECT id FROM strategies WHERE label=?", (label,))
+                "SELECT id FROM strategies WHERE label=?", (label,)
+            )
             if existing:
                 logger.info(f"Strategy Suggester: {label} already exists, skipping")
                 return None
 
             sid = str(uuid.uuid4())
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             await self.db.conn.execute(
                 """INSERT INTO strategies (id,user_id,wallet_id,label,asset,timeframe,
                     direction,trade_amount,odds_threshold,strategy_type,status,
                     minutes_before_end,max_executions_per_event,
                     created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,1.0,?,?,'active',0.5,1,?,?)""",
-                (sid, user[0][0], wallet[0][0], label, asset, tf, direction,
-                 threshold, stype, now, now))
+                (
+                    sid,
+                    user[0][0],
+                    wallet[0][0],
+                    label,
+                    asset,
+                    tf,
+                    direction,
+                    threshold,
+                    stype,
+                    now,
+                    now,
+                ),
+            )
             await self.db.conn.commit()
 
             # Log to changelog
             from core.changelog import log_change
-            bt_str = f"BT:{bt.get('trades', 0)}t WR={bt.get('wr', 0):.0f}% PnL={bt.get('pnl', 0):+.2f}"
-            await log_change(self.db, sid, "CREATE", "strategy_suggester",
-                             new={"strategy_type": stype, "asset": asset, "timeframe": tf,
-                                  "direction": direction, "odds_threshold": threshold},
-                             reason=f"{reasoning[:200]} | {bt_str}", label=label)
+
+            bt_str = (
+                f"BT:{bt.get('trades', 0)}t WR={bt.get('wr', 0):.0f}% PnL={bt.get('pnl', 0):+.2f}"
+            )
+            await log_change(
+                self.db,
+                sid,
+                "CREATE",
+                "strategy_suggester",
+                new={
+                    "strategy_type": stype,
+                    "asset": asset,
+                    "timeframe": tf,
+                    "direction": direction,
+                    "odds_threshold": threshold,
+                },
+                reason=f"{reasoning[:200]} | {bt_str}",
+                label=label,
+            )
 
             logger.info(f"🔮 Created: {label} [{stype}] {asset}/{tf} {direction} @{threshold}")
             return sid
 
-        except (ImportError, aiosqlite.Error, IndexError, KeyError, TypeError,
-                ValueError, AttributeError) as e:
+        except (
+            ImportError,
+            aiosqlite.Error,
+            IndexError,
+            KeyError,
+            TypeError,
+            ValueError,
+            AttributeError,
+        ) as e:
             # T1.4 Faz 3: dinamik uuid/changelog import + users/wallets/
             # strategies DB yazımı + tuple row access (user[0][0]).
             # Realistic modes: ImportError (core.changelog gecikmeli),
@@ -529,19 +584,23 @@ class StrategySuggester:
         try:
             # Sanitize HTML
             import re
-            safe = re.sub(r'<(?!/?(b|i|code|pre|a)\b)[^>]*>',
-                          lambda m: m.group().replace('<', '&lt;').replace('>', '&gt;'), text)
+
+            safe = re.sub(
+                r"<(?!/?(b|i|code|pre|a)\b)[^>]*>",
+                lambda m: m.group().replace("<", "&lt;").replace(">", "&gt;"),
+                text,
+            )
             for i in range(0, len(safe), 4000):
                 try:
                     await self.bot_app.bot.send_message(
-                        chat_id=admin_id, text=safe[i:i+4000], parse_mode="HTML")
+                        chat_id=admin_id, text=safe[i : i + 4000], parse_mode="HTML"
+                    )
                 except Exception:  # noqa: BLE001
                     # T1.4 Faz 3: HTML parse_mode fallback. telegram modülü
                     # burada local import yok; telegram.error.BadRequest /
                     # TimedOut / NetworkError namespace dışı — tip bazlı
                     # narrow yapılamaz. Bilinçli retry-without-HTML pattern.
-                    await self.bot_app.bot.send_message(
-                        chat_id=admin_id, text=text[i:i+4000])
+                    await self.bot_app.bot.send_message(chat_id=admin_id, text=text[i : i + 4000])
         except Exception as e:  # noqa: BLE001
             # T1.4 Faz 3: notify best-effort umbrella. re.sub + chunked
             # telegram send — network/regex/telegram hataları bildirimi

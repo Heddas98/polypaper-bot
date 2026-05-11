@@ -15,34 +15,38 @@ No DB, no Telegram, no async complexity — pure logic isolation.
 Run:
     pytest tests/test_phase55_critical.py -v
 """
-import sys
+
 import json
+import sys
 from pathlib import Path
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import pytest
-from dataclasses import dataclass
-from unittest.mock import Mock, MagicMock, patch
 import asyncio
+from dataclasses import dataclass
+from datetime import UTC
+from unittest.mock import MagicMock, Mock, patch
 
-# Import critical modules
-from core.risk_manager import RiskManager, RiskLimits, RiskState, RiskVerdict
+import pytest
+
 from core.fees_v2 import (
-    polymarket_taker_fee_v2,
+    ev_after_fee_v2,
     polymarket_fee_percent_v2,
     polymarket_maker_rebate,
-    ev_after_fee_v2,
+    polymarket_taker_fee_v2,
 )
 from core.kelly import calculate_kelly_size
-from data.websocket_client import PolymarketWebSocket
 
+# Import critical modules
+from core.risk_manager import RiskLimits, RiskManager, RiskState, RiskVerdict
+from data.websocket_client import PolymarketWebSocket
 
 # ============================================================================
 # FEES_V2 EDGE CASE TESTS (P0: Money-Losing Bugs)
 # ============================================================================
+
 
 class TestFeesV2ZeroPrice:
     """test_fee_zero_price: Prevent ZeroDivisionError on price=0.
@@ -54,6 +58,7 @@ class TestFeesV2ZeroPrice:
 
     The guard `if not price or price <= 0` ensures we return 0 fee safely.
     """
+
     def test_fee_zero_price(self):
         # Arrange: price is exactly 0
         price = 0.0
@@ -88,6 +93,7 @@ class TestFeesV2NegativePrice:
 
     The guard catches price <= 0 and returns 0.
     """
+
     def test_fee_negative_price(self):
         # Arrange: negative price
         price = -0.5
@@ -120,6 +126,7 @@ class TestFeesV2BoundaryPrices:
 
     Tests that valid boundary prices compute fees correctly.
     """
+
     def test_fee_boundary_low(self):
         # Arrange: valid low price
         price = 0.001
@@ -159,6 +166,7 @@ class TestFeesV2BoundaryPrices:
 
 class TestFeesV2PercentageEdgeCases:
     """test_fee_boundary_price: fee_percent() also guards against bad prices."""
+
     def test_fee_percent_zero(self):
         # Arrange
         price = 0.0
@@ -185,6 +193,7 @@ class TestFeesV2PercentageEdgeCases:
 
 class TestMakerRebateEdgeCases:
     """maker rebate with zero/negative fee."""
+
     def test_rebate_zero_fee(self):
         # Arrange: zero fee (maker case)
         fee = 0.0
@@ -220,6 +229,7 @@ class TestMakerRebateEdgeCases:
 
 class TestEVAfterFeeEdgeCases:
     """ev_after_fee_v2 with extreme prices."""
+
     def test_ev_zero_price(self):
         # Arrange
         price = 0.0
@@ -261,6 +271,7 @@ class TestEVAfterFeeEdgeCases:
 # KELLY CRITERION EDGE CASE TESTS (P0: Money-Losing Bugs)
 # ============================================================================
 
+
 class TestKellyZeroPrice:
     """test_kelly_zero_price: Kelly with avg_entry_price=0 returns skip=True.
 
@@ -271,6 +282,7 @@ class TestKellyZeroPrice:
 
     The guard returns skip=True and size=0 instead.
     """
+
     def test_kelly_zero_entry_price(self):
         # Arrange
         win_rate = 0.60
@@ -296,6 +308,7 @@ class TestKellyNearOnePrice:
 
     The guard rejects prices >= 0.999.
     """
+
     def test_kelly_price_near_one(self):
         # Arrange
         win_rate = 0.60
@@ -321,6 +334,7 @@ class TestKellyBNearZero:
 
     The guard catches price <= 0 or >= 0.999, and also checks if b is near zero.
     """
+
     def test_kelly_very_high_price(self):
         # Arrange: price very close to 1 but not quite (should be caught by >= 0.999 guard)
         win_rate = 0.60
@@ -352,6 +366,7 @@ class TestKellyBNearZero:
 
 class TestKellyInsufficientTrades:
     """Kelly with insufficient trade history returns MIN_BET (exploration phase)."""
+
     def test_kelly_few_trades(self):
         # Arrange: only 5 trades (need 15 for Kelly)
         win_rate = 0.60
@@ -360,7 +375,9 @@ class TestKellyInsufficientTrades:
         trade_count = 5
 
         # Act
-        result = calculate_kelly_size(win_rate, avg_entry_price, bankroll, trade_count=trade_count, min_trades=15)
+        result = calculate_kelly_size(
+            win_rate, avg_entry_price, bankroll, trade_count=trade_count, min_trades=15
+        )
 
         # Assert: returns MIN_BET in exploration phase, skip=False
         assert result["skip"] is False
@@ -369,6 +386,7 @@ class TestKellyInsufficientTrades:
 
 class TestKellyNoEdge:
     """Kelly with WR <= 50% returns skip=True."""
+
     def test_kelly_fifty_percent_wr(self):
         # Arrange: no edge
         win_rate = 0.50
@@ -402,6 +420,7 @@ class TestKellyNoEdge:
 # RISK MANAGER BOUNDARY TESTS (P0: Money-Losing Bugs)
 # ============================================================================
 
+
 class TestRiskDailyLossBoundary:
     """test_risk_daily_loss_boundary: Reject trades at exact daily_loss limit.
 
@@ -411,6 +430,7 @@ class TestRiskDailyLossBoundary:
 
     Phase 54 P0-04 confirms this is now fixed with <= operator.
     """
+
     def test_daily_loss_at_exact_limit(self):
         # Arrange: daily loss is exactly at the negative limit
         # Use large wallet to pass balance_floor check
@@ -420,10 +440,12 @@ class TestRiskDailyLossBoundary:
         limits = RiskLimits(max_daily_loss=50.0, min_balance_floor=50.0)
         mgr = RiskManager(limits)
         mgr.state.daily_pnl = -50.0  # exactly at limit
-        mgr.state.daily_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        mgr.state.daily_reset_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
         # Act: try to trade with new position
-        verdict = mgr.check_trade(trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=200.0)
+        verdict = mgr.check_trade(
+            trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=200.0
+        )
 
         # Assert: REJECTED at exact boundary
         assert verdict.approved is False
@@ -436,10 +458,12 @@ class TestRiskDailyLossBoundary:
         limits = RiskLimits(max_daily_loss=50.0, min_balance_floor=50.0)
         mgr = RiskManager(limits)
         mgr.state.daily_pnl = -49.99
-        mgr.state.daily_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        mgr.state.daily_reset_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
         # Act: trade should still pass other gates
-        verdict = mgr.check_trade(trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=200.0)
+        verdict = mgr.check_trade(
+            trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=200.0
+        )
 
         # Assert: REJECTED (margin check catches -49.99 - 10.0 < -50.0)
         assert verdict.approved is False
@@ -455,6 +479,7 @@ class TestRiskConsecutiveLossesMax:
 
     The guard checks >= max_loss_streak and rejects.
     """
+
     def test_consecutive_losses_at_max(self):
         # Arrange: loss streak at exactly max
         limits = RiskLimits(max_loss_streak=10)
@@ -463,7 +488,9 @@ class TestRiskConsecutiveLossesMax:
         mgr.state.last_loss_ts = ""  # No recent loss to cool down
 
         # Act: try to trade
-        verdict = mgr.check_trade(trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=100.0)
+        verdict = mgr.check_trade(
+            trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=100.0
+        )
 
         # Assert: REJECTED at streak boundary
         assert verdict.approved is False
@@ -476,7 +503,9 @@ class TestRiskConsecutiveLossesMax:
         mgr.state.consecutive_losses = 9
 
         # Act: should pass streak gate
-        verdict = mgr.check_trade(trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=100.0)
+        verdict = mgr.check_trade(
+            trade_amount=10.0, market_slug="BTC-USDC-15m", wallet_balance=100.0
+        )
 
         # Assert: streak gate does NOT reject
         assert "LOSS_STREAK" not in verdict.reason
@@ -491,6 +520,7 @@ class TestRiskHaltState:
 
     Gate 1 in check_trade() rejects any halted state immediately.
     """
+
     def test_halt_blocks_all_trades(self):
         # Arrange: bot is halted
         limits = RiskLimits()
@@ -499,7 +529,9 @@ class TestRiskHaltState:
         mgr.state.halt_reason = "Test halt"
 
         # Act: try to trade
-        verdict = mgr.check_trade(trade_amount=1.0, market_slug="BTC-USDC-15m", wallet_balance=100.0)
+        verdict = mgr.check_trade(
+            trade_amount=1.0, market_slug="BTC-USDC-15m", wallet_balance=100.0
+        )
 
         # Assert: REJECTED before any other gate
         assert verdict.approved is False
@@ -515,6 +547,7 @@ class TestRiskResetStreak:
 
     The method only resets consecutive_losses and last_loss_ts, leaving halt alone.
     """
+
     def test_reset_streak_preserves_halt(self):
         # Arrange: bot is halted with a loss streak
         limits = RiskLimits()
@@ -541,6 +574,7 @@ class TestRiskResetHalt:
     reset_halt() is the user's emergency reset command. It should clear
     halted, halt_reason, consecutive_losses, and last_loss_ts.
     """
+
     def test_reset_halt_clears_all(self):
         # Arrange: bot is halted with everything set
         limits = RiskLimits()
@@ -564,6 +598,7 @@ class TestRiskResetHalt:
 # WEBSOCKET DATA CORRUPTION TESTS (P1: Data Corruption Bugs)
 # ============================================================================
 
+
 class TestWSParseValidJSON:
     """test_ws_parse_valid_json: _parse() handles valid price event.
 
@@ -573,15 +608,14 @@ class TestWSParseValidJSON:
 
     Tests that a standard price event is parsed correctly.
     """
+
     def test_parse_dict_price_event(self):
         # Arrange: valid price event as JSON string
         ws = PolymarketWebSocket()
         ws._on_price_callback = Mock()
-        event_json = json.dumps({
-            "asset_id": "token-123",
-            "price": "0.52",
-            "event_type": "price_change"
-        })
+        event_json = json.dumps(
+            {"asset_id": "token-123", "price": "0.52", "event_type": "price_change"}
+        )
 
         # Act: parse it
         ws._parse(event_json)
@@ -593,10 +627,9 @@ class TestWSParseValidJSON:
     def test_parse_list_of_dicts(self):
         # Arrange: multiple events in a list
         ws = PolymarketWebSocket()
-        event_json = json.dumps([
-            {"asset_id": "token-1", "price": "0.40"},
-            {"asset_id": "token-2", "price": "0.60"}
-        ])
+        event_json = json.dumps(
+            [{"asset_id": "token-1", "price": "0.40"}, {"asset_id": "token-2", "price": "0.60"}]
+        )
 
         # Act
         ws._parse(event_json)
@@ -615,6 +648,7 @@ class TestWSParseMalformedJSON:
 
     Tests that malformed JSON is caught and ignored.
     """
+
     def test_parse_invalid_json(self):
         # Arrange: not valid JSON
         ws = PolymarketWebSocket()
@@ -641,6 +675,7 @@ class TestWSParseEmptyList:
     crash or behave unexpectedly. _parse() should flatten and iterate
     safely over empty structures.
     """
+
     def test_parse_empty_list(self):
         # Arrange: empty list
         ws = PolymarketWebSocket()
@@ -660,6 +695,7 @@ class TestWSExtractTradeMissingFields:
     or price) could crash the trade callback or be mis-logged if not validated.
     _extract_trade() should validate all required fields and skip invalid events.
     """
+
     def test_extract_trade_missing_asset_id(self):
         # Arrange: valid trade event structure but no asset_id
         ws = PolymarketWebSocket()
@@ -669,7 +705,7 @@ class TestWSExtractTradeMissingFields:
             # "asset_id": missing!
             "price": "0.52",
             "size": "100",
-            "side": "BUY"
+            "side": "BUY",
         }
 
         # Act: extract trade
@@ -687,7 +723,7 @@ class TestWSExtractTradeMissingFields:
             "asset_id": "token-123",
             # "price": missing!
             "size": "100",
-            "side": "BUY"
+            "side": "BUY",
         }
 
         # Act
@@ -705,7 +741,7 @@ class TestWSExtractTradeMissingFields:
             "asset_id": "token-123",
             "price": "0.52",
             "size": "0",
-            "side": "BUY"
+            "side": "BUY",
         }
 
         # Act
@@ -724,7 +760,7 @@ class TestWSExtractTradeMissingFields:
             "price": "0.52",
             "size": "100",
             "side": "BUY",
-            "timestamp": "1712800000"
+            "timestamp": "1712800000",
         }
 
         # Act
@@ -742,6 +778,7 @@ class TestWSExtractTradeMissingFields:
 # SETTLEMENT LOCK TESTS (P0: Concurrency Bugs)
 # ============================================================================
 
+
 class TestSettleLockCreated:
     """test_settle_lock_created: _get_settle_lock creates per-market locks.
 
@@ -751,6 +788,7 @@ class TestSettleLockCreated:
 
     Phase 54 P0-05 adds per-market locks to prevent this.
     """
+
     def test_settle_lock_per_market(self):
         # Arrange: Create a minimal mock TradingEngine-like object
         from core.engine_settlement import EngineSettlementMixin

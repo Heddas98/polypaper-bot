@@ -5,6 +5,7 @@ Ayrı test dosyası — main test_p0_p1_extra_coverage.py'i şişirmemek için.
 Hedef: 43.5% → 50%+ (+6.5)
 Strateji: Heavy module imports, real method calls, async chains.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -233,20 +234,23 @@ def test_module_imports_and_attrs(module_name):
 # ════════════════════════════════════════════════════════════════════════
 # Strategy Plugins COMPLETE lifecycle — 100 snapshot per strategy
 # ════════════════════════════════════════════════════════════════════════
-@pytest.mark.parametrize("module_name,class_name", [
-    ("calibration_arb", "CalibrationArbStrategy"),
-    ("composite", "CompositeStrategy"),
-    ("cross_coin", "CrossCoinStrategy"),
-    ("fade_rip", "FadeRipStrategy"),
-    ("funding_rate", "FundingRateStrategy"),
-    ("hour_edge", "HourEdgeStrategy"),
-    ("late_convergence", "LateConvergenceStrategy"),
-    ("opening_breakout", "OpeningBreakoutStrategy"),
-    ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-    ("streak_reversal", "StreakReversalStrategy"),
-    ("taker_flow", "TakerFlowStrategy"),
-    ("bonding_yield", "BondingYieldStrategy"),
-])
+@pytest.mark.parametrize(
+    "module_name,class_name",
+    [
+        ("calibration_arb", "CalibrationArbStrategy"),
+        ("composite", "CompositeStrategy"),
+        ("cross_coin", "CrossCoinStrategy"),
+        ("fade_rip", "FadeRipStrategy"),
+        ("funding_rate", "FundingRateStrategy"),
+        ("hour_edge", "HourEdgeStrategy"),
+        ("late_convergence", "LateConvergenceStrategy"),
+        ("opening_breakout", "OpeningBreakoutStrategy"),
+        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+        ("streak_reversal", "StreakReversalStrategy"),
+        ("taker_flow", "TakerFlowStrategy"),
+        ("bonding_yield", "BondingYieldStrategy"),
+    ],
+)
 def test_strategy_complete_lifecycle(module_name, class_name):
     """Each strategy with 100-snapshot lifecycle in 4 different scenarios."""
     try:
@@ -256,18 +260,23 @@ def test_strategy_complete_lifecycle(module_name, class_name):
             pytest.skip(f"{class_name}")
             return
         from backtest.strategies.base import (
-            MarketData, OrderbookSnapshot, Resolution, Direction,
+            Direction,
+            MarketData,
+            OrderbookSnapshot,
+            Resolution,
         )
     except (ImportError, AttributeError):
         pytest.skip(f"{module_name}")
         return
 
     scenarios = {
-        "long_pump":     [0.10 + i * 0.005 for i in range(100)],
-        "long_crash":    [0.90 - i * 0.005 for i in range(100)],
+        "long_pump": [0.10 + i * 0.005 for i in range(100)],
+        "long_crash": [0.90 - i * 0.005 for i in range(100)],
         "consolidating": [0.50 + ((-1) ** i) * 0.01 for i in range(100)],
         "spike_then_revert": (
-            [0.50] * 30 + [0.85] * 5 + [0.85 - i * 0.01 for i in range(40)]
+            [0.50] * 30
+            + [0.85] * 5
+            + [0.85 - i * 0.01 for i in range(40)]
             + [0.50 - i * 0.001 for i in range(25)]
         ),
         "double_bottom": (
@@ -288,8 +297,10 @@ def test_strategy_complete_lifecycle(module_name, class_name):
 
                 market = MarketData(
                     market_id=f"{scenario}_{hour}_{module_name}",
-                    coin="BTC", market_type="5m",
-                    duration_seconds=300, hour_utc=hour,
+                    coin="BTC",
+                    market_type="5m",
+                    duration_seconds=300,
+                    hour_utc=hour,
                 )
                 try:
                     s.on_market_open(market)
@@ -308,7 +319,7 @@ def test_strategy_complete_lifecycle(module_name, class_name):
                         remaining_seconds=300 * (1 - i / len(prices)),
                         elapsed_seconds=300 * (i / len(prices)),
                         binance_price=65000 + i * 10,
-                        binance_price_change=(prices[i] - prices[max(0, i-1)]),
+                        binance_price_change=(prices[i] - prices[max(0, i - 1)]),
                         up_bid_depth=500 + (i * 5),
                         up_ask_depth=500 - (i * 3),
                         down_bid_depth=500,
@@ -324,11 +335,14 @@ def test_strategy_complete_lifecycle(module_name, class_name):
                 # Both winners
                 for winner in [Direction.UP, Direction.DOWN]:
                     try:
-                        s.on_market_close(market, Resolution(
-                            winner=winner,
-                            final_up_price=1.0 if winner == Direction.UP else 0.0,
-                            final_down_price=0.0 if winner == Direction.UP else 1.0,
-                        ))
+                        s.on_market_close(
+                            market,
+                            Resolution(
+                                winner=winner,
+                                final_up_price=1.0 if winner == Direction.UP else 0.0,
+                                final_down_price=0.0 if winner == Direction.UP else 1.0,
+                            ),
+                        )
                     except Exception:
                         pass
             except Exception:
@@ -395,27 +409,40 @@ def _make_engine_signals_instance():
             self._brier_cache_time = 0.0
             self._wallet_pending = {}
             self.scanner = MagicMock()
-            self.scanner.get_current_market = MagicMock(return_value={
-                "slug": "btc-up-5m-test",
-                "active": True, "closed": False, "archived": False,
-                "endDate": "2030-01-01T00:00:00Z",
-                "duration_seconds": 300,
-                "coin": "BTC", "type": "5m",
-                "clobTokenIds": ["1", "2"],
-                "minimum_tick_size": "0.01",
-                "neg_risk": False,
-            })
-            self.scanner.get_current_odds = MagicMock(return_value={
-                "up_odds": 0.55, "down_odds": 0.45,
-                "has_liquidity": True,
-            })
-            self.scanner.get_orderbook = MagicMock(return_value={
-                "bids": [[0.54, 100], [0.53, 200]],
-                "asks": [[0.56, 100], [0.57, 200]],
-            })
-            self.scanner.get_orderbook_async = AsyncMock(return_value={
-                "bids": [[0.54, 100]], "asks": [[0.56, 100]],
-            })
+            self.scanner.get_current_market = MagicMock(
+                return_value={
+                    "slug": "btc-up-5m-test",
+                    "active": True,
+                    "closed": False,
+                    "archived": False,
+                    "endDate": "2030-01-01T00:00:00Z",
+                    "duration_seconds": 300,
+                    "coin": "BTC",
+                    "type": "5m",
+                    "clobTokenIds": ["1", "2"],
+                    "minimum_tick_size": "0.01",
+                    "neg_risk": False,
+                }
+            )
+            self.scanner.get_current_odds = MagicMock(
+                return_value={
+                    "up_odds": 0.55,
+                    "down_odds": 0.45,
+                    "has_liquidity": True,
+                }
+            )
+            self.scanner.get_orderbook = MagicMock(
+                return_value={
+                    "bids": [[0.54, 100], [0.53, 200]],
+                    "asks": [[0.56, 100], [0.57, 200]],
+                }
+            )
+            self.scanner.get_orderbook_async = AsyncMock(
+                return_value={
+                    "bids": [[0.54, 100]],
+                    "asks": [[0.56, 100]],
+                }
+            )
             self.odds_feed = MagicMock()
             self.odds_feed.get_odds_series = MagicMock(
                 return_value=[0.50 + i * 0.01 for i in range(20)]
@@ -427,10 +454,14 @@ def _make_engine_signals_instance():
             self.signals = MagicMock()
             self.plugins = MagicMock()
             stub_plugin = MagicMock()
-            stub_plugin.evaluate = MagicMock(return_value=MagicMock(
-                should_trade=True, direction="UP",
-                confidence=0.7, reason="signal",
-            ))
+            stub_plugin.evaluate = MagicMock(
+                return_value=MagicMock(
+                    should_trade=True,
+                    direction="UP",
+                    confidence=0.7,
+                    reason="signal",
+                )
+            )
             self.plugins.get = MagicMock(return_value=stub_plugin)
             self.selector = MagicMock()
             self.live = MagicMock()
@@ -441,8 +472,8 @@ def _make_engine_signals_instance():
             self.lifecycle = MagicMock()
             try:
                 from core.strategy_lifecycle import StrategyParams
-                self.lifecycle.get_params = AsyncMock(
-                    return_value=StrategyParams())
+
+                self.lifecycle.get_params = AsyncMock(return_value=StrategyParams())
             except (ImportError, AttributeError):
                 self.lifecycle.get_params = AsyncMock(return_value=MagicMock())
             self.risk = MagicMock()
@@ -503,16 +534,14 @@ async def test_engine_signals_every_method():
             continue
         method = getattr(eng, name, None)
         if asyncio.iscoroutinefunction(method):
-            for args in [(s,), (s, ctx_dict), (s, ctx_dict, False),
-                         (), (ctx_dict,)]:
+            for args in [(s,), (s, ctx_dict), (s, ctx_dict, False), (), (ctx_dict,)]:
                 try:
                     await method(*args)
                     break
                 except Exception:
                     continue
         elif callable(method) and not isinstance(method, type):
-            for args in [(), (s,), (s, ctx_dict),
-                         ({"slug": "x"},), (1.0,)]:
+            for args in [(), (s,), (s, ctx_dict), ({"slug": "x"},), (1.0,)]:
                 try:
                     method(*args)
                     break
@@ -523,14 +552,17 @@ async def test_engine_signals_every_method():
 # ════════════════════════════════════════════════════════════════════════
 # Indicators / stats_utils — pure functions
 # ════════════════════════════════════════════════════════════════════════
-@pytest.mark.parametrize("series", [
-    [0.5, 0.55, 0.6, 0.58, 0.62, 0.65, 0.68, 0.70, 0.72, 0.75],
-    [0.5] * 20,
-    [0.5 - i * 0.01 for i in range(20)],  # downtrend
-    [(-1) ** i * 0.01 + 0.5 for i in range(20)],  # alternating
-    [],
-    [0.5],
-])
+@pytest.mark.parametrize(
+    "series",
+    [
+        [0.5, 0.55, 0.6, 0.58, 0.62, 0.65, 0.68, 0.70, 0.72, 0.75],
+        [0.5] * 20,
+        [0.5 - i * 0.01 for i in range(20)],  # downtrend
+        [(-1) ** i * 0.01 + 0.5 for i in range(20)],  # alternating
+        [],
+        [0.5],
+    ],
+)
 def test_indicators_pure_functions(series):
     """core/indicators.py — pure stat functions."""
     try:
@@ -542,10 +574,8 @@ def test_indicators_pure_functions(series):
         if name.startswith("_") or name.isupper():
             continue
         obj = getattr(ind, name)
-        if callable(obj) and not isinstance(obj, type) \
-                and not asyncio.iscoroutinefunction(obj):
-            for args in [(series,), (series, 5), (series, 10),
-                         (series, 14), (series, 20)]:
+        if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
+            for args in [(series,), (series, 5), (series, 10), (series, 14), (series, 20)]:
                 try:
                     obj(*args)
                     break
@@ -553,11 +583,14 @@ def test_indicators_pure_functions(series):
                     continue
 
 
-@pytest.mark.parametrize("vals", [
-    ([0.5, 0.55, 0.6, 0.58, 0.62], [0.55, 0.6, 0.65, 0.7, 0.75]),
-    ([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]),
-    ([], []),
-])
+@pytest.mark.parametrize(
+    "vals",
+    [
+        ([0.5, 0.55, 0.6, 0.58, 0.62], [0.55, 0.6, 0.65, 0.7, 0.75]),
+        ([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]),
+        ([], []),
+    ],
+)
 def test_stats_utils_pure(vals):
     """core/stats_utils.py — already 100% but extra paths."""
     try:
@@ -608,8 +641,7 @@ def test_maker_taker_decision_scenarios():
                 continue
             obj = getattr(mtd, name)
             if callable(obj) and not isinstance(obj, type):
-                for args in [(ob,), (ob, 0.01), (ob, 0.55, 0.01),
-                             (ob, 0.55, 0.01, 1.0)]:
+                for args in [(ob,), (ob, 0.01), (ob, 0.55, 0.01), (ob, 0.55, 0.01, 1.0)]:
                     try:
                         obj(*args)
                         break
@@ -634,8 +666,11 @@ async def test_live_trader_state_methods():
         if name.startswith("_") or name.isupper():
             continue
         method = getattr(t, name, None)
-        if callable(method) and not asyncio.iscoroutinefunction(method) \
-                and not isinstance(method, type):
+        if (
+            callable(method)
+            and not asyncio.iscoroutinefunction(method)
+            and not isinstance(method, type)
+        ):
             for args in [(), (1,), (False,), (True,), ("test",), (1.0,)]:
                 try:
                     method(*args)
@@ -657,8 +692,7 @@ def test_polymarket_actions_full():
         if name.startswith("_") or name.isupper():
             continue
         obj = getattr(pma, name)
-        if callable(obj) and not isinstance(obj, type) \
-                and not asyncio.iscoroutinefunction(obj):
+        if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
             for args in [(), (1.0,), ("test",), (MagicMock(),)]:
                 try:
                     obj(*args)
@@ -707,13 +741,16 @@ def test_engine_module_class_inspection():
 # ════════════════════════════════════════════════════════════════════════
 # Backtest data sources — async fetch with MagicMock
 # ════════════════════════════════════════════════════════════════════════
-@pytest.mark.parametrize("module_path,fn_name", [
-    ("backtest.data_sources.gamma_hist", "fetch"),
-    ("backtest.data_sources.polybacktest", "fetch"),
-    ("backtest.data_sources.binance_hist", "fetch"),
-    ("backtest.data_sources.cache", "get"),
-    ("backtest.data_sources.collector", "collect"),
-])
+@pytest.mark.parametrize(
+    "module_path,fn_name",
+    [
+        ("backtest.data_sources.gamma_hist", "fetch"),
+        ("backtest.data_sources.polybacktest", "fetch"),
+        ("backtest.data_sources.binance_hist", "fetch"),
+        ("backtest.data_sources.cache", "get"),
+        ("backtest.data_sources.collector", "collect"),
+    ],
+)
 @pytest.mark.asyncio
 async def test_backtest_data_source_fetch(module_path, fn_name):
     """Backtest data source async fetch helpers.
@@ -736,9 +773,13 @@ async def test_backtest_data_source_fetch(module_path, fn_name):
         except BaseException:  # noqa: BLE001 — also catch SystemExit
             continue
         if asyncio.iscoroutinefunction(obj):
-            for args in [(), ("BTC",), ("BTC", "5m"),
-                         (1700000000, 1700000300),
-                         ({"symbol": "BTC"},)]:
+            for args in [
+                (),
+                ("BTC",),
+                ("BTC", "5m"),
+                (1700000000, 1700000300),
+                ({"symbol": "BTC"},),
+            ]:
                 try:
                     await obj(*args)
                     break
@@ -755,8 +796,13 @@ def test_replay_engine_class_full():
     except (ImportError, AttributeError):
         pytest.skip()
         return
-    for ctor in [(), (MagicMock(),), (MagicMock(), MagicMock()),
-                 ({"config": {}},), ([{"event": "tick"}],)]:
+    for ctor in [
+        (),
+        (MagicMock(),),
+        (MagicMock(), MagicMock()),
+        ({"config": {}},),
+        ([{"event": "tick"}],),
+    ]:
         try:
             re_ = ReplayEngine(*ctor)
             # Touch all attrs

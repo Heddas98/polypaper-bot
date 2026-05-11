@@ -21,10 +21,12 @@ This replaces the "all or nothing" global approach that either:
   - Blocks 80% of organic signals (tight global gates)
   - Lets garbage through (loose global gates like Phase 62b)
 """
+
 import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import Optional
 
 import aiosqlite
@@ -41,35 +43,35 @@ EVALUATION_MAX = int(os.getenv("LIFECYCLE_EVALUATION_MAX", "50"))
 # adjust params for these (they are user-managed). Same set as
 # auto_optimizer.PROTECTED_STRATEGY_TYPES.
 PROTECTED_STRATEGY_TYPES = {
-    t.strip().lower() for t in
-    os.getenv("PROTECTED_STRATEGY_TYPES", "classic").split(",")
+    t.strip().lower()
+    for t in os.getenv("PROTECTED_STRATEGY_TYPES", "classic").split(",")
     if t.strip()
 }
 
 # ═══ Default overrides per phase ═══
 # Exploration: loose gates, small size — we're learning
 EXPLORATION_DEFAULTS = {
-    "min_composite": 0.20,     # Low bar — let signals through for learning
-    "conviction_min": 0.20,    # Low bar
-    "edge_gate_mult": 0.70,    # 30% looser than global edge gate
+    "min_composite": 0.20,  # Low bar — let signals through for learning
+    "conviction_min": 0.20,  # Low bar
+    "edge_gate_mult": 0.70,  # 30% looser than global edge gate
     "trade_amount_mult": 1.0,  # $1 base (don't scale up yet)
     "phase": "exploration",
 }
 
 # Evaluation: normal gates, adjusted by performance
 EVALUATION_DEFAULTS = {
-    "min_composite": 0.30,     # Moderate
-    "conviction_min": 0.25,    # Moderate
-    "edge_gate_mult": 0.85,    # 15% looser than global
+    "min_composite": 0.30,  # Moderate
+    "conviction_min": 0.25,  # Moderate
+    "edge_gate_mult": 0.85,  # 15% looser than global
     "trade_amount_mult": 1.0,
     "phase": "evaluation",
 }
 
 # Proven: earned trust — starts at global defaults, adjusted by WR
 PROVEN_DEFAULTS = {
-    "min_composite": 0.35,     # Global default
-    "conviction_min": 0.30,    # Global default
-    "edge_gate_mult": 1.0,    # No discount
+    "min_composite": 0.35,  # Global default
+    "conviction_min": 0.30,  # Global default
+    "edge_gate_mult": 1.0,  # No discount
     "trade_amount_mult": 1.0,  # Can scale up for winners
     "phase": "proven",
 }
@@ -78,21 +80,22 @@ PROVEN_DEFAULTS = {
 @dataclass
 class StrategyParams:
     """Per-strategy override parameters."""
+
     min_composite: float = 0.35
     conviction_min: float = 0.30
-    edge_gate_mult: float = 1.0     # Multiplier on global edge gate thresholds
+    edge_gate_mult: float = 1.0  # Multiplier on global edge gate thresholds
     trade_amount_mult: float = 1.0  # Multiplier on base trade amount
     phase: str = "exploration"
-    last_adjusted: str = ""         # ISO timestamp of last adjustment
-    adjustment_reason: str = ""     # Human-readable reason for last change
+    last_adjusted: str = ""  # ISO timestamp of last adjustment
+    adjustment_reason: str = ""  # Human-readable reason for last change
     # Phase 75: Per-strategy filter autonomy
     # Each strategy can independently enable/disable filters
     # None = use global default, True/False = override
-    kelly_enabled: bool | None = None          # Kelly sizing
-    confluence_enabled: bool | None = None      # Confluence gate
-    bayesian_enabled: bool | None = None        # Bayesian updater
-    technical_enabled: bool | None = None       # RSI/MACD/BB
-    slippage_gate: bool | None = None           # Slippage gate
+    kelly_enabled: bool | None = None  # Kelly sizing
+    confluence_enabled: bool | None = None  # Confluence gate
+    bayesian_enabled: bool | None = None  # Bayesian updater
+    technical_enabled: bool | None = None  # RSI/MACD/BB
+    slippage_gate: bool | None = None  # Slippage gate
     # Per-strategy stats cache (updated on lifecycle check)
     total_trades: int = 0
     win_rate: float = 0.0
@@ -117,8 +120,13 @@ class StrategyParams:
             "total_pnl": round(self.total_pnl, 2),
         }
         # Only store non-None filter overrides (saves DB space)
-        for f in ("kelly_enabled", "confluence_enabled", "bayesian_enabled",
-                   "technical_enabled", "slippage_gate"):
+        for f in (
+            "kelly_enabled",
+            "confluence_enabled",
+            "bayesian_enabled",
+            "technical_enabled",
+            "slippage_gate",
+        ):
             v = getattr(self, f)
             if v is not None:
                 d[f] = v
@@ -176,7 +184,8 @@ class StrategyLifecycle:
         """Add strategy_params column if it doesn't exist."""
         try:
             await self.db.conn.execute(
-                "ALTER TABLE strategies ADD COLUMN strategy_params TEXT DEFAULT '{}'")
+                "ALTER TABLE strategies ADD COLUMN strategy_params TEXT DEFAULT '{}'"
+            )
             await self.db.conn.commit()
             logger.info("✅ Added strategy_params column to strategies table")
         except (aiosqlite.Error, AttributeError):
@@ -192,8 +201,7 @@ class StrategyLifecycle:
         # Load from DB
         try:
             async with self.db.conn.execute(
-                "SELECT strategy_params FROM strategies WHERE id=?",
-                (strategy_id,)
+                "SELECT strategy_params FROM strategies WHERE id=?", (strategy_id,)
             ) as c:
                 row = await c.fetchone()
                 if row and row[0]:
@@ -201,8 +209,7 @@ class StrategyLifecycle:
                     params = StrategyParams.from_dict(d)
                 else:
                     params = StrategyParams()  # Default exploration
-        except (aiosqlite.Error, json.JSONDecodeError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, json.JSONDecodeError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: DB read + JSON decode + StrategyParams.from_dict.
             # Realistic modes: aiosqlite.Error (DB), JSONDecodeError (row[0]
             # bozuk), TypeError/ValueError (from_dict tip hatası),
@@ -218,7 +225,8 @@ class StrategyLifecycle:
         try:
             await self.db.conn.execute(
                 "UPDATE strategies SET strategy_params=? WHERE id=?",
-                (json.dumps(params.to_dict()), strategy_id))
+                (json.dumps(params.to_dict()), strategy_id),
+            )
             await self.db.conn.commit()
         except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: UPDATE + json.dumps(to_dict()). Realistic modes:
@@ -251,8 +259,14 @@ class StrategyLifecycle:
                 continue
             try:
                 await self._adjust_strategy(s)
-            except (aiosqlite.Error, AttributeError, KeyError, TypeError,
-                    ValueError, IndexError) as e:
+            except (
+                aiosqlite.Error,
+                AttributeError,
+                KeyError,
+                TypeError,
+                ValueError,
+                IndexError,
+            ) as e:
                 # T1.4 Faz 3: _adjust_strategy iç yüzey — phase transition,
                 # stats dict access, WR arithmetic, datetime.now, save_params.
                 # Realistic modes: aiosqlite.Error (DB reads), AttributeError
@@ -293,8 +307,10 @@ class StrategyLifecycle:
             current.edge_gate_mult = new_defaults.edge_gate_mult
             changed = True
             reason_parts.append(f"phase→{target_phase}")
-            logger.info(f"🔄 [{s.id[:8]}] Phase transition → {target_phase} "
-                        f"({trades}t, WR={wr:.0f}%, PnL={pnl:+.2f})")
+            logger.info(
+                f"🔄 [{s.id[:8]}] Phase transition → {target_phase} "
+                f"({trades}t, WR={wr:.0f}%, PnL={pnl:+.2f})"
+            )
 
         # Performance-based adjustment (only for evaluation/proven)
         if target_phase in ("evaluation", "proven") and trades >= 10:
@@ -342,16 +358,19 @@ class StrategyLifecycle:
         current.total_pnl = round(pnl, 2)
 
         if changed:
-            from datetime import datetime, timezone
-            current.last_adjusted = datetime.now(timezone.utc).isoformat()
+            from datetime import datetime
+
+            current.last_adjusted = datetime.now(UTC).isoformat()
             current.adjustment_reason = "; ".join(reason_parts)
 
         # Save if params changed OR stats updated
         if changed or current.total_trades != trades:
             await self.save_params(s.id, current)
-            logger.info(f"📊 [{s.id[:8]}] Lifecycle: {current.adjustment_reason} | "
-                        f"comp={current.min_composite:.2f} conv={current.conviction_min:.2f} "
-                        f"edge={current.edge_gate_mult:.2f} size={current.trade_amount_mult:.1f}x")
+            logger.info(
+                f"📊 [{s.id[:8]}] Lifecycle: {current.adjustment_reason} | "
+                f"comp={current.min_composite:.2f} conv={current.conviction_min:.2f} "
+                f"edge={current.edge_gate_mult:.2f} size={current.trade_amount_mult:.1f}x"
+            )
 
     async def _get_stats(self, sid: str) -> Optional[dict]:
         """Get strategy stats including rolling WR."""
@@ -362,7 +381,7 @@ class StrategyLifecycle:
                    COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) as wins,
                    COALESCE(SUM(CASE WHEN result IS NOT NULL THEN pnl ELSE 0 END),0) as pnl
                    FROM executions WHERE strategy_id=? AND result IS NOT NULL""",
-                (sid,)
+                (sid,),
             ) as c:
                 r = await c.fetchone()
                 if not r or r["trades"] == 0:
@@ -380,7 +399,8 @@ class StrategyLifecycle:
                 """SELECT pnl FROM executions
                    WHERE strategy_id=? AND result IS NOT NULL
                    ORDER BY closed_at DESC LIMIT 20""",
-                (sid,))
+                (sid,),
+            )
             if rows and len(rows) >= 5:
                 rw = sum(1 for r in rows if r[0] > 0) / len(rows) * 100
                 result["rolling_wr"] = rw
@@ -388,8 +408,7 @@ class StrategyLifecycle:
                 result["rolling_wr"] = result["wr"]
 
             return result
-        except (aiosqlite.Error, IndexError, KeyError, TypeError, ValueError,
-                AttributeError):
+        except (aiosqlite.Error, IndexError, KeyError, TypeError, ValueError, AttributeError):
             # T1.4 Faz 3: iki SELECT + named/indexed row access + arithmetic.
             # Realistic modes: aiosqlite.Error (DB), IndexError (r[0] boş
             # tuple), KeyError (r["trades"] — row_factory değişirse),

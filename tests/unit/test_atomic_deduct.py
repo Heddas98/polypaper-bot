@@ -11,13 +11,14 @@ sequentially at the event-loop level — the "race" simulated is the logical
 interleaving of multiple coroutines, which is exactly what happens in the
 engine when settlement + fill commit in the same tick.
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -46,16 +47,18 @@ async def funded_wallet(db):
     """Create a user + wallet with $100 starting balance."""
     user_id = f"u_{uuid.uuid4().hex[:8]}"
     wallet_id = f"w_{uuid.uuid4().hex[:8]}"
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     await db.conn.execute(
         "INSERT INTO users (id, telegram_id, username, accepted_terms, created_at) "
         "VALUES (?, ?, ?, 1, ?)",
-        (user_id, 123456, "testuser", now))
+        (user_id, 123456, "testuser", now),
+    )
     await db.conn.execute(
         "INSERT INTO wallets (id, user_id, label, balance, is_primary, created_at) "
         "VALUES (?, ?, 'primary', 100.0, 1, ?)",
-        (wallet_id, user_id, now))
+        (wallet_id, user_id, now),
+    )
     await db.conn.commit()
     return wallet_id
 
@@ -66,8 +69,7 @@ async def test_single_deduct_success(db, funded_wallet):
     ok = await db.atomic_deduct_balance(funded_wallet, 30.0)
     assert ok is True
 
-    cur = await db.conn.execute(
-        "SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
+    cur = await db.conn.execute("SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
     row = await cur.fetchone()
     assert row[0] == pytest.approx(70.0)
 
@@ -78,8 +80,7 @@ async def test_insufficient_balance_returns_false(db, funded_wallet):
     ok = await db.atomic_deduct_balance(funded_wallet, 200.0)
     assert ok is False
 
-    cur = await db.conn.execute(
-        "SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
+    cur = await db.conn.execute("SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
     row = await cur.fetchone()
     assert row[0] == pytest.approx(100.0)
 
@@ -90,8 +91,7 @@ async def test_exact_balance_deduct(db, funded_wallet):
     ok = await db.atomic_deduct_balance(funded_wallet, 100.0)
     assert ok is True
 
-    cur = await db.conn.execute(
-        "SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
+    cur = await db.conn.execute("SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
     row = await cur.fetchone()
     assert row[0] == pytest.approx(0.0)
 
@@ -112,6 +112,7 @@ async def test_concurrent_deducts_never_overdraw(db, funded_wallet):
     and deduct in parallel → negative balance. With UPDATE...WHERE balance >=
     amount, SQLite serializes the writes and rejects those that can't cover.
     """
+
     async def deduct():
         return await db.atomic_deduct_balance(funded_wallet, 15.0)
 
@@ -124,8 +125,7 @@ async def test_concurrent_deducts_never_overdraw(db, funded_wallet):
     assert failures == 4, f"expected 4 failures, got {failures}"
 
     # Balance must be non-negative (10 remaining after 6×15=90 deducted)
-    cur = await db.conn.execute(
-        "SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
+    cur = await db.conn.execute("SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
     row = await cur.fetchone()
     assert row[0] == pytest.approx(10.0)
     assert row[0] >= 0, "CRITICAL: balance went negative — race condition bug"
@@ -140,14 +140,12 @@ async def test_concurrent_mixed_amounts(db, funded_wallet):
     total deducted must be ≤ $100 and balance must stay ≥ 0.
     """
     amounts = [40.0, 30.0, 25.0, 10.0]
-    results = await asyncio.gather(
-        *(db.atomic_deduct_balance(funded_wallet, a) for a in amounts))
+    results = await asyncio.gather(*(db.atomic_deduct_balance(funded_wallet, a) for a in amounts))
 
-    total_deducted = sum(a for a, r in zip(amounts, results) if r)
+    total_deducted = sum(a for a, r in zip(amounts, results, strict=False) if r)
     assert total_deducted <= 100.0, f"overdrew: deducted ${total_deducted}"
 
-    cur = await db.conn.execute(
-        "SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
+    cur = await db.conn.execute("SELECT balance FROM wallets WHERE id=?", (funded_wallet,))
     row = await cur.fetchone()
     remaining = row[0]
     assert remaining >= 0, "balance went negative"

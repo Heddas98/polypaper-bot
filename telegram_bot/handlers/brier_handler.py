@@ -8,9 +8,11 @@ Usage:
     /brier 24        → 24-hour report
     /brier ai_brain  → filter by AI Brain decisions only
 """
+
 from __future__ import annotations
 
 import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -37,6 +39,7 @@ async def brier_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 source = arg
 
         from utils.brier_tracker import BrierTracker
+
         tracker = BrierTracker(db)
         report = await tracker.get_report(source=source, hours=hours)
         text = tracker.format_report(report)

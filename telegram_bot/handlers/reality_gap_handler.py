@@ -7,12 +7,13 @@ Shows the most recent `reality_gap_latest.md` written by the nightly job +
 quick stats from the live_trades table. If the job hasn't run yet, prints
 a hint to wait for the first scheduled cycle.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import escape as _esc
 from pathlib import Path
 
@@ -25,8 +26,7 @@ LATEST_PATH = Path("data_store/audits/reality_gap_latest.md")
 HISTORY_GLOB = "reality_gap_*.md"
 
 
-async def reality_gap_command(update: Update,
-                               context: ContextTypes.DEFAULT_TYPE):
+async def reality_gap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/reality_gap (alias /rg) - paper-vs-live drift latest report."""
     try:
         L: list[str] = []
@@ -36,15 +36,15 @@ async def reality_gap_command(update: Update,
         mult = float(os.getenv("REALITY_GAP_MULT", "0.66"))
         alert_pct = float(os.getenv("REALITY_GAP_ALERT_PCT", "10.0"))
         window_h = int(os.getenv("REALITY_GAP_WINDOW_H", "168"))
-        enabled = os.getenv("REALITY_GAP_ENABLED", "true").lower() in {
-            "1", "true", "yes", "on"}
+        enabled = os.getenv("REALITY_GAP_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
         status_icon = "🟢" if enabled else "⚪"
-        L.append(f"{status_icon} <b>Job:</b> "
-                 f"{'ENABLED' if enabled else 'DISABLED'}")
-        L.append(f"  window: <code>{window_h}h</code>  "
-                 f"mult: <code>{mult}</code>  "
-                 f"alert: <code>±{alert_pct}%</code>")
+        L.append(f"{status_icon} <b>Job:</b> " f"{'ENABLED' if enabled else 'DISABLED'}")
+        L.append(
+            f"  window: <code>{window_h}h</code>  "
+            f"mult: <code>{mult}</code>  "
+            f"alert: <code>±{alert_pct}%</code>"
+        )
         L.append("")
 
         # Quick stats from live_trades (last 24h - smaller window than the
@@ -52,8 +52,8 @@ async def reality_gap_command(update: Update,
         db = context.bot_data.get("db")
         if db is not None and getattr(db, "conn", None) is not None:
             from datetime import timedelta
-            since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime(
-                "%Y-%m-%dT%H:%M:%SZ")
+
+            since = (datetime.now(UTC) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
             try:
                 async with db.conn.execute(
                     """SELECT COUNT(*) AS n,
@@ -61,7 +61,7 @@ async def reality_gap_command(update: Update,
                               COALESCE(SUM(pnl), 0)
                        FROM live_trades
                        WHERE settled_at IS NOT NULL AND settled_at >= ?""",
-                    (since,)
+                    (since,),
                 ) as cur:
                     row = await cur.fetchone()
                 n_24h = int(row[0] or 0)
@@ -75,18 +75,18 @@ async def reality_gap_command(update: Update,
                 L.append("<b>Live snapshot (son 24h):</b>")
                 L.append(f"  trades: <code>{n_24h}</code>")
                 L.append(f"  paper: <code>${paper_24h:+.2f}</code>")
-                L.append(f"  expected (×{mult}): "
-                         f"<code>${exp_24h:+.2f}</code>")
+                L.append(f"  expected (×{mult}): " f"<code>${exp_24h:+.2f}</code>")
                 L.append(f"  live: <code>${live_24h:+.2f}</code>")
                 if n_24h > 0:
-                    L.append(f"  drift: <code>${drift_24h:+.2f}</code> "
-                             f"(<code>{drift_pct_24h:+.1f}%</code>)")
+                    L.append(
+                        f"  drift: <code>${drift_24h:+.2f}</code> "
+                        f"(<code>{drift_pct_24h:+.1f}%</code>)"
+                    )
                 else:
                     L.append("  <i>no trades — wait for live activity</i>")
                 L.append("")
             except Exception as e:  # noqa: BLE001
-                L.append(f"<i>Live snapshot query failed: "
-                         f"{type(e).__name__}: {e}</i>")
+                L.append(f"<i>Live snapshot query failed: " f"{type(e).__name__}: {e}</i>")
                 L.append("")
 
         # Latest nightly report excerpt
@@ -119,12 +119,13 @@ async def reality_gap_command(update: Update,
                 L.append(f"<i>Rapor yaşı: {age_h:.1f}h</i>")
                 L.append("")
             except OSError as e:
-                L.append(f"<i>Latest rapor okunamadı: "
-                         f"{type(e).__name__}: {e}</i>")
+                L.append(f"<i>Latest rapor okunamadı: " f"{type(e).__name__}: {e}</i>")
         else:
-            L.append("<i>Henüz nightly rapor üretilmedi. "
-                     "İlk çalışma bot başlatıldıktan 5 dk sonra. "
-                     "Manuel tetikleme için bot restart.</i>")
+            L.append(
+                "<i>Henüz nightly rapor üretilmedi. "
+                "İlk çalışma bot başlatıldıktan 5 dk sonra. "
+                "Manuel tetikleme için bot restart.</i>"
+            )
             L.append("")
 
         L.append("<i>Detay: <code>data_store/audits/reality_gap_latest.md</code></i>")
@@ -133,6 +134,6 @@ async def reality_gap_command(update: Update,
         await update.message.reply_text("\n".join(L), parse_mode="HTML")
 
     except Exception as e:  # noqa: BLE001
+        # T11.6 doctrine: exception details go to log only.
         logger.exception(f"/reality_gap failed: {e}")
-        await update.message.reply_text(
-            f"Reality Gap panel uretilemedi: {type(e).__name__}: {e}")
+        await update.message.reply_text("Reality Gap panel üretilemedi. Logları kontrol edin.")

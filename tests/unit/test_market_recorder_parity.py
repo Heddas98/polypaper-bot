@@ -24,6 +24,7 @@ Out-of-scope (already covered elsewhere):
   * reverse-ghost (UI exposes the flag) — `test_brain_flags_parity.py`
   * canonical 6-flag set — `test_brain_flags_parity.py`
 """
+
 from __future__ import annotations
 
 import ast
@@ -31,7 +32,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AI_HANDLER_PY = REPO_ROOT / "telegram_bot" / "handlers" / "ai_handler.py"
@@ -49,6 +49,7 @@ def _engine_src() -> str:
 
 # ═══ 1. UI layer: button + callback_data ═══════════════════════════════
 
+
 class TestUiLayer:
     """The AI Brain panel must render a button with callback_data
     'brain_toggle_market_recorder'."""
@@ -58,24 +59,25 @@ class TestUiLayer:
         assert "brain_toggle_market_recorder" in src, (
             "T6.3e regression: the AI Brain panel no longer declares the "
             "callback_data literal 'brain_toggle_market_recorder' — users "
-            "cannot toggle the recorder from Telegram UI.")
+            "cannot toggle the recorder from Telegram UI."
+        )
 
     def test_recorder_button_label_present(self):
         """Button label '📹 Recorder' must render in the button grid."""
         src = _ai_handler_src()
-        assert "Recorder" in src, (
-            "T6.3e regression: '📹 Recorder' button removed from panel.")
+        assert "Recorder" in src, "T6.3e regression: '📹 Recorder' button removed from panel."
 
     def test_status_line_uses_fmt_flag(self):
         """Status line must use fmt_flag('market_recorder'), not hardcoded."""
         src = _ai_handler_src()
-        assert re.search(
-            r"fmt_flag\s*\(\s*['\"]market_recorder['\"]\s*\)", src), (
+        assert re.search(r"fmt_flag\s*\(\s*['\"]market_recorder['\"]\s*\)", src), (
             "Status line must call fmt_flag('market_recorder') so UI state "
-            "mirrors engine.brain_flags live, not a hardcoded value.")
+            "mirrors engine.brain_flags live, not a hardcoded value."
+        )
 
 
 # ═══ 2. Handler: valid_features allow-list ═════════════════════════════
+
 
 class TestHandlerAllowList:
     """brain_toggle_handler must accept 'market_recorder' in valid_features."""
@@ -88,13 +90,15 @@ class TestHandlerAllowList:
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for tgt in node.targets:
-                    if (isinstance(tgt, ast.Name)
-                            and tgt.id == "valid_features"
-                            and isinstance(node.value, ast.Set)):
+                    if (
+                        isinstance(tgt, ast.Name)
+                        and tgt.id == "valid_features"
+                        and isinstance(node.value, ast.Set)
+                    ):
                         members = {
-                            e.value for e in node.value.elts
-                            if isinstance(e, ast.Constant)
-                            and isinstance(e.value, str)
+                            e.value
+                            for e in node.value.elts
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)
                         }
                         if "market_recorder" in members:
                             found = True
@@ -102,10 +106,12 @@ class TestHandlerAllowList:
         assert found, (
             "valid_features set no longer contains 'market_recorder' — "
             "unknown-feature branch will reject the UI toggle and the "
-            "admin sees a generic error (T6.3e reverse-ghost regression).")
+            "admin sees a generic error (T6.3e reverse-ghost regression)."
+        )
 
 
 # ═══ 3. Handler: sibling _enabled propagation ══════════════════════════
+
 
 class TestSiblingPropagation:
     """The `if feature == "market_recorder":` branch must set mr._enabled."""
@@ -118,12 +124,14 @@ class TestSiblingPropagation:
             r"if\s+feature\s*==\s*['\"]market_recorder['\"]\s*:"
             r"[\s\S]{0,250}?"
             r"mr\._enabled\s*=\s*new_state",
-            re.MULTILINE)
+            re.MULTILINE,
+        )
         assert pattern.search(src), (
             "T6.3e regression: the handler branch that propagates the "
             "toggle to engine.market_recorder._enabled is missing or broken. "
             "Without it, the UI flips brain_flags but the recorder keeps "
-            "running (silent ghost).")
+            "running (silent ghost)."
+        )
 
     def test_db_setting_key_pinned(self):
         """Persistence key must be 'brain_flags.market_recorder'.
@@ -132,14 +140,15 @@ class TestSiblingPropagation:
         prefix — any drift here silently disables persistence.
         """
         src = _ai_handler_src()
-        assert re.search(
-            r"f['\"]brain_flags\.\{feature\}['\"]", src), (
+        assert re.search(r"f['\"]brain_flags\.\{feature\}['\"]", src), (
             "DB persistence key template 'brain_flags.{feature}' drifted. "
             "Boot restore path in engine.start() will silently lose the "
-            "user's toggle across restart.")
+            "user's toggle across restart."
+        )
 
 
 # ═══ 4. Engine init: flag dict still declares the key ══════════════════
+
 
 class TestEngineInit:
     """core/engine.py init block must still declare market_recorder=True."""
@@ -147,14 +156,15 @@ class TestEngineInit:
     def test_init_dict_declares_market_recorder(self):
         src = _engine_src()
         # Match inside the init dict: "market_recorder": True,
-        assert re.search(
-            r'["\']market_recorder["\']\s*:\s*True', src), (
+        assert re.search(r'["\']market_recorder["\']\s*:\s*True', src), (
             "Engine init dict no longer seeds brain_flags['market_recorder']. "
             "Pre-T6.3e state returns: flag looks missing in UI → disabled "
-            "toggle.")
+            "toggle."
+        )
 
 
 # ═══ 5. Semantic simulation — toggle propagates to sibling ═════════════
+
 
 class _StubMarketRecorder:
     def __init__(self, initial: bool = True):
@@ -181,8 +191,7 @@ def _run_toggle_once(engine: _StubEngine) -> bool:
     new_state = engine.brain_flags[feature]
     # DB persist
     # (async in prod; sync here for unit test)
-    engine._db_writes.append(
-        (f"brain_flags.{feature}", "1" if new_state else "0"))
+    engine._db_writes.append((f"brain_flags.{feature}", "1" if new_state else "0"))
     # Sibling sync
     if feature == "market_recorder":
         mr = getattr(engine, "market_recorder", None)
@@ -200,13 +209,14 @@ class TestToggleSim:
         state = _run_toggle_once(engine)
         assert state is False
         assert engine.brain_flags["market_recorder"] is False
-        assert recorder._enabled is False, (
-            "Sibling did not propagate — silent ghost (T6.3e regression).")
+        assert (
+            recorder._enabled is False
+        ), "Sibling did not propagate — silent ghost (T6.3e regression)."
 
     def test_second_toggle_back_on(self):
         recorder = _StubMarketRecorder(initial=True)
         engine = _StubEngine(recorder, flag_initial=True)
-        _run_toggle_once(engine)   # → False
+        _run_toggle_once(engine)  # → False
         state = _run_toggle_once(engine)  # → True
         assert state is True
         assert recorder._enabled is True
@@ -215,8 +225,8 @@ class TestToggleSim:
         """Both 0 and 1 must be written with the canonical key prefix."""
         recorder = _StubMarketRecorder(initial=True)
         engine = _StubEngine(recorder, flag_initial=True)
-        _run_toggle_once(engine)   # → False
-        _run_toggle_once(engine)   # → True
+        _run_toggle_once(engine)  # → False
+        _run_toggle_once(engine)  # → True
         assert ("brain_flags.market_recorder", "0") in engine._db_writes
         assert ("brain_flags.market_recorder", "1") in engine._db_writes
 

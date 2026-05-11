@@ -2,9 +2,10 @@
 PolyPaper Bot - Banner Image Generator
 Creates Polyscout-style blue gradient banner images for Telegram.
 """
-import io
-from PIL import Image, ImageDraw, ImageFont
 
+import io
+
+from PIL import Image, ImageDraw, ImageFont
 
 # ── Colors matching Polyscout ──
 BG_COLOR = (59, 100, 246)  # Polyscout blue
@@ -35,7 +36,9 @@ def create_banner(
     # Watermark text (repeated faded title)
     try:
         font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-        font_watermark = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_watermark = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28
+        )
         font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
     except OSError:
         font_large = ImageFont.load_default()
@@ -78,17 +81,22 @@ def create_banner(
 def banner_dashboard() -> io.BytesIO:
     return create_banner("Dashboard")
 
+
 def banner_strategies() -> io.BytesIO:
     return create_banner("Strategies")
+
 
 def banner_wallets() -> io.BytesIO:
     return create_banner("Wallet")
 
+
 def banner_stats() -> io.BytesIO:
     return create_banner("Trading Stats")
 
+
 def banner_settings() -> io.BytesIO:
     return create_banner("Settings")
+
 
 def banner_referrals() -> io.BytesIO:
     return create_banner("Referrals")

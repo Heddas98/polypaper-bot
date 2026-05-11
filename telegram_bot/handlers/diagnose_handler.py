@@ -6,12 +6,15 @@ Displays signal evaluation stages, risk state, env thresholds, strategy health, 
 
 ADMIN ONLY — shows sensitive engine diagnostics.
 """
+
 import logging
 import os
 import time
-from datetime import datetime, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import UTC, datetime
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
+
 from config.settings import Settings
 from telegram_bot.templates.safe_html import esc, fmt_usd
 
@@ -39,18 +42,16 @@ def _build_bg_tasks_section() -> str:
         # metadata-registered tasks (including completed/failed). `live`
         # = tasks currently held by _BG_TASK_OBJECTS + GC-protected.
         from core.bg_task import (
-            get_registry_snapshot,
-            get_recent_errors,
             get_live_task_count,
+            get_recent_errors,
+            get_registry_snapshot,
         )
+
         snap = get_registry_snapshot()
         errs = get_recent_errors(5)
         live = get_live_task_count()
 
-        out = (
-            f"<b>Background Tasks</b> ({len(snap)} tracked · "
-            f"{live} live strong-ref)\n"
-        )
+        out = f"<b>Background Tasks</b> ({len(snap)} tracked · " f"{live} live strong-ref)\n"
         if snap:
             failed = [(n, i) for n, i in snap.items() if i.get("state") == "failed"]
             running = [(n, i) for n, i in snap.items() if i.get("state") == "running"]
@@ -113,13 +114,13 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Engine çalışmıyor.")
 
     # ══ 1. SKIP COUNTER (trade filtering pipeline) ══
-    skip_counts = engine.skips._counts.copy() if hasattr(engine.skips, '_counts') else {}
-    skip_total = engine.skips._total if hasattr(engine.skips, '_total') else 0
+    skip_counts = engine.skips._counts.copy() if hasattr(engine.skips, "_counts") else {}
+    skip_total = engine.skips._total if hasattr(engine.skips, "_total") else 0
 
     # Sort by count descending
     skip_items = sorted(skip_counts.items(), key=lambda x: -x[1])
 
-    skip_text = f"<b>Trade Filtering Pipeline (this heartbeat)</b>\n"
+    skip_text = "<b>Trade Filtering Pipeline (this heartbeat)</b>\n"
     skip_text += f"Total skips: <b>{skip_total}</b>\n"
     if skip_items:
         for reason, count in skip_items:
@@ -190,7 +191,7 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Count running (enabled) vs paused
         # Phase 78-fix: Strategy has .status not .enabled
-        running_count = sum(1 for s in strats if getattr(s, 'status', '') == 'active')
+        running_count = sum(1 for s in strats if getattr(s, "status", "") == "active")
         paused_count = active_count - running_count
 
         strat_text = (
@@ -205,8 +206,7 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # link. Admin-only; truncated exc str is acceptable for operator.
         logger.error(f"Failed to fetch strategies: {e}")
         strat_text = (
-            f"<b>Strategy Health</b>\n"
-            f"  Error fetching strategies: {esc(str(e)[:50])}\n"
+            f"<b>Strategy Health</b>\n" f"  Error fetching strategies: {esc(str(e)[:50])}\n"
         )
     strat_text += "\n"
 
@@ -216,14 +216,18 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Calculate WS tick age
     ws_age_secs = 999.0
-    if (engine.scanner.ws and
-        hasattr(engine.scanner.ws, '_last_msg_ts') and
-        engine.scanner.ws._last_msg_ts):
+    if (
+        engine.scanner.ws
+        and hasattr(engine.scanner.ws, "_last_msg_ts")
+        and engine.scanner.ws._last_msg_ts
+    ):
         ws_age_secs = time.time() - engine.scanner.ws._last_msg_ts
 
-    ws_connected = (engine.scanner.ws and
-                    hasattr(engine.scanner.ws, 'is_connected') and
-                    engine.scanner.ws.is_connected)
+    ws_connected = (
+        engine.scanner.ws
+        and hasattr(engine.scanner.ws, "is_connected")
+        and engine.scanner.ws.is_connected
+    )
     ws_conn_emoji = "✅" if ws_connected else "❌"
 
     ws_text = (
@@ -240,7 +244,7 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Engine State</b>\n"
         f"  Cycle: {engine._cycle}\n"
         f"  Pending orders: {len(engine._pending)}\n"
-        f"  Now (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"  Now (UTC): {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}\n"
     )
 
     # ══ 7. BG TASK REGISTRY (Phase 82e Sprint 2.1) ══
@@ -266,16 +270,14 @@ async def diagnose_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(full_text) > 3950:
         full_text = full_text[:3900] + "\n\n... (truncated)"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_diagnose")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
-
-    await update.message.reply_text(
-        full_text,
-        parse_mode="HTML",
-        reply_markup=kb
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_diagnose")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
     )
+
+    await update.message.reply_text(full_text, parse_mode="HTML", reply_markup=kb)
 
 
 async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -295,11 +297,11 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await q.edit_message_text("Engine çalışmıyor.")
 
     # ══ 1. SKIP COUNTER ══
-    skip_counts = engine.skips._counts.copy() if hasattr(engine.skips, '_counts') else {}
-    skip_total = engine.skips._total if hasattr(engine.skips, '_total') else 0
+    skip_counts = engine.skips._counts.copy() if hasattr(engine.skips, "_counts") else {}
+    skip_total = engine.skips._total if hasattr(engine.skips, "_total") else 0
     skip_items = sorted(skip_counts.items(), key=lambda x: -x[1])
 
-    skip_text = f"<b>Trade Filtering Pipeline (this heartbeat)</b>\n"
+    skip_text = "<b>Trade Filtering Pipeline (this heartbeat)</b>\n"
     skip_text += f"Total skips: <b>{skip_total}</b>\n"
     if skip_items:
         for reason, count in skip_items:
@@ -362,7 +364,7 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         strats = await engine.db.get_active_strategies()
         active_count = len(strats)
         # Phase 78-fix: Strategy has .status not .enabled
-        running_count = sum(1 for s in strats if getattr(s, 'status', '') == 'active')
+        running_count = sum(1 for s in strats if getattr(s, "status", "") == "active")
         paused_count = active_count - running_count
 
         strat_text = (
@@ -375,10 +377,7 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # T11.8-B (2026-04-24): callback strategies fetch — same wide-catch
         # pattern as command path; admin-only diagnostic.
         logger.error(f"Failed to fetch strategies: {e}")
-        strat_text = (
-            f"<b>Strategy Health</b>\n"
-            f"  Error: {esc(str(e)[:50])}\n"
-        )
+        strat_text = f"<b>Strategy Health</b>\n" f"  Error: {esc(str(e)[:50])}\n"
     strat_text += "\n"
 
     # ══ 5. WEBSOCKET HEALTH ══
@@ -386,14 +385,18 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ws_emoji = "🟢" if ws_fresh else "⚫"
 
     ws_age_secs = 999.0
-    if (engine.scanner.ws and
-        hasattr(engine.scanner.ws, '_last_msg_ts') and
-        engine.scanner.ws._last_msg_ts):
+    if (
+        engine.scanner.ws
+        and hasattr(engine.scanner.ws, "_last_msg_ts")
+        and engine.scanner.ws._last_msg_ts
+    ):
         ws_age_secs = time.time() - engine.scanner.ws._last_msg_ts
 
-    ws_connected = (engine.scanner.ws and
-                    hasattr(engine.scanner.ws, 'is_connected') and
-                    engine.scanner.ws.is_connected)
+    ws_connected = (
+        engine.scanner.ws
+        and hasattr(engine.scanner.ws, "is_connected")
+        and engine.scanner.ws.is_connected
+    )
     ws_conn_emoji = "✅" if ws_connected else "❌"
 
     ws_text = (
@@ -410,7 +413,7 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Engine State</b>\n"
         f"  Cycle: {engine._cycle}\n"
         f"  Pending orders: {len(engine._pending)}\n"
-        f"  Now (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"  Now (UTC): {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}\n"
     )
 
     # ══ 7. BG TASK REGISTRY (Phase 82e Sprint 2.1) ══
@@ -431,13 +434,11 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(full_text) > 3950:
         full_text = full_text[:3900] + "\n\n... (truncated)"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_diagnose")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
-
-    await q.edit_message_text(
-        full_text,
-        parse_mode="HTML",
-        reply_markup=kb
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_diagnose")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
     )
+
+    await q.edit_message_text(full_text, parse_mode="HTML", reply_markup=kb)

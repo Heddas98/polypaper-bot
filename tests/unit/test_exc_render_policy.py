@@ -7,6 +7,7 @@ Verifies the `render_user_exception` helper:
   4. Label prefix respected
   5. Runtime env re-read (T6.1 doctrine) — no restart needed to flip
 """
+
 from __future__ import annotations
 
 from telegram_bot.handlers._exc_render import render_user_exception
@@ -68,7 +69,7 @@ def test_html_escape_applied_on_debug_str(monkeypatch):
     """Exception str() must be HTML-escaped so angle brackets don't break
     Telegram HTML parse."""
     monkeypatch.setenv("DEBUG_SHOW_EXC", "true")
-    exc = ValueError("<script>alert(1)</script> & \"quoted\"")
+    exc = ValueError('<script>alert(1)</script> & "quoted"')
     out = render_user_exception(exc)
     assert "<script>" not in out
     assert "&lt;script&gt;" in out

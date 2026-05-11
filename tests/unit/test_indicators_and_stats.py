@@ -14,6 +14,7 @@ Test boundaries we pin:
   - Direction filters (up/down/None tri-state)
   - pearson_like None contract for low variance / low N
 """
+
 from __future__ import annotations
 
 import math
@@ -131,8 +132,7 @@ class TestEMADirectionFilter:
     def test_uptrend_returns_up(self):
         """Recent values higher than older → short EMA > long EMA → 'up'."""
         # Simple uptrend
-        vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-                11.0, 12.0, 13.0, 14.0, 15.0]
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
         assert ind.ema_direction_filter(vals, short_period=3, long_period=10) == "up"
 
     def test_downtrend_returns_down(self):
@@ -157,8 +157,21 @@ class TestVolatilityThreshold:
         assert ind.check_volatility_threshold([5.0] * 20, min_vol=0.01) is False
 
     def test_above_threshold_passes(self):
-        vals = [100.0, 110.0, 90.0, 105.0, 95.0, 100.0, 110.0, 90.0,
-                105.0, 95.0, 100.0, 110.0, 90.0]
+        vals = [
+            100.0,
+            110.0,
+            90.0,
+            105.0,
+            95.0,
+            100.0,
+            110.0,
+            90.0,
+            105.0,
+            95.0,
+            100.0,
+            110.0,
+            90.0,
+        ]
         assert ind.check_volatility_threshold(vals, min_vol=0.001) is True
 
 
@@ -196,8 +209,16 @@ class TestPearsonLike:
     def test_unrelated_returns_near_zero(self):
         """Random-ish data → correlation near 0."""
         # Uncorrelated data
-        pairs = [(1.0, 5.0), (2.0, 1.0), (3.0, 7.0), (4.0, 2.0),
-                 (5.0, 6.0), (6.0, 3.0), (7.0, 4.0), (8.0, 8.0)]
+        pairs = [
+            (1.0, 5.0),
+            (2.0, 1.0),
+            (3.0, 7.0),
+            (4.0, 2.0),
+            (5.0, 6.0),
+            (6.0, 3.0),
+            (7.0, 4.0),
+            (8.0, 8.0),
+        ]
         r = pearson_like(pairs)
         assert r is not None
         assert -1.0 <= r <= 1.0
@@ -211,9 +232,11 @@ class TestPearsonLike:
 
     def test_accepts_iterable_not_just_list(self):
         """pearson_like internally materializes — generators ok."""
+
         def gen():
             for i in range(5):
                 yield (float(i), float(i * 2))
+
         r = pearson_like(gen())
         assert r is not None
         assert pytest.approx(r, abs=1e-9) == 1.0

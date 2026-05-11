@@ -36,6 +36,7 @@ Violations caught (regex, line-by-line):
 
 Scope: production dirs only. Skips tests/, scripts/, _archive/.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,7 +46,6 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-
 PROD_PREFIXES_STRICT = ("core/",)
 PROD_PREFIXES_ADVISORY = ("data/", "telegram_bot/", "db/")
 PROD_PREFIXES = PROD_PREFIXES_STRICT  # default: strict mode scans core/ only
@@ -53,14 +53,22 @@ PROD_PREFIXES = PROD_PREFIXES_STRICT  # default: strict mode scans core/ only
 # Line patterns for violations (regex against each line)
 BARE_PATTERNS = [
     (re.compile(r"^\s*except\s*:\s*(#.*)?$"), "naked `except:`"),
-    (re.compile(r"^\s*except\s+Exception\s*:\s*(#.*)?$"),
-     "`except Exception:` (no tuple narrowing)"),
-    (re.compile(r"^\s*except\s+BaseException\s*:\s*(#.*)?$"),
-     "`except BaseException:` (includes KeyboardInterrupt/SystemExit)"),
-    (re.compile(r"^\s*except\s+Exception\s+as\s+\w+\s*:\s*(#.*)?$"),
-     "`except Exception as X:` (no tuple narrowing)"),
-    (re.compile(r"^\s*except\s+BaseException\s+as\s+\w+\s*:\s*(#.*)?$"),
-     "`except BaseException as X:` (too broad)"),
+    (
+        re.compile(r"^\s*except\s+Exception\s*:\s*(#.*)?$"),
+        "`except Exception:` (no tuple narrowing)",
+    ),
+    (
+        re.compile(r"^\s*except\s+BaseException\s*:\s*(#.*)?$"),
+        "`except BaseException:` (includes KeyboardInterrupt/SystemExit)",
+    ),
+    (
+        re.compile(r"^\s*except\s+Exception\s+as\s+\w+\s*:\s*(#.*)?$"),
+        "`except Exception as X:` (no tuple narrowing)",
+    ),
+    (
+        re.compile(r"^\s*except\s+BaseException\s+as\s+\w+\s*:\s*(#.*)?$"),
+        "`except BaseException as X:` (too broad)",
+    ),
 ]
 
 # Escape hatch — any `# noqa: BLE...` suffix on same line suppresses.
@@ -116,9 +124,7 @@ def _check_file(path: Path) -> List[Tuple[int, str, str]]:
 def _list_all_tracked_py() -> List[Path]:
     """All tracked .py under production dirs (git ls-files)."""
     try:
-        out = subprocess.check_output(
-            ["git", "ls-files", "*.py"], text=True
-        )
+        out = subprocess.check_output(["git", "ls-files", "*.py"], text=True)
     except subprocess.CalledProcessError:
         return []
     paths: List[Path] = []
@@ -131,16 +137,18 @@ def _list_all_tracked_py() -> List[Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="T11.8 bare except guard"
+    parser = argparse.ArgumentParser(description="T11.8 bare except guard")
+    parser.add_argument(
+        "--all", action="store_true", help="scan all tracked production .py (CI mode, strict dirs)"
     )
-    parser.add_argument("--all", action="store_true",
-                        help="scan all tracked production .py (CI mode, strict dirs)")
-    parser.add_argument("--advisory", action="store_true",
-                        help="also scan advisory dirs (data/telegram_bot/db) "
-                             "with report-only output (no fail)")
-    parser.add_argument("files", nargs="*",
-                        help="specific files to check (pre-commit mode, strict dirs)")
+    parser.add_argument(
+        "--advisory",
+        action="store_true",
+        help="also scan advisory dirs (data/telegram_bot/db) " "with report-only output (no fail)",
+    )
+    parser.add_argument(
+        "files", nargs="*", help="specific files to check (pre-commit mode, strict dirs)"
+    )
     args = parser.parse_args()
 
     if args.all:
@@ -164,13 +172,14 @@ def main() -> int:
     advisory_count = 0
     if args.advisory or args.all:
         try:
-            out = subprocess.check_output(
-                ["git", "ls-files", "*.py"], text=True
-            )
+            out = subprocess.check_output(["git", "ls-files", "*.py"], text=True)
             advisory_files = [
-                Path(line) for line in out.splitlines()
-                if any(line.replace("\\", "/").lstrip("./").startswith(p)
-                       for p in PROD_PREFIXES_ADVISORY)
+                Path(line)
+                for line in out.splitlines()
+                if any(
+                    line.replace("\\", "/").lstrip("./").startswith(p)
+                    for p in PROD_PREFIXES_ADVISORY
+                )
                 and Path(line).exists()
             ]
             for path in advisory_files:
@@ -180,26 +189,33 @@ def main() -> int:
             pass
         if advisory_count:
             print()
-            print(f"[bare-except-check] ADVISORY (non-fail): "
-                  f"{advisory_count} violation(s) in "
-                  f"{PROD_PREFIXES_ADVISORY} -- T11.8-B forward work.")
+            print(
+                f"[bare-except-check] ADVISORY (non-fail): "
+                f"{advisory_count} violation(s) in "
+                f"{PROD_PREFIXES_ADVISORY} -- T11.8-B forward work."
+            )
 
     if total_violations:
         print()
-        print(f"[bare-except-check] FAIL: {total_violations} violation(s) "
-              f"in core/ (strict zone).")
+        print(
+            f"[bare-except-check] FAIL: {total_violations} violation(s) " f"in core/ (strict zone)."
+        )
         print("[bare-except-check] Fix options:")
-        print("  1. Narrow: `except (SpecificError, OtherError):` "
-              "(T1.4 Faz 1 pattern)")
-        print("  2. Escape: `except Exception as e:  # noqa: BLE-OK "
-              "reason=<explain>` (T7.6 Asama A pattern)")
-        print("  3. Silent `pass` -> `logger.debug(type(e).__name__)` "
-              "at minimum (observability)")
+        print("  1. Narrow: `except (SpecificError, OtherError):` " "(T1.4 Faz 1 pattern)")
+        print(
+            "  2. Escape: `except Exception as e:  # noqa: BLE-OK "
+            "reason=<explain>` (T7.6 Asama A pattern)"
+        )
+        print(
+            "  3. Silent `pass` -> `logger.debug(type(e).__name__)` " "at minimum (observability)"
+        )
         return 1
 
     if targets:
-        print(f"[bare-except-check] OK: {len(targets)} file(s) in strict "
-              f"zone scanned, 0 violation(s).")
+        print(
+            f"[bare-except-check] OK: {len(targets)} file(s) in strict "
+            f"zone scanned, 0 violation(s)."
+        )
     return 0
 
 

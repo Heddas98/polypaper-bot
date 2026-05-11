@@ -37,6 +37,7 @@ TEK STRATEJİ PRENSİBİ:
     - Live'da → aynı evaluate() çalışır
     Hiçbir yerde farklı logic yoktur.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,17 +45,17 @@ from typing import Optional
 
 from backtest.strategies.base import (
     BaseBacktestStrategy,
+    Direction,
     MarketData,
     OrderbookSnapshot,
-    Signal,
     Resolution,
-    Direction,
+    Signal,
 )
 from core.strategy_plugins import (
     BaseStrategy,
     MarketSnapshot,
-    StrategySignal,
     StrategyRegistry,
+    StrategySignal,
 )
 
 logger = logging.getLogger("polypaper.backtest.live_adapter")
@@ -98,9 +99,9 @@ class LiveStrategyBacktestAdapter(BaseBacktestStrategy):
         self._direction_filter: str = "any"
         self._threshold: float = 0.50
 
-    def configure(self, direction_filter: str = "any",
-                  threshold: float = 0.50,
-                  total_minutes: float = 5.0):
+    def configure(
+        self, direction_filter: str = "any", threshold: float = 0.50, total_minutes: float = 5.0
+    ):
         """DB'deki strateji parametrelerinden configure et."""
         self._direction_filter = direction_filter
         self._threshold = threshold
@@ -134,8 +135,10 @@ class LiveStrategyBacktestAdapter(BaseBacktestStrategy):
             return None
 
         # ── OrderbookSnapshot → MarketSnapshot dönüşümü ──
-        minutes_remaining = snap.remaining_seconds / 60.0 if snap.remaining_seconds > 0 else (
-            self._total_minutes * (1.0 - snap.elapsed_pct)
+        minutes_remaining = (
+            snap.remaining_seconds / 60.0
+            if snap.remaining_seconds > 0
+            else (self._total_minutes * (1.0 - snap.elapsed_pct))
         )
 
         market_snapshot = MarketSnapshot(
@@ -199,12 +202,14 @@ class LiveStrategyBacktestAdapter(BaseBacktestStrategy):
 #  registry. ReplayEngine ve HyperOpt bu registry'yi kullanır.
 # ══════════════════════════════════════════════════════════════
 
-def get_live_adapter(strategy_name: str,
-                     extra_params: Optional[dict] = None,
-                     direction_filter: str = "any",
-                     threshold: float = 0.50,
-                     total_minutes: float = 5.0,
-                     ) -> Optional[LiveStrategyBacktestAdapter]:
+
+def get_live_adapter(
+    strategy_name: str,
+    extra_params: Optional[dict] = None,
+    direction_filter: str = "any",
+    threshold: float = 0.50,
+    total_minutes: float = 5.0,
+) -> Optional[LiveStrategyBacktestAdapter]:
     """
     İsme göre live strategy'yi adaptör ile sarmalayıp döndürür.
 

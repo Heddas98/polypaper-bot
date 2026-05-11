@@ -13,10 +13,15 @@ Parameters:
   - rate_threshold: min abs funding rate to trigger (default 0.0005)
   - contrarian: True=fade funding, False=follow funding (default True)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -26,9 +31,9 @@ class FundingRateStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Binance funding rate → contrarian directional signal"
 
-    def __init__(self, rate_threshold: float = 0.0005,
-                 contrarian: bool = True,
-                 max_elapsed_pct: float = 0.20):
+    def __init__(
+        self, rate_threshold: float = 0.0005, contrarian: bool = True, max_elapsed_pct: float = 0.20
+    ):
         self.rate_threshold = rate_threshold
         self.contrarian = contrarian
         self.max_elapsed_pct = max_elapsed_pct
@@ -71,7 +76,9 @@ class FundingRateStrategy(BaseBacktestStrategy):
 
         mode = "contrarian" if self.contrarian else "momentum"
         return self.make_signal(
-            direction, confidence, entry,
+            direction,
+            confidence,
+            entry,
             reason=f"funding_rate: rate={rate:.6f} ({mode}) → {direction.upper()}",
             funding_rate=rate,
         )

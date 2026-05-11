@@ -24,16 +24,17 @@ Günlük sıfırlama: UTC 00:00, halt otomatik kaldırılır.
    tests/test_phase55_critical.py::TestRiskDailyLossBoundary
    (test_daily_loss_at_exact_limit, test_daily_loss_just_below_limit).
 """
+
 import json
 import logging
-
-from core.slug_utils import infer_asset_from_slug
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional, Dict
+from datetime import UTC, datetime
+from typing import Dict, Optional
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
+
+from core.slug_utils import infer_asset_from_slug
 
 logger = logging.getLogger("polypaper.core.risk")
 
@@ -63,6 +64,7 @@ class RiskLimits:
     T3.4 regression tests). Stringified floats are re-parsed via the
     ``type_map[attr](val)`` coercion path at L95.
     """
+
     max_position_size: float = 10.0
     max_open_positions: int = 5
     max_total_exposure: float = 100.0
@@ -73,12 +75,14 @@ class RiskLimits:
     max_single_market_exposure: float = 20.0
     # Phase 36: Tiered limits (per-asset and per-market) — see class docstring
     # above for the `field(default_factory=...)` rationale (NOT a bare `{}`).
-    per_asset_limits: dict = field(default_factory=lambda: {
-        "BTC": 500.0,
-        "ETH": 300.0,
-        "SOL": 200.0,
-        "XRP": 200.0,
-    })
+    per_asset_limits: dict = field(
+        default_factory=lambda: {
+            "BTC": 500.0,
+            "ETH": 300.0,
+            "SOL": 200.0,
+            "XRP": 200.0,
+        }
+    )
     per_market_limit: float = 100.0
 
     def to_dict(self) -> dict:
@@ -126,6 +130,7 @@ class RiskLimits:
 @dataclass
 class RiskState:
     """Tracks current risk exposure. Updated by engine on every trade/settlement."""
+
     open_position_count: int = 0
     total_exposure: float = 0.0
     daily_pnl: float = 0.0
@@ -142,12 +147,13 @@ class RiskState:
     # permanent deadlock because no new trades can win to reset the streak.
     last_loss_ts: str = ""
     # P2-03 FIX: Formal dataclass fields for alert flags (were set via setattr)
-    alert_flag: str = ""             # Phase 47f.9: early-warning flag for heartbeat
-    _pnl_soft_flag: bool = False     # Phase 47f.9: daily PnL soft-limit crossed
+    alert_flag: str = ""  # Phase 47f.9: early-warning flag for heartbeat
+    _pnl_soft_flag: bool = False  # Phase 47f.9: daily PnL soft-limit crossed
 
 
 class RiskVerdict:
     """Result of a risk check."""
+
     def __init__(self, approved: bool, reason: str = ""):
         self.approved = approved
         self.reason = reason
@@ -209,8 +215,9 @@ class RiskManager:
             return False, f"MARKET_LIMIT: ${new_exposure:.2f} > ${limit:.2f}"
         return True, ""
 
-    def check_trade(self, trade_amount: float, market_slug: str,
-                    wallet_balance: float, strategy_id: str = "") -> RiskVerdict:
+    def check_trade(
+        self, trade_amount: float, market_slug: str, wallet_balance: float, strategy_id: str = ""
+    ) -> RiskVerdict:
         """Check if a proposed trade passes all risk gates."""
         self._maybe_reset_daily()
 
@@ -220,19 +227,23 @@ class RiskManager:
 
         # Gate 2: Position size limit
         if trade_amount > self.limits.max_position_size:
-            return RiskVerdict(False,
-                f"POSITION_SIZE: ${trade_amount} > max ${self.limits.max_position_size}")
+            return RiskVerdict(
+                False, f"POSITION_SIZE: ${trade_amount} > max ${self.limits.max_position_size}"
+            )
 
         # Gate 3: Open position count
         if self.state.open_position_count >= self.limits.max_open_positions:
-            return RiskVerdict(False,
-                f"MAX_POSITIONS: {self.state.open_position_count} >= {self.limits.max_open_positions}")
+            return RiskVerdict(
+                False,
+                f"MAX_POSITIONS: {self.state.open_position_count} >= {self.limits.max_open_positions}",
+            )
 
         # Gate 4: Total exposure
         new_exposure = self.state.total_exposure + trade_amount
         if new_exposure > self.limits.max_total_exposure:
-            return RiskVerdict(False,
-                f"EXPOSURE: ${new_exposure:.2f} > max ${self.limits.max_total_exposure}")
+            return RiskVerdict(
+                False, f"EXPOSURE: ${new_exposure:.2f} > max ${self.limits.max_total_exposure}"
+            )
 
         # Gate 5: Daily loss limit  (Phase 54 P0-04: <= consistent with record_trade_closed)
         # Phase 58: worst-case margin — assume this trade could be a full loss.
@@ -242,22 +253,27 @@ class RiskManager:
         if self.state.daily_pnl <= -self.limits.max_daily_loss:
             self.state.halted = True
             self.state.halt_reason = f"Daily loss ${self.state.daily_pnl:.2f} hit limit"
-            return RiskVerdict(False,
-                f"DAILY_LOSS: ${self.state.daily_pnl:.2f} <= -${self.limits.max_daily_loss}")
+            return RiskVerdict(
+                False, f"DAILY_LOSS: ${self.state.daily_pnl:.2f} <= -${self.limits.max_daily_loss}"
+            )
         # Note (2026-04-20 T3.5 audit): margin check REJECTS this trade but does
         # NOT set halted=True — daily_pnl itself is still within limits, only
         # this specific (potentially oversized) trade would breach. Smaller
         # concurrent trades may still pass. Hard halt only triggers when
         # daily_pnl reaches -max_daily_loss (L215 here / L391+ record_trade_closed).
         if worst_case_pnl <= -self.limits.max_daily_loss:
-            return RiskVerdict(False,
+            return RiskVerdict(
+                False,
                 f"DAILY_LOSS_MARGIN: pnl={self.state.daily_pnl:.2f} - pending={trade_amount:.2f} "
-                f"would breach -${self.limits.max_daily_loss}")
+                f"would breach -${self.limits.max_daily_loss}",
+            )
 
         # Gate 6: Daily trade count
         if self.state.daily_trade_count >= self.limits.max_daily_trades:
-            return RiskVerdict(False,
-                f"DAILY_TRADES: {self.state.daily_trade_count} >= {self.limits.max_daily_trades}")
+            return RiskVerdict(
+                False,
+                f"DAILY_TRADES: {self.state.daily_trade_count} >= {self.limits.max_daily_trades}",
+            )
 
         # Gate 7: Consecutive loss streak — Phase 49 A-02 auto-cooldown
         # If enough time has passed since the last loss, auto-reset the streak
@@ -268,8 +284,9 @@ class RiskManager:
             try:
                 if self.state.last_loss_ts:
                     from datetime import datetime as _dt, timezone as _tz
+
                     last_dt = _dt.fromisoformat(self.state.last_loss_ts)
-                    delta_h = (_dt.now(_tz.utc) - last_dt).total_seconds() / 3600.0
+                    delta_h = (_dt.now(UTC) - last_dt).total_seconds() / 3600.0
                     if delta_h >= cooldown_h:
                         logger.warning(
                             f"⚙️ LOSS_STREAK cooldown elapsed "
@@ -282,7 +299,8 @@ class RiskManager:
                     # No last_loss_ts recorded (pre-Phase49 state): stamp now
                     # so future cooldowns work, and keep the gate closed for now.
                     from datetime import datetime as _dt, timezone as _tz
-                    self.state.last_loss_ts = _dt.now(_tz.utc).isoformat()
+
+                    self.state.last_loss_ts = _dt.now(UTC).isoformat()
             except (ValueError, TypeError, AttributeError) as _e:
                 # T1.4 Faz 1: fromisoformat raises ValueError on bad ISO,
                 # TypeError if last_loss_ts is non-str, AttributeError if
@@ -291,15 +309,19 @@ class RiskManager:
                 logger.debug(f"streak cooldown check failed: {type(_e).__name__}: {_e}")
 
             if not cooled_down:
-                return RiskVerdict(False,
+                return RiskVerdict(
+                    False,
                     f"LOSS_STREAK: {self.state.consecutive_losses} >= "
                     f"{self.limits.max_loss_streak} "
-                    f"(cooldown {cooldown_h:.0f}h)")
+                    f"(cooldown {cooldown_h:.0f}h)",
+                )
 
         # Gate 8: Balance floor
         if wallet_balance - trade_amount < self.limits.min_balance_floor:
-            return RiskVerdict(False,
-                f"BALANCE_FLOOR: ${wallet_balance - trade_amount:.2f} < ${self.limits.min_balance_floor}")
+            return RiskVerdict(
+                False,
+                f"BALANCE_FLOOR: ${wallet_balance - trade_amount:.2f} < ${self.limits.min_balance_floor}",
+            )
 
         # Gate 8b (Phase 74b): Same strategy can't re-enter same market slug
         # This is a safety net — engine._open_positions also dedup's, but
@@ -307,14 +329,17 @@ class RiskManager:
         if strategy_id:
             _strat_key = f"{strategy_id}:{market_slug}"
             if self.state.strategy_market_open.get(_strat_key):
-                return RiskVerdict(False,
-                    f"STRAT_ALREADY_OPEN: {strategy_id[:8]} already in {market_slug[:30]}")
+                return RiskVerdict(
+                    False, f"STRAT_ALREADY_OPEN: {strategy_id[:8]} already in {market_slug[:30]}"
+                )
 
         # Gate 9: Per-market concentration
         current_market = self.state.per_market_exposure.get(market_slug, 0)
         if current_market + trade_amount > self.limits.max_single_market_exposure:
-            return RiskVerdict(False,
-                f"MARKET_CONCENTRATION: ${current_market + trade_amount:.2f} > ${self.limits.max_single_market_exposure}")
+            return RiskVerdict(
+                False,
+                f"MARKET_CONCENTRATION: ${current_market + trade_amount:.2f} > ${self.limits.max_single_market_exposure}",
+            )
 
         # ═══ Phase 36: Tiered Limits ═══
         # Gate 10: Per-asset limit (graduated cascade)
@@ -336,45 +361,53 @@ class RiskManager:
         if _cross_limit > 0:
             total_cross = sum(self.per_asset_exposure.values()) + trade_amount
             if total_cross > _cross_limit:
-                return RiskVerdict(False,
+                return RiskVerdict(
+                    False,
                     f"CROSS_ASSET: total ${total_cross:.2f} > ${_cross_limit:.2f} "
-                    f"({', '.join(f'{a}=${v:.1f}' for a, v in self.per_asset_exposure.items())})")
+                    f"({', '.join(f'{a}=${v:.1f}' for a, v in self.per_asset_exposure.items())})",
+                )
 
         return RiskVerdict(True, "ALL_GATES_PASSED")
 
-    def record_trade_opened(self, trade_amount: float, market_slug: str,
-                            strategy_id: str = ""):
+    def record_trade_opened(self, trade_amount: float, market_slug: str, strategy_id: str = ""):
         """Update state when a trade is opened."""
         self.state.open_position_count += 1
         self.state.total_exposure += trade_amount
         self.state.daily_trade_count += 1
-        self.state.per_market_exposure[market_slug] = \
+        self.state.per_market_exposure[market_slug] = (
             self.state.per_market_exposure.get(market_slug, 0) + trade_amount
+        )
         # Phase 74b: Track strategy→market open status
         if strategy_id:
             self.state.strategy_market_open[f"{strategy_id}:{market_slug}"] = True
         # Phase 36: Track per-asset exposure
         asset = self._extract_asset_from_slug(market_slug)
         self.per_asset_exposure[asset] = self.per_asset_exposure.get(asset, 0) + trade_amount
-        logger.debug(f"Risk: opened ${trade_amount} on {market_slug[:30]} | "
-                     f"exposure=${self.state.total_exposure:.2f} | "
-                     f"positions={self.state.open_position_count} | "
-                     f"{asset}=${self.per_asset_exposure[asset]:.2f}")
+        logger.debug(
+            f"Risk: opened ${trade_amount} on {market_slug[:30]} | "
+            f"exposure=${self.state.total_exposure:.2f} | "
+            f"positions={self.state.open_position_count} | "
+            f"{asset}=${self.per_asset_exposure[asset]:.2f}"
+        )
 
-    def record_trade_closed(self, trade_amount: float, pnl: float, market_slug: str,
-                            strategy_id: str = ""):
+    def record_trade_closed(
+        self, trade_amount: float, pnl: float, market_slug: str, strategy_id: str = ""
+    ):
         """Update state when a trade is closed."""
         self.state.open_position_count = max(0, self.state.open_position_count - 1)
         self.state.total_exposure = max(0, self.state.total_exposure - trade_amount)
         self.state.daily_pnl += pnl
-        self.state.per_market_exposure[market_slug] = \
-            max(0, self.state.per_market_exposure.get(market_slug, 0) - trade_amount)
+        self.state.per_market_exposure[market_slug] = max(
+            0, self.state.per_market_exposure.get(market_slug, 0) - trade_amount
+        )
         # Phase 74b: Release strategy→market lock
         if strategy_id:
             self.state.strategy_market_open.pop(f"{strategy_id}:{market_slug}", None)
         # Phase 36: Update per-asset exposure
         asset = self._extract_asset_from_slug(market_slug)
-        self.per_asset_exposure[asset] = max(0, self.per_asset_exposure.get(asset, 0) - trade_amount)
+        self.per_asset_exposure[asset] = max(
+            0, self.per_asset_exposure.get(asset, 0) - trade_amount
+        )
 
         if pnl >= 0:
             self.state.consecutive_losses = 0
@@ -382,7 +415,7 @@ class RiskManager:
             self.state.consecutive_losses += 1
             # Phase 49 A-02: stamp last_loss_ts so the auto-cooldown in Gate 7
             # can detect how long we've been stuck in a losing streak.
-            self.state.last_loss_ts = datetime.now(timezone.utc).isoformat()
+            self.state.last_loss_ts = datetime.now(UTC).isoformat()
 
         # Phase 47f.9: Alertmanager-style early warning on loss streak.
         # ALERT_LOSS_STREAK (default 5) fires a single WARNING log when the
@@ -391,12 +424,15 @@ class RiskManager:
         # happens at self.limits.max_loss_streak).
         try:
             alert_thresh = int(os.getenv("ALERT_LOSS_STREAK", "5"))
-            if (self.state.consecutive_losses == alert_thresh
-                    and alert_thresh < self.limits.max_loss_streak):
+            if (
+                self.state.consecutive_losses == alert_thresh
+                and alert_thresh < self.limits.max_loss_streak
+            ):
                 logger.warning(
                     f"⚠️ ALERT loss_streak={self.state.consecutive_losses} "
                     f"crossed early-warning threshold ({alert_thresh}); "
-                    f"hard halt at {self.limits.max_loss_streak}.")
+                    f"hard halt at {self.limits.max_loss_streak}."
+                )
                 # Expose for heartbeat / /rs to surface the alert.
                 self.state.alert_flag = f"LOSS_STREAK_{alert_thresh}"
         except (ValueError, TypeError, AttributeError) as _e:
@@ -415,7 +451,8 @@ class RiskManager:
                     f"⚠️ ALERT daily_pnl={self.state.daily_pnl:+.2f} "
                     f"crossed {soft_pct*100:.0f}% soft limit "
                     f"({soft_limit:.2f}); hard halt at "
-                    f"{-self.limits.max_daily_loss:.2f}.")
+                    f"{-self.limits.max_daily_loss:.2f}."
+                )
                 self.state._pnl_soft_flag = True
         except (ValueError, TypeError, AttributeError) as _e:
             # T1.4 Faz 1: ALERT_DAILY_PNL_PCT env parse or state attr access;
@@ -473,13 +510,13 @@ class RiskManager:
                 "per_market": {
                     "limit": self.limits.per_market_limit,
                     "markets": self.state.per_market_exposure,
-                }
-            }
+                },
+            },
         }
 
     def _maybe_reset_daily(self):
         """Reset daily counters at UTC midnight."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         if self.state.daily_reset_date != today:
             self.state.daily_pnl = 0.0
             self.state.daily_trade_count = 0
@@ -493,8 +530,7 @@ class RiskManager:
     # Source: A9 (Claude $47 bot — sovereign2013 lost $23→$1.50 on unsellable token)
     # These are PRE-ENTRY and PRE-EXIT gates to prevent getting stuck.
 
-    def check_liquidity_for_exit(self, position_size: float,
-                                  orderbook: dict) -> RiskVerdict:
+    def check_liquidity_for_exit(self, position_size: float, orderbook: dict) -> RiskVerdict:
         """Phase 66: Check if there's enough liquidity to exit a position.
 
         Called BEFORE market close or when smart_exit triggers.
@@ -515,8 +551,9 @@ class RiskManager:
 
         bids = orderbook.get("bids", [])
         if not bids:
-            return RiskVerdict(False,
-                f"NO_BIDS: orderbook has no bids — cannot exit ${position_size:.2f}")
+            return RiskVerdict(
+                False, f"NO_BIDS: orderbook has no bids — cannot exit ${position_size:.2f}"
+            )
 
         # Sum bid-side dollar volume (top 10 levels)
         bid_depth = sum(p * s for p, s in bids[:10])
@@ -527,22 +564,24 @@ class RiskManager:
         min_depth = position_size * min_depth_pct
 
         if bid_depth < min_depth:
-            return RiskVerdict(False,
+            return RiskVerdict(
+                False,
                 f"LOW_LIQUIDITY: bid_depth=${bid_depth:.2f} < "
-                f"required=${min_depth:.2f} ({min_depth_pct:.0%} of ${position_size:.2f})")
+                f"required=${min_depth:.2f} ({min_depth_pct:.0%} of ${position_size:.2f})",
+            )
 
         # Also check: is the best bid price reasonable (not a 90% discount)?
         best_bid_price = bids[0][0] if bids else 0
         if best_bid_price < 0.02:
-            return RiskVerdict(False,
-                f"PENNY_BID: best_bid=${best_bid_price:.4f} — likely illiquid market")
+            return RiskVerdict(
+                False, f"PENNY_BID: best_bid=${best_bid_price:.4f} — likely illiquid market"
+            )
 
-        return RiskVerdict(True,
-            f"LIQUIDITY_OK: bid_depth=${bid_depth:.2f} >= ${min_depth:.2f}")
+        return RiskVerdict(True, f"LIQUIDITY_OK: bid_depth=${bid_depth:.2f} >= ${min_depth:.2f}")
 
-    def check_unsellable_risk(self, market_odds: float,
-                               orderbook: dict,
-                               minutes_to_close: Optional[float] = None) -> RiskVerdict:
+    def check_unsellable_risk(
+        self, market_odds: float, orderbook: dict, minutes_to_close: Optional[float] = None
+    ) -> RiskVerdict:
         """Phase 66: Pre-entry check for unsellable token risk.
 
         Don't enter a position if:
@@ -566,8 +605,9 @@ class RiskManager:
 
         # Check 1: Extreme odds → one-sided market = low exit liquidity
         if market_odds is not None and (market_odds > 0.95 or market_odds < 0.05):
-            return RiskVerdict(False,
-                f"EXTREME_ODDS: {market_odds:.3f} → one-sided market, exit liquidity risk")
+            return RiskVerdict(
+                False, f"EXTREME_ODDS: {market_odds:.3f} → one-sided market, exit liquidity risk"
+            )
 
         # Check 2: Orderbook depth
         if orderbook:
@@ -578,13 +618,16 @@ class RiskManager:
             total_depth = bid_depth + ask_depth
 
             if total_depth < min_entry_depth:
-                return RiskVerdict(False,
-                    f"THIN_BOOK: total_depth=${total_depth:.2f} < ${min_entry_depth:.2f}")
+                return RiskVerdict(
+                    False, f"THIN_BOOK: total_depth=${total_depth:.2f} < ${min_entry_depth:.2f}"
+                )
 
         # Check 3: Too close to market close
         if minutes_to_close is not None and minutes_to_close < close_warning_mins:
-            return RiskVerdict(False,
-                f"NEAR_CLOSE: {minutes_to_close:.1f}min < {close_warning_mins:.1f}min warning")
+            return RiskVerdict(
+                False,
+                f"NEAR_CLOSE: {minutes_to_close:.1f}min < {close_warning_mins:.1f}min warning",
+            )
 
         return RiskVerdict(True, "ENTRY_SAFE")
 
@@ -610,25 +653,28 @@ class RiskManager:
                 state_data[f"risk.per_asset.{asset}"] = str(limit)
             state_data["risk.per_market_limit"] = str(self.limits.per_market_limit)
 
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             for key, val in state_data.items():
                 await db.conn.execute(
                     "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, ?)",
-                    (key, val, now))
+                    (key, val, now),
+                )
             await db.conn.commit()
         except (aiosqlite.Error, TypeError, ValueError) as e:
             # T1.4 Faz 1: DB write failure or json.dumps TypeError on
             # per_market_exposure. Elevated to WARNING — if this silently
             # fails, a crash-restart cycle loses halted state and daily_pnl,
             # letting the bot re-hit limits that should have stayed locked.
-            logger.warning(f"Risk save FAILED ({type(e).__name__}: {e}) — "
-                           f"state will not survive restart")
+            logger.warning(
+                f"Risk save FAILED ({type(e).__name__}: {e}) — " f"state will not survive restart"
+            )
 
     async def load_state(self, db):
         """Restore risk state from DB after restart."""
         try:
             rows = await db.conn.execute_fetchall(
-                "SELECT key, value FROM bot_settings WHERE key LIKE 'risk_state.%'")
+                "SELECT key, value FROM bot_settings WHERE key LIKE 'risk_state.%'"
+            )
             if not rows:
                 return
             d = {r[0]: r[1] for r in rows}
@@ -643,11 +689,13 @@ class RiskManager:
             # If we restarted while in a full streak block, apply cooldown
             # check NOW so the bot isn't silently deadlocked at boot.
             try:
-                if (self.state.consecutive_losses >= self.limits.max_loss_streak
-                        and self.state.last_loss_ts):
+                if (
+                    self.state.consecutive_losses >= self.limits.max_loss_streak
+                    and self.state.last_loss_ts
+                ):
                     cooldown_h = float(os.getenv("STREAK_COOLDOWN_HOURS", "6"))
                     last_dt = datetime.fromisoformat(self.state.last_loss_ts)
-                    delta_h = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600.0
+                    delta_h = (datetime.now(UTC) - last_dt).total_seconds() / 3600.0
                     if delta_h >= cooldown_h:
                         logger.warning(
                             f"⚙️ Boot cooldown: {delta_h:.1f}h since last loss "
@@ -658,15 +706,16 @@ class RiskManager:
             except (ValueError, TypeError, AttributeError) as _e:
                 # T1.4 Faz 1: same shape as Gate 7 cooldown check (L248).
                 # Gate stays active if parse fails — fail-safe toward halt.
-                logger.debug(f"boot streak cooldown check failed: "
-                             f"{type(_e).__name__}: {_e}")
+                logger.debug(f"boot streak cooldown check failed: " f"{type(_e).__name__}: {_e}")
             # Recount open positions from DB
             open_count = await db.conn.execute_fetchall(
-                "SELECT COUNT(*) FROM executions WHERE status='bet_placed'")
+                "SELECT COUNT(*) FROM executions WHERE status='bet_placed'"
+            )
             if open_count:
                 self.state.open_position_count = open_count[0][0]
             exposure = await db.conn.execute_fetchall(
-                "SELECT COALESCE(SUM(trade_amount),0) FROM executions WHERE status='bet_placed'")
+                "SELECT COALESCE(SUM(trade_amount),0) FROM executions WHERE status='bet_placed'"
+            )
             if exposure:
                 self.state.total_exposure = exposure[0][0]
             # P1-03 FIX: Restore per-market exposure from saved JSON
@@ -678,37 +727,43 @@ class RiskManager:
                 # T1.4 Faz 1: corrupted/legacy JSON blob. Fallback: empty map
                 # — Gate 9 (market concentration) will rebuild organically as
                 # new trades open. Not critical for short-term correctness.
-                logger.debug(f"per_market_exposure restore: "
-                             f"{type(_pme_err).__name__}: {_pme_err}")
+                logger.debug(
+                    f"per_market_exposure restore: " f"{type(_pme_err).__name__}: {_pme_err}"
+                )
             # Phase 36: Rebuild per-asset exposure from open positions
             await self._rebuild_per_asset_exposure(db)
             # P1-04 FIX: Rebuild strategy_market_open from open positions
             await self._rebuild_strategy_market_open(db)
-            logger.info(f"⚙️ Risk state restored: PnL={self.state.daily_pnl:+.2f} "
-                        f"streak={self.state.consecutive_losses} halted={self.state.halted} "
-                        f"per_market={len(self.state.per_market_exposure)} "
-                        f"strat_market_locks={len(self.state.strategy_market_open)}")
+            logger.info(
+                f"⚙️ Risk state restored: PnL={self.state.daily_pnl:+.2f} "
+                f"streak={self.state.consecutive_losses} halted={self.state.halted} "
+                f"per_market={len(self.state.per_market_exposure)} "
+                f"strat_market_locks={len(self.state.strategy_market_open)}"
+            )
         except (aiosqlite.Error, ValueError, TypeError, KeyError) as e:
             # T1.4 Faz 1: DB read, float/int coercion, or missing key. This
             # is the critical boot path — if it fails, daily_pnl starts at 0
             # and the bot could re-hit limits that should have stayed
             # locked. Emit full traceback so boot-time issues surface.
-            logger.exception(f"Risk load FAILED [{type(e).__name__}]: {e} — "
-                             f"state starting from defaults")
+            logger.exception(
+                f"Risk load FAILED [{type(e).__name__}]: {e} — " f"state starting from defaults"
+            )
 
     async def _rebuild_per_asset_exposure(self, db):
         """Rebuild per-asset exposure from open positions in DB."""
         try:
             rows = await db.conn.execute_fetchall(
-                "SELECT event_slug, trade_amount FROM executions WHERE status='bet_placed'")
+                "SELECT event_slug, trade_amount FROM executions WHERE status='bet_placed'"
+            )
             if not rows:
                 return
             for row in rows:
                 event_slug = row[0]
                 trade_amount = row[1]
                 asset = self._extract_asset_from_slug(event_slug)
-                self.per_asset_exposure[asset] = \
+                self.per_asset_exposure[asset] = (
                     self.per_asset_exposure.get(asset, 0) + trade_amount
+                )
         except (aiosqlite.Error, ValueError, TypeError, IndexError) as e:
             # T1.4 Faz 1: DB read, type coerce, or row shape mismatch.
             # Phase 36 per-asset exposure rebuilds next cycle from trade
@@ -724,7 +779,8 @@ class RiskManager:
         """
         try:
             rows = await db.conn.execute_fetchall(
-                "SELECT strategy_id, event_slug FROM executions WHERE status='bet_placed'")
+                "SELECT strategy_id, event_slug FROM executions WHERE status='bet_placed'"
+            )
             if not rows:
                 return
             for row in rows:

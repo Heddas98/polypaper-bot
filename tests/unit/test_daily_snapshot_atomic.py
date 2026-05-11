@@ -14,6 +14,7 @@ Coverage:
      fails -> old dest intact
   5. Magic bytes: successfully renamed dest starts with "SQLite format 3"
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,9 +37,7 @@ async def populated_source_db():
     db_path = Path(path)
     conn = await aiosqlite.connect(path)
     await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute(
-        "CREATE TABLE executions (id INTEGER PRIMARY KEY, v TEXT)"
-    )
+    await conn.execute("CREATE TABLE executions (id INTEGER PRIMARY KEY, v TEXT)")
     await conn.executemany(
         "INSERT INTO executions (v) VALUES (?)",
         [(f"trade_{i}",) for i in range(100)],
@@ -71,9 +70,7 @@ async def _run_atomic_backup(source_path: Path, dest: Path) -> None:
         except OSError:
             pass
 
-    source = await aiosqlite.connect(
-        f"file:{source_path}?mode=ro", uri=True
-    )
+    source = await aiosqlite.connect(f"file:{source_path}?mode=ro", uri=True)
     try:
         async with aiosqlite.connect(str(dest_tmp), timeout=60) as target:
             await source.backup(target, pages=200, sleep=0.001)
@@ -88,9 +85,7 @@ async def _run_atomic_backup(source_path: Path, dest: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_happy_path_creates_valid_dest(
-    populated_source_db: Path, backup_dir: Path
-) -> None:
+async def test_happy_path_creates_valid_dest(populated_source_db: Path, backup_dir: Path) -> None:
     """Successful backup: dest_tmp created, renamed to dest, tmp gone."""
     dest = backup_dir / "polypaper_2026-04-23.db"
     dest_tmp = dest.with_suffix(".db.tmp")
@@ -103,9 +98,7 @@ async def test_happy_path_creates_valid_dest(
     # Validate SQLite magic bytes
     with open(dest, "rb") as f:
         header = f.read(16)
-    assert header.startswith(b"SQLite format 3"), (
-        f"dest must be valid SQLite; got {header!r}"
-    )
+    assert header.startswith(b"SQLite format 3"), f"dest must be valid SQLite; got {header!r}"
 
     # Verify data survived
     conn = sqlite3.connect(str(dest))
@@ -155,9 +148,7 @@ async def test_interrupt_during_backup_leaves_dest_untouched(
             except OSError:
                 pass
 
-        source = await aiosqlite.connect(
-            f"file:{populated_source_db}?mode=ro", uri=True
-        )
+        source = await aiosqlite.connect(f"file:{populated_source_db}?mode=ro", uri=True)
         try:
             async with aiosqlite.connect(str(dest_tmp), timeout=60) as target:
                 await source.backup(target, pages=200, sleep=0.001)
@@ -197,9 +188,7 @@ async def test_previous_dest_preserved_on_failure(
 
     # Today's backup: simulate failure
     async def _failing_backup():
-        source = await aiosqlite.connect(
-            f"file:{populated_source_db}?mode=ro", uri=True
-        )
+        source = await aiosqlite.connect(f"file:{populated_source_db}?mode=ro", uri=True)
         try:
             async with aiosqlite.connect(str(dest_tmp), timeout=60) as target:
                 await source.backup(target, pages=200, sleep=0.001)
@@ -223,9 +212,7 @@ async def test_previous_dest_preserved_on_failure(
 
 
 @pytest.mark.asyncio
-async def test_atomic_rename_is_single_step(
-    populated_source_db: Path, backup_dir: Path
-) -> None:
+async def test_atomic_rename_is_single_step(populated_source_db: Path, backup_dir: Path) -> None:
     """Verify `Path.replace()` semantics: file either fully at dest or
     fully at dest_tmp, never half-way. This is the POSIX/Windows rename
     atomicity contract the fix relies on."""

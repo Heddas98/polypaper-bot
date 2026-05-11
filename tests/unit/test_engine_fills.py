@@ -17,6 +17,7 @@ Out-of-scope (→ T9.8 integration smoke):
   * ``_rest_latency_sleep`` — async sleep, not regression-critical
   * ``_becker_delta`` — calibration curve lookup (covered elsewhere)
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -25,11 +26,11 @@ import pytest
 
 from core.engine_fills import EngineFillsMixin
 
-
 # ═══ Minimal harness class ═════════════════════════════════════════════
 # The mixin references ``self.PRICE_TICK``, ``self.PRICE_TICK_TOL`` and
 # ``self._pending`` that live on ``TradingEngine``. For pure-logic tests
 # we need just a stub class with those attributes.
+
 
 class FillsHarness(EngineFillsMixin):
     """Minimal stub exposing only the state needed by pure-logic methods."""
@@ -43,6 +44,7 @@ class FillsHarness(EngineFillsMixin):
 
 
 # ═══ _snap_to_tick — classmethod ═══════════════════════════════════════
+
 
 class TestSnapToTick:
     """``_snap_to_tick`` rounds to $0.01 tick and clamps to [0.01, 0.99]."""
@@ -78,6 +80,7 @@ class TestSnapToTick:
 
 
 # ═══ _compute_ob_imbalance — staticmethod ══════════════════════════════
+
 
 class TestOrderBookImbalance:
     """Top-of-book imbalance ∈ [-1, 1]. +1 = bid-heavy, -1 = ask-heavy."""
@@ -116,7 +119,7 @@ class TestOrderBookImbalance:
         ob = {
             "bids": [
                 {"price": 0.50, "size": None},  # malformed
-                {"price": 0.49, "size": 100},   # valid
+                {"price": 0.49, "size": 100},  # valid
             ],
             "asks": [{"price": 0.52, "size": 100}],
         }
@@ -126,6 +129,7 @@ class TestOrderBookImbalance:
 
 
 # ═══ _compute_queue_ahead_usd — staticmethod ═══════════════════════════
+
 
 class TestQueueAheadUsd:
     """FIFO maker-queue notional calc — how much USD sits AT or BETTER than our limit."""
@@ -140,7 +144,7 @@ class TestQueueAheadUsd:
             ]
         }
         ahead = EngineFillsMixin._compute_queue_ahead_usd(ob, 0.58, side="BUY")
-        expected = 0.60*100 + 0.59*200 + 0.58*150
+        expected = 0.60 * 100 + 0.59 * 200 + 0.58 * 150
         assert ahead == pytest.approx(expected, abs=0.01)
 
     def test_sell_side_accumulates_at_or_below_limit(self):
@@ -153,7 +157,7 @@ class TestQueueAheadUsd:
             ]
         }
         ahead = EngineFillsMixin._compute_queue_ahead_usd(ob, 0.62, side="SELL")
-        expected = 0.60*100 + 0.61*200 + 0.62*150
+        expected = 0.60 * 100 + 0.61 * 200 + 0.62 * 150
         assert ahead == pytest.approx(expected, abs=0.01)
 
     def test_no_matching_levels_zero(self):
@@ -167,6 +171,7 @@ class TestQueueAheadUsd:
 
 
 # ═══ _taker_fee — instance method, wraps fees_v2 ════════════════════════
+
 
 class TestTakerFee:
     """Phase 65: v1 removed, only v2 (Mart 2026 linear) active."""
@@ -188,6 +193,7 @@ class TestTakerFee:
 
 
 # ═══ _compute_slippage — instance method ═══════════════════════════════
+
 
 class TestComputeSlippage:
     """Signed signal→fill slippage percent (positive = adverse)."""
@@ -219,6 +225,7 @@ class TestComputeSlippage:
 
 
 # ═══ on_real_trade — maker-queue counter advance ═══════════════════════
+
 
 class TestOnRealTrade:
     """Phase 39 (P1.2): MarketRecorder → engine callback.
@@ -264,7 +271,9 @@ class TestOnRealTrade:
         """Taker orders don't get queue-counter advances."""
         h = FillsHarness()
         taker = SimpleNamespace(
-            is_maker=False, token_id="TOK1", limit_price=0.60,
+            is_maker=False,
+            token_id="TOK1",
+            limit_price=0.60,
             cum_traded_at_price_usd=0.0,
         )
         h._pending.append(taker)

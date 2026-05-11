@@ -36,6 +36,7 @@ Usage:
     )
     # result = ExecutionResult(filled=True, avg_price=..., shares=..., fee_usd=...)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -50,6 +51,7 @@ logger = logging.getLogger("polypaper.core.executor")
 @dataclass
 class OrderRequest:
     """Strategy-level order intent (executor-agnostic)."""
+
     token_id: str
     side: str  # "BUY" | "SELL"
     amount_usd: Optional[float] = None  # BUY için (notional)
@@ -67,6 +69,7 @@ class OrderRequest:
 @dataclass
 class ExecutionResult:
     """Executor output (live + paper aynı şema)."""
+
     filled: bool
     order_id: str = ""
     avg_price: float = 0.0
@@ -97,8 +100,7 @@ class Executor(ABC):
         ...
 
     @abstractmethod
-    async def cancel_order(self, order_id: str) -> bool:
-        ...
+    async def cancel_order(self, order_id: str) -> bool: ...
 
     @abstractmethod
     def get_balance_usd(self) -> float:
@@ -134,6 +136,7 @@ class PaperExecutor(Executor):
         # Use slippage_model for realistic fill
         try:
             from backtest.slippage_model import SlippageModel
+
             sim = SlippageModel(orderbook or {})
             if req.side == "BUY" and req.amount_usd:
                 fill = sim.simulate_market_buy(
@@ -180,7 +183,11 @@ class PaperExecutor(Executor):
                 asks = orderbook.get("asks") or []
                 if asks:
                     try:
-                        best_ask = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0].get("price", 0))
+                        best_ask = (
+                            float(asks[0][0])
+                            if isinstance(asks[0], (list, tuple))
+                            else float(asks[0].get("price", 0))
+                        )
                         if req.price and best_ask > req.price:
                             return ExecutionResult(
                                 filled=False,
@@ -249,7 +256,9 @@ class LiveExecutor(Executor):
                 )
             return ExecutionResult(
                 filled=False,
-                rejected_reason=result_dict.get("status", "unknown") if result_dict else "no_response",
+                rejected_reason=result_dict.get("status", "unknown")
+                if result_dict
+                else "no_response",
                 raw_response=result_dict or {},
                 executor_mode=self.mode,
             )
@@ -267,9 +276,7 @@ class LiveExecutor(Executor):
             if not client:
                 return False
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None, lambda: client.cancel_order(order_id)
-            )
+            response = await loop.run_in_executor(None, lambda: client.cancel_order(order_id))
             return bool(response.get("canceled")) if isinstance(response, dict) else False
         except Exception as e:  # noqa: BLE001
             logger.debug(f"live cancel fail: {e}")

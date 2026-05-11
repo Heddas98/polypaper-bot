@@ -15,18 +15,24 @@ Data flow:
 
 Does NOT touch existing engine.py — completely independent.
 """
+
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
-from dataclasses import dataclass, field
 
-from backtest.strategies.base import (
-    BacktestStrategy, BaseBacktestStrategy, MarketData, OrderbookSnapshot,
-    Signal, Resolution, Direction, StrategyRegistryV2
-)
-from backtest.simulation.fill_model import FillSimulator, FillMode
 from backtest.simulation.fee_model_v3 import FeeCalculatorV3 as FeeCalculator  # T4.1 unified
-from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats
+from backtest.simulation.fill_model import FillMode, FillSimulator
+from backtest.simulation.portfolio import PortfolioStats, VirtualPortfolio
+from backtest.strategies.base import (
+    BaseBacktestStrategy,
+    Direction,
+    MarketData,
+    OrderbookSnapshot,
+    Resolution,
+    Signal,
+    StrategyRegistryV2,
+)
 
 logger = logging.getLogger("polypaper.backtest.engine_v2")
 
@@ -43,22 +49,23 @@ MARKET_DURATIONS = {
 @dataclass
 class BacktestConfig:
     """Configuration for a backtest run."""
+
     strategy_name: str = "hour_edge"
     strategy_params: dict = field(default_factory=dict)
     # Portfolio
     initial_balance: float = 10000.0
     trade_amount: float = 1.0
     # Fill simulation
-    fill_mode: str = "midpoint"       # simple, midpoint, orderbook, market_impact
-    min_liquidity: float = 0.0        # minimum market volume
+    fill_mode: str = "midpoint"  # simple, midpoint, orderbook, market_impact
+    min_liquidity: float = 0.0  # minimum market volume
     # Filters
-    coin_filter: str = ""             # "" = all, "btc", "eth", etc.
-    market_type_filter: str = ""      # "" = all, "5m", "15m", etc.
-    direction_filter: str = ""        # "" = all, "up", "down"
+    coin_filter: str = ""  # "" = all, "btc", "eth", etc.
+    market_type_filter: str = ""  # "" = all, "5m", "15m", etc.
+    direction_filter: str = ""  # "" = all, "up", "down"
     hour_filter: list = field(default_factory=list)  # [] = all, [6, 22] = only these
-    min_confidence: float = 0.0       # minimum signal confidence
+    min_confidence: float = 0.0  # minimum signal confidence
     # Limits
-    max_markets: int = 0              # 0 = no limit
+    max_markets: int = 0  # 0 = no limit
 
 
 class BacktestEngineV2:
@@ -73,14 +80,16 @@ class BacktestEngineV2:
         # orderbook history instead of synthetic snapshots, giving 9/10 vs 4/10
         # realism. Keep v2 for the 11 legacy strategies until they're ported.
         import warnings
+
         warnings.warn(
             "BacktestEngineV2 is soft-deprecated (Phase 41c). "
             "Prefer backtest.replay_engine.ReplayEngine for new backtests "
             "(real L2 history, 9/10 realism). v2 remains available for the "
             "11 legacy synthetic strategies.",
-            DeprecationWarning, stacklevel=2)
-        logger.warning(
-            "⚠️ BacktestEngineV2 instantiated (deprecated — use ReplayEngine)")
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        logger.warning("⚠️ BacktestEngineV2 instantiated (deprecated — use ReplayEngine)")
         self.config = config or BacktestConfig()
         self.portfolio: Optional[VirtualPortfolio] = None
         self.fill_sim: Optional[FillSimulator] = None
@@ -114,8 +123,7 @@ class BacktestEngineV2:
 
         # Strategy
         self._strategy = StrategyRegistryV2.create(
-            self.config.strategy_name,
-            **self.config.strategy_params
+            self.config.strategy_name, **self.config.strategy_params
         )
         if not self._strategy:
             raise ValueError(
@@ -125,12 +133,15 @@ class BacktestEngineV2:
 
         logger.info(
             "Engine v2 setup: strategy=%s, balance=$%.0f, trade=$%.2f, fill=%s",
-            self.config.strategy_name, self.config.initial_balance,
-            self.config.trade_amount, self.config.fill_mode
+            self.config.strategy_name,
+            self.config.initial_balance,
+            self.config.trade_amount,
+            self.config.fill_mode,
         )
 
-    def run(self, markets: list[dict],
-            snapshots_by_market: dict[str, list[dict]]) -> PortfolioStats:
+    def run(
+        self, markets: list[dict], snapshots_by_market: dict[str, list[dict]]
+    ) -> PortfolioStats:
         """
         Run backtest over a set of markets.
 
@@ -165,8 +176,7 @@ class BacktestEngineV2:
                 continue
 
             # Max markets limit
-            if (self.config.max_markets > 0 and
-                    self._markets_processed >= self.config.max_markets):
+            if self.config.max_markets > 0 and self._markets_processed >= self.config.max_markets:
                 break
 
             self._run_market(market, snapshots)
@@ -175,15 +185,20 @@ class BacktestEngineV2:
         stats = self.portfolio.get_stats()
         logger.info(
             "Backtest complete: %d markets, %d trades, WR=%.1f%%, PnL=$%.2f",
-            self._markets_processed, stats.total_trades,
-            stats.win_rate, stats.total_pnl
+            self._markets_processed,
+            stats.total_trades,
+            stats.win_rate,
+            stats.total_pnl,
         )
         return stats
 
     # Phase 47f.10 P3#14 — train/test split against overfitting
-    def run_split(self, markets: list[dict],
-                  snapshots_by_market: dict[str, list[dict]],
-                  train_ratio: float = 0.70) -> dict:
+    def run_split(
+        self,
+        markets: list[dict],
+        snapshots_by_market: dict[str, list[dict]],
+        train_ratio: float = 0.70,
+    ) -> dict:
         """Split markets chronologically into train/test and run each.
 
         Returns {"train": PortfolioStats, "test": PortfolioStats,
@@ -193,16 +208,19 @@ class BacktestEngineV2:
             train_ratio = 0.70
 
         def _mkey(m: dict) -> int:
-            return int(m.get("end_time_ms") or m.get("end_date_ts")
-                       or m.get("created_ts") or 0)
+            return int(m.get("end_time_ms") or m.get("end_date_ts") or m.get("created_ts") or 0)
 
         sorted_mkts = sorted(markets, key=_mkey)
         if len(sorted_mkts) < 10:
             # Too small to split — run everything as train
             stats = self.run(sorted_mkts, snapshots_by_market)
-            return {"train": stats, "test": None,
-                    "divergence": None, "overfit": False,
-                    "note": "insufficient markets for split"}
+            return {
+                "train": stats,
+                "test": None,
+                "divergence": None,
+                "overfit": False,
+                "note": "insufficient markets for split",
+            }
 
         cut = int(len(sorted_mkts) * train_ratio)
         train_mkts = sorted_mkts[:cut]
@@ -226,17 +244,27 @@ class BacktestEngineV2:
         overfit = divergence["wr_delta"] > 10.0 or divergence["sign_flip"]
         logger.info(
             "Split backtest: train WR=%.1f%% PnL=$%.2f | test WR=%.1f%% PnL=$%.2f | overfit=%s",
-            train_stats.win_rate, train_stats.total_pnl,
-            test_stats.win_rate, test_stats.total_pnl, overfit
+            train_stats.win_rate,
+            train_stats.total_pnl,
+            test_stats.win_rate,
+            test_stats.total_pnl,
+            overfit,
         )
-        return {"train": train_stats, "test": test_stats,
-                "divergence": divergence, "overfit": overfit}
+        return {
+            "train": train_stats,
+            "test": test_stats,
+            "divergence": divergence,
+            "overfit": overfit,
+        }
 
     # Phase 65: Rolling walk-forward validation (5-fold)
-    def run_walk_forward(self, markets: list[dict],
-                         snapshots_by_market: dict[str, list[dict]],
-                         n_folds: int = 5,
-                         train_ratio: float = 0.70) -> dict:
+    def run_walk_forward(
+        self,
+        markets: list[dict],
+        snapshots_by_market: dict[str, list[dict]],
+        n_folds: int = 5,
+        train_ratio: float = 0.70,
+    ) -> dict:
         """Rolling walk-forward validation.
 
         Splits markets chronologically into N folds, then for each fold i:
@@ -253,19 +281,22 @@ class BacktestEngineV2:
                 }
             }
         """
+
         def _mkey(m: dict) -> int:
-            return int(m.get("end_time_ms") or m.get("end_date_ts")
-                       or m.get("created_ts") or 0)
+            return int(m.get("end_time_ms") or m.get("end_date_ts") or m.get("created_ts") or 0)
 
         sorted_mkts = sorted(markets, key=_mkey)
         total = len(sorted_mkts)
 
         if total < n_folds * 5:
             # Not enough markets for walk-forward
-            return {"folds": [], "summary": {
-                "note": f"insufficient markets ({total}) for {n_folds}-fold walk-forward",
-                "overfit": False
-            }}
+            return {
+                "folds": [],
+                "summary": {
+                    "note": f"insufficient markets ({total}) for {n_folds}-fold walk-forward",
+                    "overfit": False,
+                },
+            }
 
         fold_size = total // n_folds
         folds_result = []
@@ -294,26 +325,42 @@ class BacktestEngineV2:
                 "test_pnl": test_stats.total_pnl,
                 "sign_flip": (train_stats.total_pnl > 0) != (test_stats.total_pnl > 0),
             }
-            folds_result.append({
-                "train": train_stats, "test": test_stats,
-                "divergence": div,
-            })
+            folds_result.append(
+                {
+                    "train": train_stats,
+                    "test": test_stats,
+                    "divergence": div,
+                }
+            )
             logger.info(
                 "WF fold %d/%d: train(%d) WR=%.1f%% $%.2f | test(%d) WR=%.1f%% $%.2f",
-                i + 1, n_folds - 1,
-                len(train_mkts), train_stats.win_rate, train_stats.total_pnl,
-                len(test_mkts), test_stats.win_rate, test_stats.total_pnl,
+                i + 1,
+                n_folds - 1,
+                len(train_mkts),
+                train_stats.win_rate,
+                train_stats.total_pnl,
+                len(test_mkts),
+                test_stats.win_rate,
+                test_stats.total_pnl,
             )
 
         # Summary
         if folds_result:
-            avg_train_wr = sum(f["divergence"]["train_wr"] for f in folds_result) / len(folds_result)
+            avg_train_wr = sum(f["divergence"]["train_wr"] for f in folds_result) / len(
+                folds_result
+            )
             avg_test_wr = sum(f["divergence"]["test_wr"] for f in folds_result) / len(folds_result)
-            avg_train_pnl = sum(f["divergence"]["train_pnl"] for f in folds_result) / len(folds_result)
-            avg_test_pnl = sum(f["divergence"]["test_pnl"] for f in folds_result) / len(folds_result)
-            overfit_count = sum(1 for f in folds_result
-                                if f["divergence"]["wr_delta"] > 10.0
-                                or f["divergence"]["sign_flip"])
+            avg_train_pnl = sum(f["divergence"]["train_pnl"] for f in folds_result) / len(
+                folds_result
+            )
+            avg_test_pnl = sum(f["divergence"]["test_pnl"] for f in folds_result) / len(
+                folds_result
+            )
+            overfit_count = sum(
+                1
+                for f in folds_result
+                if f["divergence"]["wr_delta"] > 10.0 or f["divergence"]["sign_flip"]
+            )
             summary = {
                 "n_folds": len(folds_result),
                 "avg_train_wr": round(avg_train_wr, 1),
@@ -327,25 +374,25 @@ class BacktestEngineV2:
             logger.info(
                 "Walk-forward summary: %d folds, avg train WR=%.1f%% test WR=%.1f%% "
                 "Δ=%.1f%% overfit=%d/%d",
-                len(folds_result), avg_train_wr, avg_test_wr,
-                avg_train_wr - avg_test_wr, overfit_count, len(folds_result),
+                len(folds_result),
+                avg_train_wr,
+                avg_test_wr,
+                avg_train_wr - avg_test_wr,
+                overfit_count,
+                len(folds_result),
             )
         else:
             summary = {"n_folds": 0, "note": "no valid folds", "overfit": False}
 
         return {"folds": folds_result, "summary": summary}
 
-    def _run_market(self, market: MarketData,
-                    raw_snapshots: list[dict]):
+    def _run_market(self, market: MarketData, raw_snapshots: list[dict]):
         """Process a single market episode."""
         # Sort snapshots by time
-        raw_snapshots.sort(
-            key=lambda s: s.get("timestamp_ms", s.get("timestamp", 0))
-        )
+        raw_snapshots.sort(key=lambda s: s.get("timestamp_ms", s.get("timestamp", 0)))
 
         duration = MARKET_DURATIONS.get(market.market_type, 300)
-        first_ts = raw_snapshots[0].get("timestamp_ms",
-                                         raw_snapshots[0].get("timestamp", 0))
+        first_ts = raw_snapshots[0].get("timestamp_ms", raw_snapshots[0].get("timestamp", 0))
 
         # Strategy: market open
         self._strategy.on_market_open(market)
@@ -400,8 +447,7 @@ class BacktestEngineV2:
                     market_type=market.market_type,
                     strategy=self.config.strategy_name,
                     hour_utc=market.hour_utc,
-                    entry_time_pct=signal_snapshot.elapsed_pct
-                        if signal_snapshot else 0,
+                    entry_time_pct=signal_snapshot.elapsed_pct if signal_snapshot else 0,
                 )
                 if trade:
                     self.portfolio.close_trade(trade, winner_str)
@@ -457,8 +503,7 @@ class BacktestEngineV2:
             hour_utc=hour,
         )
 
-    def _parse_snapshot(self, raw: dict, first_ts: int,
-                        duration: int) -> OrderbookSnapshot:
+    def _parse_snapshot(self, raw: dict, first_ts: int, duration: int) -> OrderbookSnapshot:
         """Parse raw snapshot dict into OrderbookSnapshot."""
         ts = raw.get("timestamp_ms", raw.get("timestamp", 0))
         elapsed_ms = ts - first_ts if first_ts else 0
@@ -501,8 +546,8 @@ class BacktestEngineV2:
           80%: up=0.62  (late convergence zone)
           95%: up=0.72  (strong convergence)
         """
-        import time as _time
         import hashlib
+        import time as _time
 
         mtype = market_dict.get("market_type", "5m")
         duration = MARKET_DURATIONS.get(mtype, 300)
@@ -541,20 +586,20 @@ class BacktestEngineV2:
         if up_wins:
             # UP wins: price starts near 0.50, dips early, then rises
             stages = [
-                (0.05, 0.48 + var, 1.05),   # early: slight UP lean
-                (0.20, 0.44 + var, 1.12),   # early-mid: dip triggers arb
-                (0.50, 0.55 + var, 1.20),   # mid: shift toward UP
-                (0.80, 0.62 + var, 1.35),   # late: convergence
-                (0.95, 0.72 + var, 1.50),   # final: strong UP
+                (0.05, 0.48 + var, 1.05),  # early: slight UP lean
+                (0.20, 0.44 + var, 1.12),  # early-mid: dip triggers arb
+                (0.50, 0.55 + var, 1.20),  # mid: shift toward UP
+                (0.80, 0.62 + var, 1.35),  # late: convergence
+                (0.95, 0.72 + var, 1.50),  # final: strong UP
             ]
         else:
             # DOWN wins: UP price starts near 0.50, rises early, drops
             stages = [
-                (0.05, 0.52 - var, 1.05),   # early: slight DOWN lean
-                (0.20, 0.56 - var, 1.12),   # early-mid: UP overpriced
-                (0.50, 0.45 - var, 1.20),   # mid: shift toward DOWN
-                (0.80, 0.38 - var, 1.35),   # late: convergence
-                (0.95, 0.28 - var, 1.50),   # final: strong DOWN
+                (0.05, 0.52 - var, 1.05),  # early: slight DOWN lean
+                (0.20, 0.56 - var, 1.12),  # early-mid: UP overpriced
+                (0.50, 0.45 - var, 1.20),  # mid: shift toward DOWN
+                (0.80, 0.38 - var, 1.35),  # late: convergence
+                (0.95, 0.28 - var, 1.50),  # final: strong DOWN
             ]
 
         snapshots = []
@@ -600,25 +645,26 @@ class BacktestEngineV2:
             if not up_wins:
                 btc_shift = -btc_shift
 
-            snapshots.append({
-                "timestamp_ms": ts,
-                "up_best_bid": up_bid,
-                "up_best_ask": up_ask,
-                "down_best_bid": down_bid,
-                "down_best_ask": down_ask,
-                "spread": spread,
-                "binance_price": btc_price + btc_shift,
-                "up_bid_depth": round(up_bid_d, 2),
-                "up_ask_depth": round(up_ask_d, 2),
-                "down_bid_depth": round(down_bid_d, 2),
-                "down_ask_depth": round(down_ask_d, 2),
-                "taker_buy_volume": round(cumul_buy, 2),
-                "taker_sell_volume": round(cumul_sell, 2),
-                "_synthetic": True,
-            })
+            snapshots.append(
+                {
+                    "timestamp_ms": ts,
+                    "up_best_bid": up_bid,
+                    "up_best_ask": up_ask,
+                    "down_best_bid": down_bid,
+                    "down_best_ask": down_ask,
+                    "spread": spread,
+                    "binance_price": btc_price + btc_shift,
+                    "up_bid_depth": round(up_bid_d, 2),
+                    "up_ask_depth": round(up_ask_d, 2),
+                    "down_bid_depth": round(down_bid_d, 2),
+                    "down_ask_depth": round(down_ask_d, 2),
+                    "taker_buy_volume": round(cumul_buy, 2),
+                    "taker_sell_volume": round(cumul_sell, 2),
+                    "_synthetic": True,
+                }
+            )
 
         return snapshots
-
 
         """Return run summary dict."""
         stats = self.portfolio.get_stats() if self.portfolio else PortfolioStats()

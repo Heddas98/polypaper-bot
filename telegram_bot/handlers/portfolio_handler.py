@@ -15,15 +15,16 @@ zorla fresh fetch tetikler.
 
 Admin-only komut. ``settings.is_admin(telegram_id)`` ile gate.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from telegram_bot.templates.safe_html import esc
@@ -44,8 +45,7 @@ async def _read_cache(db) -> tuple[Optional[dict], Optional[str]]:
     """Read latest snapshot from DB cache. Returns (snapshot_dict, fetched_at_iso)."""
     try:
         async with db.conn.execute(
-            "SELECT snapshot_json, fetched_at FROM polymarket_portfolio_cache "
-            "WHERE id=1"
+            "SELECT snapshot_json, fetched_at FROM polymarket_portfolio_cache " "WHERE id=1"
         ) as cur:
             row = await cur.fetchone()
         if not row:
@@ -63,8 +63,8 @@ def _is_stale(fetched_at_iso: Optional[str]) -> bool:
     try:
         fetched = datetime.fromisoformat(fetched_at_iso.replace("Z", "+00:00"))
         if fetched.tzinfo is None:
-            fetched = fetched.replace(tzinfo=timezone.utc)
-        delta = (datetime.now(timezone.utc) - fetched).total_seconds()
+            fetched = fetched.replace(tzinfo=UTC)
+        delta = (datetime.now(UTC) - fetched).total_seconds()
         return delta > STALE_THRESHOLD_SEC
     except (ValueError, TypeError):
         return True
@@ -76,8 +76,8 @@ def _age_human(fetched_at_iso: Optional[str]) -> str:
     try:
         fetched = datetime.fromisoformat(fetched_at_iso.replace("Z", "+00:00"))
         if fetched.tzinfo is None:
-            fetched = fetched.replace(tzinfo=timezone.utc)
-        delta = int((datetime.now(timezone.utc) - fetched).total_seconds())
+            fetched = fetched.replace(tzinfo=UTC)
+        delta = int((datetime.now(UTC) - fetched).total_seconds())
         if delta < 60:
             return f"{delta}s önce"
         if delta < 3600:
@@ -89,30 +89,33 @@ def _age_human(fetched_at_iso: Optional[str]) -> str:
 
 def _build_keyboard(active_tab: str = "summary") -> InlineKeyboardMarkup:
     """6-tab navigation (4 view + 2 actions row) + refresh button."""
+
     def _btn(label: str, tab: str) -> InlineKeyboardButton:
         prefix = "▸ " if tab == active_tab else "  "
         return InlineKeyboardButton(prefix + label, callback_data=f"pf_tab_{tab}")
 
-    return InlineKeyboardMarkup([
-        # Row 1-2: Read-only tabs
-        [_btn("💼 Özet", "summary"), _btn("💰 Bakiye", "balance")],
-        [_btn("📊 Pozisyonlar", "positions"), _btn("📜 Trades", "trades")],
-        # Row 3-4: Actions (Aşama 2)
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("📥 Yatır", callback_data="pf_act_deposit"),
-            InlineKeyboardButton("📤 Çek", callback_data="pf_act_withdraw"),
-        ],
-        [
-            InlineKeyboardButton("🔓 Allowance", callback_data="pf_act_approve"),
-            InlineKeyboardButton("📂 Wallet Yönet", callback_data="pf_act_wallet"),
-        ],
-        # Row 5: Refresh
-        # P0-03 (2026-05-08): "🔑 PK Export" button removed — exposed full
-        # private key over Telegram. PK access now via OS keychain (P0-02).
-        [
-            InlineKeyboardButton("🔄 Yenile", callback_data="pf_refresh"),
-        ],
-    ])
+            # Row 1-2: Read-only tabs
+            [_btn("💼 Özet", "summary"), _btn("💰 Bakiye", "balance")],
+            [_btn("📊 Pozisyonlar", "positions"), _btn("📜 Trades", "trades")],
+            # Row 3-4: Actions (Aşama 2)
+            [
+                InlineKeyboardButton("📥 Yatır", callback_data="pf_act_deposit"),
+                InlineKeyboardButton("📤 Çek", callback_data="pf_act_withdraw"),
+            ],
+            [
+                InlineKeyboardButton("🔓 Allowance", callback_data="pf_act_approve"),
+                InlineKeyboardButton("📂 Wallet Yönet", callback_data="pf_act_wallet"),
+            ],
+            # Row 5: Refresh
+            # P0-03 (2026-05-08): "🔑 PK Export" button removed — exposed full
+            # private key over Telegram. PK access now via OS keychain (P0-02).
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="pf_refresh"),
+            ],
+        ]
+    )
 
 
 def _render_summary(snap: dict, fetched_at: str) -> str:
@@ -127,6 +130,7 @@ def _render_summary(snap: dict, fetched_at: str) -> str:
 
     # 2026-04-29 Aşama 3.B: mode banner
     from telegram_bot.templates.mode_banner import format_banner
+
     lines = [
         format_banner().rstrip(),
         "",
@@ -142,7 +146,9 @@ def _render_summary(snap: dict, fetched_at: str) -> str:
     ]
     if errors:
         lines.append("")
-        lines.append(f"⚠ <i>{len(errors)} fetch hatası</i> — detay: <code>{esc(str(errors[0])[:80])}</code>")
+        lines.append(
+            f"⚠ <i>{len(errors)} fetch hatası</i> — detay: <code>{esc(str(errors[0])[:80])}</code>"
+        )
     return "\n".join(lines)
 
 
@@ -240,8 +246,9 @@ def _render_trades(snap: dict, fetched_at: str) -> str:
         fee = float(t.get("fee_usd", 0))
         status = str(t.get("status", ""))
         emoji = {"BUY": "📈", "SELL": "📉"}.get(side, "•")
-        status_icon = {"CONFIRMED": "✅", "MINED": "⏳", "RETRYING": "🔄",
-                       "FAILED": "❌"}.get(status, "❓")
+        status_icon = {"CONFIRMED": "✅", "MINED": "⏳", "RETRYING": "🔄", "FAILED": "❌"}.get(
+            status, "❓"
+        )
         lines.append(
             f"{emoji} <b>{esc(side)}</b> {esc(role)} "
             f"{shares:.1f}@${price:.3f} fee=${fee:.3f} {status_icon}\n"
@@ -290,9 +297,7 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     text = _render_summary(snap, fetched_at)
     if _is_stale(fetched_at):
-        text = (
-            "⚠ <i>Cache stale (> 5 dk). Yenile butonuna basın.</i>\n\n" + text
-        )
+        text = "⚠ <i>Cache stale (> 5 dk). Yenile butonuna basın.</i>\n\n" + text
     await update.message.reply_text(
         text, parse_mode="HTML", reply_markup=_build_keyboard("summary")
     )
@@ -318,6 +323,7 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await q.answer("Yenileniyor...")
         try:
             from data.polymarket_portfolio import build_snapshot
+
             snap_obj = await build_snapshot()
             snap = snap_obj.to_dict()
             fetched_at = snap_obj.fetched_at
@@ -333,10 +339,13 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     "fetched_at=excluded.fetched_at, "
                     "fetch_latency_ms=excluded.fetch_latency_ms, "
                     "error_count=excluded.error_count",
-                    (snap_obj.user_address,
-                     json.dumps(snap, ensure_ascii=False, default=str),
-                     snap_obj.fetched_at, snap_obj.fetch_latency_ms,
-                     len(snap_obj.fetch_errors)),
+                    (
+                        snap_obj.user_address,
+                        json.dumps(snap, ensure_ascii=False, default=str),
+                        snap_obj.fetched_at,
+                        snap_obj.fetch_latency_ms,
+                        len(snap_obj.fetch_errors),
+                    ),
                 )
                 await db.conn.commit()
             except aiosqlite.Error as e:
@@ -349,9 +358,7 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
         text = _render_summary(snap, fetched_at)
-        await q.edit_message_text(
-            text, parse_mode="HTML", reply_markup=_build_keyboard("summary")
-        )
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=_build_keyboard("summary"))
         return
 
     # Tab switch
@@ -366,9 +373,7 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         await q.answer()
         text = _RENDERERS[tab](snap, fetched_at)
-        await q.edit_message_text(
-            text, parse_mode="HTML", reply_markup=_build_keyboard(tab)
-        )
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=_build_keyboard(tab))
         return
 
     # 2026-04-29 Aşama 2 Actions
@@ -381,8 +386,10 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> None:
     """A1-A5 inline action handler."""
     from data.polymarket_actions import (
-        approve_allowance, deposit_info, withdraw_info,
+        approve_allowance,
+        deposit_info,
         wallet_import_steps,
+        withdraw_info,
     )
 
     # A2 — Deposit info
@@ -411,14 +418,15 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
         )
         try:
             await q.edit_message_text(
-                text, parse_mode="HTML",
+                text,
+                parse_mode="HTML",
                 reply_markup=_back_keyboard(),
                 disable_web_page_preview=True,
             )
             # Send QR image as separate photo
             await context.bot.send_photo(
                 chat_id=q.message.chat_id,
-                photo=info['qr_image_url'],
+                photo=info["qr_image_url"],
                 caption=f"QR: {info['address']}",
             )
         except Exception as e:  # noqa: BLE001
@@ -439,7 +447,8 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
             f"<i>{esc(info['note'])}</i>"
         )
         await q.edit_message_text(
-            text, parse_mode="HTML",
+            text,
+            parse_mode="HTML",
             reply_markup=_back_keyboard(),
             disable_web_page_preview=True,
         )
@@ -477,7 +486,8 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
             f"{esc(steps['warning'])}"
         )
         await q.edit_message_text(
-            text, parse_mode="HTML",
+            text,
+            parse_mode="HTML",
             reply_markup=_back_keyboard(),
         )
         return
@@ -492,7 +502,8 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
         )
         logger.warning(
             "PK_EXPORT_BLOCKED: user_id=%s username=%s — feature deleted",
-            q.from_user.id, q.from_user.username,
+            q.from_user.id,
+            q.from_user.username,
         )
         return
 
@@ -501,6 +512,8 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
 
 def _back_keyboard() -> InlineKeyboardMarkup:
     """Single 'Geri' button leading to portfolio summary tab."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("◂ Geri", callback_data="pf_tab_summary")],
-    ])
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("◂ Geri", callback_data="pf_tab_summary")],
+        ]
+    )

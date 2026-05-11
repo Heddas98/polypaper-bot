@@ -26,18 +26,17 @@ Exit code:
     1: DB not readable
     2: no settled trades (insufficient data)
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import statistics
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "data_store" / "polypaper.db"
@@ -88,9 +87,7 @@ def _stats(vals: List[float]) -> Dict[str, Any]:
 def load_executions(db_path: Path) -> List[Dict[str, Any]]:
     """Read settled executions with realized_slippage populated."""
     try:
-        conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro", uri=True, timeout=30.0
-        )
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
     except sqlite3.Error as e:
         print(f"ERROR: DB open failed: {e}", file=sys.stderr)
         return []
@@ -100,10 +97,22 @@ def load_executions(db_path: Path) -> List[Dict[str, Any]]:
         cols_info = conn.execute("PRAGMA table_info(executions)").fetchall()
         col_names = {row[1] for row in cols_info}
         # Core columns needed
-        select_cols = ["id", "direction", "trade_amount", "result",
-                       "realized_slippage", "created_at", "closed_at"]
-        optional = ["is_maker", "strategy_id", "regime_at_entry",
-                    "execution_price", "odds_threshold"]
+        select_cols = [
+            "id",
+            "direction",
+            "trade_amount",
+            "result",
+            "realized_slippage",
+            "created_at",
+            "closed_at",
+        ]
+        optional = [
+            "is_maker",
+            "strategy_id",
+            "regime_at_entry",
+            "execution_price",
+            "odds_threshold",
+        ]
         for c in optional:
             if c in col_names:
                 select_cols.append(c)
@@ -116,7 +125,7 @@ def load_executions(db_path: Path) -> List[Dict[str, Any]]:
             "  AND status != 'pending'"
         )
         cur = conn.execute(sql)
-        rows = [dict(zip(select_cols, r)) for r in cur.fetchall()]
+        rows = [dict(zip(select_cols, r, strict=False)) for r in cur.fetchall()]
         return rows
     finally:
         conn.close()
@@ -125,18 +134,13 @@ def load_executions(db_path: Path) -> List[Dict[str, Any]]:
 def load_strategy_map(db_path: Path) -> Dict[str, Dict[str, str]]:
     """Map strategy_id -> {asset, timeframe, strategy_type}."""
     try:
-        conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro", uri=True, timeout=10.0
-        )
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
     except sqlite3.Error:
         return {}
     try:
-        cur = conn.execute(
-            "SELECT id, asset, timeframe, strategy_type FROM strategies"
-        )
+        cur = conn.execute("SELECT id, asset, timeframe, strategy_type FROM strategies")
         return {
-            r[0]: {"asset": r[1], "timeframe": r[2], "strategy_type": r[3]}
-            for r in cur.fetchall()
+            r[0]: {"asset": r[1], "timeframe": r[2], "strategy_type": r[3]} for r in cur.fetchall()
         }
     except sqlite3.Error:
         return {}
@@ -150,8 +154,7 @@ def bucket_and_stats(
 ) -> Dict[str, Any]:
     """Compute percentiles across bucket dimensions."""
     overall: List[float] = []
-    by_maker: Dict[str, List[float]] = {"maker": [], "taker": [],
-                                        "unknown": []}
+    by_maker: Dict[str, List[float]] = {"maker": [], "taker": [], "unknown": []}
     by_direction: Dict[str, List[float]] = {}
     by_amount: Dict[str, List[float]] = {}
     by_strategy_type: Dict[str, List[float]] = {}
@@ -202,9 +205,7 @@ def bucket_and_stats(
         "by_maker": {k: _stats(v) for k, v in by_maker.items()},
         "by_direction": {k: _stats(v) for k, v in by_direction.items()},
         "by_amount": {k: _stats(v) for k, v in by_amount.items()},
-        "by_strategy_type": {
-            k: _stats(v) for k, v in by_strategy_type.items()
-        },
+        "by_strategy_type": {k: _stats(v) for k, v in by_strategy_type.items()},
         "by_asset": {k: _stats(v) for k, v in by_asset.items()},
         "by_regime": {k: _stats(v) for k, v in by_regime.items()},
     }
@@ -215,16 +216,13 @@ def format_console(result: Dict[str, Any], total_rows: int) -> str:
     lines.append("=" * 70)
     lines.append("T4.5 Empirical Slippage Calibration")
     lines.append("=" * 70)
-    lines.append(
-        f"Total settled trades with slippage: {total_rows}"
-    )
+    lines.append(f"Total settled trades with slippage: {total_rows}")
     lines.append("")
 
     def _fmt_table(title: str, d: Dict[str, Any]) -> List[str]:
         out = [f"## {title}"]
         out.append(
-            f"{'bucket':<20} {'n':>6} {'mean':>8} {'p10':>8} "
-            f"{'p50':>8} {'p90':>8} {'p99':>8}"
+            f"{'bucket':<20} {'n':>6} {'mean':>8} {'p10':>8} " f"{'p50':>8} {'p90':>8} {'p99':>8}"
         )
         out.append("-" * 70)
         for k, s in sorted(d.items(), key=lambda kv: -(kv[1].get("n") or 0)):
@@ -242,8 +240,7 @@ def format_console(result: Dict[str, Any], total_rows: int) -> str:
     ov = result["overall"]
     lines.append("## Overall")
     lines.append(
-        f"  n={ov.get('n', 0)} mean={ov.get('mean', 0):.4f} "
-        f"stdev={ov.get('stdev', 0):.4f}"
+        f"  n={ov.get('n', 0)} mean={ov.get('mean', 0):.4f} " f"stdev={ov.get('stdev', 0):.4f}"
     )
     lines.append(
         f"  p10={ov.get('p10', 0):.4f} p50={ov.get('p50', 0):.4f} "
@@ -285,19 +282,20 @@ def format_console(result: Dict[str, Any], total_rows: int) -> str:
             f"(reference -- maker fills are better; adjust fee_rebate if needed)"
         )
     lines.append("")
-    lines.append("Review fill_model.py heuristics vs above and update "
-                 "config/settings.py or .env overrides accordingly.")
+    lines.append(
+        "Review fill_model.py heuristics vs above and update "
+        "config/settings.py or .env overrides accordingly."
+    )
     return "\n".join(lines)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="T4.5 slippage calibration")
-    parser.add_argument("--db", default=str(DEFAULT_DB),
-                        help=f"DB path (default: {DEFAULT_DB})")
-    parser.add_argument("--out", default=str(DEFAULT_OUT),
-                        help=f"JSON output (default: {DEFAULT_OUT})")
-    parser.add_argument("--quiet", action="store_true",
-                        help="JSON-only mode (no console tables)")
+    parser.add_argument("--db", default=str(DEFAULT_DB), help=f"DB path (default: {DEFAULT_DB})")
+    parser.add_argument(
+        "--out", default=str(DEFAULT_OUT), help=f"JSON output (default: {DEFAULT_OUT})"
+    )
+    parser.add_argument("--quiet", action="store_true", help="JSON-only mode (no console tables)")
     args = parser.parse_args()
 
     db = Path(args.db)
@@ -309,13 +307,11 @@ def main() -> int:
         print(f"[calibrate] Loading executions from {db}...")
     rows = load_executions(db)
     if not rows:
-        print(f"ERROR: no settled trades with realized_slippage in {db}",
-              file=sys.stderr)
+        print(f"ERROR: no settled trades with realized_slippage in {db}", file=sys.stderr)
         return 2
 
     if not args.quiet:
-        print(f"[calibrate] Loaded {len(rows)} rows. "
-              f"Loading strategy map...")
+        print(f"[calibrate] Loaded {len(rows)} rows. " f"Loading strategy map...")
     strat_map = load_strategy_map(db)
     if not args.quiet:
         print(f"[calibrate] Strategy map: {len(strat_map)} entries")
@@ -329,7 +325,7 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "db_path": str(db),
         "total_rows": len(rows),
         "buckets": result,

@@ -43,6 +43,7 @@ THREAD/ASYNC SAFETY
 The append-only deque is thread-safe enough for our single-event-loop
 asyncio use. If a future caller spawns workers, wrap with `asyncio.Lock`.
 """
+
 from __future__ import annotations
 
 import json
@@ -77,8 +78,7 @@ def enabled() -> bool:
         except (TypeError, ValueError):
             _BUFFER_SIZE = 10_000
         if _ENABLED:
-            logger.info(
-                f"REST timing telemetry ENABLED (buffer={_BUFFER_SIZE}/label)")
+            logger.info(f"REST timing telemetry ENABLED (buffer={_BUFFER_SIZE}/label)")
     return _ENABLED
 
 

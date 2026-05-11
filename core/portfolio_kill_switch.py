@@ -26,13 +26,14 @@ ENV (T6.1 hot-tune pattern):
 - KILL_WEEKLY_MAX_DD_PCT       (default 0.20 = %20)
 - KILL_SWITCH_ENABLED          (default true; "false" → bypass)
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Optional
 
 logger = logging.getLogger("polypaper.core.portfolio_kill_switch")
@@ -69,6 +70,7 @@ HALT_DISABLED = "KILL_SWITCH_DISABLED"
 @dataclass
 class KillSwitchState:
     """Persistent state (in-memory; engine.risk DB persist optional)."""
+
     consecutive_losses: int = 0
     consecutive_cooldown_until: float = 0.0  # epoch seconds
     daily_pnl_baseline: float = 0.0  # equity at day start
@@ -84,6 +86,7 @@ class KillSwitchState:
 @dataclass
 class HaltDecision:
     """Output of `evaluate()`."""
+
     halted: bool
     reason: str
     detail: str
@@ -164,10 +167,10 @@ class PortfolioKillSwitch:
     # ---------- Daily / Weekly baselines ----------
 
     def _today_str(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return datetime.now(UTC).strftime("%Y-%m-%d")
 
     def _week_str(self) -> str:
-        d = datetime.now(timezone.utc)
+        d = datetime.now(UTC)
         # ISO week (year + week number)
         iso = d.isocalendar()
         return f"{iso.year}-W{iso.week:02d}"
@@ -201,7 +204,8 @@ class PortfolioKillSwitch:
 
         if not self.enabled:
             return HaltDecision(
-                halted=False, reason=HALT_DISABLED,
+                halted=False,
+                reason=HALT_DISABLED,
                 detail="KILL_SWITCH_ENABLED=false",
             )
 
@@ -210,7 +214,8 @@ class PortfolioKillSwitch:
         # 1. Weekly emergency (highest priority — manual reset gerek)
         if self.state.weekly_emergency_triggered:
             return HaltDecision(
-                halted=True, reason=HALT_WEEKLY,
+                halted=True,
+                reason=HALT_WEEKLY,
                 detail="Weekly emergency triggered — admin /reset_weekly_emergency required",
                 weekly_pnl_pct=self._weekly_pct(current_equity),
             )
@@ -225,9 +230,10 @@ class PortfolioKillSwitch:
                 f"<= -{self.weekly_max_dd_pct*100:.0f}%"
             )
             return HaltDecision(
-                halted=True, reason=HALT_WEEKLY,
+                halted=True,
+                reason=HALT_WEEKLY,
                 detail=f"Weekly drawdown {weekly_pct*100:.2f}% reached threshold "
-                       f"-{self.weekly_max_dd_pct*100:.0f}%",
+                f"-{self.weekly_max_dd_pct*100:.0f}%",
                 weekly_pnl_pct=weekly_pct,
             )
 
@@ -237,9 +243,10 @@ class PortfolioKillSwitch:
             self.state.last_trigger_reason = HALT_DAILY
             self.state.last_trigger_ts = now
             return HaltDecision(
-                halted=True, reason=HALT_DAILY,
+                halted=True,
+                reason=HALT_DAILY,
                 detail=f"Daily loss {daily_pct*100:.2f}% reached threshold "
-                       f"-{self.daily_max_loss_pct*100:.0f}%",
+                f"-{self.daily_max_loss_pct*100:.0f}%",
                 daily_pnl_pct=daily_pct,
                 weekly_pnl_pct=weekly_pct,
             )
@@ -248,9 +255,10 @@ class PortfolioKillSwitch:
         if self.state.consecutive_cooldown_until > now:
             remaining = int(self.state.consecutive_cooldown_until - now)
             return HaltDecision(
-                halted=True, reason=HALT_CONSECUTIVE,
+                halted=True,
+                reason=HALT_CONSECUTIVE,
                 detail=f"{self.state.consecutive_losses} consecutive losses; "
-                       f"cooldown {remaining}s remaining",
+                f"cooldown {remaining}s remaining",
                 consecutive_losses=self.state.consecutive_losses,
                 cooldown_remaining_s=remaining,
                 daily_pnl_pct=daily_pct,
@@ -258,7 +266,9 @@ class PortfolioKillSwitch:
             )
 
         return HaltDecision(
-            halted=False, reason=HALT_NONE, detail="OK",
+            halted=False,
+            reason=HALT_NONE,
+            detail="OK",
             daily_pnl_pct=daily_pct,
             weekly_pnl_pct=weekly_pct,
             consecutive_losses=self.state.consecutive_losses,

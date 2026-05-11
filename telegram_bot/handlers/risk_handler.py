@@ -4,14 +4,16 @@ Emergency controls and risk dashboard from Telegram.
 
 Phase 51 P51-03 — risk_hub.py merged into this file.
 """
-import asyncio
+
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
 from config.settings import Settings
-from telegram_bot.templates.safe_html import esc, fmt_usd
 from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+from telegram_bot.templates.safe_html import esc, fmt_usd
 
 logger = logging.getLogger("polypaper.handlers.risk")
 
@@ -43,7 +45,8 @@ async def kill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"All trading halted. Pending orders cancelled.\n"
         f"Open positions will still be monitored for settlement.\n\n"
         f"Use /resume to restart trading.",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -61,7 +64,8 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ <b>Trading Resumed</b>\n\n"
         "Kill switch deactivated.\nRisk halt reset.\n"
         "Engine will evaluate strategies on next cycle.",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def streak_reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -74,7 +78,8 @@ async def streak_reset_command(update: Update, context: ContextTypes.DEFAULT_TYP
     old = engine.risk.reset_streak()
     await update.message.reply_text(
         f"✅ <b>Streak Reset</b>\n\nKayip serisi: {old} → 0\nTrade'ler tekrar acilabilir.",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -96,7 +101,9 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rh_text = rs["halt_reason"] if rs["halted"] else "No halt"
 
     # Exposure bar
-    exp_pct = (rs["total_exposure"] / limits["max_exposure"] * 100) if limits["max_exposure"] > 0 else 0
+    exp_pct = (
+        (rs["total_exposure"] / limits["max_exposure"] * 100) if limits["max_exposure"] > 0 else 0
+    )
     exp_bar = "█" * int(exp_pct / 10) + "░" * (10 - int(exp_pct / 10))
 
     text = (
@@ -117,10 +124,12 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Pending orders: {len(engine._pending)}"
     )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_risk")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_risk")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -137,7 +146,9 @@ async def risk_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lm = engine.risk.limits
 
     ks_emoji = "🛑" if ks["killed"] else "✅"
-    exp_pct = (rs["total_exposure"] / lm.max_total_exposure * 100) if lm.max_total_exposure > 0 else 0
+    exp_pct = (
+        (rs["total_exposure"] / lm.max_total_exposure * 100) if lm.max_total_exposure > 0 else 0
+    )
     exp_bar = "█" * int(exp_pct / 10) + "░" * (10 - int(exp_pct / 10))
 
     text = (
@@ -154,20 +165,50 @@ async def risk_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fe_secs = _get_fe_seconds()
     fe_label = f"⚡ Force Exit: {fe_secs}s ✅" if fe_secs > 0 else "⚡ Force Exit: OFF"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"💰 Max Poz: ${lm.max_position_size}", callback_data="re_pos"),
-         InlineKeyboardButton(f"📊 Max Açık: {lm.max_open_positions}", callback_data="re_open")],
-        [InlineKeyboardButton(f"💼 Max Exp: ${lm.max_total_exposure}", callback_data="re_exp"),
-         InlineKeyboardButton(f"📉 Gün Kayıp: ${lm.max_daily_loss}", callback_data="re_loss")],
-        [InlineKeyboardButton(f"🔢 Max Trade: {lm.max_daily_trades}", callback_data="re_trades"),
-         InlineKeyboardButton(f"🔥 Max Streak: {lm.max_loss_streak}", callback_data="re_streak")],
-        [InlineKeyboardButton(f"🏦 Min Bakiye: ${lm.min_balance_floor}", callback_data="re_floor"),
-         InlineKeyboardButton(f"🎯 Market Max: ${lm.max_single_market_exposure}", callback_data="re_market")],
-        [InlineKeyboardButton(fe_label, callback_data="fe_toggle"),
-         InlineKeyboardButton("✏️ Ayarla", callback_data="fe_edit")],
-        [InlineKeyboardButton("🔄 Yenile", callback_data="show_risk"),
-         InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"💰 Max Poz: ${lm.max_position_size}", callback_data="re_pos"
+                ),
+                InlineKeyboardButton(
+                    f"📊 Max Açık: {lm.max_open_positions}", callback_data="re_open"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"💼 Max Exp: ${lm.max_total_exposure}", callback_data="re_exp"
+                ),
+                InlineKeyboardButton(
+                    f"📉 Gün Kayıp: ${lm.max_daily_loss}", callback_data="re_loss"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"🔢 Max Trade: {lm.max_daily_trades}", callback_data="re_trades"
+                ),
+                InlineKeyboardButton(
+                    f"🔥 Max Streak: {lm.max_loss_streak}", callback_data="re_streak"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"🏦 Min Bakiye: ${lm.min_balance_floor}", callback_data="re_floor"
+                ),
+                InlineKeyboardButton(
+                    f"🎯 Market Max: ${lm.max_single_market_exposure}", callback_data="re_market"
+                ),
+            ],
+            [
+                InlineKeyboardButton(fe_label, callback_data="fe_toggle"),
+                InlineKeyboardButton("✏️ Ayarla", callback_data="fe_edit"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="show_risk"),
+                InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard"),
+            ],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -187,15 +228,18 @@ RISK_FIELDS = {
 # Phase 53b: Force Exit — toggle + edit from Telegram
 # ---------------------------------------------------------------------------
 
+
 def _get_fe_seconds() -> int:
     """Read current FORCE_EXIT_SECONDS from engine_monitor module."""
     import core.engine_monitor as em
+
     return em.FORCE_EXIT_SECONDS
 
 
 def _set_fe_seconds(val: int):
     """Write FORCE_EXIT_SECONDS into engine_monitor module (runtime)."""
     import core.engine_monitor as em
+
     em.FORCE_EXIT_SECONDS = val
 
 
@@ -223,12 +267,13 @@ async def force_exit_toggle_callback(update: Update, context: ContextTypes.DEFAU
     if db:
         await db.set_setting("risk.force_exit_seconds", str(new_val))
 
-    status = f"OFF" if new_val == 0 else f"{new_val}s"
+    status = "OFF" if new_val == 0 else f"{new_val}s"
     await q.message.reply_text(
         f"⚡ <b>Force Exit: {status}</b>\n"
         f"{'Devre disi birakildi.' if new_val == 0 else f'Market kapanisina {new_val}s kala pozisyonlar kapatilacak.'}\n"
         f"💾 <i>Kaydedildi</i>",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def force_exit_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -244,7 +289,8 @@ async def force_exit_edit_callback(update: Update, context: ContextTypes.DEFAULT
         f"⚡ Force Exit saniye degerini girin (0 = kapali):\n"
         f"Su an: <b>{cur}s</b>\n"
         f"Onerilen: 10-15 (5dk marketler), 20-30 (15dk marketler)",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def risk_field_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -281,7 +327,9 @@ async def handle_risk_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if value < 0:
                 raise ValueError
         except (ValueError, TypeError):
-            await update.message.reply_text(f"❌ Gecersiz: '{esc(text)}' (0 veya pozitif tam sayi girin)")
+            await update.message.reply_text(
+                f"❌ Gecersiz: '{esc(text)}' (0 veya pozitif tam sayi girin)"
+            )
             return
         old = _get_fe_seconds()
         _set_fe_seconds(value)
@@ -294,7 +342,8 @@ async def handle_risk_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ <b>Force Exit guncellendi!</b>\n"
             f"<b>{old}s</b> → <b>{status}</b>\n"
             f"💾 <i>Kaydedildi (restart korunur)</i>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
         return
 
     engine = context.bot_data.get("engine")
@@ -325,7 +374,8 @@ async def handle_risk_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"✅ <b>Risk güncellendi!</b>\n<b>{esc(attr)}</b>: {old} → <b>{esc(value)}</b>\n💾 <i>Kaydedildi (restart korunur)</i>",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def risk_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -360,7 +410,9 @@ async def risk_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if per_market:
             markets = per_market.get("markets", {})
             if markets:
-                market_lines = f"\n<b>Per-Market Limit:</b> ${per_market.get('limit', 0):.0f} max per slug\n"
+                market_lines = (
+                    f"\n<b>Per-Market Limit:</b> ${per_market.get('limit', 0):.0f} max per slug\n"
+                )
 
         return await update.message.reply_text(
             "⚙️ <b>Risk Parametreleri</b>\n\n"
@@ -376,7 +428,8 @@ async def risk_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Düzenle: <code>/risk_set param değer</code>\n"
             "Örnek: <code>/risk_set max_positions 10</code>\n"
             "<code>/risk_set max_daily_loss 25</code>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
 
     param = args[0].lower()
     try:
@@ -413,7 +466,8 @@ async def risk_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ <b>Risk guncellendi!</b>\n"
             f"<b>{asset_param} asset limit</b>: ${old_val} → <b>${new_val}</b>\n"
             f"💾 <i>Kaydedildi (restart korunur)</i>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
 
     if param not in param_map:
         return await update.message.reply_text(
@@ -421,7 +475,8 @@ async def risk_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Düzenleme: max_position, max_positions, max_exposure, max_daily_loss,\n"
             f"max_daily_trades, max_streak, min_balance, max_market, per_market_limit,\n"
             f"BTC, ETH, SOL, XRP (asset limits)\n"
-            f"/risk_set yazarak listeye bakın.")
+            f"/risk_set yazarak listeye bakın."
+        )
 
     attr_name, cast = param_map[param]
     old_val = getattr(limits, attr_name)
@@ -437,7 +492,8 @@ async def risk_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ <b>Risk guncellendi!</b>\n"
         f"<b>{esc(param)}</b>: {old_val} → <b>{new_val}</b>\n"
         f"💾 <i>Kaydedildi (restart korunur)</i>",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +531,8 @@ async def risk_hub_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<i>Resume</i> — lift halt after kill"
     )
     await update.message.reply_text(
-        text, reply_markup=_build_risk_hub_keyboard(), parse_mode="HTML")
+        text, reply_markup=_build_risk_hub_keyboard(), parse_mode="HTML"
+    )
 
 
 async def risk_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -495,6 +552,7 @@ async def risk_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await risk_set_command(proxy, context)
         if tab == "canary":
             from telegram_bot.handlers.settings_handler import canary_command
+
             return await canary_command(proxy, context)
         if tab == "kill":
             return await kill_command(proxy, context)
@@ -508,8 +566,9 @@ async def risk_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception(f"risk_hub route {tab} failed: {esc(str(e))}")
         try:
             await query.edit_message_text(
-                f"❌ Route failed: <code>{esc(tab)}</code>", parse_mode="HTML")
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+                f"❌ Route failed: <code>{esc(tab)}</code>", parse_mode="HTML"
+            )
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): narrow from bare Exception. edit_message
             # BadRequest "message is not modified" or transport error on
             # inline-edit. Silent swallow is correct — original error was

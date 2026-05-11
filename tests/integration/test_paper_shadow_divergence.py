@@ -23,6 +23,7 @@ Out-of-scope (→ T9.8-REG Windows backlog):
   * WS tick sequence replay with real aiosqlite
   * Apex / fast-market slippage calibration vs live
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -31,13 +32,13 @@ from pathlib import Path
 
 import pytest
 
-from core.fees_v2 import polymarket_taker_fee_v2, polymarket_maker_rebate
-
+from core.fees_v2 import polymarket_maker_rebate, polymarket_taker_fee_v2
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ═══ 1. Single Fee Oracle doctrine ═════════════════════════════════════
+
 
 class TestSingleFeeOracle:
     """2026-04-21 closure: `core/fees_v2.py` is the ONLY fee oracle.
@@ -47,6 +48,7 @@ class TestSingleFeeOracle:
 
     def test_fees_v2_is_importable(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         assert callable(polymarket_taker_fee_v2)
 
     def test_core_fees_v1_not_live(self):
@@ -58,36 +60,43 @@ class TestSingleFeeOracle:
         v1_path = REPO_ROOT / "core" / "fees.py"
         assert not v1_path.exists(), (
             "core/fees.py (v1) re-appeared — single fee oracle doctrine "
-            "broken. Archive or consolidate into fees_v2.")
+            "broken. Archive or consolidate into fees_v2."
+        )
 
     def test_fee_archive_preserved(self):
         """Archive directory for v1 consolidation must exist as audit trail."""
         archive = REPO_ROOT / "_archive" / "fee_consolidation_2026_04_21_T41"
         assert archive.exists() and archive.is_dir(), (
             "_archive/fee_consolidation_2026_04_21_T41/ missing — T4.1 "
-            "closure audit trail disappeared.")
+            "closure audit trail disappeared."
+        )
 
 
 # ═══ 2. Oracle identity — same input → same fee ════════════════════════
+
 
 class TestOracleIdentity:
     """Two parallel callers (paper, shadow) hit the same pure function
     with the same arguments → must get bit-identical output."""
 
-    @pytest.mark.parametrize("price,amount", [
-        (0.55, 10.0),
-        (0.45, 5.0),
-        (0.25, 25.0),
-        (0.90, 1.0),
-        (0.10, 100.0),
-    ])
+    @pytest.mark.parametrize(
+        "price,amount",
+        [
+            (0.55, 10.0),
+            (0.45, 5.0),
+            (0.25, 25.0),
+            (0.90, 1.0),
+            (0.10, 100.0),
+        ],
+    )
     def test_taker_fee_bit_identical(self, price, amount):
         paper = polymarket_taker_fee_v2(price, amount)
         shadow = polymarket_taker_fee_v2(price, amount)
         assert paper == shadow, (
             f"Non-deterministic fee oracle at price={price}, amount={amount} "
             f"— paper={paper}, shadow={shadow}. Either a hidden random or a "
-            f"state-holding global crept in.")
+            f"state-holding global crept in."
+        )
 
     def test_maker_rebate_bit_identical(self):
         """polymarket_maker_rebate(taker_fee_usd, category=None) — bit
@@ -99,6 +108,7 @@ class TestOracleIdentity:
 
 
 # ═══ 3. Fill stream determinism ════════════════════════════════════════
+
 
 def _accumulated_fee(events):
     """Simulate an accumulated taker fee across a fill stream.
@@ -142,6 +152,7 @@ class TestStreamDeterminism:
 
 # ═══ 4. Closed-trade PnL identity ══════════════════════════════════════
 
+
 def _closed_pnl(entry_price: float, exit_price: float, amount_usd: float):
     """Deterministic closed-trade PnL formula.
 
@@ -184,6 +195,7 @@ class TestClosedTradePnl:
 
 # ═══ 5. Random 1000-event replay — 3 seeds deterministic ═══════════════
 
+
 class TestRandomReplay:
     """High-volume determinism: replay the same randomly-generated stream
     from both sides and verify total PnL matches to $0.00 tolerance."""
@@ -213,12 +225,11 @@ class TestRandomReplay:
         assert len(shadow_stream) == 1000
 
         # Same stream → same accumulated PnL — THIS is the invariant
-        paper_total = round(
-            sum(_closed_pnl(e, x, a) for e, x, a in paper_stream), 4)
-        shadow_total = round(
-            sum(_closed_pnl(e, x, a) for e, x, a in shadow_stream), 4)
+        paper_total = round(sum(_closed_pnl(e, x, a) for e, x, a in paper_stream), 4)
+        shadow_total = round(sum(_closed_pnl(e, x, a) for e, x, a in shadow_stream), 4)
 
         assert paper_total == shadow_total, (
             f"Seed={seed}: paper-shadow divergence "
             f"${paper_total - shadow_total:.4f} on 1000 events — "
-            f"fee/PnL oracle non-determinism crept in.")
+            f"fee/PnL oracle non-determinism crept in."
+        )

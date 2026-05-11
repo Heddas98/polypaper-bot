@@ -8,9 +8,9 @@ This standalone script adds Phase 79 missing columns to support crash fixes:
 Safe for multiple runs: ALTER TABLE ADD COLUMN is idempotent (skips if exists).
 CREATE TABLE IF NOT EXISTS is also safe.
 """
+
 import sqlite3
 import sys
-from pathlib import Path
 
 
 def migrate(db_path: str = "polypaper.db"):

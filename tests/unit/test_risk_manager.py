@@ -1,7 +1,8 @@
 """Unit tests for core/risk_manager.py — pre-trade gate."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import pytest
 
@@ -22,7 +23,7 @@ def rm():
     )
     m = RiskManager(limits=limits)
     # Prevent _maybe_reset_daily from wiping test-set counters
-    m.state.daily_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    m.state.daily_reset_date = datetime.now(UTC).strftime("%Y-%m-%d")
     return m
 
 

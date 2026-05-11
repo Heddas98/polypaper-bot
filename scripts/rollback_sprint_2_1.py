@@ -11,6 +11,7 @@ you lose is the /diagnose "Background Tasks" section + Telegram notify on
 bg task crash. core/bg_task.py remains on disk but is not imported from
 anywhere — harmless.
 """
+
 from __future__ import annotations
 
 import re
@@ -155,7 +156,7 @@ def revert_file(path: Path) -> Tuple[bool, List[str]]:
     if src != orig:
         path.write_text(src, encoding="utf-8")
         return True, messages
-    return False, [f"  (already reverted — no changes)"]
+    return False, ["  (already reverted — no changes)"]
 
 
 def main() -> int:
@@ -175,6 +176,7 @@ def main() -> int:
 
     # Final syntax check on everything we touched + bg_task.py
     import ast
+
     print("\n[rollback] syntax check…")
     for rel in FILES + ["core/bg_task.py"]:
         p = root / rel

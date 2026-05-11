@@ -16,14 +16,13 @@ Heddas direktifi: 100+ → 25 ENV var. Hedef:
 - 5 farklı STRATEGY_X_ENABLED → 1 array ENABLED_STRATEGIES=ema,vwap,...
 - Default'lar config/defaults.py'a taşı, .env sadece secret/override
 """
+
 from __future__ import annotations
 
 import argparse
-import os
 import re
-import sys
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -99,7 +98,7 @@ def main():
     dead = in_example - used_in_code  # in .env.example, not in code
     whitelist_only = in_whitelist - used_in_code  # whitelist'te ama kullanım yok
 
-    print(f"📈 Summary:")
+    print("📈 Summary:")
     print(f"   ✅ KEEP (code+example):  {len(keep)}")
     print(f"   ➕ FORGOTTEN (add):      {len(forgotten)}")
     print(f"   ❌ DEAD (remove):        {len(dead)}")
@@ -131,7 +130,7 @@ def main():
         print(f"🔄 STRATEGY_X_ENABLED consolidation candidates ({len(strat_candidates)}):")
         for v in sorted(strat_candidates)[:20]:
             print(f"   {v}")
-        print(f"   → Consolidate to: ENABLED_STRATEGIES=...,...,...")
+        print("   → Consolidate to: ENABLED_STRATEGIES=...,...,...")
         print()
 
     # Output MD
@@ -140,12 +139,12 @@ def main():
     else:
         out_dir = ROOT / "evidence"
         out_dir.mkdir(exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         out_path = out_dir / f"env_audit_{ts}.md"
 
     with out_path.open("w", encoding="utf-8") as f:
-        f.write(f"# ENV Audit — {datetime.now(timezone.utc).isoformat()}\n\n")
-        f.write(f"## Summary\n\n")
+        f.write(f"# ENV Audit — {datetime.now(UTC).isoformat()}\n\n")
+        f.write("## Summary\n\n")
         f.write(f"- Code total: **{len(used_in_code)}**\n")
         f.write(f"- .env.example total: **{len(in_example)}**\n")
         f.write(f"- Whitelist total: **{len(in_whitelist)}**\n")
@@ -153,25 +152,27 @@ def main():
         f.write(f"- FORGOTTEN (add to .env.example): {len(forgotten)}\n")
         f.write(f"- DEAD (remove from .env.example): {len(dead)}\n\n")
 
-        f.write(f"## ➕ FORGOTTEN — add to .env.example\n\n")
+        f.write("## ➕ FORGOTTEN — add to .env.example\n\n")
         for v in sorted(forgotten):
             sites = code_usage.get(v, [])
             f.write(f"- `{v}` — used in {len(sites)} site(s): `{sites[0] if sites else 'N/A'}`\n")
         f.write("\n")
 
-        f.write(f"## ❌ DEAD — remove from .env.example\n\n")
+        f.write("## ❌ DEAD — remove from .env.example\n\n")
         for v in sorted(dead):
             f.write(f"- `{v}`\n")
         f.write("\n")
 
         if strat_candidates:
-            f.write(f"## 🔄 STRATEGY_X_ENABLED consolidation\n\n")
-            f.write(f"Mevcut {len(strat_candidates)} STRATEGY_X_ENABLED → 1 array `ENABLED_STRATEGIES`.\n\n")
+            f.write("## 🔄 STRATEGY_X_ENABLED consolidation\n\n")
+            f.write(
+                f"Mevcut {len(strat_candidates)} STRATEGY_X_ENABLED → 1 array `ENABLED_STRATEGIES`.\n\n"
+            )
             for v in sorted(strat_candidates):
                 f.write(f"- `{v}`\n")
             f.write("\n")
 
-        f.write(f"## ✅ KEEP (code + .env.example)\n\n")
+        f.write("## ✅ KEEP (code + .env.example)\n\n")
         for v in sorted(keep):
             f.write(f"- `{v}`\n")
 

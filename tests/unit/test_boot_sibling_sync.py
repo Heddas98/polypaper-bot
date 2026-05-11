@@ -12,6 +12,7 @@ These tests are AST-based so they run without a full engine bootstrap
 structural contract: the sync block must exist, must cover both flags,
 must read brain_flags and write sibling._enabled.
 """
+
 from __future__ import annotations
 
 import ast
@@ -19,7 +20,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENGINE_PY = REPO_ROOT / "core" / "engine.py"
@@ -33,13 +33,15 @@ def _engine_source() -> str:
 # Structural contracts
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def test_sibling_gates_list_present():
     """Engine boot loader must declare the sibling-gate list."""
     src = _engine_source()
     assert "_sibling_gates" in src, (
         "Boot loader missing `_sibling_gates` list — T6.3e-fix-2 "
         "regression. Toggling Candles/Recorder OFF will not survive "
-        "restart.")
+        "restart."
+    )
 
 
 def test_sibling_gates_cover_candle_and_recorder():
@@ -47,21 +49,23 @@ def test_sibling_gates_cover_candle_and_recorder():
     src = _engine_source()
     # Look for the literal list entries near _sibling_gates
     assert re.search(
-        r'_sibling_gates\s*=\s*\[[^\]]*"candle_collector"[^\]]*\]',
-        src, re.DOTALL), "candle_collector missing from _sibling_gates"
+        r'_sibling_gates\s*=\s*\[[^\]]*"candle_collector"[^\]]*\]', src, re.DOTALL
+    ), "candle_collector missing from _sibling_gates"
     assert re.search(
-        r'_sibling_gates\s*=\s*\[[^\]]*"market_recorder"[^\]]*\]',
-        src, re.DOTALL), "market_recorder missing from _sibling_gates"
+        r'_sibling_gates\s*=\s*\[[^\]]*"market_recorder"[^\]]*\]', src, re.DOTALL
+    ), "market_recorder missing from _sibling_gates"
 
 
 def test_sync_reads_brain_flags_and_writes_enabled():
     """Sync block must: get flag value from brain_flags + set _enabled."""
     src = _engine_source()
     # The sync block should contain these canonical lines
-    assert re.search(r"self\.brain_flags\.get\(flag_key", src), (
-        "Sync block should READ from self.brain_flags via flag_key")
-    assert re.search(r"sibling\._enabled\s*=\s*desired", src), (
-        "Sync block should WRITE sibling._enabled from desired value")
+    assert re.search(
+        r"self\.brain_flags\.get\(flag_key", src
+    ), "Sync block should READ from self.brain_flags via flag_key"
+    assert re.search(
+        r"sibling\._enabled\s*=\s*desired", src
+    ), "Sync block should WRITE sibling._enabled from desired value"
 
 
 def test_sync_block_runs_in_start_method():
@@ -76,12 +80,14 @@ def test_sync_block_runs_in_start_method():
                 break
     assert found, (
         "Sibling-sync block must live inside engine.start() (after brain "
-        "flags load from DB). Moving it outside breaks the boot ordering.")
+        "flags load from DB). Moving it outside breaks the boot ordering."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Semantic simulation — mimic the boot loader logic on a stub engine
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class _StubSibling:
     def __init__(self, initial=True):
@@ -115,11 +121,13 @@ class _StubEngine:
 
 def test_sim_off_flag_silences_sibling():
     """Classic bug scenario: brain_flags OFF → sibling must flip to OFF."""
-    candle = _StubSibling(initial=True)   # constructor default
+    candle = _StubSibling(initial=True)  # constructor default
     recorder = _StubSibling(initial=True)
     eng = _StubEngine(
         brain_flags={"candle_collector": False, "market_recorder": True},
-        candle=candle, recorder=recorder)
+        candle=candle,
+        recorder=recorder,
+    )
     events = eng.run_sibling_sync()
     assert candle._enabled is False, "Candle should flip to OFF"
     assert recorder._enabled is True, "Recorder should stay ON"
@@ -133,7 +141,9 @@ def test_sim_already_matching_is_noop():
     recorder = _StubSibling(initial=True)
     eng = _StubEngine(
         brain_flags={"candle_collector": True, "market_recorder": True},
-        candle=candle, recorder=recorder)
+        candle=candle,
+        recorder=recorder,
+    )
     events = eng.run_sibling_sync()
     assert events == [], "No-op sync should emit no events"
 
@@ -142,7 +152,9 @@ def test_sim_missing_sibling_tolerated():
     """If the sibling object is None (not attached), sync must not crash."""
     eng = _StubEngine(
         brain_flags={"candle_collector": False, "market_recorder": False},
-        candle=None, recorder=None)
+        candle=None,
+        recorder=None,
+    )
     events = eng.run_sibling_sync()
     assert events == []
 
@@ -153,12 +165,13 @@ def test_sim_both_off_flips_both():
     recorder = _StubSibling(initial=True)
     eng = _StubEngine(
         brain_flags={"candle_collector": False, "market_recorder": False},
-        candle=candle, recorder=recorder)
+        candle=candle,
+        recorder=recorder,
+    )
     events = eng.run_sibling_sync()
     assert candle._enabled is False
     assert recorder._enabled is False
-    assert set(events) == {
-        ("candle_collector", False), ("market_recorder", False)}
+    assert set(events) == {("candle_collector", False), ("market_recorder", False)}
 
 
 def test_sim_default_true_when_flag_absent():
@@ -166,7 +179,9 @@ def test_sim_default_true_when_flag_absent():
     candle = _StubSibling(initial=False)  # previously turned off
     eng = _StubEngine(
         brain_flags={},  # empty — edge case
-        candle=candle, recorder=None)
+        candle=candle,
+        recorder=None,
+    )
     events = eng.run_sibling_sync()
     # Missing key → default True → sibling False ≠ True → flip to True
     assert candle._enabled is True

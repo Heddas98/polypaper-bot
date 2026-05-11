@@ -23,18 +23,19 @@ exception surface), (d) edit_message_text Telegram replies. T11.6 render
 policy is preserved on user-facing reply paths (truncated err only on
 admin-only diagnostics; generic message otherwise).
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from telegram_bot.templates.safe_html import esc
+from core.intent_parser import COMMAND_CATALOG, IntentResult, parse_intent
 from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
-from core.intent_parser import parse_intent, COMMAND_CATALOG, IntentResult
+from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.ai")
 
@@ -62,26 +63,35 @@ async def _invoke_mapped_command(
     Returns True on success, False if the handler can't be resolved.
     """
     # Lazy import — avoids circular import with bot.py
-    from telegram_bot.handlers.risk_handler import risk_command, risk_hub_command
-    from telegram_bot.handlers.stats import (
-        stats_command, strategy_stats_command, stats_hub_command,
-        stats_chart_command,  # Phase 51 P51-03 Faz-2 — merged from stats_chart.py
-    )
-    from telegram_bot.handlers.strategies import strategies_command
-    from telegram_bot.handlers.strategies import (
-        maker_stats_command, kelly_command, autopilot_command,
+    from telegram_bot.handlers.backtest_v2 import (
+        backtest_v2_cmd,
+        becker_replay_command,
+        compare_cmd,
     )
     from telegram_bot.handlers.dashboard import (
-        alert_set_cmd, alerts_list_cmd, dashboard_command,
-    )
-    from telegram_bot.handlers.start import wallets_command
-    from telegram_bot.handlers.backtest_v2 import (
-        compare_cmd, backtest_v2_cmd, becker_replay_command,
-    )
-    from telegram_bot.handlers.settings_handler import (
-        canary_command, promote_command, demote_command,
+        alert_set_cmd,
+        alerts_list_cmd,
+        dashboard_command,
     )
     from telegram_bot.handlers.positions import positions_command
+    from telegram_bot.handlers.risk_handler import risk_hub_command
+    from telegram_bot.handlers.settings_handler import (
+        canary_command,
+        demote_command,
+        promote_command,
+    )
+    from telegram_bot.handlers.start import wallets_command
+    from telegram_bot.handlers.stats import (
+        stats_chart_command,  # Phase 51 P51-03 Faz-2 — merged from stats_chart.py
+        stats_command,
+        stats_hub_command,
+    )
+    from telegram_bot.handlers.strategies import (
+        autopilot_command,
+        kelly_command,
+        maker_stats_command,
+        strategies_command,
+    )
     # brain_command is defined in this same module — no import needed
 
     # /h and /db_health live on the bot class — route via bot_data
@@ -143,6 +153,7 @@ def _route_bot_method(attr: str):
     circular imports. If the bot object is not mounted we fall back to a
     plain reply asking the user to use the direct command.
     """
+
     async def _shim(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_obj = context.bot_data.get("bot")
         if bot_obj is None or not hasattr(bot_obj, attr):
@@ -153,12 +164,14 @@ def _route_bot_method(attr: str):
             return
         method = getattr(bot_obj, attr)
         await method(update, context)
+
     return _shim
 
 
 async def _route_trades_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """No dedicated /trades handler exists — fall back to /stats."""
     from telegram_bot.handlers.stats import stats_command
+
     await update.effective_message.reply_text(
         "ℹ️ /trades dedike komutu yok, /stats gösteriyorum.",
         parse_mode="HTML",
@@ -228,14 +241,17 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Medium confidence → suggestion card
     args_str = " ".join(result.args)
-    preview = (
-        f"<code>{esc(result.command)}</code>"
-        + (f" <code>{esc(args_str)}</code>" if args_str else "")
+    preview = f"<code>{esc(result.command)}</code>" + (
+        f" <code>{esc(args_str)}</code>" if args_str else ""
     )
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Çalıştır", callback_data="ai_run"),
-        InlineKeyboardButton("❌ İptal", callback_data="ai_cancel"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Çalıştır", callback_data="ai_run"),
+                InlineKeyboardButton("❌ İptal", callback_data="ai_cancel"),
+            ]
+        ]
+    )
     # Stash in chat_data per user
     pending = context.chat_data.setdefault(_PENDING_KEY, {})
     pending[update.effective_user.id] = result.to_dict()
@@ -292,7 +308,10 @@ async def ai_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 Cluster D — merged from brain_handler.py
 # ═══════════════════════════════════════════════════════════════════════
-from telegram import InlineKeyboardButton as _BrainBtn, InlineKeyboardMarkup as _BrainKB  # noqa: E402
+from telegram import (  # noqa: E402
+    InlineKeyboardButton as _BrainBtn,
+    InlineKeyboardMarkup as _BrainKB,
+)
 
 
 async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -345,16 +364,26 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # engine._kelly_mode directly (virtual flag). T6.3e: market_recorder
         # button added — now matches brain_flags canonical 6-flag set.
         # Layout is 4 rows × 2 buttons, balanced.
-        kb = _BrainKB([
-            [_BrainBtn("🧠 Brain", callback_data="brain_toggle_ai_brain"),
-             _BrainBtn("🎯 TS", callback_data="brain_toggle_thompson_sampling")],
-            [_BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection"),
-             _BrainBtn("📹 Recorder", callback_data="brain_toggle_market_recorder")],
-            [_BrainBtn("🤖 AutoPilot", callback_data="brain_toggle_autopilot"),
-             _BrainBtn("📈 Kelly", callback_data="brain_toggle_kelly_sizing")],
-            [_BrainBtn("📊 Candles", callback_data="brain_toggle_candle_collector"),
-             _BrainBtn("🔄 Yenile", callback_data="brain_refresh")],
-        ])
+        kb = _BrainKB(
+            [
+                [
+                    _BrainBtn("🧠 Brain", callback_data="brain_toggle_ai_brain"),
+                    _BrainBtn("🎯 TS", callback_data="brain_toggle_thompson_sampling"),
+                ],
+                [
+                    _BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection"),
+                    _BrainBtn("📹 Recorder", callback_data="brain_toggle_market_recorder"),
+                ],
+                [
+                    _BrainBtn("🤖 AutoPilot", callback_data="brain_toggle_autopilot"),
+                    _BrainBtn("📈 Kelly", callback_data="brain_toggle_kelly_sizing"),
+                ],
+                [
+                    _BrainBtn("📊 Candles", callback_data="brain_toggle_candle_collector"),
+                    _BrainBtn("🔄 Yenile", callback_data="brain_refresh"),
+                ],
+            ]
+        )
 
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -364,7 +393,8 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # string'leri Telegram'a sızmasın.
         logger.error(f"Brain command error: {e}", exc_info=True)
         await update.message.reply_text(
-            "❌ <b>Brain Hatasi</b>\n\nDetay loglarda.", parse_mode="HTML")
+            "❌ <b>Brain Hatasi</b>\n\nDetay loglarda.", parse_mode="HTML"
+        )
 
 
 async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -395,6 +425,7 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if parts[-1] == "refresh":
         await query.answer()
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         await brain_command(CallbackUpdateProxy.from_update(update), context)
         return
 
@@ -406,8 +437,12 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
         # T6.3e: market_recorder added — reverse ghost cleared (engine had
         # flag, UI now exposes it). Canonical UI-toggleable set:
         valid_features = {
-            "ai_brain", "thompson_sampling", "regime_detection",
-            "autopilot", "kelly_sizing", "candle_collector",
+            "ai_brain",
+            "thompson_sampling",
+            "regime_detection",
+            "autopilot",
+            "kelly_sizing",
+            "candle_collector",
             "market_recorder",
         }
         if feature not in valid_features:
@@ -422,19 +457,18 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if feature == "kelly_sizing":
             new_state = not bool(getattr(engine, "_kelly_mode", True))
             engine._kelly_mode = new_state
-            await db.set_setting(
-                "engine.kelly_mode", "1" if new_state else "0")
+            await db.set_setting("engine.kelly_mode", "1" if new_state else "0")
         else:
             engine.brain_flags[feature] = not engine.brain_flags.get(feature, True)
             new_state = engine.brain_flags[feature]
             await db.set_setting(f"brain_flags.{feature}", "1" if new_state else "0")
 
         if feature == "candle_collector":
-            cc = getattr(engine, 'candle_collector', None)
+            cc = getattr(engine, "candle_collector", None)
             if cc:
                 cc._enabled = new_state
         if feature == "market_recorder":
-            mr = getattr(engine, 'market_recorder', None)
+            mr = getattr(engine, "market_recorder", None)
             if mr:
                 mr._enabled = new_state
 
@@ -444,6 +478,7 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
         logger.info(f"🧠 Brain flag toggle: {feature}={new_state}")
 
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         await brain_command(CallbackUpdateProxy.from_update(update), context)
 
     except Exception as e:  # noqa: BLE001
@@ -455,6 +490,7 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
 # Phase 51 P51-03 Faz-2 Cluster D — merged from intelligence_handler.py
 # ═══════════════════════════════════════════════════════════════════════
 
+
 async def regime_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show market regime + strategy fitness."""
     engine = context.bot_data.get("engine")
@@ -464,10 +500,12 @@ async def regime_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rs = engine.regime.get_status()
     regime_emoji = {"trending": "📈", "ranging": "↔️", "volatile": "🌪"}.get(rs["regime"], "❓")
 
-    text = (f"🌐 <b>Market Regime</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{regime_emoji} Regime: <b>{rs['regime'].upper()}</b>\n"
-            f"Guven: {rs['confidence']:.0%} | Veri: {rs['data_points']} nokta\n\n"
-            f"<b>Strateji Uyumu:</b>\n")
+    text = (
+        f"🌐 <b>Market Regime</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{regime_emoji} Regime: <b>{rs['regime'].upper()}</b>\n"
+        f"Guven: {rs['confidence']:.0%} | Veri: {rs['data_points']} nokta\n\n"
+        f"<b>Strateji Uyumu:</b>\n"
+    )
 
     for stype, fits in engine.regime.STRATEGY_REGIME_FIT.items():
         fit = fits.get(rs["regime"], 0.5)
@@ -475,7 +513,7 @@ async def regime_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         skip = " ❌ SKIP" if fit < 0.4 else ""
         text += f"  {stype:15s} {bar} {fit:.0%}{skip}\n"
 
-    text += f"\n<i>/ts = Thompson Sampling | /drift = Sinyal drift</i>"
+    text += "\n<i>/ts = Thompson Sampling | /drift = Sinyal drift</i>"
     await update.message.reply_text(text, parse_mode="HTML")
 
 
@@ -491,18 +529,22 @@ async def ts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = engine.selector.get_status()
     rankings = status["rankings"]
 
-    text = (f"🎰 <b>Thompson Sampling</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Toplam: {status['total_arms']} strateji\n\n")
+    text = (
+        f"🎰 <b>Thompson Sampling</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Toplam: {status['total_arms']} strateji\n\n"
+    )
 
     for i, r in enumerate(rankings):
-        medal = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"][i] if i < 10 else "  "
-        text += (f"{medal} <code>{r['id'][:8]}</code> "
-                f"α={r['alpha']:.0f} β={r['beta']:.0f} "
-                f"WR={r['win_rate']:.0f}% "
-                f"PnL:{r['pnl']:+.0f} "
-                f"({r['trades']}t)\n")
+        medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][i] if i < 10 else "  "
+        text += (
+            f"{medal} <code>{r['id'][:8]}</code> "
+            f"α={r['alpha']:.0f} β={r['beta']:.0f} "
+            f"WR={r['win_rate']:.0f}% "
+            f"PnL:{r['pnl']:+.0f} "
+            f"({r['trades']}t)\n"
+        )
 
-    text += f"\n<i>α=kazanc, β=kayip | Yuksek α/β = tercih edilen</i>"
+    text += "\n<i>α=kazanc, β=kayip | Yuksek α/β = tercih edilen</i>"
     await update.message.reply_text(text, parse_mode="HTML")
 
 
@@ -513,31 +555,34 @@ async def drift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Engine bulunamadi.")
 
     try:
-        if not hasattr(engine, 'drift') or engine.drift is None:
+        if not hasattr(engine, "drift") or engine.drift is None:
             return await update.message.reply_text(
-                "📉 <b>Sinyal Drift Tespiti</b>\n\n"
-                "Drift detector henuz baslatilmadi.",
-                parse_mode="HTML")
+                "📉 <b>Sinyal Drift Tespiti</b>\n\n" "Drift detector henuz baslatilmadi.",
+                parse_mode="HTML",
+            )
 
         status = engine.drift.get_status()
 
-        text = (f"📉 <b>Sinyal Drift Tespiti</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n")
+        text = "📉 <b>Sinyal Drift Tespiti</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
         if not status:
             text += "Henuz yeterli veri yok. Trade'ler settle oldukca dolacak.\n"
         else:
             for name, s in status.items():
                 emoji = "🔴" if s["drifting"] else "🟢"
-                text += (f"{emoji} <b>{esc(name)}</b>\n"
-                        f"  Accuracy: {s['accuracy']:.0f}% | Weight: ×{s['weight']:.2f} | "
-                        f"Samples: {s['samples']}\n")
+                text += (
+                    f"{emoji} <b>{esc(name)}</b>\n"
+                    f"  Accuracy: {s['accuracy']:.0f}% | Weight: ×{s['weight']:.2f} | "
+                    f"Samples: {s['samples']}\n"
+                )
 
-        text += f"\n<i>Weight &lt; 1.0 = sinyal zayifliyor, otomatik azaltildi</i>"
+        text += "\n<i>Weight &lt; 1.0 = sinyal zayifliyor, otomatik azaltildi</i>"
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:  # noqa: BLE001
         logger.error("Drift command error: %s", e, exc_info=True)
         await update.message.reply_text(
-            f"❌ <b>Drift Tespiti Hatasi</b>\n\nDetay: {str(e)[:100]}", parse_mode="HTML")
+            f"❌ <b>Drift Tespiti Hatasi</b>\n\nDetay: {str(e)[:100]}", parse_mode="HTML"
+        )
 
 
 # T1.3 Commit 3 (2026-04-20): validate_command komple silindi —
@@ -559,9 +604,10 @@ async def monitor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bal = await db.conn.execute_fetchall("SELECT balance FROM wallets LIMIT 1")
         balance = bal[0][0] if bal else 0
         at = await db.conn.execute_fetchall(
-            "SELECT COALESCE(SUM(pnl),0), COUNT(*), COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM executions WHERE result IS NOT NULL")
+            "SELECT COALESCE(SUM(pnl),0), COUNT(*), COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM executions WHERE result IS NOT NULL"
+        )
         pnl, trades, wins = (at[0][0], at[0][1], at[0][2]) if at else (0, 0, 0)
-        wr = wins/trades*100 if trades > 0 else 0
+        wr = wins / trades * 100 if trades > 0 else 0
 
         # Regime
         rs = engine.regime.get_status()
@@ -594,10 +640,11 @@ async def monitor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 COALESCE(SUM(CASE WHEN e.pnl>0 AND e.result IS NOT NULL THEN 1 ELSE 0 END),0) as w,
                 COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl
             FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
-            GROUP BY s.id HAVING t>0 ORDER BY pnl DESC LIMIT 5""")
+            GROUP BY s.id HAVING t>0 ORDER BY pnl DESC LIMIT 5"""
+        )
         text += "<b>🏆 Top 5</b>\n"
         for i, s in enumerate(strats or []):
-            wr_s = s[3]/s[2]*100 if s[2] > 0 else 0
+            wr_s = s[3] / s[2] * 100 if s[2] > 0 else 0
             st = "✅" if s[1] == "active" else "⚫"
             ai_tag = "🤖" if "AI_" in (s[0] or "") else ""
             text += f"  {st}{ai_tag} {s[0]}: {s[2]}t {wr_s:.0f}% <b>{s[4]:+.2f}</b>\n"
@@ -622,8 +669,8 @@ async def monitor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:  # noqa: BLE001
         logger.error(f"Monitor command error: {esc(e)}", exc_info=True)
         await update.message.reply_text(
-            f"❌ <b>Monitor Hatasi</b>\n\nDetay: {str(e)[:100]}",
-            parse_mode="HTML")
+            f"❌ <b>Monitor Hatasi</b>\n\nDetay: {str(e)[:100]}", parse_mode="HTML"
+        )
 
 
 # ═══ Sprint 3 S3-04: AI Brain Approval Callback ═══
@@ -705,12 +752,16 @@ async def analyze_brain_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     try:
-        await q.edit_message_text("⏳ <b>Brain Cycle calisiyor...</b>\n2-Agent mode: Optimist + Critic", parse_mode="HTML")
+        await q.edit_message_text(
+            "⏳ <b>Brain Cycle calisiyor...</b>\n2-Agent mode: Optimist + Critic", parse_mode="HTML"
+        )
         result = await engine.analyst.run_brain_cycle()
         if result:
             safe_result = result[:3500]
             try:
-                await q.message.reply_text(f"🧠 <b>Brain Cycle Tamamlandi</b>\n\n{safe_result}", parse_mode="HTML")
+                await q.message.reply_text(
+                    f"🧠 <b>Brain Cycle Tamamlandi</b>\n\n{safe_result}", parse_mode="HTML"
+                )
             except Exception:  # noqa: BLE001
                 await q.message.reply_text(f"🧠 Brain Cycle: {safe_result[:500]}")
         else:
@@ -733,6 +784,7 @@ async def suggest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         from core.strategy_suggester import StrategySuggester
+
         pending = StrategySuggester._pending_suggest
 
         if not pending or "strategy" not in pending:
@@ -769,7 +821,8 @@ async def suggest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{strat.get('asset')}/{strat.get('timeframe')} {strat.get('direction')} "
                 f"@{strat.get('odds_threshold')}\n"
                 f"$1.00 ile paper trading basliyor{bt_str}",
-                parse_mode="HTML")
+                parse_mode="HTML",
+            )
         else:
             await q.edit_message_text("❌ Strateji olusturulamadi (muhtemelen zaten var).")
 

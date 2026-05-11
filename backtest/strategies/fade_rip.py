@@ -12,10 +12,15 @@ Parameters:
   - max_elapsed_pct: max market progress for entry (default 0.50)
   - fade_up_only: only fade up moves, not down (default True)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -25,10 +30,13 @@ class FadeRipStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Fade large BTC price moves (mean reversion)"
 
-    def __init__(self, rip_threshold_pct: float = 0.3,
-                 min_elapsed_sec: float = 30.0,
-                 max_elapsed_pct: float = 0.50,
-                 fade_up_only: bool = True):
+    def __init__(
+        self,
+        rip_threshold_pct: float = 0.3,
+        min_elapsed_sec: float = 30.0,
+        max_elapsed_pct: float = 0.50,
+        fade_up_only: bool = True,
+    ):
         self.rip_threshold_pct = rip_threshold_pct
         self.min_elapsed_sec = min_elapsed_sec
         self.max_elapsed_pct = max_elapsed_pct
@@ -60,8 +68,7 @@ class FadeRipStrategy(BaseBacktestStrategy):
             return None
 
         # Calculate BTC price change since market open
-        pct_change = ((snap.binance_price - self._open_btc_price)
-                      / self._open_btc_price) * 100
+        pct_change = ((snap.binance_price - self._open_btc_price) / self._open_btc_price) * 100
 
         # Use binance_price_change if available and non-zero
         if snap.binance_price_change != 0:
@@ -72,7 +79,9 @@ class FadeRipStrategy(BaseBacktestStrategy):
             confidence = min(0.85, 0.55 + (pct_change - self.rip_threshold_pct) * 0.2)
             entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
             return self.make_signal(
-                "down", confidence, entry,
+                "down",
+                confidence,
+                entry,
                 reason=f"fade_rip: BTC +{pct_change:.3f}% → DOWN",
                 btc_pct_change=pct_change,
             )
@@ -82,7 +91,9 @@ class FadeRipStrategy(BaseBacktestStrategy):
             confidence = min(0.75, 0.50 + (abs(pct_change) - self.rip_threshold_pct) * 0.15)
             entry = snap.up_best_ask if snap.up_best_ask > 0 else 0.5
             return self.make_signal(
-                "up", confidence, entry,
+                "up",
+                confidence,
+                entry,
                 reason=f"fade_rip: BTC {pct_change:.3f}% → UP",
                 btc_pct_change=pct_change,
             )

@@ -13,6 +13,7 @@ After B6: `_BG_TASK_OBJECTS` module-level set holds every live task. A
 `task.add_done_callback(_BG_TASK_OBJECTS.discard)` wires automatic release
 when the coroutine completes (success, exception, or cancellation).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,7 +62,7 @@ async def test_fire_and_forget_task_survives_gc():
     # Wait for completion (but with timeout — if task was GC'd it'll hang).
     try:
         await asyncio.wait_for(completed.wait(), timeout=1.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pytest.fail(
             "fire-and-forget task did not complete — likely GC'd because "
             "safe_create_task no longer holds a strong reference (B6 regressed)"
@@ -113,9 +114,9 @@ async def test_cancelled_task_also_released():
         await task
     await asyncio.sleep(0)  # let done-callback run
 
-    assert task not in _BG_TASK_OBJECTS, (
-        "cancelled task still in _BG_TASK_OBJECTS — leak on cancel path"
-    )
+    assert (
+        task not in _BG_TASK_OBJECTS
+    ), "cancelled task still in _BG_TASK_OBJECTS — leak on cancel path"
 
 
 @pytest.mark.asyncio
@@ -130,9 +131,9 @@ async def test_failed_task_also_released():
     await task  # _wrapped swallows the exception (reraise=False default)
     await asyncio.sleep(0)
 
-    assert task not in _BG_TASK_OBJECTS, (
-        "failed task still in _BG_TASK_OBJECTS — leak on error path"
-    )
+    assert (
+        task not in _BG_TASK_OBJECTS
+    ), "failed task still in _BG_TASK_OBJECTS — leak on error path"
 
 
 @pytest.mark.asyncio
@@ -158,8 +159,7 @@ async def test_multiple_concurrent_tasks_all_tracked():
 
     assert done_count == 5
     assert get_live_task_count() == 0, (
-        f"5 tasks finished but {get_live_task_count()} still held — "
-        "done-callback cleanup failed"
+        f"5 tasks finished but {get_live_task_count()} still held — " "done-callback cleanup failed"
     )
 
 

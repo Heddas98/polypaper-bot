@@ -9,6 +9,7 @@ Kullanım:
     py -3.11 scripts/classic_threshold_update.py show
     py -3.11 scripts/classic_threshold_update.py update 0.70
 """
+
 from __future__ import annotations
 
 import sqlite3

@@ -11,6 +11,7 @@ This test is a regression guard for:
   4. The defensive RESERVED_OVERFLOW logic (constants-only check,
      since full _eval_place_order requires too much mock surface)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ import pytest
 @dataclass
 class _MockVirtualOrder:
     """Minimal VO shape used by _compute_pending_reserved."""
+
     wallet_id: str
     amount: float
 
@@ -32,13 +34,12 @@ class _HelperShim:
     the test pins the contract. If the real helper changes, copy the new
     body here to keep the test honest.
     """
+
     def __init__(self, pending):
         self._pending = pending
 
     def _compute_pending_reserved(self, wallet_id: str) -> float:
-        return sum(
-            o.amount for o in self._pending
-            if o.wallet_id == wallet_id)
+        return sum(o.amount for o in self._pending if o.wallet_id == wallet_id)
 
 
 def test_empty_pending_returns_zero():
@@ -58,11 +59,13 @@ def test_single_order_different_wallet_excluded():
 
 def test_multi_wallet_isolation():
     """3 orders across 2 wallets — each wallet sees only its own reservation."""
-    shim = _HelperShim(pending=[
-        _MockVirtualOrder("w_1", 3.0),
-        _MockVirtualOrder("w_1", 4.0),
-        _MockVirtualOrder("w_2", 10.0),
-    ])
+    shim = _HelperShim(
+        pending=[
+            _MockVirtualOrder("w_1", 3.0),
+            _MockVirtualOrder("w_1", 4.0),
+            _MockVirtualOrder("w_2", 10.0),
+        ]
+    )
     assert shim._compute_pending_reserved("w_1") == pytest.approx(7.0)
     assert shim._compute_pending_reserved("w_2") == pytest.approx(10.0)
     assert shim._compute_pending_reserved("w_nonexistent") == 0.0
@@ -70,10 +73,12 @@ def test_multi_wallet_isolation():
 
 def test_sum_respects_amount_magnitude():
     """Large-amount orders sum correctly (no precision loss at sane scales)."""
-    shim = _HelperShim(pending=[
-        _MockVirtualOrder("w_1", 99.99),
-        _MockVirtualOrder("w_1", 0.01),
-    ])
+    shim = _HelperShim(
+        pending=[
+            _MockVirtualOrder("w_1", 99.99),
+            _MockVirtualOrder("w_1", 0.01),
+        ]
+    )
     assert shim._compute_pending_reserved("w_1") == pytest.approx(100.0)
 
 
@@ -84,9 +89,8 @@ def test_sum_respects_amount_magnitude():
 # itself is the load-bearing piece.
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _would_overflow(pending_reserved: float,
-                   trade_amount: float,
-                   balance: float) -> bool:
+
+def _would_overflow(pending_reserved: float, trade_amount: float, balance: float) -> bool:
     """Mirror of the predicate at engine_signals.py defensive check."""
     return pending_reserved + trade_amount > balance
 

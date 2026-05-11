@@ -18,13 +18,16 @@ clear retry hint and the full traceback goes to the operator log via
 `exc_info=True`. Each catch is annotated `# noqa: BLE001` (T11.8-B
 router-dispatch exemption).
 """
+
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
+
 from db.database import Database
+from telegram_bot.hub_keyboard import build_main_hub_keyboard
 from telegram_bot.templates.safe_html import esc, fmt_usd
 from telegram_bot.version import BOT_VERSION
-from telegram_bot.hub_keyboard import build_main_hub_keyboard
 
 logger = logging.getLogger("polypaper.handlers.menu")
 
@@ -90,12 +93,14 @@ async def _send(message, db, user, engine=None):
 
         at = await db.conn.execute_fetchall(
             "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL AND user_id=?",
-            (user.id,))
+            (user.id,),
+        )
         alltime_pnl, total_trades = (at[0][0], at[0][1]) if at else (0, 0)
 
         wins = await db.conn.execute_fetchall(
             "SELECT COUNT(*) FROM executions WHERE result IS NOT NULL AND pnl>0 AND user_id=?",
-            (user.id,))
+            (user.id,),
+        )
         wr = (wins[0][0] / total_trades * 100) if wins and total_trades > 0 else 0
 
         pe = "📈" if alltime_pnl >= 0 else "📉"
@@ -124,16 +129,18 @@ async def menu_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_
     q = update.callback_query
     await q.answer()
     try:
-        from telegram_bot.handlers.dashboard import _build, DASHBOARD_BUTTONS
         from telegram_bot.banners import banner_dashboard
+        from telegram_bot.handlers.dashboard import DASHBOARD_BUTTONS, _build
+
         db: Database = context.bot_data["db"]
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if not user:
             return await q.message.reply_text("Önce /start kullanın.")
         text = await _build(db, user, context.bot_data.get("engine"))
         banner = banner_dashboard()
-        await q.message.reply_photo(photo=banner, caption=text, parse_mode="HTML",
-                                    reply_markup=DASHBOARD_BUTTONS)
+        await q.message.reply_photo(
+            photo=banner, caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS
+        )
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_dashboard error: {esc(e)}", exc_info=True)
         await q.message.reply_text("⚠️ Dashboard yüklenemedi. /dashboard dene.")
@@ -145,6 +152,7 @@ async def menu_strategies_callback(update: Update, context: ContextTypes.DEFAULT
     await q.answer()
     try:
         from telegram_bot.handlers.strategies import _send
+
         db: Database = context.bot_data["db"]
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
@@ -160,6 +168,7 @@ async def menu_brain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await q.answer()
     try:
         from telegram_bot.handlers.ai_handler import brain_command
+
         await _invoke_command(brain_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_brain error: {esc(e)}", exc_info=True)
@@ -178,12 +187,14 @@ async def menu_backtest_callback(update: Update, context: ContextTypes.DEFAULT_T
         "⚡ <b>Quick v2</b>: Hızlı config paneli, 11 strateji\n"
         "🏆 <b>Karşılaştır</b>: Tüm strateji PnL sıralaması"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Replay (Gerçek L2)", callback_data="menu_bt_replay")],
-        [InlineKeyboardButton("⚡ Quick v2", callback_data="menu_bt_v2")],
-        [InlineKeyboardButton("🏆 Karşılaştır", callback_data="menu_bt_compare")],
-        [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Replay (Gerçek L2)", callback_data="menu_bt_replay")],
+            [InlineKeyboardButton("⚡ Quick v2", callback_data="menu_bt_v2")],
+            [InlineKeyboardButton("🏆 Karşılaştır", callback_data="menu_bt_compare")],
+            [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -193,6 +204,7 @@ async def menu_bt_replay_callback(update: Update, context: ContextTypes.DEFAULT_
     await q.answer()
     try:
         from telegram_bot.handlers.backtest_v2 import backtest_replay_command
+
         await _invoke_command(backtest_replay_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_bt_replay error: {esc(e)}", exc_info=True)
@@ -205,6 +217,7 @@ async def menu_bt_v2_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await q.answer()
     try:
         from telegram_bot.handlers.backtest_v2 import backtest_v2_cmd
+
         await _invoke_command(backtest_v2_cmd, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_bt_v2 error: {esc(e)}", exc_info=True)
@@ -217,6 +230,7 @@ async def menu_bt_compare_callback(update: Update, context: ContextTypes.DEFAULT
     await q.answer()
     try:
         from telegram_bot.handlers.backtest_v2 import compare_cmd
+
         await _invoke_command(compare_cmd, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_bt_compare error: {esc(e)}", exc_info=True)
@@ -229,6 +243,7 @@ async def menu_positions_callback(update: Update, context: ContextTypes.DEFAULT_
     await q.answer()
     try:
         from telegram_bot.handlers.positions import _show
+
         db: Database = context.bot_data["db"]
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
@@ -244,6 +259,7 @@ async def menu_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await q.answer()
     try:
         from telegram_bot.handlers.stats import _send_stats
+
         db: Database = context.bot_data["db"]
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
@@ -259,6 +275,7 @@ async def menu_risk_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await q.answer()
     try:
         from telegram_bot.handlers.risk_handler import risk_command
+
         await _invoke_command(risk_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_risk error: {esc(e)}", exc_info=True)
@@ -271,6 +288,7 @@ async def menu_market_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await q.answer()
     try:
         from telegram_bot.handlers.markets import markets_command
+
         await _invoke_command(markets_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_market error: {esc(e)}", exc_info=True)
@@ -283,6 +301,7 @@ async def menu_candles_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await q.answer()
     try:
         from telegram_bot.handlers.markets import candles_command
+
         await _invoke_command(candles_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_candles error: {esc(e)}", exc_info=True)
@@ -295,6 +314,7 @@ async def menu_settings_callback(update: Update, context: ContextTypes.DEFAULT_T
     await q.answer()
     try:
         from telegram_bot.handlers.settings_handler import _send_settings
+
         db: Database = context.bot_data["db"]
         user = await db.get_user_by_telegram_id(update.effective_user.id)
         if user:
@@ -310,6 +330,7 @@ async def menu_live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await q.answer()
     try:
         from telegram_bot.handlers.live_handler import live_command
+
         await _invoke_command(live_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_live error: {esc(e)}", exc_info=True)
@@ -334,16 +355,18 @@ async def menu_learning_callback(update: Update, context: ContextTypes.DEFAULT_T
         "/ev_stats — EV gate istatistikleri\n"
         "/metrics — Sharpe / Sortino / MDD metrikleri"
     )
-    kb = InlineKeyboardMarkup([
+    kb = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("🔍 /why", callback_data="why_refresh"),
-            InlineKeyboardButton("💀 /mistakes", callback_data="menu_cmd_mistakes"),
-            InlineKeyboardButton("📊 /patterns", callback_data="patterns_refresh"),
-        ],
-        # T1.3 Commit 4 (2026-04-20): /markov + /capital butonları kaldırıldı —
-        # phase76_handler.py ghost modüllere bağlıydı, silindi.
-        [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
-    ])
+            [
+                InlineKeyboardButton("🔍 /why", callback_data="why_refresh"),
+                InlineKeyboardButton("💀 /mistakes", callback_data="menu_cmd_mistakes"),
+                InlineKeyboardButton("📊 /patterns", callback_data="patterns_refresh"),
+            ],
+            # T1.3 Commit 4 (2026-04-20): /markov + /capital butonları kaldırıldı —
+            # phase76_handler.py ghost modüllere bağlıydı, silindi.
+            [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -363,9 +386,11 @@ async def menu_experiment_callback(update: Update, context: ContextTypes.DEFAULT
         "<code>/experiment MIN_COMPOSITE=0.30</code>\n"
         "<code>/experiment KELLY_FRACTION=0.15</code>\n"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -375,6 +400,7 @@ async def menu_health_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await q.answer()
     try:
         from telegram_bot.handlers.phase77_handler import health_command
+
         await _invoke_command(health_command, update, context)
     except Exception as e:  # noqa: BLE001
         logger.error(f"menu_health error: {esc(e)}", exc_info=True)
@@ -399,9 +425,11 @@ async def menu_advanced_callback(update: Update, context: ContextTypes.DEFAULT_T
         "/becker_recal_status — Becker recal durumu\n"
         "/becker_recal_manual — Becker manuel recal"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -411,6 +439,7 @@ async def _menu_cmd_callback(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await q.answer()
     try:
         import importlib
+
         # Map callback names to (module, function) pairs
         # T1.3 Commit 4 (2026-04-20): markov + capital entries removed —
         # phase76_handler.py ghost modüllere (core.markov_estimator,
@@ -436,6 +465,7 @@ async def _menu_cmd_callback(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def menu_cmd_mistakes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _menu_cmd_callback(update, context, "mistakes")
+
 
 # T1.3 Commit 4 (2026-04-20): menu_cmd_markov_callback + menu_cmd_capital_callback
 # silindi — phase76_handler.py ghost modüllere bağlıydı.

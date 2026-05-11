@@ -16,10 +16,10 @@ Loop kontrol:
   - Threshold: RECON_MISMATCH_THRESHOLD_USD (default $1)
   - Interval:  RECON_INTERVAL_S (default 300s = 5dk)
 """
+
 from __future__ import annotations
 
 import logging
-import time
 from html import escape as _esc
 
 from telegram import Update
@@ -38,8 +38,7 @@ def _fmt_age(secs):
     return f"{int(secs/3600)}h {int((secs%3600)/60)}m"
 
 
-async def recon_command(update: Update,
-                         context: ContextTypes.DEFAULT_TYPE):
+async def recon_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/recon (alias /rc) - reconciliation loop status panel."""
     engine = context.bot_data.get("engine")
     if engine is None:
@@ -54,7 +53,7 @@ async def recon_command(update: Update,
             "Bot restart denenebilir; "
             "<code>core/engine.py</code> reconciliation wire "
             "kontrol edilmeli.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
         return
 
@@ -65,11 +64,9 @@ async def recon_command(update: Update,
         L.append("")
 
         # Status block
-        status_emoji = "🟢" if st.get("running") else (
-            "🟡" if st.get("enabled") else "⚪")
+        status_emoji = "🟢" if st.get("running") else ("🟡" if st.get("enabled") else "⚪")
         if not st.get("enabled"):
-            status_text = ("DISABLED — RECON_ENABLED unset/false AND "
-                           "LIVE_ENABLED=false")
+            status_text = "DISABLED — RECON_ENABLED unset/false AND " "LIVE_ENABLED=false"
         elif st.get("running"):
             status_text = "RUNNING"
         else:
@@ -92,8 +89,7 @@ async def recon_command(update: Update,
         if mm == 0:
             L.append("✅ <b>No mismatches</b> (this session)")
         else:
-            L.append(f"⚠️ <b>{mm} mismatch{'es' if mm != 1 else ''}</b> "
-                     "(this session)")
+            L.append(f"⚠️ <b>{mm} mismatch{'es' if mm != 1 else ''}</b> " "(this session)")
 
             # Pull last 5 from task._mismatches if accessible
             history = getattr(task, "_mismatches", []) or []
@@ -112,16 +108,20 @@ async def recon_command(update: Update,
                     )
 
         L.append("")
-        L.append("<i>Sapma > $1 olursa Telegram'a alarm gelir + audit log "
-                 "yazilir. Bot restart sonra yeni cycle baslar.</i>")
+        L.append(
+            "<i>Sapma > $1 olursa Telegram'a alarm gelir + audit log "
+            "yazilir. Bot restart sonra yeni cycle baslar.</i>"
+        )
         L.append("")
-        L.append("<i>Manuel kontrol: ENV "
-                 "<code>RECON_ENABLED=true|false</code> "
-                 "(LIVE_ENABLED=true ise zaten otomatik on).</i>")
+        L.append(
+            "<i>Manuel kontrol: ENV "
+            "<code>RECON_ENABLED=true|false</code> "
+            "(LIVE_ENABLED=true ise zaten otomatik on).</i>"
+        )
 
         await update.message.reply_text("\n".join(L), parse_mode="HTML")
 
     except Exception as e:  # noqa: BLE001
+        # T11.6 doctrine: exception details go to log only.
         logger.exception(f"/recon failed: {e}")
-        await update.message.reply_text(
-            f"Recon panel uretilemedi: {type(e).__name__}: {e}")
+        await update.message.reply_text("Recon panel üretilemedi. Logları kontrol edin.")

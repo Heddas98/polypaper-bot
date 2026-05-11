@@ -27,8 +27,8 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List
+from datetime import UTC, datetime, timedelta
+from typing import Dict, List, Optional
 
 import aiosqlite
 
@@ -47,7 +47,8 @@ PENALTY_MAX = float(os.getenv("TRADE_MEMORY_PENALTY_MAX", "0.20"))
 @dataclass
 class PatternStats:
     """Statistics for a specific trading pattern."""
-    pattern_key: str          # e.g. "momentum:BTC:60-70:morning"
+
+    pattern_key: str  # e.g. "momentum:BTC:60-70:morning"
     total_trades: int = 0
     wins: int = 0
     losses: int = 0
@@ -59,9 +60,12 @@ class PatternStats:
 
     def to_dict(self) -> dict:
         return {
-            "key": self.pattern_key, "trades": self.total_trades,
-            "wins": self.wins, "losses": self.losses,
-            "pnl": round(self.total_pnl, 2), "wr": round(self.win_rate, 1),
+            "key": self.pattern_key,
+            "trades": self.total_trades,
+            "wins": self.wins,
+            "losses": self.losses,
+            "pnl": round(self.total_pnl, 2),
+            "wr": round(self.win_rate, 1),
             "mult": round(self.confidence_mult, 3),
         }
 
@@ -69,13 +73,14 @@ class PatternStats:
 @dataclass
 class TradeLesson:
     """A single lesson learned from a trade."""
+
     strategy_id: str
-    asset: str              # BTC, ETH, SOL, etc.
-    price_zone: str         # "0-10", "10-20", ..., "90-100"
-    time_zone: str          # "morning", "afternoon", "evening", "night"
-    day_type: str           # "weekday", "weekend"
-    direction: str          # "up", "down"
-    result: str             # "won", "lost"
+    asset: str  # BTC, ETH, SOL, etc.
+    price_zone: str  # "0-10", "10-20", ..., "90-100"
+    time_zone: str  # "morning", "afternoon", "evening", "night"
+    day_type: str  # "weekday", "weekend"
+    direction: str  # "up", "down"
+    result: str  # "won", "lost"
     pnl: float
     signal_score: float
     entry_price: float
@@ -93,7 +98,7 @@ def _price_zone(price: float) -> str:
 def _time_zone(dt: Optional[datetime] = None) -> str:
     """Categorize UTC hour into time zone."""
     if dt is None:
-        dt = datetime.now(timezone.utc)
+        dt = datetime.now(UTC)
     h = dt.hour
     if 6 <= h < 12:
         return "morning"
@@ -106,7 +111,7 @@ def _time_zone(dt: Optional[datetime] = None) -> str:
 
 def _day_type(dt: Optional[datetime] = None) -> str:
     if dt is None:
-        dt = datetime.now(timezone.utc)
+        dt = datetime.now(UTC)
     return "weekend" if dt.weekday() >= 5 else "weekday"
 
 
@@ -156,9 +161,11 @@ class TradeMemory:
                 )
             """)
             await db.conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tm_pattern ON trade_memory(pattern_key)")
+                "CREATE INDEX IF NOT EXISTS idx_tm_pattern ON trade_memory(pattern_key)"
+            )
             await db.conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tm_created ON trade_memory(created_at)")
+                "CREATE INDEX IF NOT EXISTS idx_tm_created ON trade_memory(created_at)"
+            )
             await db.conn.commit()
             logger.info("🧠 Phase 77: Trade Memory initialized")
         except (aiosqlite.Error, AttributeError) as e:
@@ -167,9 +174,16 @@ class TradeMemory:
             # AttributeError (db.conn missing during shutdown race).
             logger.warning(f"trade_memory init: {e}")
 
-    async def record(self, strategy_id: str, slug: str, direction: str,
-                     result: str, pnl: float, signal_score: float = 0.0,
-                     entry_price: float = 0.0):
+    async def record(
+        self,
+        strategy_id: str,
+        slug: str,
+        direction: str,
+        result: str,
+        pnl: float,
+        signal_score: float = 0.0,
+        entry_price: float = 0.0,
+    ):
         """Record a completed trade into memory."""
         if not MEMORY_ENABLED or self.db is None:
             return
@@ -179,7 +193,7 @@ class TradeMemory:
         tz = _time_zone()
         dt = _day_type()
         pattern_key = f"{strategy_id}:{asset}:{pz}:{tz}:{dt}"
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         try:
             await self.db.conn.execute(
@@ -188,18 +202,36 @@ class TradeMemory:
                     direction, result, pnl, signal_score, entry_price,
                     pattern_key, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (strategy_id, asset, pz, tz, dt, direction, result,
-                 pnl, signal_score, entry_price, pattern_key, now)
+                (
+                    strategy_id,
+                    asset,
+                    pz,
+                    tz,
+                    dt,
+                    direction,
+                    result,
+                    pnl,
+                    signal_score,
+                    entry_price,
+                    pattern_key,
+                    now,
+                ),
             )
             await self.db.conn.commit()
 
             # Track mistakes (losses with high signal score = overconfident)
             if result == "lost" and signal_score > 0.5:
-                self._mistakes.append({
-                    "strategy": strategy_id, "asset": asset,
-                    "zone": pz, "time": tz, "score": round(signal_score, 2),
-                    "pnl": round(pnl, 2), "when": now[:16],
-                })
+                self._mistakes.append(
+                    {
+                        "strategy": strategy_id,
+                        "asset": asset,
+                        "zone": pz,
+                        "time": tz,
+                        "score": round(signal_score, 2),
+                        "pnl": round(pnl, 2),
+                        "when": now[:16],
+                    }
+                )
                 if len(self._mistakes) > 50:
                     self._mistakes = self._mistakes[-50:]
 
@@ -216,8 +248,9 @@ class TradeMemory:
             #   - AttributeError: self.db.conn missing during shutdown.
             logger.debug(f"trade_memory.record: {e}")
 
-    async def get_pattern(self, strategy_id: str, slug: str,
-                          entry_price: float = 0.0) -> Optional[PatternStats]:
+    async def get_pattern(
+        self, strategy_id: str, slug: str, entry_price: float = 0.0
+    ) -> Optional[PatternStats]:
         """Look up pattern statistics for current trade context."""
         if not MEMORY_ENABLED or self.db is None:
             return None
@@ -233,11 +266,11 @@ class TradeMemory:
             return self._cache[pattern_key]
 
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=LOOKBACK_DAYS)).isoformat()
             rows = await self.db.conn.execute_fetchall(
                 """SELECT result, pnl FROM trade_memory
                    WHERE pattern_key = ? AND created_at > ?""",
-                (pattern_key, cutoff)
+                (pattern_key, cutoff),
             )
 
             if not rows or len(rows) < MIN_PATTERN_TRADES:
@@ -262,20 +295,21 @@ class TradeMemory:
 
             stats = PatternStats(
                 pattern_key=pattern_key,
-                total_trades=total, wins=wins, losses=losses,
+                total_trades=total,
+                wins=wins,
+                losses=losses,
                 total_pnl=round(total_pnl, 2),
                 avg_pnl=round(total_pnl / total, 2) if total > 0 else 0.0,
                 win_rate=round(wr, 1),
                 confidence_mult=round(mult, 3),
-                last_updated=datetime.now(timezone.utc).isoformat()[:16],
+                last_updated=datetime.now(UTC).isoformat()[:16],
             )
 
             self._cache[pattern_key] = stats
             self._last_refresh = time.time()
             return stats
 
-        except (aiosqlite.Error, IndexError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: SELECT + per-row r[0]/r[1] access + comprehension
             # sum/aggregate + WR multiplier arithmetic + PatternStats
             # construct. Realistic modes:
@@ -293,7 +327,7 @@ class TradeMemory:
             return []
 
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=LOOKBACK_DAYS)).isoformat()
             rows = await self.db.conn.execute_fetchall(
                 """SELECT pattern_key, COUNT(*) as cnt,
                           SUM(CASE WHEN result='won' THEN 1 ELSE 0 END) as wins,
@@ -304,22 +338,26 @@ class TradeMemory:
                    HAVING cnt >= ?
                    ORDER BY (CAST(wins AS REAL) / cnt) ASC, total_pnl ASC
                    LIMIT ?""",
-                (cutoff, MIN_PATTERN_TRADES, limit)
+                (cutoff, MIN_PATTERN_TRADES, limit),
             )
 
             results = []
             for r in rows:
                 pk, cnt, wins, tpnl = r
                 wr = (wins / cnt * 100) if cnt > 0 else 50
-                results.append(PatternStats(
-                    pattern_key=pk, total_trades=cnt, wins=wins,
-                    losses=cnt - wins, total_pnl=round(tpnl, 2),
-                    avg_pnl=round(tpnl / cnt, 2) if cnt > 0 else 0,
-                    win_rate=round(wr, 1),
-                ))
+                results.append(
+                    PatternStats(
+                        pattern_key=pk,
+                        total_trades=cnt,
+                        wins=wins,
+                        losses=cnt - wins,
+                        total_pnl=round(tpnl, 2),
+                        avg_pnl=round(tpnl / cnt, 2) if cnt > 0 else 0,
+                        win_rate=round(wr, 1),
+                    )
+                )
             return results
-        except (aiosqlite.Error, IndexError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: SELECT GROUP BY HAVING + tuple unpack
             # (pk, cnt, wins, tpnl = r) + WR arithmetic + PatternStats.
             # Realistic modes:
@@ -337,7 +375,7 @@ class TradeMemory:
             return []
 
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=LOOKBACK_DAYS)).isoformat()
             rows = await self.db.conn.execute_fetchall(
                 """SELECT pattern_key, COUNT(*) as cnt,
                           SUM(CASE WHEN result='won' THEN 1 ELSE 0 END) as wins,
@@ -348,22 +386,26 @@ class TradeMemory:
                    HAVING cnt >= ?
                    ORDER BY (CAST(wins AS REAL) / cnt) DESC, total_pnl DESC
                    LIMIT ?""",
-                (cutoff, MIN_PATTERN_TRADES, limit)
+                (cutoff, MIN_PATTERN_TRADES, limit),
             )
 
             results = []
             for r in rows:
                 pk, cnt, wins, tpnl = r
                 wr = (wins / cnt * 100) if cnt > 0 else 50
-                results.append(PatternStats(
-                    pattern_key=pk, total_trades=cnt, wins=wins,
-                    losses=cnt - wins, total_pnl=round(tpnl, 2),
-                    avg_pnl=round(tpnl / cnt, 2) if cnt > 0 else 0,
-                    win_rate=round(wr, 1),
-                ))
+                results.append(
+                    PatternStats(
+                        pattern_key=pk,
+                        total_trades=cnt,
+                        wins=wins,
+                        losses=cnt - wins,
+                        total_pnl=round(tpnl, 2),
+                        avg_pnl=round(tpnl / cnt, 2) if cnt > 0 else 0,
+                        win_rate=round(wr, 1),
+                    )
+                )
             return results
-        except (aiosqlite.Error, IndexError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, IndexError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: identical aggregate pattern to get_worst_patterns
             # (SELECT GROUP BY HAVING, only ORDER BY differs). Exception
             # surface identical — same narrow tuple.

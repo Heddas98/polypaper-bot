@@ -34,13 +34,14 @@ Engine integration (Sprint 4 wire — şu an opsiyonel):
         logger.info(f"⏸ UMA gate: {reason}")
         return SkipResult(reason="UMA_SETTLEMENT_WINDOW")
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("polypaper.uma_dispute")
@@ -97,7 +98,7 @@ def _parse_end_date(market: dict[str, Any]) -> int | None:
             iso = v.replace("Z", "+00:00")
             dt = datetime.fromisoformat(iso)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return int(dt.timestamp())
         except (TypeError, ValueError):
             continue
@@ -111,6 +112,7 @@ def _parse_end_date(market: dict[str, Any]) -> int | None:
 @dataclass
 class GateDecision:
     """Result of UMA gate check."""
+
     block: bool
     reason: str  # short tag for logging/metrics
     detail: str  # human-readable explanation
@@ -215,7 +217,8 @@ def should_block_new_position(
     """
     if not isinstance(market, dict) or not market:
         return GateDecision(
-            block=False, reason="NO_DATA",
+            block=False,
+            reason="NO_DATA",
             detail="Market metadata yok — UMA gate atlandı (default allow).",
             minutes_to_settlement=None,
         )
@@ -224,14 +227,16 @@ def should_block_new_position(
 
     if is_market_closed(market):
         return GateDecision(
-            block=True, reason="BLOCK_CLOSED",
+            block=True,
+            reason="BLOCK_CLOSED",
             detail="Market trading kapalı (closed/resolved/acceptingOrders=False).",
             minutes_to_settlement=minutes_left,
         )
 
     if is_market_disputed(market):
         return GateDecision(
-            block=True, reason="BLOCK_DISPUTED",
+            block=True,
+            reason="BLOCK_DISPUTED",
             detail="UMA dispute aktif — 4-6 gün lock riski. Yeni pozisyon engellendi.",
             minutes_to_settlement=minutes_left,
         )
@@ -240,7 +245,8 @@ def should_block_new_position(
         buf = buffer_min if buffer_min is not None else _get_buffer_min()
         ml = minutes_left if minutes_left is not None else 0
         return GateDecision(
-            block=True, reason="BLOCK_SETTLEMENT_WINDOW",
+            block=True,
+            reason="BLOCK_SETTLEMENT_WINDOW",
             detail=(
                 f"Market endDate {ml} dk uzakta < {buf} dk buffer "
                 f"(UMA challenge 2h + safety). Yeni pozisyon engellendi."
@@ -249,7 +255,8 @@ def should_block_new_position(
         )
 
     return GateDecision(
-        block=False, reason="ALLOW",
+        block=False,
+        reason="ALLOW",
         detail="Market açık, dispute yok, settlement window dışında.",
         minutes_to_settlement=minutes_left,
     )

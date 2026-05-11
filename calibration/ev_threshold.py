@@ -25,6 +25,7 @@ ENV:
     EV_SIZE_PENALTY=0.50         # Reduce size to 50% for marginal EV (0-minimum range)
     EV_FEE_OVERRIDE=0.0          # Override fee if > 0, else use computed fee
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,15 +45,16 @@ _FEE_OVERRIDE = float(os.getenv("EV_FEE_OVERRIDE", "0.0"))
 @dataclass
 class EVResult:
     """Expected Value calculation result."""
-    ev_per_dollar: float = 0.0     # EV per $1 stake
-    ev_positive: bool = False      # EV > 0
+
+    ev_per_dollar: float = 0.0  # EV per $1 stake
+    ev_positive: bool = False  # EV > 0
     ev_above_threshold: bool = False  # EV > minimum
-    should_trade: bool = True      # Pass EV gate?
-    size_multiplier: float = 1.0   # Position size modifier
-    model_wr: float = 0.0         # Model win rate used
-    market_price: float = 0.0     # Market implied probability
-    edge: float = 0.0             # model_wr - market_price
-    fee_pct: float = 0.0          # Fee applied
+    should_trade: bool = True  # Pass EV gate?
+    size_multiplier: float = 1.0  # Position size modifier
+    model_wr: float = 0.0  # Model win rate used
+    market_price: float = 0.0  # Market implied probability
+    edge: float = 0.0  # model_wr - market_price
+    fee_pct: float = 0.0  # Fee applied
     reason: str = ""
 
 
@@ -76,21 +78,27 @@ def compute_ev(
     """
     if not _ENABLED:
         return EVResult(
-            should_trade=True, reason="disabled",
-            model_wr=model_wr, market_price=market_price,
+            should_trade=True,
+            reason="disabled",
+            model_wr=model_wr,
+            market_price=market_price,
         )
 
     # Validate inputs
     if market_price <= 0.01 or market_price >= 0.99:
         return EVResult(
-            should_trade=True, reason="extreme_price",
-            model_wr=model_wr, market_price=market_price,
+            should_trade=True,
+            reason="extreme_price",
+            model_wr=model_wr,
+            market_price=market_price,
         )
 
     if model_wr <= 0.0 or model_wr >= 1.0:
         return EVResult(
-            should_trade=True, reason="invalid_model_wr",
-            model_wr=model_wr, market_price=market_price,
+            should_trade=True,
+            reason="invalid_model_wr",
+            model_wr=model_wr,
+            market_price=market_price,
         )
 
     # Fee handling
@@ -114,11 +122,7 @@ def compute_ev(
     # EV = model_wr × payout_on_win - (1-model_wr) × loss_on_loss - fee × stake
     # Per dollar: EV_per_dollar = model_wr × (1/price - 1) - (1 - model_wr) - fee
 
-    ev_per_dollar = (
-        model_wr * (1.0 / market_price - 1.0) -
-        (1.0 - model_wr) -
-        effective_fee
-    )
+    ev_per_dollar = model_wr * (1.0 / market_price - 1.0) - (1.0 - model_wr) - effective_fee
 
     edge = model_wr - market_price
     ev_positive = ev_per_dollar > 0
@@ -214,13 +218,12 @@ class EVTracker:
         lines = [
             f"{icon} <b>EV Threshold Stats</b>",
             f"Total trades evaluated: <b>{self._total}</b>",
-            f"EV+ trades: <b>{self._ev_positive}</b> "
-            f"({self.ev_positive_pct:.1f}%)",
+            f"EV+ trades: <b>{self._ev_positive}</b> " f"({self.ev_positive_pct:.1f}%)",
             f"Above threshold: <b>{self._ev_above_threshold}</b> "
             f"({self.ev_threshold_pct:.1f}%)",
             f"Mean EV/dollar: <b>{self.mean_ev:+.4f}</b>",
             "",
-            f"A7 baseline: 12.3% EV+",
+            "A7 baseline: 12.3% EV+",
         ]
         if self.beats_baseline:
             lines.append("✅ <b>Baseline'ın üstünde!</b>")

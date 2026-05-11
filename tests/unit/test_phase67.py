@@ -3,11 +3,14 @@ Phase 67: Parameter Optimization Tests
 =======================================
 Tests HyperOpt pipeline components and Monte Carlo Kelly validation.
 """
-import pytest
+
 import os
+
+import pytest
 
 try:
     import telegram
+
     HAS_TELEGRAM = True
 except ImportError:
     HAS_TELEGRAM = False
@@ -15,16 +18,18 @@ except ImportError:
 
 # ═══ Monte Carlo Kelly Tests ═══
 
+
 class TestMonteCarloKelly:
     """Test MC simulation with small path counts for speed."""
 
     def test_basic_simulation(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(
             win_rate=0.57,
             avg_entry_price=0.65,
             initial_bankroll=10000.0,
-            n_paths=100,   # small for speed
+            n_paths=100,  # small for speed
             n_trades=50,
         )
         result = mc.simulate()
@@ -35,6 +40,7 @@ class TestMonteCarloKelly:
 
     def test_full_kelly_pct(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(win_rate=0.57, avg_entry_price=0.65)
         # b = (1/0.65) - 1 ≈ 0.5385
         # f* = (0.5385 * 0.57 - 0.43) / 0.5385 ≈ -0.228
@@ -45,6 +51,7 @@ class TestMonteCarloKelly:
 
     def test_high_wr_positive_kelly(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(
             win_rate=0.70,
             avg_entry_price=0.55,
@@ -60,9 +67,12 @@ class TestMonteCarloKelly:
 
     def test_quarter_result_exists(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(
-            win_rate=0.65, avg_entry_price=0.55,
-            n_paths=50, n_trades=30,
+            win_rate=0.65,
+            avg_entry_price=0.55,
+            n_paths=50,
+            n_trades=30,
         )
         result = mc.simulate()
         qk = next((f for f in result.fractions if f.name == "quarter"), None)
@@ -71,9 +81,12 @@ class TestMonteCarloKelly:
 
     def test_optimal_fraction_exists(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(
-            win_rate=0.65, avg_entry_price=0.55,
-            n_paths=50, n_trades=30,
+            win_rate=0.65,
+            avg_entry_price=0.55,
+            n_paths=50,
+            n_trades=30,
         )
         result = mc.simulate()
         assert result.optimal_fraction_name != ""
@@ -81,9 +94,12 @@ class TestMonteCarloKelly:
 
     def test_bankruptcy_higher_for_full_kelly(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(
-            win_rate=0.60, avg_entry_price=0.55,
-            n_paths=200, n_trades=100,
+            win_rate=0.60,
+            avg_entry_price=0.55,
+            n_paths=200,
+            n_trades=100,
         )
         result = mc.simulate()
         full = next((f for f in result.fractions if f.name == "full"), None)
@@ -95,9 +111,12 @@ class TestMonteCarloKelly:
 
     def test_summary_and_telegram_format(self):
         from utils.mc_simulation import MonteCarloKelly
+
         mc = MonteCarloKelly(
-            win_rate=0.60, avg_entry_price=0.55,
-            n_paths=50, n_trades=30,
+            win_rate=0.60,
+            avg_entry_price=0.55,
+            n_paths=50,
+            n_trades=30,
         )
         result = mc.simulate()
         summary = result.summary()
@@ -107,6 +126,7 @@ class TestMonteCarloKelly:
 
     def test_validate_quarter_kelly_quick(self):
         from utils.mc_simulation import validate_quarter_kelly
+
         v = validate_quarter_kelly(
             win_rate=0.60,
             avg_entry_price=0.55,

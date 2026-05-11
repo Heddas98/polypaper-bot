@@ -18,13 +18,13 @@ Kullanım:
     py -3.11 scripts/sprint2_daily_check.py
     py -3.11 scripts/sprint2_daily_check.py --days 7   # son 7 gün
 """
+
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 DB_PATH = Path("data_store/polypaper.db")
@@ -35,7 +35,7 @@ def hr(b: float) -> str:
 
 
 def fetch_live_trades(con, days: int):
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).timestamp()
     cur = con.cursor()
     try:
         cur.execute(
@@ -53,12 +53,10 @@ def fetch_live_trades(con, days: int):
 
 def fetch_paper_baseline(con, days: int):
     """Paper trade history (trade_log or similar)."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).timestamp()
     cur = con.cursor()
     try:
-        cur.execute(
-            """SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%trade%'"""
-        )
+        cur.execute("""SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%trade%'""")
         tables = [r[0] for r in cur.fetchall()]
         # Try trade_log first
         if "trade_log" in tables:
@@ -97,7 +95,7 @@ def main():
         sys.exit(1)
 
     print(f"📊 Sprint 2 Daily Check — Last {args.days}d")
-    print(f"   Time: {datetime.now(timezone.utc).isoformat()[:19]} UTC")
+    print(f"   Time: {datetime.now(UTC).isoformat()[:19]} UTC")
     print()
 
     con = sqlite3.connect(str(DB_PATH))
@@ -126,6 +124,7 @@ def main():
     # 2. Strategy breakdown (top 5)
     if live_trades:
         from collections import defaultdict
+
         per_strat = defaultdict(lambda: {"n": 0, "pnl": 0, "wins": 0})
         for t in live_trades:
             s = t[3] or "unknown"
@@ -133,7 +132,7 @@ def main():
             per_strat[s]["pnl"] += float(t[0] or 0)
             if float(t[0] or 0) > 0:
                 per_strat[s]["wins"] += 1
-        print(f"📈 Top Strategies (live)")
+        print("📈 Top Strategies (live)")
         for label, stats in sorted(per_strat.items(), key=lambda x: -x[1]["pnl"])[:5]:
             wr = (stats["wins"] / stats["n"] * 100) if stats["n"] > 0 else 0
             print(f"   {label[:40]:40s} {stats['n']:>3}t  ${hr(stats['pnl']):>8}  WR{wr:.0f}%")
@@ -142,20 +141,22 @@ def main():
     # 3. Polymarket portfolio
     portf = fetch_portfolio(con)
     if portf:
-        print(f"💰 Polymarket Portfolio (latest cache)")
+        print("💰 Polymarket Portfolio (latest cache)")
         print(f"   pUSD Balance: ${float(portf[0] or 0):.2f}")
         print(f"   Total Value:  ${float(portf[1] or 0):.2f}")
         print(f"   Positions:    {portf[2] or 0}")
         try:
-            age_s = (datetime.now(timezone.utc).timestamp() -
-                     datetime.fromisoformat(str(portf[3]).replace("Z", "+00:00")).timestamp())
+            age_s = (
+                datetime.now(UTC).timestamp()
+                - datetime.fromisoformat(str(portf[3]).replace("Z", "+00:00")).timestamp()
+            )
             print(f"   Cache Age:    {int(age_s)}s ago")
         except (ValueError, TypeError):
             pass
         print()
 
     # 4. Karar gate evaluation
-    print(f"🎯 Sprint 2 Promotion Gate Check")
+    print("🎯 Sprint 2 Promotion Gate Check")
     gates = []
     gates.append(("Live trade count >= 200", live_count, 200, live_count >= 200))
     if live_pnl_sum != 0:
@@ -172,11 +173,11 @@ def main():
     print()
     all_pass = all(g[3] for g in gates)
     if all_pass and live_count >= 200:
-        print(f"   🟢 ALL GATES PASSED → Sprint 3 ($100 promotion) hazır")
+        print("   🟢 ALL GATES PASSED → Sprint 3 ($100 promotion) hazır")
     elif live_count < 50:
-        print(f"   ⏳ Trade sayısı düşük — devam et, gözle")
+        print("   ⏳ Trade sayısı düşük — devam et, gözle")
     else:
-        print(f"   ⚠️ Gate'ler partial — drift fix veya 14 gün bekle")
+        print("   ⚠️ Gate'ler partial — drift fix veya 14 gün bekle")
 
     con.close()
 

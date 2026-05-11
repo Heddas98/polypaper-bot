@@ -21,6 +21,7 @@ Wrap async callsites like:
     except CircuitOpen:
         logger.warning("CLOB breaker open — skipping order")
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,7 +43,7 @@ class CircuitBreaker:
     fail_threshold: int = 5
     cooldown_s: float = 30.0
     # Internal state (do not set directly; use async with)
-    _state: str = "closed"          # "closed" | "open" | "half_open"
+    _state: str = "closed"  # "closed" | "open" | "half_open"
     _failures: int = 0
     _opened_at: float = 0.0
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -56,8 +57,7 @@ class CircuitBreaker:
                     logger.info("🔌 %s: half_open (probe)", self.name)
                 else:
                     remaining = self.cooldown_s - (now - self._opened_at)
-                    raise CircuitOpen(
-                        f"{self.name} open, {remaining:.1f}s left")
+                    raise CircuitOpen(f"{self.name} open, {remaining:.1f}s left")
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -79,14 +79,16 @@ class CircuitBreaker:
                 # Probe failed → re-open
                 self._state = "open"
                 self._opened_at = time.monotonic()
-                logger.warning(
-                    "🔌 %s: re-opened (probe failed: %s)", self.name, exc)
+                logger.warning("🔌 %s: re-opened (probe failed: %s)", self.name, exc)
             elif self._failures >= self.fail_threshold:
                 self._state = "open"
                 self._opened_at = time.monotonic()
                 logger.warning(
                     "🔌 %s: opened after %d failures (cooldown %.0fs)",
-                    self.name, self._failures, self.cooldown_s)
+                    self.name,
+                    self._failures,
+                    self.cooldown_s,
+                )
             return False  # let the exception propagate
 
     @property
@@ -120,7 +122,4 @@ def get_breaker(
 
 def all_breakers() -> dict[str, dict]:
     """Return a dict snapshot of all registered breakers for /health output."""
-    return {
-        name: {"state": b.state, "failures": b.failure_count}
-        for name, b in _registry.items()
-    }
+    return {name: {"state": b.state, "failures": b.failure_count} for name, b in _registry.items()}

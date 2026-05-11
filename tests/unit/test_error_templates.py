@@ -1,4 +1,5 @@
 """Unit tests for telegram_bot/templates/errors.py (Phase 47f.10 P2#12)."""
+
 from __future__ import annotations
 
 from telegram_bot.templates.errors import ERR, fmt_error
@@ -7,10 +8,22 @@ from telegram_bot.templates.errors import ERR, fmt_error
 class TestErrorKeys:
     def test_required_keys_present(self):
         required = [
-            "DB_UNAVAILABLE", "ENGINE_NOT_READY", "ADMIN_ONLY", "USAGE",
-            "MISSING_ARG", "BAD_NUMBER", "NOT_FOUND", "AMBIGUOUS_PREFIX",
-            "NO_RESULTS", "ALREADY_RUNNING", "ALREADY_STOPPED", "GATE_FAIL",
-            "RISK_HALTED", "RISK_DAILY_LIMIT", "NETWORK_ERROR", "API_ERROR",
+            "DB_UNAVAILABLE",
+            "ENGINE_NOT_READY",
+            "ADMIN_ONLY",
+            "USAGE",
+            "MISSING_ARG",
+            "BAD_NUMBER",
+            "NOT_FOUND",
+            "AMBIGUOUS_PREFIX",
+            "NO_RESULTS",
+            "ALREADY_RUNNING",
+            "ALREADY_STOPPED",
+            "GATE_FAIL",
+            "RISK_HALTED",
+            "RISK_DAILY_LIMIT",
+            "NETWORK_ERROR",
+            "API_ERROR",
             "UNEXPECTED",
         ]
         for key in required:

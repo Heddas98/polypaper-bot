@@ -18,8 +18,8 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional, List
+from datetime import UTC, datetime
+from typing import List, Optional
 
 import aiosqlite
 
@@ -34,47 +34,49 @@ NOTIFY_DETAIL = os.getenv("DECISION_NOTIFY_DETAIL", "medium")  # minimal/medium/
 @dataclass
 class ReasoningStep:
     """One step in the decision chain."""
-    module: str       # "strategy_plugin", "confluence", "markov", "memory", etc.
-    action: str       # "boost", "penalty", "gate_pass", "gate_block", "sizing"
-    value: str        # "+0.05 confidence", "3/6 gates passed", etc.
-    impact: str       # "positive", "negative", "neutral"
+
+    module: str  # "strategy_plugin", "confluence", "markov", "memory", etc.
+    action: str  # "boost", "penalty", "gate_pass", "gate_block", "sizing"
+    value: str  # "+0.05 confidence", "3/6 gates passed", etc.
+    impact: str  # "positive", "negative", "neutral"
 
 
 @dataclass
 class ReasoningChain:
     """Complete reasoning chain for a trade decision."""
+
     strategy_id: str = ""
     slug: str = ""
     direction: str = ""
     final_score: float = 0.0
     trade_amount: float = 0.0
     steps: List[ReasoningStep] = field(default_factory=list)
-    summary_tr: str = ""       # Turkish summary for Telegram
-    summary_en: str = ""       # English summary for logs
+    summary_tr: str = ""  # Turkish summary for Telegram
+    summary_en: str = ""  # English summary for logs
     created_at: str = ""
     decision: str = "pending"  # "trade", "skip", "pending"
     skip_reason: str = ""
 
     def add_step(self, module: str, action: str, value: str, impact: str = "neutral"):
-        self.steps.append(ReasoningStep(
-            module=module, action=action, value=value, impact=impact
-        ))
+        self.steps.append(ReasoningStep(module=module, action=action, value=value, impact=impact))
 
     def to_json(self) -> str:
-        return json.dumps({
-            "strategy": self.strategy_id,
-            "slug": self.slug,
-            "direction": self.direction,
-            "score": round(self.final_score, 4),
-            "amount": round(self.trade_amount, 2),
-            "decision": self.decision,
-            "skip_reason": self.skip_reason,
-            "steps": [
-                {"m": s.module, "a": s.action, "v": s.value, "i": s.impact}
-                for s in self.steps
-            ],
-            "ts": self.created_at,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "strategy": self.strategy_id,
+                "slug": self.slug,
+                "direction": self.direction,
+                "score": round(self.final_score, 4),
+                "amount": round(self.trade_amount, 2),
+                "decision": self.decision,
+                "skip_reason": self.skip_reason,
+                "steps": [
+                    {"m": s.module, "a": s.action, "v": s.value, "i": s.impact} for s in self.steps
+                ],
+                "ts": self.created_at,
+            },
+            ensure_ascii=False,
+        )
 
     def build_summary(self):
         """Build human-readable summaries from steps."""
@@ -93,19 +95,18 @@ class ReasoningChain:
         if self.decision == "trade":
             self.summary_tr = (
                 f"📊 Karar: TRADE {self.direction.upper()}\n"
-                f"Skor: {self.final_score:+.3f} | ${self.trade_amount:.2f}\n"
-                + "\n".join(parts_tr)
+                f"Skor: {self.final_score:+.3f} | ${self.trade_amount:.2f}\n" + "\n".join(parts_tr)
             )
         else:
-            self.summary_tr = (
-                f"⏭️ Karar: SKIP\n"
-                f"Sebep: {self.skip_reason}\n"
-                + "\n".join(parts_tr)
+            self.summary_tr = f"⏭️ Karar: SKIP\n" f"Sebep: {self.skip_reason}\n" + "\n".join(
+                parts_tr
             )
 
         # English summary (for logs)
         step_str = " → ".join(f"{s.module}:{s.action}" for s in self.steps[:5])
-        self.summary_en = f"{self.decision}({self.direction}) score={self.final_score:.3f} | {step_str}"
+        self.summary_en = (
+            f"{self.decision}({self.direction}) score={self.final_score:.3f} | {step_str}"
+        )
 
     def format_telegram_short(self) -> str:
         """Short format for fill notification enrichment."""
@@ -126,7 +127,7 @@ class ReasoningChain:
     def format_telegram_full(self) -> str:
         """Full format for /why command."""
         lines = [
-            f"🔍 <b>Karar Detayı</b>",
+            "🔍 <b>Karar Detayı</b>",
             f"Strateji: <code>{esc(self.strategy_id)}</code>",
             f"Market: <code>{esc(self.slug[:40])}</code>",
             f"Yön: {esc(self.direction.upper())} | Skor: {self.final_score:+.3f}",
@@ -182,7 +183,7 @@ class DecisionExplainer:
         return ReasoningChain(
             strategy_id=strategy_id,
             slug=slug,
-            created_at=datetime.now(timezone.utc).isoformat()[:19],
+            created_at=datetime.now(UTC).isoformat()[:19],
         )
 
     def finalize(self, chain: ReasoningChain):
@@ -193,7 +194,7 @@ class DecisionExplainer:
         chain.build_summary()
         self._recent.append(chain)
         if len(self._recent) > self._max_recent:
-            self._recent = self._recent[-self._max_recent:]
+            self._recent = self._recent[-self._max_recent :]
 
     async def persist(self, chain: ReasoningChain, execution_id: str):
         """Persist reasoning to DB alongside execution."""
@@ -203,7 +204,7 @@ class DecisionExplainer:
         try:
             await self.db.conn.execute(
                 "UPDATE executions SET reasoning_json = ? WHERE id = ?",
-                (chain.to_json(), execution_id)
+                (chain.to_json(), execution_id),
             )
             await self.db.conn.commit()
         except (aiosqlite.Error, ValueError, TypeError) as e:
@@ -236,7 +237,7 @@ class DecisionExplainer:
         try:
             rows = await self.db.conn.execute_fetchall(
                 "SELECT reasoning_json FROM executions WHERE id = ? AND reasoning_json IS NOT NULL",
-                (execution_id,)
+                (execution_id,),
             )
             if rows and rows[0][0]:
                 data = json.loads(rows[0][0])
@@ -253,8 +254,14 @@ class DecisionExplainer:
                 for s in data.get("steps", []):
                     chain.add_step(s["m"], s["a"], s["v"], s.get("i", "neutral"))
                 return chain
-        except (aiosqlite.Error, json.JSONDecodeError, ValueError,
-                TypeError, KeyError, IndexError) as e:
+        except (
+            aiosqlite.Error,
+            json.JSONDecodeError,
+            ValueError,
+            TypeError,
+            KeyError,
+            IndexError,
+        ) as e:
             # T1.4 Faz 3: execute_fetchall + json.loads(rows[0][0]) +
             # dict.get chain + steps loop with s["m"]/s["a"]/s["v"] in
             # one try. Realistic failure modes:

@@ -2,13 +2,15 @@
 PolyPaper Bot - /start Handler
 Mirrors Polyscout's onboarding: Terms → Accept → Wallet Creation → Deposit Instructions
 """
+
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from config.settings import Settings
 from db.database import Database
 from db.models import User, Wallet
-from config.settings import Settings
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.start")
@@ -43,9 +45,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"gasless and smooth. Tap below for "
             f"deposit instructions."
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💰 Deposit", callback_data="deposit_instructions")],
-        ])
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("💰 Deposit", callback_data="deposit_instructions")],
+            ]
+        )
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
         return
 
@@ -63,12 +67,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚠️ <b>No real money is involved.</b> All trades "
         "use simulated USDC for educational "
         "and research purposes.\n\n"
-        f"Website: polyscout.io\n"
-        f"Terms of Use: polymarket.com/tos"
+        "Website: polyscout.io\n"
+        "Terms of Use: polymarket.com/tos"
     )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("I Accept", callback_data="accept_terms")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("I Accept", callback_data="accept_terms")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 
@@ -132,9 +138,11 @@ async def accept_terms_callback(update: Update, context: ContextTypes.DEFAULT_TY
         f"get familiar with setting up your "
         f"trading strategy."
     )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard")],
+        ]
+    )
 
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
 
@@ -168,17 +176,18 @@ async def deposit_instructions_callback(update: Update, context: ContextTypes.DE
         f"Maximum deposit: $100,000\n\n"
         f"⚠️ This is simulation money only."
     )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 
 # ════════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 — merged from wallets.py
 # ════════════════════════════════════════════════════════════════════════
-from db.models import User, Wallet  # noqa: F401  (User already imported above)
-from telegram_bot.banners import banner_wallets, banner_referrals
+from telegram_bot.banners import banner_referrals, banner_wallets
 
 
 async def wallets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -213,21 +222,31 @@ async def _send_wallets(message, db: "Database", user):
         # P0-03 (2026-05-08): "🔑" wallet_key_ button removed — even though
         # the underlying handler was a placeholder, the icon misled users
         # into thinking they could surface a private key from the bot.
-        buttons.append([
-            InlineKeyboardButton(f"{'✅ ' if w.is_primary else '👜 '}{w.label}", callback_data=f"select_wallet_{w.id}"),
-            InlineKeyboardButton("ℹ", callback_data=f"wallet_info_{w.id}"),
-            InlineKeyboardButton("🗑", callback_data=f"wallet_delete_{w.id}"),
-        ])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    f"{'✅ ' if w.is_primary else '👜 '}{w.label}",
+                    callback_data=f"select_wallet_{w.id}",
+                ),
+                InlineKeyboardButton("ℹ", callback_data=f"wallet_info_{w.id}"),
+                InlineKeyboardButton("🗑", callback_data=f"wallet_delete_{w.id}"),
+            ]
+        )
     text += "\nYou can create or import more wallets with the buttons below."
-    buttons.append([
-        InlineKeyboardButton("➕ New Wallet", callback_data="new_wallet"),
-        InlineKeyboardButton("📥 Import Wallet", callback_data="import_wallet"),
-    ])
+    buttons.append(
+        [
+            InlineKeyboardButton("➕ New Wallet", callback_data="new_wallet"),
+            InlineKeyboardButton("📥 Import Wallet", callback_data="import_wallet"),
+        ]
+    )
     buttons.append([InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")])
     keyboard = InlineKeyboardMarkup(buttons)
     banner = banner_wallets()
     await message.reply_photo(
-        photo=banner, caption=text, parse_mode="HTML", reply_markup=keyboard,
+        photo=banner,
+        caption=text,
+        parse_mode="HTML",
+        reply_markup=keyboard,
     )
 
 
@@ -243,12 +262,14 @@ async def new_wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     wallets = await db.get_wallets_by_user(user.id)
     label = f"wallet-{len(wallets) + 1}"
     wallet = Wallet(
-        user_id=user.id, label=label, balance=0.0, is_primary=False,
+        user_id=user.id,
+        label=label,
+        balance=0.0,
+        is_primary=False,
     )
     await db.create_wallet(wallet)
     await query.message.reply_text(
-        f"✅ New wallet <b>{esc(label)}</b> created!\n"
-        f"Use /add_funds to add virtual USDC.",
+        f"✅ New wallet <b>{esc(label)}</b> created!\n" f"Use /add_funds to add virtual USDC.",
         parse_mode="HTML",
     )
 
@@ -273,9 +294,11 @@ async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Example: <code>/withdraw_funds 500</code>\n\n"
         f"⚠️ This removes simulation money from your wallet."
     )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 
@@ -313,16 +336,15 @@ async def withdraw_funds_command(update: Update, context: ContextTypes.DEFAULT_T
         amount = float(context.args[0]) if context.args else 0
     except (ValueError, IndexError):
         await update.message.reply_text(
-            "Usage: <code>/withdraw_funds [amount]</code>", parse_mode="HTML",
+            "Usage: <code>/withdraw_funds [amount]</code>",
+            parse_mode="HTML",
         )
         return
     if amount <= 0:
         await update.message.reply_text("Tutar pozitif olmalıdır. Tekrar deneyin.")
         return
     if amount > wallet.balance:
-        await update.message.reply_text(
-            f"Yetersiz bakiye. Mevcut: {wallet.balance:.4f} USDC.e"
-        )
+        await update.message.reply_text(f"Yetersiz bakiye. Mevcut: {wallet.balance:.4f} USDC.e")
         return
     new_balance = wallet.balance - amount
     await db.update_wallet_balance(wallet.id, new_balance)
@@ -377,11 +399,15 @@ async def _send_referrals(message, user):
         f"• Withdrawn: 0.00 USDC.e\n\n"
         f"Share your link and grow your squad."
     )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
+        ]
+    )
     banner = banner_referrals()
     await message.reply_photo(
-        photo=banner, caption=text,
-        parse_mode="HTML", reply_markup=keyboard,
+        photo=banner,
+        caption=text,
+        parse_mode="HTML",
+        reply_markup=keyboard,
     )

@@ -2,11 +2,13 @@
 PolyPaper Bot - /positions Handler (NEW)
 Shows all open positions with real-time unrealized PnL.
 """
-from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
-from db.database import Database
+
+from core.slug_utils import infer_asset_from_slug, infer_tf_from_slug
 from data.polymarket_client import safe_float
+from db.database import Database
 from telegram_bot.templates.safe_html import esc, fmt_usd
 
 
@@ -23,8 +25,10 @@ async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Full chain: DB user lookup + open positions + price fetch + send.
         # Generic user message; full trace in server logs.
         import logging
+
         logging.getLogger("polypaper.positions").error(
-            f"positions_command error: {type(e).__name__}: {e}")
+            f"positions_command error: {type(e).__name__}: {e}"
+        )
         await update.message.reply_text("⚠️ Pozisyonlar yüklenirken hata oluştu. Tekrar deneyin.")
 
 
@@ -39,8 +43,10 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): same outer-wrapper doctrine as positions_command.
         import logging
+
         logging.getLogger("polypaper.positions").error(
-            f"positions_callback error: {type(e).__name__}: {e}")
+            f"positions_callback error: {type(e).__name__}: {e}"
+        )
         await q.message.reply_text("⚠️ Pozisyonlar yüklenirken hata oluştu.")
 
 
@@ -53,8 +59,10 @@ async def _show(message, db, user, context):
         # aiosqlite.Error + row-factory TypeError + AttributeError if user
         # has no wallet. Generic user message + /db_health hint.
         import logging
+
         logging.getLogger("polypaper.positions").error(
-            f"DB get_open_positions error: {type(e).__name__}: {e}")
+            f"DB get_open_positions error: {type(e).__name__}: {e}"
+        )
         await message.reply_text("⚠️ DB'ye erişilemedi. /db_health ile durumu kontrol edin.")
         return
     scanner = context.bot_data.get("scanner")
@@ -81,8 +89,17 @@ async def _show(message, db, user, context):
             tf = infer_tf_from_slug(slug)
             strat_label = pos.get("strategy_label") or f"{esc(asset)} {tf}"
             stype = pos.get("strategy_type") or "fusion"
-            te = {"fusion": "🔬", "contrarian": "🔄", "sniper": "🎯",
-                  "momentum": "📈", "scalper": "⚡", "martingale": "🎰", "highthreshold": "🏔️", "flashcrash": "💥", "streak": "🔄"}.get(stype, "🔬")
+            te = {
+                "fusion": "🔬",
+                "contrarian": "🔄",
+                "sniper": "🎯",
+                "momentum": "📈",
+                "scalper": "⚡",
+                "martingale": "🎰",
+                "highthreshold": "🏔️",
+                "flashcrash": "💥",
+                "streak": "🔄",
+            }.get(stype, "🔬")
 
             # Live price
             current = None
@@ -90,7 +107,8 @@ async def _show(message, db, user, context):
                 odds = scanner.get_current_odds(slug)
                 if odds:
                     current = safe_float(
-                        odds.get("up_odds") if direction == "up" else odds.get("down_odds"))
+                        odds.get("up_odds") if direction == "up" else odds.get("down_odds")
+                    )
 
             if current:
                 value = shares * current
@@ -101,21 +119,26 @@ async def _show(message, db, user, context):
                     f"{i}. {emoji}{te} <b>{strat_label}</b> {direction.upper()}\n"
                     f"   Entry: {entry:.4f} → Now: {current:.4f}\n"
                     f"   Shares: {shares:.2f} | {fmt_usd(amount)}\n"
-                    f"   PnL: <b>{fmt_usd(unrealized, sign=True)}</b>\n\n")
+                    f"   PnL: <b>{fmt_usd(unrealized, sign=True)}</b>\n\n"
+                )
             else:
                 text += (
                     f"{i}. ⏳{te} <b>{strat_label}</b> {direction.upper()}\n"
                     f"   Entry: {entry:.4f} | {fmt_usd(amount)}\n"
-                    f"   Bekleniyor...\n\n")
+                    f"   Bekleniyor...\n\n"
+                )
 
         text += (
             f"<b>Summary</b>\n"
             f"Positions: {len(positions)} | Invested: {fmt_usd(total_invested)}\n"
-            f"Unrealized PnL: <b>{fmt_usd(total_unrealized, sign=True)} USDC</b>")
+            f"Unrealized PnL: <b>{fmt_usd(total_unrealized, sign=True)} USDC</b>"
+        )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_positions")],
-        [InlineKeyboardButton("📊 Stats", callback_data="show_stats")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_positions")],
+            [InlineKeyboardButton("📊 Stats", callback_data="show_stats")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await message.reply_text(text, parse_mode="HTML", reply_markup=kb)

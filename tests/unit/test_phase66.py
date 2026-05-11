@@ -3,9 +3,11 @@ Phase 66: Measurement Infrastructure Tests
 ==========================================
 Tests BayesianUpdater, Brier Score, Liquidity Check, Unsellable Token Detection.
 """
+
 import pytest
+
+from core.risk_manager import RiskLimits, RiskManager
 from core.signal_fusion import BayesianUpdater, SignalFusion, SignalWeights
-from core.risk_manager import RiskManager, RiskLimits
 
 
 # Epic 9 T9.5 (2026-04-22): autouse env + module-flag isolation fixture.
@@ -37,12 +39,14 @@ def _clean_signal_env(monkeypatch):
 
     # Module-level flag canonical restore (even if sibling test leaked False)
     import core.signal_fusion as sf_mod
+
     monkeypatch.setattr(sf_mod, "_WHALE_SIGNAL_ENABLED", True)
     monkeypatch.setattr(sf_mod, "_BAYESIAN_ENABLED", True)
     yield
 
 
 # ═══ BayesianUpdater Tests ═══
+
 
 class TestBayesianUpdater:
     def test_init_prior(self):
@@ -105,14 +109,17 @@ class TestBayesianUpdater:
 
 # ═══ SignalFusion + Bayesian Integration ═══
 
+
 class TestSignalFusionBayesian:
     def test_bayesian_added_to_result(self):
         sf = SignalFusion()
         result = sf.evaluate(
-            up_odds=0.65, down_odds=0.35,
-            threshold=0.55, direction="up",
+            up_odds=0.65,
+            down_odds=0.35,
+            threshold=0.55,
+            direction="up",
             odds_series=[0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.64, 0.65],
-            orderbook={"bids": [(0.64, 100)], "asks": [(0.66, 80)]}
+            orderbook={"bids": [(0.64, 100)], "asks": [(0.66, 80)]},
         )
         assert result.bayesian_posterior > 0
         assert "bayes_edge" in result.signals
@@ -129,10 +136,7 @@ class TestSignalFusionBayesian:
         #2 karar: stale logic expectation.
         """
         sf = SignalFusion()
-        result = sf.evaluate(
-            up_odds=0.30, down_odds=0.30,
-            threshold=0.55, direction="up"
-        )
+        result = sf.evaluate(up_odds=0.30, down_odds=0.30, threshold=0.55, direction="up")
         # Posterior valid range [0, 1] + prior (0.5) civarında kalmalı
         assert 0.0 <= result.bayesian_posterior <= 1.0
         assert abs(result.bayesian_posterior - 0.5) < 0.45
@@ -140,18 +144,17 @@ class TestSignalFusionBayesian:
 
 # ═══ Liquidity Check Tests ═══
 
+
 class TestLiquidityCheck:
     def setup_method(self):
         self.rm = RiskManager()
 
     def test_sufficient_liquidity(self):
-        v = self.rm.check_liquidity_for_exit(
-            5.0, {"bids": [(0.65, 100), (0.64, 200)], "asks": []})
+        v = self.rm.check_liquidity_for_exit(5.0, {"bids": [(0.65, 100), (0.64, 200)], "asks": []})
         assert v.approved
 
     def test_insufficient_liquidity(self):
-        v = self.rm.check_liquidity_for_exit(
-            10.0, {"bids": [(0.65, 1)], "asks": []})
+        v = self.rm.check_liquidity_for_exit(10.0, {"bids": [(0.65, 1)], "asks": []})
         assert not v.approved
         assert "LOW_LIQUIDITY" in v.reason
 
@@ -165,13 +168,13 @@ class TestLiquidityCheck:
         assert v.approved  # conservative: allow exit with warning
 
     def test_penny_bid(self):
-        v = self.rm.check_liquidity_for_exit(
-            5.0, {"bids": [(0.01, 1000)], "asks": []})
+        v = self.rm.check_liquidity_for_exit(5.0, {"bids": [(0.01, 1000)], "asks": []})
         assert not v.approved
         assert "PENNY_BID" in v.reason
 
 
 # ═══ Unsellable Token Tests ═══
+
 
 class TestUnsellableCheck:
     def setup_method(self):
@@ -187,22 +190,21 @@ class TestUnsellableCheck:
         assert not v.approved
 
     def test_thin_book(self):
-        v = self.rm.check_unsellable_risk(
-            0.60, {"bids": [(0.59, 2)], "asks": [(0.61, 2)]})
+        v = self.rm.check_unsellable_risk(0.60, {"bids": [(0.59, 2)], "asks": [(0.61, 2)]})
         assert not v.approved
         assert "THIN_BOOK" in v.reason
 
     def test_near_close(self):
         v = self.rm.check_unsellable_risk(
-            0.60, {"bids": [(0.59, 100)], "asks": [(0.61, 80)]},
-            minutes_to_close=1.0)
+            0.60, {"bids": [(0.59, 100)], "asks": [(0.61, 80)]}, minutes_to_close=1.0
+        )
         assert not v.approved
         assert "NEAR_CLOSE" in v.reason
 
     def test_safe_entry(self):
         v = self.rm.check_unsellable_risk(
-            0.60, {"bids": [(0.59, 100)], "asks": [(0.61, 80)]},
-            minutes_to_close=3.5)
+            0.60, {"bids": [(0.59, 100)], "asks": [(0.61, 80)]}, minutes_to_close=3.5
+        )
         assert v.approved
 
     def test_normal_odds_no_book(self):

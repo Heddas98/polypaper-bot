@@ -14,11 +14,12 @@ Phase 60: Smart Exit — 3-tier exit logic:
   Tier 2: Stop Loss (δ < entry - delta → exit)
   Tier 3: Forced Exit (time-based, legacy Phase 53b)
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -32,14 +33,17 @@ logger = logging.getLogger("polypaper.core.engine")
 # 0 = disabled (default). Typical: 10-15 for 5m markets.
 FORCE_EXIT_SECONDS = int(os.getenv("FORCE_EXIT_SECONDS", "0"))
 
+
 # ── Phase 60: Smart Exit ENV controls ──
 # NOTE: SMART_EXIT_ENABLED and REMAINING_EDGE_MIN are read at runtime
 # from os.environ so /filters panel can toggle them without restart.
 def _smart_exit_enabled() -> bool:
     return os.getenv("SMART_EXIT_ENABLED", "true").lower() == "true"
 
+
 def _remaining_edge_min() -> float:
     return float(os.getenv("REMAINING_EDGE_MIN", "0.05"))
+
 
 # If estimated prob drops below entry - this → stop loss exit
 STOP_LOSS_DELTA = float(os.getenv("STOP_LOSS_DELTA", "0.12"))
@@ -77,7 +81,8 @@ class EngineMonitorMixin:
         rows = []
         try:
             async with self.db.conn.execute(
-                "SELECT * FROM executions WHERE status='bet_placed'") as c:
+                "SELECT * FROM executions WHERE status='bet_placed'"
+            ) as c:
                 async for row in c:
                     rows.append(dict(row))
         except (aiosqlite.Error, AttributeError, TypeError):
@@ -85,12 +90,18 @@ class EngineMonitorMixin:
             # aiosqlite.Error (SELECT), AttributeError (self.db.conn None),
             # TypeError (Row→dict cast).
             return
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for row in rows:
             try:
                 await self._check(row, now)
-            except (aiosqlite.Error, AttributeError, KeyError, TypeError,
-                    ValueError, IndexError) as e:
+            except (
+                aiosqlite.Error,
+                AttributeError,
+                KeyError,
+                TypeError,
+                ValueError,
+                IndexError,
+            ) as e:
                 # T1.4 Faz 3: _check iç yüzey — DB reads, dict access,
                 # datetime, float arithmetic, slicing. Realistic modes:
                 # aiosqlite.Error (DB), AttributeError (self.client / self.db
@@ -116,14 +127,17 @@ class EngineMonitorMixin:
                 if cur is None:
                     odds = self.scanner.get_current_odds(slug)
                     if odds:
-                        cur = safe_float(odds.get("up_odds") if direction == "up" else odds.get("down_odds"))
+                        cur = safe_float(
+                            odds.get("up_odds") if direction == "up" else odds.get("down_odds")
+                        )
                 if cur is None:
                     cur = entry  # fallback: exit at entry (no slippage data)
                 logger.info(
                     f"  ⚡ FORCE-EXIT: {slug} {secs_left:.0f}s before close "
-                    f"@ {cur:.4f} (entry={entry:.4f})")
+                    f"@ {cur:.4f} (entry={entry:.4f})"
+                )
                 # Track daily count for heartbeat
-                if not hasattr(self, '_force_exits_today'):
+                if not hasattr(self, "_force_exits_today"):
                     self._force_exits_today = 0
                 self._force_exits_today += 1
                 return await self._exit(row, shares, cur, "force_exit")
@@ -143,7 +157,7 @@ class EngineMonitorMixin:
                     if _cat:
                         _fill_time = datetime.fromisoformat(_cat.replace("Z", "+00:00"))
                         if _fill_time.tzinfo is None:
-                            _fill_time = _fill_time.replace(tzinfo=timezone.utc)
+                            _fill_time = _fill_time.replace(tzinfo=UTC)
                         _age = (now - _fill_time).total_seconds()
                         if _age < SMART_EXIT_GRACE_SEC:
                             _skip_grace = True
@@ -194,10 +208,8 @@ class EngineMonitorMixin:
                 return
 
             # Phase 41a: configurable UMA timing (defaults match real liveness)
-            extreme_window = getattr(
-                self.settings, "UMA_EXTREME_ODDS_WINDOW_SECONDS", 1800)
-            force_after = getattr(
-                self.settings, "UMA_FORCE_SETTLE_SECONDS", 7200)
+            extreme_window = getattr(self.settings, "UMA_EXTREME_ODDS_WINDOW_SECONDS", 1800)
+            force_after = getattr(self.settings, "UMA_FORCE_SETTLE_SECONDS", 7200)
 
             # Sprint 5 HOTFIX v4: timeframe-aware force-settle deadline.
             # 5m/15m markets resolve fast; 2-hour UMA wait is absurd — stuck
@@ -209,8 +221,7 @@ class EngineMonitorMixin:
             # 4 TF pattern-aware (5m/15m/1h/24h).
             _tf = infer_tf_from_slug(slug)
             if _tf in ("5m", "15m"):
-                force_after = getattr(
-                    self.settings, "UMA_FORCE_SETTLE_SHORT_SEC", 900)
+                force_after = getattr(self.settings, "UMA_FORCE_SETTLE_SHORT_SEC", 900)
                 if extreme_window > 600:
                     extreme_window = 600
 
@@ -221,7 +232,9 @@ class EngineMonitorMixin:
                 if last:
                     lu = safe_float(last.get("up_odds"))
                     if lu is not None and (lu > 0.85 or lu < 0.15):
-                        logger.info(f"  ⏳ EXTREME-ODDS-SETTLE: {slug} lu={lu:.3f} (>{0.85} or <{0.15})")
+                        logger.info(
+                            f"  ⏳ EXTREME-ODDS-SETTLE: {slug} lu={lu:.3f} (>{0.85} or <{0.15})"
+                        )
                         await self._settle(row, "up" if lu > 0.5 else "down", shares, lu)
                         return
                 # Not extreme enough or no data — keep waiting
@@ -236,7 +249,8 @@ class EngineMonitorMixin:
                 if int(elapsed) % 300 < 2:
                     logger.warning(
                         f"  ⏳ UMA liveness: {slug} elapsed={elapsed/60:.0f}min "
-                        f"(force at {force_after/60:.0f}min)")
+                        f"(force at {force_after/60:.0f}min)"
+                    )
                 return
 
             # Past UMA force-settle deadline — fall back to last known odds
@@ -247,12 +261,19 @@ class EngineMonitorMixin:
                 try:
                     async with self.db.conn.execute(
                         "SELECT up_odds FROM odds_history WHERE event_slug=? ORDER BY timestamp DESC LIMIT 1",
-                        (slug,)) as c:
+                        (slug,),
+                    ) as c:
                         r = await c.fetchone()
                         if r and r["up_odds"]:
                             lu = float(r["up_odds"])
-                except (aiosqlite.Error, KeyError, TypeError, ValueError,
-                        AttributeError, IndexError):
+                except (
+                    aiosqlite.Error,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    AttributeError,
+                    IndexError,
+                ):
                     # T1.4 Faz 3: odds_history fallback SELECT + named row
                     # access + float coerce. Realistic modes:
                     # aiosqlite.Error (DB), KeyError/IndexError (r["up_odds"]
@@ -272,7 +293,9 @@ class EngineMonitorMixin:
         if cur is None:
             odds = self.scanner.get_current_odds(slug)
             if odds:
-                cur = safe_float(odds.get("up_odds") if direction == "up" else odds.get("down_odds"))
+                cur = safe_float(
+                    odds.get("up_odds") if direction == "up" else odds.get("down_odds")
+                )
         if cur is None:
             return
 
@@ -315,8 +338,7 @@ class EngineMonitorMixin:
         try:
             # Read current max from DB (stored as extra field)
             async with self.db.conn.execute(
-                "SELECT max_unrealized_price FROM executions WHERE id=?",
-                (exec_id,)
+                "SELECT max_unrealized_price FROM executions WHERE id=?", (exec_id,)
             ) as c:
                 r = await c.fetchone()
             old_max = None
@@ -329,10 +351,10 @@ class EngineMonitorMixin:
             if old_max is None or cur > old_max:
                 await self.db.conn.execute(
                     "UPDATE executions SET max_unrealized_price=? WHERE id=?",
-                    (round(cur, 6), exec_id))
+                    (round(cur, 6), exec_id),
+                )
                 await self.db.conn.commit()
-        except (aiosqlite.Error, KeyError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, AttributeError) as e:
             # T1.4 Faz 3: disposition SELECT + UPDATE max_unrealized_price.
             # Realistic modes: aiosqlite.OperationalError (schema: "no such
             # column" fresh DB), KeyError (row["id"]/row["direction"]),

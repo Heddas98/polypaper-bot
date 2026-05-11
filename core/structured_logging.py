@@ -16,41 +16,74 @@ Usage:
     setup_structured_logging()
     # Existing loggers continue to work + JSON file write
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
 import re
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
-
 
 # 13 secret regex (T10.8 baseline) + ek
 SECRET_PATTERNS = [
     # Private keys (Ethereum 64+ hex char with optional 0x prefix)
     (re.compile(r"\b0x[a-fA-F0-9]{40,}"), "[REDACTED_PRIVATE_KEY]"),
     # API keys / passwords (env-style)
-    (re.compile(r"(?i)(api[_-]?key|apikey)\s*[:=]\s*['\"]?[\w-]{16,}", re.MULTILINE), "[REDACTED_API_KEY]"),
-    (re.compile(r"(?i)(api[_-]?secret|secret)\s*[:=]\s*['\"]?[\w/+=]{16,}", re.MULTILINE), "[REDACTED_API_SECRET]"),
-    (re.compile(r"(?i)(api[_-]?passphrase|passphrase|password)\s*[:=]\s*['\"]?[\w-]{8,}", re.MULTILINE), "[REDACTED_PASSPHRASE]"),
-    (re.compile(r"(?i)(bot[_-]?token|telegram[_-]?token)\s*[:=]\s*['\"]?[\d:]{20,}", re.MULTILINE), "[REDACTED_BOT_TOKEN]"),
+    (
+        re.compile(r"(?i)(api[_-]?key|apikey)\s*[:=]\s*['\"]?[\w-]{16,}", re.MULTILINE),
+        "[REDACTED_API_KEY]",
+    ),
+    (
+        re.compile(r"(?i)(api[_-]?secret|secret)\s*[:=]\s*['\"]?[\w/+=]{16,}", re.MULTILINE),
+        "[REDACTED_API_SECRET]",
+    ),
+    (
+        re.compile(
+            r"(?i)(api[_-]?passphrase|passphrase|password)\s*[:=]\s*['\"]?[\w-]{8,}", re.MULTILINE
+        ),
+        "[REDACTED_PASSPHRASE]",
+    ),
+    (
+        re.compile(
+            r"(?i)(bot[_-]?token|telegram[_-]?token)\s*[:=]\s*['\"]?[\d:]{20,}", re.MULTILINE
+        ),
+        "[REDACTED_BOT_TOKEN]",
+    ),
     # Telegram bot token format: 123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
     (re.compile(r"\b\d{8,12}:[A-Za-z0-9_-]{30,40}\b"), "[REDACTED_TELEGRAM_TOKEN]"),
     # JWT tokens
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "[REDACTED_JWT]"),
+    (
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+        "[REDACTED_JWT]",
+    ),
     # AWS access keys
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_KEY]"),
     # Generic high-entropy strings near keywords
-    (re.compile(r"(?i)(creds?|credential|auth)\s*[:=]\s*['\"]?[\w/+=]{20,}", re.MULTILINE), "[REDACTED_CREDS]"),
+    (
+        re.compile(r"(?i)(creds?|credential|auth)\s*[:=]\s*['\"]?[\w/+=]{20,}", re.MULTILINE),
+        "[REDACTED_CREDS]",
+    ),
     # Polymarket-specific stored creds
-    (re.compile(r"\bPOLYMARKET_API_KEY\s*[=:]\s*['\"]?[\w-]+", re.MULTILINE), "[REDACTED_POLYMARKET_API_KEY]"),
-    (re.compile(r"\bPOLYMARKET_API_SECRET\s*[=:]\s*['\"]?[\w/+=]+", re.MULTILINE), "[REDACTED_POLYMARKET_SECRET]"),
-    (re.compile(r"\bPOLYMARKET_PASSPHRASE\s*[=:]\s*['\"]?[\w-]+", re.MULTILINE), "[REDACTED_POLYMARKET_PASSPHRASE]"),
-    (re.compile(r"\bPOLYGON_PRIVATE_KEY\s*[=:]\s*['\"]?[\w]+", re.MULTILINE), "[REDACTED_POLYGON_PK]"),
+    (
+        re.compile(r"\bPOLYMARKET_API_KEY\s*[=:]\s*['\"]?[\w-]+", re.MULTILINE),
+        "[REDACTED_POLYMARKET_API_KEY]",
+    ),
+    (
+        re.compile(r"\bPOLYMARKET_API_SECRET\s*[=:]\s*['\"]?[\w/+=]+", re.MULTILINE),
+        "[REDACTED_POLYMARKET_SECRET]",
+    ),
+    (
+        re.compile(r"\bPOLYMARKET_PASSPHRASE\s*[=:]\s*['\"]?[\w-]+", re.MULTILINE),
+        "[REDACTED_POLYMARKET_PASSPHRASE]",
+    ),
+    (
+        re.compile(r"\bPOLYGON_PRIVATE_KEY\s*[=:]\s*['\"]?[\w]+", re.MULTILINE),
+        "[REDACTED_POLYGON_PK]",
+    ),
 ]
 
 
@@ -87,8 +120,7 @@ class SecretScrubFilter(logging.Filter):
                     }
                 elif isinstance(record.args, tuple):
                     record.args = tuple(
-                        scrub_secrets(a) if isinstance(a, str) else a
-                        for a in record.args
+                        scrub_secrets(a) if isinstance(a, str) else a for a in record.args
                     )
         except Exception:  # noqa: BLE001 — defensive: never break logging
             pass
@@ -107,7 +139,7 @@ class JsonFormatter(logging.Formatter):
             # Fallback: raw msg + args repr
             msg_str = f"{record.msg!s} {record.args!r}" if record.args else str(record.msg)
         log_obj = {
-            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "msg": msg_str,
@@ -126,7 +158,7 @@ def setup_structured_logging(
     log_file: Optional[str] = None,
     enable_scrub: bool = True,
     max_bytes: int = 100 * 1024 * 1024,  # 100 MB (P1-06 roadmap target)
-    backup_count: int = 10,                # × 10 = ~1 GB total cap
+    backup_count: int = 10,  # × 10 = ~1 GB total cap
 ) -> Optional[RotatingFileHandler]:
     """Wire JSON file handler + secret scrub filter to root logger.
 
@@ -140,8 +172,7 @@ def setup_structured_logging(
     """
     # P1-06 (2026-05-09): default true (was false for backward compat).
     # Override with STRUCTURED_LOG_ENABLED=false to disable.
-    enabled = os.getenv(
-        "STRUCTURED_LOG_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
+    enabled = os.getenv("STRUCTURED_LOG_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
     if not enabled:
         return None
 
@@ -166,9 +197,7 @@ def setup_structured_logging(
     # Attach to root logger (idempotent — check existing handlers)
     root = logging.getLogger()
     existing_paths = [
-        getattr(h, "baseFilename", "")
-        for h in root.handlers
-        if isinstance(h, RotatingFileHandler)
+        getattr(h, "baseFilename", "") for h in root.handlers if isinstance(h, RotatingFileHandler)
     ]
     if any(log_path in p for p in existing_paths):
         return None  # already attached

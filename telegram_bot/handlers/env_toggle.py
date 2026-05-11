@@ -17,19 +17,19 @@ Whitelisted keys only. Validation + range checks happen in
 config.env_whitelist.coerce_value. Unknown/invalid keys return a clear
 error without touching process state.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config.env_whitelist import (
-    ENV_WHITELIST, coerce_value, list_groups)
+from config.env_whitelist import ENV_WHITELIST, coerce_value, list_groups
 from config.settings import Settings
 from telegram_bot.templates.safe_html import esc
 
@@ -47,9 +47,7 @@ _AUDIT_PATH = _ROOT / "logs" / "env_toggle_audit.log"
 def _is_admin(context, telegram_id: int) -> bool:
     settings: Settings = context.bot_data.get("settings")
     if not settings:
-        logger.warning(
-            "env_toggle _is_admin: settings missing, denying "
-            f"{telegram_id}")
+        logger.warning("env_toggle _is_admin: settings missing, denying " f"{telegram_id}")
         return False
     return settings.is_admin(telegram_id)
 
@@ -64,8 +62,7 @@ def _read_env_file() -> list[str]:
     if not _ENV_PATH.exists():
         return []
     try:
-        return _ENV_PATH.read_text(
-            encoding="utf-8", errors="replace").splitlines()
+        return _ENV_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. Path.read_text
         # raises OSError (PermissionError, FileNotFoundError race). Empty
@@ -95,8 +92,7 @@ def _patch_env_file(key: str, value: str | None) -> None:
     if not found and value is not None:
         if out and out[-1].strip():
             out.append("")  # separator before append
-        out.append(f"# Added by /env_toggle "
-                   f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}")
+        out.append(f"# Added by /env_toggle " f"{datetime.now(UTC).isoformat(timespec='seconds')}")
         out.append(f"{key}={value}")
     _write_env_file(out)
 
@@ -107,7 +103,7 @@ def _patch_env_file(key: str, value: str | None) -> None:
 def _audit(admin_id: int, action: str, key: str, old: str, new: str) -> None:
     try:
         _AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        ts = datetime.now(UTC).isoformat(timespec="seconds")
         line = f"{ts}\tadmin={admin_id}\t{action}\t{key}\told={old}\tnew={new}\n"
         with _AUDIT_PATH.open("a", encoding="utf-8") as f:
             f.write(line)
@@ -141,13 +137,15 @@ def _format_list() -> str:
             mark = "·" if cur == default else "◆"
             lines.append(
                 f"{mark} <code>{esc(key)}</code> = "
-                f"<b>{esc(cur)}</b>  <i>(def {esc(default)})</i>")
+                f"<b>{esc(cur)}</b>  <i>(def {esc(default)})</i>"
+            )
     lines.append(
         "\nKullanim:\n"
         "• <code>/env_toggle KEY</code> — detay\n"
         "• <code>/env_toggle KEY VALUE</code> — degistir\n"
         "• <code>/env_toggle reset KEY</code> — default'a don\n"
-        "<i>◆ = default'tan sapmis</i>")
+        "<i>◆ = default'tan sapmis</i>"
+    )
     return "\n".join(lines)
 
 
@@ -165,8 +163,7 @@ def _format_detail(key: str) -> str:
     if "max" in meta:
         lines.append(f"max     : <code>{meta['max']}</code>")
     if meta.get("choices"):
-        lines.append(
-            f"choices : <code>{esc(', '.join(meta['choices']))}</code>")
+        lines.append(f"choices : <code>{esc(', '.join(meta['choices']))}</code>")
     lines.append(f"\n<i>{esc(meta.get('desc', ''))}</i>")
     lines.append(f"\nDegistir: <code>/env_toggle {esc(key)} YENI_DEGER</code>")
     return "\n".join(lines)
@@ -175,8 +172,7 @@ def _format_detail(key: str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 #  Core actions.
 # ──────────────────────────────────────────────────────────────────────
-def _apply_set(key: str, raw_value: str,
-               admin_id: int) -> tuple[bool, str]:
+def _apply_set(key: str, raw_value: str, admin_id: int) -> tuple[bool, str]:
     ok, coerced, err = coerce_value(key, raw_value)
     if not ok:
         return False, f"❌ {esc(err)}"
@@ -189,8 +185,7 @@ def _apply_set(key: str, raw_value: str,
         # uses Path.read/write_text — only OSError expected (permission, disk).
         # T11.6 exemption preserved: admin needs to see exact OS error to
         # diagnose .env write failures (permission vs disk full vs locked).
-        logger.exception(f"env_toggle patch .env failed: "
-                         f"{type(e).__name__}: {e}")
+        logger.exception(f"env_toggle patch .env failed: " f"{type(e).__name__}: {e}")
         # Keep the os.environ change — still effective this session.
         _audit(admin_id, "SET_OS_ONLY", key, old, coerced)
         # T11.6 policy exemption: env_toggle is admin-only + operator
@@ -199,12 +194,14 @@ def _apply_set(key: str, raw_value: str,
         return True, (
             f"⚠️ <b>{esc(key)}</b>: {esc(old)} → <b>{esc(coerced)}</b>\n"
             f"<i>os.environ guncellendi ama .env yazilamadi: "
-            f"{esc(str(e))[:120]}</i>")
+            f"{esc(str(e))[:120]}</i>"
+        )
     _audit(admin_id, "SET", key, old, coerced)
     logger.info(f"env_toggle SET {key}: {old} -> {coerced} by {admin_id}")
     return True, (
         f"✅ <b>{esc(key)}</b>: {esc(old)} → <b>{esc(coerced)}</b>\n"
-        f"<i>os.environ + .env guncellendi</i>")
+        f"<i>os.environ + .env guncellendi</i>"
+    )
 
 
 def _apply_reset(key: str, admin_id: int) -> tuple[bool, str]:
@@ -216,26 +213,23 @@ def _apply_reset(key: str, admin_id: int) -> tuple[bool, str]:
     except OSError as e:  # noqa: T11.6-OK
         # T11.8-B (2026-04-24): narrow from bare Exception. Same OSError
         # surface as _apply_set above. T11.6 exemption preserved.
-        logger.exception(f"env_toggle reset patch failed: "
-                         f"{type(e).__name__}: {e}")
+        logger.exception(f"env_toggle reset patch failed: " f"{type(e).__name__}: {e}")
         _audit(admin_id, "RESET_OS_ONLY", key, old, default)
         # T11.6 policy exemption: same rationale as _apply_set() above.
         return True, (
             f"⚠️ <b>{esc(key)}</b> default'a dondu: "
             f"{esc(old)} → <b>{esc(default)}</b>\n"
-            f"<i>.env temizlenemedi: {esc(str(e))[:120]}</i>")
+            f"<i>.env temizlenemedi: {esc(str(e))[:120]}</i>"
+        )
     _audit(admin_id, "RESET", key, old, default)
     logger.info(f"env_toggle RESET {key}: {old} -> {default} by {admin_id}")
-    return True, (
-        f"♻️ <b>{esc(key)}</b> default'a dondu: "
-        f"{esc(old)} → <b>{esc(default)}</b>")
+    return True, (f"♻️ <b>{esc(key)}</b> default'a dondu: " f"{esc(old)} → <b>{esc(default)}</b>")
 
 
 # ──────────────────────────────────────────────────────────────────────
 #  Entry point.
 # ──────────────────────────────────────────────────────────────────────
-async def env_toggle_command(update: Update,
-                             context: ContextTypes.DEFAULT_TYPE):
+async def env_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/env_toggle — hot-tune runtime env knobs (admin only)."""
     user = update.effective_user
     if not user or not _is_admin(context, user.id):
@@ -245,8 +239,7 @@ async def env_toggle_command(update: Update,
 
     # No args → list all.
     if not args:
-        return await update.message.reply_text(
-            _format_list(), parse_mode="HTML")
+        return await update.message.reply_text(_format_list(), parse_mode="HTML")
 
     first = args[0].strip()
 
@@ -254,28 +247,27 @@ async def env_toggle_command(update: Update,
     if first.lower() == "reset":
         if len(args) < 2:
             return await update.message.reply_text(
-                "Kullanim: <code>/env_toggle reset KEY</code>",
-                parse_mode="HTML")
+                "Kullanim: <code>/env_toggle reset KEY</code>", parse_mode="HTML"
+            )
         key = args[1].strip().upper()
         if key not in ENV_WHITELIST:
             return await update.message.reply_text(
-                f"❌ Bilinmeyen key: <code>{esc(key)}</code>\n"
-                "Liste: <code>/env_toggle</code>",
-                parse_mode="HTML")
+                f"❌ Bilinmeyen key: <code>{esc(key)}</code>\n" "Liste: <code>/env_toggle</code>",
+                parse_mode="HTML",
+            )
         _, msg = _apply_reset(key, user.id)
         return await update.message.reply_text(msg, parse_mode="HTML")
 
     key = first.upper()
     if key not in ENV_WHITELIST:
         return await update.message.reply_text(
-            f"❌ Bilinmeyen key: <code>{esc(first)}</code>\n"
-            "Liste: <code>/env_toggle</code>",
-            parse_mode="HTML")
+            f"❌ Bilinmeyen key: <code>{esc(first)}</code>\n" "Liste: <code>/env_toggle</code>",
+            parse_mode="HTML",
+        )
 
     # Single-arg → detail
     if len(args) == 1:
-        return await update.message.reply_text(
-            _format_detail(key), parse_mode="HTML")
+        return await update.message.reply_text(_format_detail(key), parse_mode="HTML")
 
     # KEY VALUE → set
     raw_value = " ".join(args[1:]).strip()

@@ -7,9 +7,11 @@ Generates:
   - Ranking by different criteria (PnL, WR, Sharpe, etc.)
   - Overlap analysis (do strategies agree?)
 """
+
 import logging
 from typing import Optional
-from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats
+
+from backtest.simulation.portfolio import PortfolioStats, VirtualPortfolio
 
 logger = logging.getLogger("polypaper.backtest.comparator")
 
@@ -52,14 +54,15 @@ class StrategyComparator:
         ]
 
         # Header
-        header = f"{'Strategy':<20} {'Trades':>6} {'WR%':>6} {'PnL':>10} " \
-                 f"{'Sharpe':>7} {'MaxDD%':>7} {'PF':>6}"
+        header = (
+            f"{'Strategy':<20} {'Trades':>6} {'WR%':>6} {'PnL':>10} "
+            f"{'Sharpe':>7} {'MaxDD%':>7} {'PF':>6}"
+        )
         lines.append(header)
         lines.append("─" * 70)
 
         # Rows
-        for r in sorted(self.results,
-                        key=lambda x: x.stats.total_pnl, reverse=True):
+        for r in sorted(self.results, key=lambda x: x.stats.total_pnl, reverse=True):
             s = r.stats
             lines.append(
                 f"{r.name:<20} {s.total_trades:>6} {s.win_rate:>5.1f}% "
@@ -75,20 +78,11 @@ class StrategyComparator:
         lines.append("")
 
         rankings = {
-            "Best PnL": sorted(self.results,
-                                key=lambda x: x.stats.total_pnl,
-                                reverse=True),
-            "Best WR": sorted(self.results,
-                               key=lambda x: x.stats.win_rate,
-                               reverse=True),
-            "Best Sharpe": sorted(self.results,
-                                   key=lambda x: x.stats.sharpe_ratio,
-                                   reverse=True),
-            "Lowest DD": sorted(self.results,
-                                 key=lambda x: x.stats.max_drawdown_pct),
-            "Most Trades": sorted(self.results,
-                                   key=lambda x: x.stats.total_trades,
-                                   reverse=True),
+            "Best PnL": sorted(self.results, key=lambda x: x.stats.total_pnl, reverse=True),
+            "Best WR": sorted(self.results, key=lambda x: x.stats.win_rate, reverse=True),
+            "Best Sharpe": sorted(self.results, key=lambda x: x.stats.sharpe_ratio, reverse=True),
+            "Lowest DD": sorted(self.results, key=lambda x: x.stats.max_drawdown_pct),
+            "Most Trades": sorted(self.results, key=lambda x: x.stats.total_trades, reverse=True),
         }
 
         for metric, ranked in rankings.items():
@@ -121,8 +115,7 @@ class StrategyComparator:
             "",
         ]
 
-        for r in sorted(self.results,
-                        key=lambda x: x.stats.total_pnl, reverse=True):
+        for r in sorted(self.results, key=lambda x: x.stats.total_pnl, reverse=True):
             s = r.stats
             emoji = "🟢" if s.total_pnl > 0 else "🔴"
             lines.append(
@@ -134,8 +127,7 @@ class StrategyComparator:
         # Best overall
         if self.results:
             best = max(self.results, key=lambda x: x.stats.total_pnl)
-            lines.append(f"\n🏆 Winner: <b>{best.name}</b> "
-                         f"(${best.stats.total_pnl:+.2f})")
+            lines.append(f"\n🏆 Winner: <b>{best.name}</b> " f"(${best.stats.total_pnl:+.2f})")
 
         return "\n".join(lines)
 

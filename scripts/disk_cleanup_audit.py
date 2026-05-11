@@ -1,4 +1,4 @@
-"""
+r"""
 Disk Cleanup Audit — read-only
 
 Heddas yerel'de çalıştırılır:
@@ -14,11 +14,10 @@ Cleanup eylemleri için:
     scripts\disk_cleanup_phase_a.bat   # safe deletes (orphan WAL, pre-phase, pycache)
     scripts\disk_cleanup_phase_b.bat   # backups/ prune (son N adet koru)
 """
+
 from __future__ import annotations
 
-import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -162,7 +161,7 @@ def main():
     # Per-file breakdown
     out_dir = ROOT / "evidence"
     out_dir.mkdir(exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     out_md = out_dir / f"disk_cleanup_audit_{ts}.md"
 
     with out_md.open("w", encoding="utf-8") as f:
@@ -179,7 +178,7 @@ def main():
                 f.write(f"- `{path}` — {hr(sz)} ⚠️ orphan (parent .db yok)\n")
             f.write("\n")
         # Whitelist
-        f.write(f"## KORUNAN (whitelist)\n\n")
+        f.write("## KORUNAN (whitelist)\n\n")
         for keep in sorted(KEEP_PATTERNS):
             p = ROOT / keep
             if p.exists():
@@ -190,7 +189,9 @@ def main():
     print(f"💾 Detail: {out_md}")
     print()
     print("📋 Aksiyon:")
-    print("  1. scripts/disk_cleanup_phase_a.bat  — safe deletes (orphan WAL, pre-phase, htmlcov, pycache)")
+    print(
+        "  1. scripts/disk_cleanup_phase_a.bat  — safe deletes (orphan WAL, pre-phase, htmlcov, pycache)"
+    )
     print("  2. scripts/disk_cleanup_phase_b.bat  — backups/ prune (son 3 backup koru)")
 
 

@@ -7,12 +7,12 @@ Verifies the 3-piece change:
 
 Strategy: source-grep + AST inspect. No live engine boot needed.
 """
+
 from __future__ import annotations
 
 import ast
 import re
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODELS = REPO_ROOT / "db" / "models.py"
@@ -27,9 +27,7 @@ def _read(p: Path) -> str:
 def test_execution_dataclass_has_regime_at_entry():
     src = _read(MODELS)
     # Match `regime_at_entry: Optional[str] = None` (pydantic field style)
-    pattern = re.compile(
-        r"regime_at_entry\s*:\s*Optional\[str\]\s*=\s*None"
-    )
+    pattern = re.compile(r"regime_at_entry\s*:\s*Optional\[str\]\s*=\s*None")
     assert pattern.search(src), (
         "Execution dataclass must have `regime_at_entry: Optional[str] = None` "
         "field. T4.10 fix in db/models.py."
@@ -46,14 +44,14 @@ def test_execution_dataclass_field_is_in_class_body():
         if isinstance(node, ast.ClassDef) and node.name == "Execution":
             for item in node.body:
                 # AnnAssign: `regime_at_entry: Optional[str] = None`
-                if (isinstance(item, ast.AnnAssign)
-                        and isinstance(item.target, ast.Name)
-                        and item.target.id == "regime_at_entry"):
+                if (
+                    isinstance(item, ast.AnnAssign)
+                    and isinstance(item.target, ast.Name)
+                    and item.target.id == "regime_at_entry"
+                ):
                     found = True
                     break
-    assert found, (
-        "Execution.regime_at_entry must be an annotated dataclass field"
-    )
+    assert found, "Execution.regime_at_entry must be an annotated dataclass field"
 
 
 def test_create_execution_sql_includes_regime_at_entry():
@@ -64,8 +62,7 @@ def test_create_execution_sql_includes_regime_at_entry():
         re.DOTALL,
     )
     assert sql_pattern.search(src), (
-        "db/database.py create_execution() INSERT must list regime_at_entry "
-        "column. T4.10 fix."
+        "db/database.py create_execution() INSERT must list regime_at_entry " "column. T4.10 fix."
     )
 
 
@@ -86,7 +83,8 @@ def test_create_execution_value_count_matches_columns():
     # Find the create_execution function body
     m = re.search(
         r"async def create_execution.*?await self\.conn\.commit\(\)",
-        src, re.DOTALL,
+        src,
+        re.DOTALL,
     )
     assert m, "create_execution function not found"
     body = m.group(0)
@@ -113,9 +111,7 @@ def test_engine_fills_passes_regime_at_entry():
 def test_engine_fills_snapshots_self_regime():
     """The snapshot must come from self.regime.regime (RegimeClassifier)."""
     src = _read(ENGINE_FILLS)
-    pattern = re.compile(
-        r"_regime_obj\s*=\s*getattr\(self,\s*[\"']regime[\"']"
-    )
+    pattern = re.compile(r"_regime_obj\s*=\s*getattr\(self,\s*[\"']regime[\"']")
     assert pattern.search(src), (
         "T4.10: snapshot must use getattr(self, 'regime', None) defensive "
         "pattern (mixin-safe, regime may be unset in test harness)."

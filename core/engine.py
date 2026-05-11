@@ -18,16 +18,14 @@ Güvenlik Kapıları (F-01 → F-14):
 BUG-03: FIXED in Phase 56 — verdict None guard + try/except in engine_signals.py.
 Phase 56: Balance race fix — pending_reserved subtracted from effective_balance.
 """
+
 import asyncio
 import json  # Epic 8 T8.1: narrow JSONDecodeError in startup restore
 import logging
-import math
 import os
-import random
 import time
 import traceback  # Phase 82a hotfix: full traceback for silent death diagnostics
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite  # Epic 8 T8.1: narrow DB exception handling
 import httpx  # Epic 8 T8.1: narrow HTTP exception handling
@@ -35,58 +33,46 @@ import httpx  # Epic 8 T8.1: narrow HTTP exception handling
 try:
     from telegram.error import TelegramError  # Epic 8 T8.1
 except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
+
     class TelegramError(Exception):  # type: ignore[no-redef]
         ...
 
+
 from config.settings import Settings
-from core.kill_switch import KillSwitch
-from core.risk_manager import RiskManager, RiskLimits
-from core.signal_fusion import SignalFusion, SignalWeights
-from core.strategy_plugins import StrategyRegistry, MarketSnapshot
-from core.auto_optimizer import AutoOptimizer
-from core.indicators import ema_direction_filter
-# Phase 65: fees.py v1 removed — fees_v2 is the only active model
-from core.fees_v2 import (  # Phase 43a: Mart 2026 linear model
-    polymarket_taker_fee_v2,
-    polymarket_fee_percent_v2,
-    polymarket_maker_rebate,
-    in_tail_zone as _fee_in_tail_zone,
-)
-from core.kelly import get_strategy_kelly  # Phase 27: Kelly position sizing
 from core.ai_brain import AIBrain  # Phase 30: Autonomous AI
+from core.auto_optimizer import AutoOptimizer
 from core.autopilot import AutoPilot  # Phase 27.1: Semi-autonomous actions
-from core.strategy_selector import StrategySelector  # Phase 33: Thompson Sampling
-from core.regime import RegimeClassifier, DriftDetector  # Phase 33: Regime + Drift
-from core.trade_journal import (log_entry, log_exit, log_settlement, log_rejection,
-                                log_heartbeat, log_decision_close, set_db as journal_set_db)
+
+# Phase 65: fees.py v1 removed — fees_v2 is the only active model
+from core.kill_switch import KillSwitch
 from core.live_trader import LiveTrader  # Phase 34: Mainnet shadow mode
+from core.regime import DriftDetector, RegimeClassifier  # Phase 33: Regime + Drift
+from core.risk_manager import RiskLimits, RiskManager
+from core.signal_fusion import SignalFusion, SignalWeights
+from core.strategy_plugins import StrategyRegistry
+from core.strategy_selector import StrategySelector  # Phase 33: Thompson Sampling
+from core.trade_journal import (
+    log_heartbeat,
+    set_db as journal_set_db,
+)
 from data.market_scanner import MarketScanner
 from data.odds_feed import OddsFeed
-from data.polymarket_client import safe_float
 from db.database import Database
-from db.models import Strategy, Execution, ExecutionStatus, Direction
 
 logger = logging.getLogger("polypaper.core.engine")
 
 # Phase 51 P51-02 pilot: helpers/constants extracted to core/engine_support.
 # Re-imported here for backward compatibility — existing `from core.engine
 # import SkipCounter, VirtualOrder, ...` call sites continue to work.
-from core.engine_support import (  # noqa: E402
-    INTERVAL_SECS,
-    MAX_MBE,
-    WIDE_SPREAD,
-    WS_STALE_THRESHOLD,
-    SkipCounter,
-    VirtualOrder,
-    _slug_end,
-    _slug_start,
-    _stagger,
-)
-from core.engine_settlement import EngineSettlementMixin  # noqa: E402
+from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1: bg task guard
 from core.engine_fills import EngineFillsMixin  # noqa: E402
 from core.engine_monitor import EngineMonitorMixin  # noqa: E402
+from core.engine_settlement import EngineSettlementMixin  # noqa: E402
 from core.engine_signals import EngineSignalsMixin  # noqa: E402  # Phase 51 P51-02
-from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1: bg task guard
+from core.engine_support import (  # noqa: E402
+    SkipCounter,
+    VirtualOrder,
+)
 
 
 class TradingEngine(
@@ -113,6 +99,7 @@ class TradingEngine(
         # Phase 47f.8: env overrides for risk limits (MAX_DAILY_LOSS, MAX_LOSS_STREAK, etc.)
         _rlimits = RiskLimits()
         import os
+
         try:
             if os.getenv("MAX_DAILY_LOSS"):
                 _rlimits.max_daily_loss = float(os.getenv("MAX_DAILY_LOSS"))
@@ -146,6 +133,7 @@ class TradingEngine(
         self.optimizer = AutoOptimizer(db)
         # Phase 74b: Per-strategy adaptive parameter learning
         from core.strategy_lifecycle import StrategyLifecycle
+
         self.lifecycle = StrategyLifecycle(db)
         self._pending: list[VirtualOrder] = []
         self._cancel_count: int = 0  # Phase 40b: TIF + manual cancel tally
@@ -195,6 +183,7 @@ class TradingEngine(
         # Phase 47a: Adaptive micro weight tracker
         try:
             from core.micro_weight_tracker import MicroWeightTracker
+
             self.micro_weight = MicroWeightTracker(
                 enabled=getattr(settings, "ADAPTIVE_MICRO_WEIGHT_ENABLED", False)
             )
@@ -211,6 +200,7 @@ class TradingEngine(
         # Phase 59: Event calendar monitor — pre-event volatility adjustment
         try:
             from data.event_monitor import EventMonitor
+
             self._event_monitor = EventMonitor()
             logger.info("📅 Event calendar monitor initialized")
         except Exception as _eme:  # noqa: BLE001
@@ -226,6 +216,7 @@ class TradingEngine(
         # Phase 70: EV Threshold Tracker
         try:
             from calibration.ev_threshold import EVTracker
+
             self._ev_tracker = EVTracker()
         except Exception as _eve:  # noqa: BLE001
             # Epic 8 T8.1: optional bootstrap — ImportError/AttributeError/init
@@ -241,6 +232,7 @@ class TradingEngine(
         if os.getenv("TRADE_MEMORY_ENABLED", "true").lower() == "true":
             try:
                 from core.trade_memory import get_trade_memory
+
                 self._trade_memory = get_trade_memory()
                 logger.info("🧠 Phase 77: Trade Memory initialized")
             except Exception as _tme:  # noqa: BLE001
@@ -252,6 +244,7 @@ class TradingEngine(
         if os.getenv("DECISION_EXPLAINER_ENABLED", "true").lower() == "true":
             try:
                 from core.decision_explainer import get_decision_explainer
+
                 self._explainer = get_decision_explainer()
                 logger.info("🔍 Phase 77: Decision Explainer initialized")
             except Exception as _dee:  # noqa: BLE001
@@ -263,6 +256,7 @@ class TradingEngine(
         if os.getenv("EXPERIMENT_ENABLED", "true").lower() == "true":
             try:
                 from core.experiment_runner import get_experiment_runner
+
                 self._experiment = get_experiment_runner()
                 logger.info("🧪 Phase 77: Experiment Runner initialized")
             except Exception as _ere:  # noqa: BLE001
@@ -274,6 +268,7 @@ class TradingEngine(
         if os.getenv("SURFACE_2D_ENABLED", "true").lower() == "true":
             try:
                 from calibration.surface_2d import SurfaceBuilder
+
                 builder = SurfaceBuilder()
                 # Build from kalshi first (better time data), poly as supplement
                 surface = builder.build(source="kalshi")
@@ -314,12 +309,14 @@ class TradingEngine(
         # çok aktif strateji varsa son yazan kazanır (uzun vade borç).
         try:
             import json as _json
+
             rows = await self.db.conn.execute_fetchall(
                 "SELECT id, strategy_type, strategy_params FROM strategies "
                 "WHERE status='active' AND strategy_params IS NOT NULL "
-                "AND strategy_params != '' AND strategy_params != '{}'")
+                "AND strategy_params != '' AND strategy_params != '{}'"
+            )
             applied_count = 0
-            seen_types: dict[str, str] = {}   # stype -> last sid that wrote
+            seen_types: dict[str, str] = {}  # stype -> last sid that wrote
             for sid, stype, sp_raw in rows:
                 if not stype or not sp_raw:
                     continue
@@ -338,7 +335,8 @@ class TradingEngine(
                 if stype in seen_types:
                     logger.warning(
                         f"plugin_params restore: {stype} plugin config overwritten "
-                        f"by sid={sid[:8]} (prev sid={seen_types[stype][:8]})")
+                        f"by sid={sid[:8]} (prev sid={seen_types[stype][:8]})"
+                    )
                 seen_types[stype] = sid
                 for param, value in plugin_params.items():
                     try:
@@ -347,15 +345,16 @@ class TradingEngine(
                         else:
                             logger.warning(
                                 f"plugin_params restore: set_config rejected "
-                                f"{stype}.{param}={value}")
+                                f"{stype}.{param}={value}"
+                            )
                     except (ValueError, TypeError, AttributeError, KeyError) as _e:
                         # Epic 8 T8.1: plugin config cast / missing attr / bad key
-                        logger.warning(
-                            f"plugin_params restore {stype}.{param}: {_e}")
+                        logger.warning(f"plugin_params restore {stype}.{param}: {_e}")
             if applied_count > 0:
                 logger.info(
                     f"🔧 plugin params restored: {applied_count} "
-                    f"param(s) across {len(seen_types)} strategy type(s)")
+                    f"param(s) across {len(seen_types)} strategy type(s)"
+                )
         except (aiosqlite.Error, AttributeError) as _e:
             # Epic 8 T8.1: DB fetchall / connection down / db.conn missing
             logger.warning(f"plugin_params startup restore failed: {_e}")
@@ -388,6 +387,7 @@ class TradingEngine(
         # ══ Phase 22: Load persistent settings from DB ══
         try:
             from core.risk_manager import RiskLimits
+
             saved = await self.db.get_all_settings("risk.")
             if saved:
                 self.risk.limits = RiskLimits.from_dict(saved)
@@ -407,8 +407,7 @@ class TradingEngine(
                         self.brain_flags[feature] = val == "1"
                         loaded += 1
                     else:
-                        logger.debug(
-                            f"🧠 Ignoring retired brain flag from DB: {feature}")
+                        logger.debug(f"🧠 Ignoring retired brain flag from DB: {feature}")
                 logger.info(f"🧠 Brain flags loaded from DB ({loaded} flags)")
 
             # Epic 6 T6.3e-fix-2: Sibling-gate sync. Some brain flags drive
@@ -431,7 +430,8 @@ class TradingEngine(
                         sibling._enabled = desired
                         logger.info(
                             f"🔄 Boot sync: {attr_name}._enabled "
-                            f"← brain_flags['{flag_key}']={desired}")
+                            f"← brain_flags['{flag_key}']={desired}"
+                        )
 
             # Epic 6 T6.5: Kelly mode DB persistence. `self._kelly_mode`
             # is authoritative runtime state toggled by `/kelly_toggle`
@@ -443,29 +443,41 @@ class TradingEngine(
             # here. Missing key → keep the constructor default.
             kelly_saved = await self.db.get_setting("engine.kelly_mode")
             if kelly_saved is not None:
-                self._kelly_mode = (kelly_saved == "1")
+                self._kelly_mode = kelly_saved == "1"
                 logger.info(
-                    f"🎯 Kelly mode loaded from DB: "
-                    f"{'ON' if self._kelly_mode else 'OFF'}")
+                    f"🎯 Kelly mode loaded from DB: " f"{'ON' if self._kelly_mode else 'OFF'}"
+                )
 
             # Auto-name unnamed strategies
             unnamed = await self.db.conn.execute_fetchall(
-                "SELECT id, asset, timeframe, direction, strategy_type, odds_threshold FROM strategies WHERE label IS NULL OR label=''")
+                "SELECT id, asset, timeframe, direction, strategy_type, odds_threshold FROM strategies WHERE label IS NULL OR label=''"
+            )
             if unnamed:
-                type_short = {"fusion": "F", "contrarian": "C", "sniper": "N",
-                              "momentum": "M", "scalper": "S", "martingale": "MG", "highthreshold": "HT", "flashcrash": "FC", "streak": "SR"}
+                type_short = {
+                    "fusion": "F",
+                    "contrarian": "C",
+                    "sniper": "N",
+                    "momentum": "M",
+                    "scalper": "S",
+                    "martingale": "MG",
+                    "highthreshold": "HT",
+                    "flashcrash": "FC",
+                    "streak": "SR",
+                }
                 for row in unnamed:
                     t = type_short.get(row[4] or "fusion", "?")
                     label = f"{t}_{row[1]}_{row[2]}_{row[3]}_{row[5]}"
                     await self.db.conn.execute(
-                        "UPDATE strategies SET label=? WHERE id=?", (label, row[0]))
+                        "UPDATE strategies SET label=? WHERE id=?", (label, row[0])
+                    )
                 await self.db.conn.commit()
                 logger.info(f"📛 Auto-named {len(unnamed)} strategies")
 
             # Phase 25: Scalper threshold reform — raise to 0.70 (30t %50 = no edge below 0.70)
             sc = await self.db.conn.execute(
                 """UPDATE strategies SET odds_threshold=0.70
-                   WHERE strategy_type='scalper' AND status='active' AND odds_threshold<0.70""")
+                   WHERE strategy_type='scalper' AND status='active' AND odds_threshold<0.70"""
+            )
             if sc.rowcount > 0:
                 await self.db.conn.commit()
                 logger.info(f"📊 Scalper threshold raised to 0.70 ({sc.rowcount} strategies)")
@@ -473,10 +485,11 @@ class TradingEngine(
             # Phase 27: Stop ETH HT (8t %38 -$8.98 = no edge)
             eth_ht = await self.db.conn.execute(
                 """UPDATE strategies SET status='stopped'
-                   WHERE strategy_type='highthreshold' AND label LIKE '%ETH%' AND status='active'""")
+                   WHERE strategy_type='highthreshold' AND label LIKE '%ETH%' AND status='active'"""
+            )
             if eth_ht.rowcount > 0:
                 await self.db.conn.commit()
-                logger.info(f"⚫ ETH HT stopped (no edge: 8t %38 -$8.98)")
+                logger.info("⚫ ETH HT stopped (no edge: 8t %38 -$8.98)")
 
             # Phase 32: Protect original strategy thresholds from AI corruption
             threshold_guards = [
@@ -485,10 +498,12 @@ class TradingEngine(
             ]
             for label, orig_thr in threshold_guards:
                 cur = await self.db.conn.execute_fetchall(
-                    "SELECT odds_threshold FROM strategies WHERE label=?", (label,))
+                    "SELECT odds_threshold FROM strategies WHERE label=?", (label,)
+                )
                 if cur and cur[0][0] != orig_thr:
                     await self.db.conn.execute(
-                        "UPDATE strategies SET odds_threshold=? WHERE label=?", (orig_thr, label))
+                        "UPDATE strategies SET odds_threshold=? WHERE label=?", (orig_thr, label)
+                    )
                     await self.db.conn.commit()
                     logger.warning(f"🛡️ THRESHOLD RESTORE: {label} {cur[0][0]}→{orig_thr}")
             # Store guards for continuous enforcement
@@ -520,8 +535,7 @@ class TradingEngine(
         # know immediately — otherwise a hung engine + dead watchdog = silent
         # death. reraise=False so the registry state is 'failed' (observable)
         # rather than the exception crashing the parent coroutine.
-        self._stall_task = safe_create_task(
-            self._stall_watchdog(), name="engine_stall_watchdog")
+        self._stall_task = safe_create_task(self._stall_watchdog(), name="engine_stall_watchdog")
 
         # Phase 27: Start self-learning analyst
         await self.analyst.start()
@@ -548,6 +562,7 @@ class TradingEngine(
         # P1.7 — Structured Logging (ENV: STRUCTURED_LOG_ENABLED)
         try:
             from core.structured_logging import setup_structured_logging
+
             setup_structured_logging()  # idempotent + ENV-gated
         except Exception as _sl_err:  # noqa: BLE001
             logger.debug(f"P1.7 structured_logging init: {_sl_err}")
@@ -556,6 +571,7 @@ class TradingEngine(
         if os.getenv("ALLOWANCE_PREFLIGHT_ENABLED", "false").lower() in {"1", "true", "yes"}:
             try:
                 from core.allowance_preflight import run_preflight
+
                 if getattr(self.live, "_auth_verified", False):
                     pf_client = getattr(self.live, "_client", None)
                     if pf_client is not None:
@@ -570,6 +586,7 @@ class TradingEngine(
         # P0.8 — Portfolio Kill-Switch (ENV: KILL_SWITCH_ENABLED, default true)
         try:
             from core.portfolio_kill_switch import get_kill_switch
+
             self.portfolio_kill_switch = get_kill_switch()
             logger.info(
                 f"🛑 P0.8 Kill-switch wired "
@@ -585,6 +602,7 @@ class TradingEngine(
         if os.getenv("HEARTBEAT_ENABLED", "false").lower() in {"1", "true", "yes"}:
             try:
                 from core.heartbeat import HeartbeatTask
+
                 hb_client = getattr(self.live, "_client", None)
                 if hb_client is not None:
                     self.heartbeat_task = HeartbeatTask(client=hb_client)
@@ -602,6 +620,7 @@ class TradingEngine(
         # instead of seeing a None task.
         try:
             from core.reconciliation.onchain_sync import ReconciliationTask
+
             self.recon_task = ReconciliationTask(
                 db=self.db,
                 wallet=os.getenv("POLYGON_WALLET", ""),
@@ -610,8 +629,8 @@ class TradingEngine(
             await self.recon_task.start()
             if self.recon_task.enabled:
                 logger.info(
-                    "🔁 Reconciliation task started "
-                    f"(interval={self.recon_task.interval_s}s)")
+                    "🔁 Reconciliation task started " f"(interval={self.recon_task.interval_s}s)"
+                )
         except Exception as _rc_err:  # noqa: BLE001
             logger.debug(f"reconciliation wire: {_rc_err}")
             self.recon_task = None
@@ -629,7 +648,9 @@ class TradingEngine(
         bnc = ""
         if self.external_feed and self.external_feed.is_available:
             bnc = f" | Binance={self.external_feed._method}"
-        logger.info(f"🚀 Engine v34 (Mainnet Ready){bnc} | open={len(self._open_positions)} | odds={of['total_records']}")
+        logger.info(
+            f"🚀 Engine v34 (Mainnet Ready){bnc} | open={len(self._open_positions)} | odds={of['total_records']}"
+        )
 
     def _on_engine_done(self, task: asyncio.Task):
         """Phase 66: Callback when engine task finishes — detect crashes and auto-restart."""
@@ -703,15 +724,19 @@ class TradingEngine(
                             admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
                             if admin_id:
                                 # Phase 82e Sprint 2.1: guarded fire-and-forget
-                                safe_create_task(self.bot_app.bot.send_message(
-                                    chat_id=int(admin_id),
-                                    text=(
-                                        f"⛔ <b>ENGINE STALL</b>\n"
-                                        f"cycle={cur} frozen {stalled_for:.0f}s\n"
-                                        f"Auto-restarting loop..."),
-                                    parse_mode="HTML"),
+                                safe_create_task(
+                                    self.bot_app.bot.send_message(
+                                        chat_id=int(admin_id),
+                                        text=(
+                                            f"⛔ <b>ENGINE STALL</b>\n"
+                                            f"cycle={cur} frozen {stalled_for:.0f}s\n"
+                                            f"Auto-restarting loop..."
+                                        ),
+                                        parse_mode="HTML",
+                                    ),
                                     name="engine_stall_alert",
-                                    notify=False)  # already an alert — no loop
+                                    notify=False,
+                                )  # already an alert — no loop
                     except (TelegramError, ValueError, AttributeError) as _pe:
                         # Epic 8 T8.1: TG send failure / int(admin_id) cast / bot_app missing
                         logger.debug(f"stall push failed: {_pe}")
@@ -727,15 +752,16 @@ class TradingEngine(
             # its watched task. Narrowing would defeat the point (this is
             # the *watchdog*, not the watched loop). Full traceback logged.
             logger.error(
-                f"stall_watchdog: crashed: {type(e).__name__}: {e}\n"
-                f"{traceback.format_exc()}")
+                f"stall_watchdog: crashed: {type(e).__name__}: {e}\n" f"{traceback.format_exc()}"
+            )
 
     async def stop(self):
         # Phase 79b: Graceful shutdown — log open positions warning
         if self._open_positions:
             logger.warning(
                 f"⚠️ SHUTDOWN with {len(self._open_positions)} open position(s). "
-                f"They will be cleaned up as orphans on next startup.")
+                f"They will be cleaned up as orphans on next startup."
+            )
             for pk in self._open_positions:
                 logger.warning(f"  Open: {pk}")
         else:
@@ -779,8 +805,8 @@ class TradingEngine(
                     try:
                         t0 = datetime.fromisoformat(str(created))
                         if t0.tzinfo is None:
-                            t0 = t0.replace(tzinfo=timezone.utc)
-                        age_min = (datetime.now(timezone.utc) - t0).total_seconds() / 60
+                            t0 = t0.replace(tzinfo=UTC)
+                        age_min = (datetime.now(UTC) - t0).total_seconds() / 60
                         if age_min > 15:  # 5m market + 10min buffer
                             is_orphan = True
                     except (ValueError, TypeError) as _age_err:
@@ -800,34 +826,46 @@ class TradingEngine(
                     resolved = None
                     try:
                         resolved = await self.client.check_market_resolved(slug)
-                    except (httpx.HTTPError, asyncio.TimeoutError, AttributeError,
-                            KeyError, ValueError) as _mres_err:
+                    except (
+                        TimeoutError,
+                        httpx.HTTPError,
+                        AttributeError,
+                        KeyError,
+                        ValueError,
+                    ) as _mres_err:
                         # Epic 8 T8.1: API lookup failure — fall through to
                         # odds-based fallback (was silent pass — now observable).
                         logger.debug(f"market_resolution API: {_mres_err}")
 
                     if resolved:
                         # API told us the actual result
-                        won = (direction == resolved)
+                        won = direction == resolved
                         payout = round(shares * 1.0, 4) if won else 0.0
                         pnl = round(payout - amount - fee, 4)
                         result = "won" if won else "lost"
                         logger.info(
                             f"🧹 ORPHAN resolved via API: {slug} {direction} "
-                            f"→ {result.upper()} PnL={pnl:+.2f} (resolution={resolved})")
+                            f"→ {result.upper()} PnL={pnl:+.2f} (resolution={resolved})"
+                        )
                     else:
                         # No API resolution available — check last known odds
-                        last_odds = self.odds_feed.get_last(slug) if hasattr(self, 'odds_feed') else None
+                        last_odds = (
+                            self.odds_feed.get_last(slug) if hasattr(self, "odds_feed") else None
+                        )
                         if last_odds:
-                            up_odds = last_odds.get("up", 0.5) if isinstance(last_odds, dict) else 0.5
-                            won = (direction == "up" and up_odds > 0.70) or \
-                                  (direction == "down" and up_odds < 0.30)
+                            up_odds = (
+                                last_odds.get("up", 0.5) if isinstance(last_odds, dict) else 0.5
+                            )
+                            won = (direction == "up" and up_odds > 0.70) or (
+                                direction == "down" and up_odds < 0.30
+                            )
                             payout = round(shares * 1.0, 4) if won else 0.0
                             pnl = round(payout - amount - fee, 4)
                             result = "won" if won else "lost"
                             logger.warning(
                                 f"🧹 ORPHAN settled by odds: {slug} {direction} "
-                                f"→ {result.upper()} PnL={pnl:+.2f} (last_up={up_odds})")
+                                f"→ {result.upper()} PnL={pnl:+.2f} (last_up={up_odds})"
+                            )
                         else:
                             # Last resort: conservative lost
                             pnl = round(-amount - fee, 4)
@@ -835,27 +873,35 @@ class TradingEngine(
                             result = "lost"
                             logger.warning(
                                 f"🧹 ORPHAN no data: {slug} {direction} "
-                                f"→ LOST (default) PnL={pnl:+.2f}")
+                                f"→ LOST (default) PnL={pnl:+.2f}"
+                            )
 
-                    now_iso = datetime.now(timezone.utc).isoformat()
+                    now_iso = datetime.now(UTC).isoformat()
                     await self.db.conn.execute(
                         "UPDATE executions SET status='claimed', pnl=?, payout=?, "
                         "result=?, closed_at=?, updated_at=? WHERE id=?",
-                        (pnl, payout, result, now_iso, now_iso, row["id"]))
+                        (pnl, payout, result, now_iso, now_iso, row["id"]),
+                    )
                     # Credit wallet if won
                     if payout > 0:
-                        wallet_id = row.get("wallet_id") or (
-                            await self.db.conn.execute_fetchall(
-                                "SELECT wallet_id FROM executions WHERE id=?", (row["id"],))
-                        )[0][0]
+                        wallet_id = (
+                            row.get("wallet_id")
+                            or (
+                                await self.db.conn.execute_fetchall(
+                                    "SELECT wallet_id FROM executions WHERE id=?", (row["id"],)
+                                )
+                            )[0][0]
+                        )
                         await self.db.conn.execute(
                             "UPDATE wallets SET balance = balance + ? WHERE id = ?",
-                            (payout, wallet_id))
+                            (payout, wallet_id),
+                        )
                     orphan_count += 1
                 else:
                     self._open_positions.add(f"{row['strategy_id']}:{row['event_slug']}")
-                    self.risk.record_trade_opened(row['trade_amount'], row['event_slug'],
-                                                    strategy_id=row['strategy_id'])
+                    self.risk.record_trade_opened(
+                        row["trade_amount"], row["event_slug"], strategy_id=row["strategy_id"]
+                    )
 
             if orphan_count:
                 await self.db.conn.commit()
@@ -879,7 +925,8 @@ class TradingEngine(
             if scanner_ready and (ws_ready or elapsed > 30) and (odds_ready or elapsed > 60):
                 logger.info(
                     f"✅ Warm-up complete: scanner={scanner_ready} ws={ws_ready} "
-                    f"odds={odds_ready} ({elapsed:.0f}s)")
+                    f"odds={odds_ready} ({elapsed:.0f}s)"
+                )
                 break
             if elapsed > _warmup_max:
                 logger.warning(f"⚠️ Warm-up timeout ({_warmup_max}s) — starting anyway")
@@ -919,21 +966,27 @@ class TradingEngine(
                     if self._cancel_count or self._ws_drop_count:
                         extras = f" | cnl={self._cancel_count} wsd={self._ws_drop_count}"
                     # Phase 53b: forced exit counter
-                    fe_count = getattr(self, '_force_exits_today', 0)
+                    fe_count = getattr(self, "_force_exits_today", 0)
                     fe_str = f" | fe={fe_count}" if fe_count else ""
                     # Phase 60: smart exit counter
-                    se_count = getattr(self, '_smart_exits_today', 0)
+                    se_count = getattr(self, "_smart_exits_today", 0)
                     se_str = f" | se={se_count}" if se_count else ""
                     fe_str += se_str
                     logger.info(
                         f"💓 c={self._cycle} | strats={len(strats)} | open={rs['open_positions']} | "
                         f"exp=${rs['total_exposure']:.0f} | pnl={rs['daily_pnl']:+.2f} | "
-                        f"pend={len(self._pending)} | ws={ws_ok}{bnc}{regime_str}{extras}{fe_str} | {skip_info}")
-                    log_heartbeat(self._cycle, len(strats), rs['open_positions'],
-                                  list(self.scanner.active_markets.keys()))
+                        f"pend={len(self._pending)} | ws={ws_ok}{bnc}{regime_str}{extras}{fe_str} | {skip_info}"
+                    )
+                    log_heartbeat(
+                        self._cycle,
+                        len(strats),
+                        rs["open_positions"],
+                        list(self.scanner.active_markets.keys()),
+                    )
                     # Sprint 2 S2-02: Log cycle skip summary to decisions.jsonl
                     try:
                         from core.trade_journal import log_decision_cycle_summary
+
                         _sc = self.skips.get_counts()
                         if _sc:
                             log_decision_cycle_summary(self._cycle, _sc)
@@ -947,33 +1000,41 @@ class TradingEngine(
                     try:
                         zero_min = float(os.getenv("STRATS_ZERO_WARN_MINUTES", "10"))
                         if len(strats) == 0:
-                            now_utc = datetime.now(timezone.utc)
+                            now_utc = datetime.now(UTC)
                             if self._strats_zero_since is None:
                                 self._strats_zero_since = now_utc
                             elapsed_min = (now_utc - self._strats_zero_since).total_seconds() / 60.0
                             if elapsed_min >= zero_min and not self._strats_zero_alerted:
                                 logger.warning(
-                                    f"⚠️ STRATS_ZERO: {elapsed_min:.1f} min boyunca aktif strateji yok — auto-resume veya manuel /resume gerekli")
+                                    f"⚠️ STRATS_ZERO: {elapsed_min:.1f} min boyunca aktif strateji yok — auto-resume veya manuel /resume gerekli"
+                                )
                                 self._strats_zero_alerted = True
                                 # Fire-and-forget admin push
                                 try:
                                     if self.bot_app is not None:
-                                        admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
+                                        admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv(
+                                            "ADMIN_CHAT_ID"
+                                        )
                                         if admin_id:
                                             # Phase 82e Sprint 2.1: guarded fire-and-forget
-                                            safe_create_task(self.bot_app.bot.send_message(
-                                                chat_id=int(admin_id),
-                                                text=f"⚠️ <b>STRATS=0 ALERT</b>\n{elapsed_min:.0f} dakikadır aktif strateji yok.\nAuto-resume env kontrolü veya /resume gerekli.",
-                                                parse_mode="HTML"),
+                                            safe_create_task(
+                                                self.bot_app.bot.send_message(
+                                                    chat_id=int(admin_id),
+                                                    text=f"⚠️ <b>STRATS=0 ALERT</b>\n{elapsed_min:.0f} dakikadır aktif strateji yok.\nAuto-resume env kontrolü veya /resume gerekli.",
+                                                    parse_mode="HTML",
+                                                ),
                                                 name="engine_strats_zero_alert",
-                                                notify=False)
+                                                notify=False,
+                                            )
                                 except (TelegramError, ValueError, AttributeError) as _push_e:
                                     # Epic 8 T8.1: TG send / int(admin_id) / bot_app missing
                                     logger.debug(f"strats_zero push failed: {_push_e}")
                         else:
                             # Recovery: reset watchdog state
                             if self._strats_zero_since is not None or self._strats_zero_alerted:
-                                logger.info(f"✅ STRATS_ZERO cleared: {len(strats)} strategies active again")
+                                logger.info(
+                                    f"✅ STRATS_ZERO cleared: {len(strats)} strategies active again"
+                                )
                             self._strats_zero_since = None
                             self._strats_zero_alerted = False
                     except Exception as _wd_e:  # noqa: BLE001
@@ -983,13 +1044,16 @@ class TradingEngine(
 
                 # Phase 34: Continuous threshold protection (every ~5min)
                 if self._cycle % 300 == 150:
-                    for label, orig_thr in getattr(self, '_threshold_guards', []):
+                    for label, orig_thr in getattr(self, "_threshold_guards", []):
                         try:
                             cur = await self.db.conn.execute_fetchall(
-                                "SELECT odds_threshold FROM strategies WHERE label=?", (label,))
+                                "SELECT odds_threshold FROM strategies WHERE label=?", (label,)
+                            )
                             if cur and cur[0][0] != orig_thr:
                                 await self.db.conn.execute(
-                                    "UPDATE strategies SET odds_threshold=? WHERE label=?", (orig_thr, label))
+                                    "UPDATE strategies SET odds_threshold=? WHERE label=?",
+                                    (orig_thr, label),
+                                )
                                 await self.db.conn.commit()
                                 logger.warning(f"🛡️ GUARD: {label} {cur[0][0]}→{orig_thr}")
                         except (aiosqlite.Error, IndexError, TypeError) as _tg_err:
@@ -1001,7 +1065,7 @@ class TradingEngine(
                 async with self._trade_lock:
                     await self._check_pending()
 
-                verbose = (self._cycle % 60 == 1)
+                verbose = self._cycle % 60 == 1
                 for s in strats:
                     try:
                         await self._evaluate(s, verbose)
@@ -1024,8 +1088,7 @@ class TradingEngine(
                 if self._cycle % 300 == 0 and self._cycle > 0:
                     try:
                         await self.lifecycle.run_lifecycle_check()
-                    except (aiosqlite.Error, AttributeError, RuntimeError,
-                            ValueError) as _lc_err:
+                    except (aiosqlite.Error, AttributeError, RuntimeError, ValueError) as _lc_err:
                         # Epic 8 T8.1: DB ops / lifecycle contract / value guards
                         logger.debug(f"lifecycle check: {_lc_err}")
 
@@ -1054,8 +1117,7 @@ class TradingEngine(
                     f"{traceback.format_exc()}"
                 )
                 if isinstance(e, (MemoryError, SystemExit, KeyboardInterrupt)):
-                    logger.critical(
-                        f"Fatal exception in cycle {self._cycle} — re-raising to exit")
+                    logger.critical(f"Fatal exception in cycle {self._cycle} — re-raising to exit")
                     raise
             try:
                 await asyncio.sleep(1)
@@ -1103,7 +1165,8 @@ class TradingEngine(
             if self._pending:
                 logger.warning(
                     f"🔌 WS dropped (#{self._ws_drop_count})! "
-                    f"Flushing {len(self._pending)} pending orders")
+                    f"Flushing {len(self._pending)} pending orders"
+                )
                 async with self._trade_lock:
                     self._pending.clear()
             else:
@@ -1136,17 +1199,17 @@ class TradingEngine(
             return
         try:
             results = await asyncio.gather(
-                *(client.get_live_midpoint(tid) for tid in subscribed),
-                return_exceptions=True)
+                *(client.get_live_midpoint(tid) for tid in subscribed), return_exceptions=True
+            )
         except Exception as e:  # noqa: BLE001
             # Epic 8 T8.1: gather() with return_exceptions=True rarely raises at
             # the top level — this is a defensive catch for coroutine-build
             # failures (AttributeError on client method, etc.). Keep umbrella.
             logger.warning(f"WS reconnect backfill failed: {type(e).__name__}: {e}")
             return
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         backfilled = 0
-        for tid, p in zip(subscribed, results):
+        for tid, p in zip(subscribed, results, strict=False):
             if isinstance(p, Exception) or p is None:
                 continue
             if not (0.005 < p < 0.995):
@@ -1157,18 +1220,19 @@ class TradingEngine(
         event = "reconnect" if self._ws_drop_count > 0 else "online"
         logger.info(
             f"🔌 WS {event}: backfilled {backfilled}/{len(subscribed)} "
-            f"prices via REST /midpoint")
+            f"prices via REST /midpoint"
+        )
 
     async def _check_daily_report(self):
         """Phase 24 + Sprint 2 S2-04: Send daily report + save snapshot at UTC 00:00."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        hour = datetime.now(timezone.utc).hour
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        hour = datetime.now(UTC).hour
         if hour != 0 or self._last_daily_date == today:
             return
         self._last_daily_date = today
         try:
             # Generate report from yesterday's trades
-            yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+            yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
             rows = await self.db.conn.execute_fetchall(
                 """SELECT COUNT(*) as t,
                     COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) as w,
@@ -1176,12 +1240,15 @@ class TradingEngine(
                     COALESCE(SUM(fee_amount),0) as fees,
                     COALESCE(AVG(signal_score),0) as avg_sig
                 FROM executions WHERE result IS NOT NULL AND DATE(created_at)=?""",
-                (yesterday,))
+                (yesterday,),
+            )
             if rows and rows[0][0] > 0:
                 t, w, pnl, fees, avg_sig = rows[0]
                 losses = t - w
                 wr = w / t * 100 if t > 0 else 0
-                bal = (await self.db.conn.execute_fetchall("SELECT balance FROM wallets LIMIT 1"))[0][0]
+                bal = (await self.db.conn.execute_fetchall("SELECT balance FROM wallets LIMIT 1"))[
+                    0
+                ][0]
 
                 # Sprint 2 S2-04: Best/worst strategy
                 _strat_rows = await self.db.conn.execute_fetchall(
@@ -1189,13 +1256,15 @@ class TradingEngine(
                     FROM executions e JOIN strategies s ON e.strategy_id=s.id
                     WHERE e.result IS NOT NULL AND DATE(e.created_at)=?
                     GROUP BY e.strategy_id ORDER BY spnl DESC""",
-                    (yesterday,))
+                    (yesterday,),
+                )
                 top_strat = _strat_rows[0][0] if _strat_rows else None
                 worst_strat = _strat_rows[-1][0] if _strat_rows and len(_strat_rows) > 1 else None
 
                 # Active strategy count
                 _act = await self.db.conn.execute_fetchall(
-                    "SELECT COUNT(*) FROM strategies WHERE status='active'")
+                    "SELECT COUNT(*) FROM strategies WHERE status='active'"
+                )
                 active_strats = _act[0][0] if _act else 0
 
                 # Sprint 2 S2-04: Save daily snapshot to DB
@@ -1205,11 +1274,22 @@ class TradingEngine(
                         (date,total_trades,wins,losses,pnl,wr,avg_signal_score,
                          active_strategies,top_strategy,worst_strategy,balance,fees,created_at)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (yesterday, t, w, losses, round(pnl, 4), round(wr, 1),
-                         round(avg_sig, 4) if avg_sig else None,
-                         active_strats, top_strat, worst_strat,
-                         round(bal, 2), round(fees, 4),
-                         datetime.now(timezone.utc).isoformat()))
+                        (
+                            yesterday,
+                            t,
+                            w,
+                            losses,
+                            round(pnl, 4),
+                            round(wr, 1),
+                            round(avg_sig, 4) if avg_sig else None,
+                            active_strats,
+                            top_strat,
+                            worst_strat,
+                            round(bal, 2),
+                            round(fees, 4),
+                            datetime.now(UTC).isoformat(),
+                        ),
+                    )
                     await self.db.conn.commit()
                     logger.info(f"📸 Daily snapshot saved: {yesterday}")
                 except (aiosqlite.Error, ValueError, TypeError) as _se:
@@ -1222,7 +1302,8 @@ class TradingEngine(
                     f"İşlem: {t} | Kazanma: %{wr:.0f} | PnL: {pnl:+.2f}\n"
                     f"Komisyon: ${fees:.2f} | Bakiye: ${bal:.2f}\n"
                     f"Ort. Sinyal: {avg_sig:.2f} | Aktif Strat: {active_strats}\n"
-                    f"En İyi: {top_strat or '-'} | En Kötü: {worst_strat or '-'}\n")
+                    f"En İyi: {top_strat or '-'} | En Kötü: {worst_strat or '-'}\n"
+                )
                 # Send to admin
                 admin_id = self.settings.ADMIN_TELEGRAM_ID
                 if admin_id and self.bot_app:
@@ -1232,7 +1313,8 @@ class TradingEngine(
                     # outer except eat it silently.
                     try:
                         await self.bot_app.bot.send_message(
-                            chat_id=admin_id, text=text, parse_mode="HTML")
+                            chat_id=admin_id, text=text, parse_mode="HTML"
+                        )
                         logger.info(f"📊 Daily report sent: {t}t {wr:.0f}% {pnl:+.2f}")
                     except (TelegramError, ValueError, AttributeError) as _tg_err:
                         logger.warning(f"daily report TG send: {_tg_err}")
@@ -1242,7 +1324,7 @@ class TradingEngine(
             logger.debug(f"Daily report: {e}")
 
     def _cleanup(self):
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        cutoff = datetime.now(UTC) - timedelta(minutes=10)
         for k in [k for k, v in self._settled_slugs.items() if v < cutoff]:
             del self._settled_slugs[k]
         # Phase 26: cleanup old open price records
@@ -1274,14 +1356,12 @@ class TradingEngine(
     # Real CLOB rejects orders with these violations. Paper trading must
     # mirror them so we can't paper-fill orders that the live wire would
     # have refused.
-    PRICE_TICK = 0.01      # $0.01 minimum price increment on Polymarket
-    MIN_ORDER_USD = 1.0    # $1 minimum notional per order
+    PRICE_TICK = 0.01  # $0.01 minimum price increment on Polymarket
+    MIN_ORDER_USD = 1.0  # $1 minimum notional per order
     # Polymarket also enforces a minimum of 5 *shares* per order at the CLOB
     # level — a $1 notional order at p=0.95 is only ~1.05 shares and would be
     # rejected even though it clears MIN_ORDER_USD. Phase 47f.9 gate.
     # Phase 62: ENV-configurable (paper trading uses 1.0 to avoid blocking $1 trades)
     MIN_ORDER_SHARES = float(os.getenv("MIN_ORDER_SHARES", "1.0"))
 
-
     # ═══ MONITOR + SETTLE ═══
-

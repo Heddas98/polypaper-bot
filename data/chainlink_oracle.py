@@ -35,6 +35,7 @@ or schema drift should NOT crash the feed thread — the reconnect
 loop handles it. Wide catches at the orchestration layer are
 intentional and logged.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,10 +85,11 @@ class ChainlinkOracle:
             return
         self._running = True
         # Phase 82e Sprint 2.1: oracle feed loop guarded
-        self._task = safe_create_task(
-            self._poll_loop(), name="chainlink_oracle")
-        logger.info(f"🔗 Phase 44b: ChainlinkOracle STARTED (rpc={self.rpc_url}, "
-                    f"parity={self.parity_bps}bps)")
+        self._task = safe_create_task(self._poll_loop(), name="chainlink_oracle")
+        logger.info(
+            f"🔗 Phase 44b: ChainlinkOracle STARTED (rpc={self.rpc_url}, "
+            f"parity={self.parity_bps}bps)"
+        )
         # Phase 47b: Immediate smoke test — fetch BTC once so the operator
         # gets a clear pass/fail signal at startup instead of waiting 60s
         # for the first poll to land.
@@ -98,13 +100,10 @@ class ChainlinkOracle:
                 btc = self._prices.get("BTC", {}).get("price")
                 eth = self._prices.get("ETH", {}).get("price")
                 logger.info(
-                    f"🔗 Phase 47b: oracle smoke OK ({ok}/4 assets) "
-                    f"BTC={btc} ETH={eth}"
+                    f"🔗 Phase 47b: oracle smoke OK ({ok}/4 assets) " f"BTC={btc} ETH={eth}"
                 )
             else:
-                logger.warning(
-                    "⚠ Phase 47b: oracle smoke test got 0 prices — RPC may be blocked"
-                )
+                logger.warning("⚠ Phase 47b: oracle smoke test got 0 prices — RPC may be blocked")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"⚠ Phase 47b: oracle smoke test threw: {e}")
 
@@ -167,7 +166,7 @@ class ChainlinkOracle:
                 raw -= 1 << 256
             if raw <= 0:
                 return None
-            return raw / (10 ** decimals)
+            return raw / (10**decimals)
         except Exception:  # noqa: BLE001
             return None
 
@@ -228,4 +227,3 @@ class ChainlinkOracle:
             await self.db.conn.commit()
         except Exception:  # noqa: BLE001
             pass
-

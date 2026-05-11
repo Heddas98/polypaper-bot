@@ -32,14 +32,16 @@ ENV:
     SURFACE_2D_ANTISYM_THRESHOLD=0.03  # Max allowed antisymmetry violation
     SURFACE_2D_FALLBACK_1D=true     # Fall back to 1D when no time data
 """
+
 from __future__ import annotations
 
 import logging
 import math
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Tuple
 
 logger = logging.getLogger("polypaper.calibration.surface_2d")
 
@@ -63,12 +65,14 @@ Curve = Sequence[Tuple[float, float]]  # (bin_low, delta_at_midpoint)
 #  DATA STRUCTURES
 # ═══════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class SurfaceCell:
     """Single cell in the 2D surface grid."""
+
     price_bin: float  # Lower edge of price bin (0.05, 0.10, ..., 0.90)
-    time_bin: int      # Time bin index (0 = near close, N-1 = far)
-    delta: float       # actual_wr - implied_p (mispricing)
+    time_bin: int  # Time bin index (0 = near close, N-1 = far)
+    delta: float  # actual_wr - implied_p (mispricing)
     n_trades: int = 0  # Number of trades in this cell
     confidence: float = 1.0  # Confidence weight [0,1] based on n_trades
 
@@ -76,17 +80,18 @@ class SurfaceCell:
 @dataclass
 class SurfaceResult:
     """Result of a 2D surface lookup."""
-    delta: float = 0.0         # Combined C(K,τ) value
-    c_k: float = 0.0           # Price-only component
-    c_tau: float = 0.0         # Time-only component
-    c_int: float = 0.0         # Interaction term
-    boost: float = 0.0         # Clamped signal boost
-    confidence: float = 0.0    # Confidence [0,1]
-    n_trades: int = 0          # Trades in the cell
-    time_bin: int = -1         # Which time bin was used
-    antisym_ok: bool = True    # Antisymmetry check passed
+
+    delta: float = 0.0  # Combined C(K,τ) value
+    c_k: float = 0.0  # Price-only component
+    c_tau: float = 0.0  # Time-only component
+    c_int: float = 0.0  # Interaction term
+    boost: float = 0.0  # Clamped signal boost
+    confidence: float = 0.0  # Confidence [0,1]
+    n_trades: int = 0  # Trades in the cell
+    time_bin: int = -1  # Which time bin was used
+    antisym_ok: bool = True  # Antisymmetry check passed
     antisym_violation: float = 0.0  # |C(K,τ) + C(1-K,τ)|
-    source: str = "2d"        # "2d", "1d_fallback", "disabled"
+    source: str = "2d"  # "2d", "1d_fallback", "disabled"
 
 
 @dataclass
@@ -105,12 +110,13 @@ class CalibrationSurface:
     Where C_K is the price marginal (= existing Becker δ(p)),
     C_τ is the time marginal, and C_int captures interactions.
     """
+
     # Grid: dict[(price_bin, time_bin)] → SurfaceCell
     cells: dict[tuple[float, int], SurfaceCell] = field(default_factory=dict)
 
     # Marginals
     price_marginal: dict[float, float] = field(default_factory=dict)  # C_K(K)
-    time_marginal: dict[int, float] = field(default_factory=dict)     # C_τ(τ)
+    time_marginal: dict[int, float] = field(default_factory=dict)  # C_τ(τ)
 
     # Metadata
     total_trades: int = 0
@@ -192,9 +198,14 @@ class CalibrationSurface:
                 logger.warning(
                     "Antisymmetry violation: C(%.2f,%d)=%.4f + C(%.2f,%d)=%.4f "
                     "= %.4f > threshold %.3f",
-                    price_bin, time_bin, delta,
-                    mirror_bin, time_bin, mirror_cell.delta,
-                    antisym_violation, _ANTISYM_THRESHOLD
+                    price_bin,
+                    time_bin,
+                    delta,
+                    mirror_bin,
+                    time_bin,
+                    mirror_cell.delta,
+                    antisym_violation,
+                    _ANTISYM_THRESHOLD,
                 )
                 # Reduce confidence when antisymmetry violated
                 confidence *= 0.5
@@ -229,9 +240,7 @@ class CalibrationSurface:
     # _fallback_1d removed 2026-04-29 (Heddas direktifi: Becker tam silme).
     # core.becker_calibration modülü silindi, fallback path artık geçersiz.
 
-    def _price_only_lookup(
-        self, price: float, price_bin: float, curve: Curve
-    ) -> SurfaceResult:
+    def _price_only_lookup(self, price: float, price_bin: float, curve: Curve) -> SurfaceResult:
         """Use price marginal when time is unknown."""
         c_k = self.price_marginal.get(price_bin, 0.0)
         if abs(c_k) < 1e-6:
@@ -251,6 +260,7 @@ class CalibrationSurface:
 # ═══════════════════════════════════════════════════════════════════
 #  SURFACE BUILDER — builds from DuckDB/Becker calibration data
 # ═══════════════════════════════════════════════════════════════════
+
 
 class SurfaceBuilder:
     """
@@ -272,14 +282,15 @@ class SurfaceBuilder:
     # Minimum trades per cell for inclusion
     MIN_CELL_TRADES = 10
     # Confidence thresholds
-    CONF_HIGH = 100   # n >= 100 → confidence 1.0
-    CONF_MED = 30     # n >= 30 → confidence 0.7
-    CONF_LOW = 10     # n >= 10 → confidence 0.4
+    CONF_HIGH = 100  # n >= 100 → confidence 1.0
+    CONF_MED = 30  # n >= 30 → confidence 0.7
+    CONF_LOW = 10  # n >= 10 → confidence 0.4
 
     def __init__(self, calib_db: Optional[Path] = None):
         # 2026-04-29 Aşama 3.C: Becker calibration DB silindi.
         # SurfaceBuilder.build() now no-op'a indirgendi (DB yok → empty surface).
         from pathlib import Path as _P
+
         self.calib_db = calib_db or _P("data_store/becker_calibration.db")
 
     def build(self, source: str = "kalshi") -> CalibrationSurface:
@@ -323,8 +334,7 @@ class SurfaceBuilder:
         except Exception as e:
             if "does not exist" in str(e):
                 logger.warning(
-                    f"surface_2d: table not built yet ({source}). "
-                    "Run /becker_build to create."
+                    f"surface_2d: table not built yet ({source}). " "Run /becker_build to create."
                 )
             else:
                 logger.error(f"surface_2d build failed: {e}")
@@ -447,14 +457,10 @@ class SurfaceBuilder:
                     f"EXTRACT(EPOCH FROM (CAST({close_col} AS TIMESTAMP) - "
                     f"CAST({trade_col} AS TIMESTAMP))) / 3600.0"
                 )
-                parts.append(
-                    f"WHEN {hours_expr} < {high} THEN {i}"
-                )
+                parts.append(f"WHEN {hours_expr} < {high} THEN {i}")
         return "CASE " + " ".join(parts) + " END"
 
-    def _build_from_rows(
-        self, rows: list[tuple]
-    ) -> CalibrationSurface:
+    def _build_from_rows(self, rows: list[tuple]) -> CalibrationSurface:
         """Build CalibrationSurface from query rows.
 
         rows: [(price_bin, time_bin, actual_wr, n_trades), ...]
@@ -500,10 +506,11 @@ class SurfaceBuilder:
 
         surface.built = True
         logger.info(
-            "surface_2d: built %d cells, %d total trades, "
-            "%d price marginals, %d time marginals",
-            surface.n_populated_cells, surface.total_trades,
-            len(surface.price_marginal), len(surface.time_marginal),
+            "surface_2d: built %d cells, %d total trades, " "%d price marginals, %d time marginals",
+            surface.n_populated_cells,
+            surface.total_trades,
+            len(surface.price_marginal),
+            len(surface.time_marginal),
         )
         return surface
 
@@ -535,6 +542,7 @@ class SurfaceBuilder:
 #  CONVENIENCE FUNCTIONS for engine integration
 # ═══════════════════════════════════════════════════════════════════
 
+
 def surface_delta(
     surface: Optional[CalibrationSurface],
     price: float,
@@ -565,8 +573,7 @@ def format_surface_telegram(surface: CalibrationSurface) -> str:
 
     lines = [
         "📊 <b>2D Calibration Surface</b>",
-        f"Cells: <b>{surface.n_populated_cells}</b> | "
-        f"Trades: <b>{surface.total_trades:,}</b>",
+        f"Cells: <b>{surface.n_populated_cells}</b> | " f"Trades: <b>{surface.total_trades:,}</b>",
         "",
         "<b>Price Marginal C_K(K):</b>",
     ]
@@ -576,9 +583,7 @@ def format_surface_telegram(surface: CalibrationSurface) -> str:
         delta = surface.price_marginal[pb]
         bar = "▓" * max(1, int(abs(delta) * 100))
         sign = "+" if delta >= 0 else ""
-        lines.append(
-            f"  {pb:.2f}: {sign}{delta:.4f} {bar}"
-        )
+        lines.append(f"  {pb:.2f}: {sign}{delta:.4f} {bar}")
 
     lines.append("")
     lines.append("<b>Time Marginal C_τ(τ):</b>")
@@ -587,9 +592,7 @@ def format_surface_telegram(surface: CalibrationSurface) -> str:
         delta = surface.time_marginal[tb]
         label = time_labels[tb] if tb < len(time_labels) else f"bin{tb}"
         sign = "+" if delta >= 0 else ""
-        lines.append(
-            f"  {label}: {sign}{delta:.4f}"
-        )
+        lines.append(f"  {label}: {sign}{delta:.4f}")
 
     # Antisymmetry summary
     violations = 0

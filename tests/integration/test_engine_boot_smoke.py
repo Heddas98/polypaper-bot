@@ -32,13 +32,13 @@ Out-of-scope (→ Windows backlog T9.8-REG):
   * plugin hot-reload / HyperOpt restore
   * Full cycle loop tick
 """
+
 from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # Canonical 6-flag set pinned by T6.3 (brain_flags parity doctrine).
 # Any drift here → RED. Adding a 7th flag requires ALL of:
@@ -80,6 +80,7 @@ def _make_engine():
 
 # ═══ 1. Construction succeeds ══════════════════════════════════════════
 
+
 class TestConstruction:
     def test_instantiates_without_raise(self):
         engine, _ = _make_engine()
@@ -96,6 +97,7 @@ class TestConstruction:
 
 # ═══ 2. Brain flags — canonical 6-key set ══════════════════════════════
 
+
 class TestBrainFlags:
     """T6.3 doctrine — canonical brain_flags set at boot."""
 
@@ -104,7 +106,8 @@ class TestBrainFlags:
         assert set(engine.brain_flags.keys()) == CANONICAL_BRAIN_FLAGS, (
             "brain_flags key-set drifted — update T6.3 doctrine: UI panel, "
             "valid_features allow-list, boot-restore, CANONICAL_BRAIN_FLAGS "
-            "must all agree.")
+            "must all agree."
+        )
 
     def test_all_default_true(self):
         """UI shows all 6 as AÇIK until user toggle or DB boot-restore."""
@@ -112,7 +115,8 @@ class TestBrainFlags:
         for k in CANONICAL_BRAIN_FLAGS:
             assert engine.brain_flags[k] is True, (
                 f"brain_flags['{k}'] default drifted from True — UI will "
-                f"show KAPALI at fresh install (ghost-on-boot regression).")
+                f"show KAPALI at fresh install (ghost-on-boot regression)."
+            )
 
     def test_no_extra_keys(self):
         """Guard against silent addition of a 7th ghost flag."""
@@ -120,23 +124,36 @@ class TestBrainFlags:
         extras = set(engine.brain_flags.keys()) - CANONICAL_BRAIN_FLAGS
         assert not extras, (
             f"Unexpected brain_flags key(s) {extras!r} — if intentional, "
-            f"update CANONICAL_BRAIN_FLAGS + UI + allow-list together.")
+            f"update CANONICAL_BRAIN_FLAGS + UI + allow-list together."
+        )
 
 
 # ═══ 3. Sibling modules attached ═══════════════════════════════════════
 
+
 class TestSiblings:
     """Contract: subsystems must exist on self.* after __init__."""
 
-    @pytest.mark.parametrize("attr", [
-        "risk", "kill_switch", "selector", "regime", "drift",
-        "signals", "plugins", "optimizer", "lifecycle",
-    ])
+    @pytest.mark.parametrize(
+        "attr",
+        [
+            "risk",
+            "kill_switch",
+            "selector",
+            "regime",
+            "drift",
+            "signals",
+            "plugins",
+            "optimizer",
+            "lifecycle",
+        ],
+    )
     def test_sibling_attached(self, attr):
         engine, _ = _make_engine()
         assert hasattr(engine, attr), (
             f"TradingEngine.{attr} missing after __init__ — upstream refactor "
-            f"likely dropped a subsystem init.")
+            f"likely dropped a subsystem init."
+        )
         assert getattr(engine, attr) is not None
 
     def test_market_recorder_late_bound(self):
@@ -149,10 +166,12 @@ class TestSiblings:
         engine, _ = _make_engine()
         assert not hasattr(engine, "market_recorder"), (
             "market_recorder attached at __init__ — breaks T6.3e late-bind "
-            "invariant. If this is intentional, update sibling-sync test.")
+            "invariant. If this is intentional, update sibling-sync test."
+        )
 
 
 # ═══ 4. Collection invariants (empty on boot) ══════════════════════════
+
 
 class TestBootCollections:
     def test_max_moves_empty(self):
@@ -179,6 +198,7 @@ class TestBootCollections:
 
 
 # ═══ 5. stop() on non-running engine = no-op ═══════════════════════════
+
 
 class TestStopNoOp:
     """engine.stop() must be safe to call when never started."""

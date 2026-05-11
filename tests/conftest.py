@@ -1,4 +1,5 @@
 """pytest bootstrap — ensure project root is on sys.path."""
+
 from __future__ import annotations
 
 import os

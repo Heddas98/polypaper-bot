@@ -20,14 +20,14 @@ Usage:
 ENV:
     CHAMPION_TRACKER_ENABLED=true
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import os
-from datetime import datetime, timezone
-from typing import Optional
 from dataclasses import dataclass, field
+from typing import Optional
+
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.utils.champion")
@@ -36,6 +36,7 @@ logger = logging.getLogger("polypaper.utils.champion")
 @dataclass
 class ChampionRecord:
     """A champion configuration snapshot."""
+
     strategy_id: str = ""
     strategy_label: str = ""
     params: dict = field(default_factory=dict)
@@ -102,7 +103,7 @@ class ChampionTracker:
             await self.db.conn.execute(
                 "UPDATE champion_configs SET is_current_champion = 0 "
                 "WHERE strategy_id = ? AND metric = ?",
-                (strategy_id, metric)
+                (strategy_id, metric),
             )
 
         await self.db.conn.execute(
@@ -110,16 +111,28 @@ class ChampionTracker:
                (strategy_id, strategy_label, params_json, score, metric,
                 win_rate, total_trades, total_pnl, source, is_current_champion)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (strategy_id, label, json.dumps(params), score, metric,
-             win_rate, total_trades, total_pnl, source,
-             1 if is_new_champion else 0)
+            (
+                strategy_id,
+                label,
+                json.dumps(params),
+                score,
+                metric,
+                win_rate,
+                total_trades,
+                total_pnl,
+                source,
+                1 if is_new_champion else 0,
+            ),
         )
         await self.db.conn.commit()
 
         if is_new_champion:
             logger.info(
                 "🏆 New champion for %s: score=%.4f (%s) params=%s",
-                strategy_id, score, metric, json.dumps(params)
+                strategy_id,
+                score,
+                metric,
+                json.dumps(params),
             )
 
         return is_new_champion
@@ -136,7 +149,7 @@ class ChampionTracker:
                FROM champion_configs
                WHERE strategy_id = ? AND metric = ? AND is_current_champion = 1
                LIMIT 1""",
-            (strategy_id, metric)
+            (strategy_id, metric),
         )
 
         if not row:
@@ -169,7 +182,7 @@ class ChampionTracker:
                WHERE strategy_id = ? AND metric = ?
                ORDER BY recorded_at DESC
                LIMIT ?""",
-            (strategy_id, metric, limit)
+            (strategy_id, metric, limit),
         )
 
         return [
@@ -206,7 +219,7 @@ class ChampionTracker:
                 "current_score": current_score,
                 "champion_params": champion.params,
                 "message": f"⚠️ {regression_pct:.0f}% regression vs champion "
-                           f"(champion: {champion.score:.4f}, current: {current_score:.4f})",
+                f"(champion: {champion.score:.4f}, current: {current_score:.4f})",
             }
         return {
             "regressed": False,

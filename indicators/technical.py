@@ -20,10 +20,11 @@ Usage:
 
 All indicators are pure functions — no side effects, no API calls.
 """
+
 from __future__ import annotations
 
-import math
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,13 +35,15 @@ logger = logging.getLogger("polypaper.indicators.technical")
 # RSI — Relative Strength Index
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class RSIResult:
     """RSI calculation result."""
-    value: float = 50.0       # RSI value (0-100)
-    signal: float = 0.0       # -1 to +1 signal for fusion
+
+    value: float = 50.0  # RSI value (0-100)
+    signal: float = 0.0  # -1 to +1 signal for fusion
     is_overbought: bool = False  # > 70
-    is_oversold: bool = False    # < 30
+    is_oversold: bool = False  # < 30
     avg_gain: float = 0.0
     avg_loss: float = 0.0
 
@@ -66,7 +69,7 @@ class RSI:
         changes = [series[i] - series[i - 1] for i in range(1, len(series))]
 
         # Use last `period` changes
-        recent = changes[-(self.period):]
+        recent = changes[-(self.period) :]
         gains = [c for c in recent if c > 0]
         losses = [-c for c in recent if c < 0]
 
@@ -101,13 +104,15 @@ class RSI:
 # MACD — Moving Average Convergence Divergence
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class MACDResult:
     """MACD calculation result."""
-    macd_line: float = 0.0     # MACD line (fast EMA - slow EMA)
-    signal_line: float = 0.0   # Signal line (EMA of MACD)
-    histogram: float = 0.0     # MACD - Signal
-    signal: float = 0.0        # -1 to +1 for fusion
+
+    macd_line: float = 0.0  # MACD line (fast EMA - slow EMA)
+    signal_line: float = 0.0  # Signal line (EMA of MACD)
+    histogram: float = 0.0  # MACD - Signal
+    signal: float = 0.0  # -1 to +1 for fusion
     is_bullish_cross: bool = False
     is_bearish_cross: bool = False
 
@@ -163,12 +168,12 @@ class MACD:
         signal = max(-1, min(1, histogram * 50))
 
         # Detect crossovers
-        is_bullish = (macd_line > signal_line and
-                      len(macd_history) >= 2 and
-                      macd_history[-2] < signal_line)
-        is_bearish = (macd_line < signal_line and
-                      len(macd_history) >= 2 and
-                      macd_history[-2] > signal_line)
+        is_bullish = (
+            macd_line > signal_line and len(macd_history) >= 2 and macd_history[-2] < signal_line
+        )
+        is_bearish = (
+            macd_line < signal_line and len(macd_history) >= 2 and macd_history[-2] > signal_line
+        )
 
         return MACDResult(
             macd_line=round(macd_line, 6),
@@ -208,16 +213,18 @@ class MACD:
 # Bollinger Bands
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class BBResult:
     """Bollinger Bands result."""
+
     upper: float = 0.0
-    middle: float = 0.0       # SMA
+    middle: float = 0.0  # SMA
     lower: float = 0.0
-    width: float = 0.0        # (upper - lower) / middle — squeeze indicator
-    pct_b: float = 0.5        # Where price is within bands (0-1)
-    signal: float = 0.0       # -1 to +1 for fusion
-    is_squeeze: bool = False   # Width below threshold → breakout incoming
+    width: float = 0.0  # (upper - lower) / middle — squeeze indicator
+    pct_b: float = 0.5  # Where price is within bands (0-1)
+    signal: float = 0.0  # -1 to +1 for fusion
+    is_squeeze: bool = False  # Width below threshold → breakout incoming
     squeeze_strength: float = 0.0  # How tight the squeeze is (0-1)
 
 
@@ -231,8 +238,7 @@ class BollingerBands:
     (odds range is 0-1, so 3c width = very tight squeeze).
     """
 
-    def __init__(self, period: int = 20, std_dev: float = 2.0,
-                 squeeze_threshold: float = 0.03):
+    def __init__(self, period: int = 20, std_dev: float = 2.0, squeeze_threshold: float = 0.03):
         self.period = period
         self.std_dev = std_dev
         self.squeeze_threshold = squeeze_threshold
@@ -242,7 +248,7 @@ class BollingerBands:
         if len(series) < self.period:
             return BBResult()
 
-        recent = series[-self.period:]
+        recent = series[-self.period :]
         middle = sum(recent) / len(recent)
 
         # Standard deviation
@@ -297,9 +303,11 @@ class BollingerBands:
 # Convenience: compute all indicators at once
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class TechnicalSignals:
     """Combined technical indicator signals."""
+
     rsi: RSIResult = None
     macd: MACDResult = None
     bb: BBResult = None

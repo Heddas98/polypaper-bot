@@ -36,21 +36,23 @@ USAGE:  py -3.11 scripts/reset_phase62.py
 """
 
 import asyncio
-import uuid
-import sys
 import os
-from datetime import datetime, timezone
+import sys
+import uuid
+from datetime import UTC, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import aiosqlite
 
 DB_PATH = os.getenv("DATABASE_PATH", "data_store/polypaper.db")
 
+
 def uid():
     return str(uuid.uuid4())
 
+
 def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -70,178 +72,250 @@ STRATEGIES = [
     # ═══ CONTRARIAN — Best regime fit (1.0) for ranging ═══
     {
         "label": "CTR-BTC-5m-A",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.48,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.5,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.48,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.5,
         "max_executions_per_event": 2,
         "strategy_type": "contrarian",
     },
     {
         "label": "CTR-ETH-5m",
-        "asset": "ETH", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.5,
+        "asset": "ETH",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.5,
         "max_executions_per_event": 2,
         "strategy_type": "contrarian",
     },
     {
         "label": "CTR-SOL-5m",
-        "asset": "SOL", "timeframe": "5m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.48,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.5,
+        "asset": "SOL",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.48,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.5,
         "max_executions_per_event": 2,
         "strategy_type": "contrarian",
     },
-
     # ═══ SCALPER — Best regime fit (1.0) for ranging ═══
     {
         "label": "SCA-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.3, "minutes_after_start": 0.3,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.3,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 3,
         "strategy_type": "scalper",
     },
     {
         "label": "SCA-ETH-5m",
-        "asset": "ETH", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.3, "minutes_after_start": 0.3,
+        "asset": "ETH",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.3,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 3,
         "strategy_type": "scalper",
     },
     {
         "label": "SCA-BTC-15m",
-        "asset": "BTC", "timeframe": "15m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.48,
-        "minutes_before_end": 0.8, "minutes_after_start": 1.0,
+        "asset": "BTC",
+        "timeframe": "15m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.48,
+        "minutes_before_end": 0.8,
+        "minutes_after_start": 1.0,
         "max_executions_per_event": 3,
         "strategy_type": "scalper",
     },
-
     # ═══ FUSION — Engine default, good all-around (0.6 fit) ═══
     {
         "label": "FUS-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.0,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.0,
         "max_executions_per_event": 2,
         "strategy_type": "fusion",
     },
     {
         "label": "FUS-ETH-5m",
-        "asset": "ETH", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.0,
+        "asset": "ETH",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.0,
         "max_executions_per_event": 2,
         "strategy_type": "fusion",
     },
     {
         "label": "FUS-SOL-15m",
-        "asset": "SOL", "timeframe": "15m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.48,
-        "minutes_before_end": 1.0, "minutes_after_start": 0.0,
+        "asset": "SOL",
+        "timeframe": "15m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.48,
+        "minutes_before_end": 1.0,
+        "minutes_after_start": 0.0,
         "max_executions_per_event": 2,
         "strategy_type": "fusion",
     },
     {
         "label": "FUS-XRP-5m",
-        "asset": "XRP", "timeframe": "5m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.0,
+        "asset": "XRP",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.0,
         "max_executions_per_event": 2,
         "strategy_type": "fusion",
     },
-
     # ═══ STREAK — Good ranging fit (0.7) ═══
     {
         "label": "STR-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.3,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 2,
         "strategy_type": "streak",
     },
     {
         "label": "STR-ETH-5m",
-        "asset": "ETH", "timeframe": "5m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.3,
+        "asset": "ETH",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 2,
         "strategy_type": "streak",
     },
-
     # ═══ HIGHTHRESHOLD — Safe 70c+ zone, low fees (0.6 fit) ═══
     {
         "label": "HT-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.70,
-        "minutes_before_end": 0.3, "minutes_after_start": 0.3,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.70,
+        "minutes_before_end": 0.3,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 1,
         "strategy_type": "highthreshold",
     },
     {
         "label": "HT-ETH-5m",
-        "asset": "ETH", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.70,
-        "minutes_before_end": 0.3, "minutes_after_start": 0.3,
+        "asset": "ETH",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.70,
+        "minutes_before_end": 0.3,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 1,
         "strategy_type": "highthreshold",
     },
-
     # ═══ SNIPER — Multi-check high confidence (0.5 fit) ═══
     {
         "label": "SNI-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.52,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.3,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.52,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 1,
         "strategy_type": "sniper",
     },
     {
         "label": "SNI-ETH-15m",
-        "asset": "ETH", "timeframe": "15m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.50,
-        "minutes_before_end": 1.0, "minutes_after_start": 0.5,
+        "asset": "ETH",
+        "timeframe": "15m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 1.0,
+        "minutes_after_start": 0.5,
         "max_executions_per_event": 1,
         "strategy_type": "sniper",
     },
-
     # ═══ LATE CONVERGENCE — Regime-agnostic, timing-based ═══
     {
         "label": "LC-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.3, "minutes_after_start": 0.0,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.3,
+        "minutes_after_start": 0.0,
         "max_executions_per_event": 1,
         "strategy_type": "late_convergence",
     },
     {
         "label": "LC-ETH-5m",
-        "asset": "ETH", "timeframe": "5m", "direction": "any",
-        "trade_amount": 2.0, "odds_threshold": 0.50,
-        "minutes_before_end": 0.3, "minutes_after_start": 0.0,
+        "asset": "ETH",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 2.0,
+        "odds_threshold": 0.50,
+        "minutes_before_end": 0.3,
+        "minutes_after_start": 0.0,
         "max_executions_per_event": 1,
         "strategy_type": "late_convergence",
     },
-
     # ═══ MARTINGALE — Controlled (0.5 fit), cap at 2 losses ═══
     {
         "label": "MG-BTC-5m",
-        "asset": "BTC", "timeframe": "5m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.55,
-        "minutes_before_end": 0.4, "minutes_after_start": 0.3,
+        "asset": "BTC",
+        "timeframe": "5m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.55,
+        "minutes_before_end": 0.4,
+        "minutes_after_start": 0.3,
         "max_executions_per_event": 1,
         "max_losses_per_event": 2,
         "strategy_type": "martingale",
     },
-
     # ═══ CONTRARIAN 15m — Longer timeframe diversification ═══
     {
         "label": "CTR-BTC-15m",
-        "asset": "BTC", "timeframe": "15m", "direction": "any",
-        "trade_amount": 1.0, "odds_threshold": 0.48,
-        "minutes_before_end": 0.8, "minutes_after_start": 1.0,
+        "asset": "BTC",
+        "timeframe": "15m",
+        "direction": "any",
+        "trade_amount": 1.0,
+        "odds_threshold": 0.48,
+        "minutes_before_end": 0.8,
+        "minutes_after_start": 1.0,
         "max_executions_per_event": 2,
         "strategy_type": "contrarian",
     },
@@ -272,11 +346,12 @@ async def main():
         user_id = row[0][0]
 
         row = await db.execute_fetchall(
-            "SELECT id FROM wallets WHERE user_id=? AND is_primary=1 LIMIT 1",
-            (user_id,))
+            "SELECT id FROM wallets WHERE user_id=? AND is_primary=1 LIMIT 1", (user_id,)
+        )
         if not row:
             row = await db.execute_fetchall(
-                "SELECT id FROM wallets WHERE user_id=? LIMIT 1", (user_id,))
+                "SELECT id FROM wallets WHERE user_id=? LIMIT 1", (user_id,)
+            )
         if not row:
             print("No wallet found")
             sys.exit(1)
@@ -313,7 +388,9 @@ async def main():
                     started_at, created_at, updated_at
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    sid, user_id, wallet_id,
+                    sid,
+                    user_id,
+                    wallet_id,
                     s["label"],
                     s["asset"],
                     s["timeframe"],
@@ -323,33 +400,39 @@ async def main():
                     None,  # price_difference
                     s.get("minutes_before_end", 0.5),
                     s.get("minutes_after_start", 0.0),
-                    None, None,  # stop_loss
-                    None, None,  # take_profit
+                    None,
+                    None,  # stop_loss
+                    None,
+                    None,  # take_profit
                     s.get("max_executions_per_event", 1),
                     s.get("max_losses_per_event"),
                     None,  # max_entry_slippage = NULL (gate disabled)
-                    0,     # ma_filter_enabled = false
+                    0,  # ma_filter_enabled = false
                     None,  # min_volatility
                     s["strategy_type"],
-                    "promoted",   # NOT canary — avoid $0.25 trap
+                    "promoted",  # NOT canary — avoid $0.25 trap
                     "active",
-                    ts, ts, ts,
-                ))
+                    ts,
+                    ts,
+                    ts,
+                ),
+            )
 
             typ = s["strategy_type"][:4].upper()
-            print(f"  [{i:2d}/20] {s['label']:16s} | {s['asset']:3s} {s['timeframe']:3s} | "
-                  f"{typ:4s} | ${s['trade_amount']:.0f} | thr={s['odds_threshold']:.2f}")
+            print(
+                f"  [{i:2d}/20] {s['label']:16s} | {s['asset']:3s} {s['timeframe']:3s} | "
+                f"{typ:4s} | ${s['trade_amount']:.0f} | thr={s['odds_threshold']:.2f}"
+            )
 
         await db.commit()
 
         # Verify
-        cnt = await db.execute_fetchall(
-            "SELECT COUNT(*) FROM strategies WHERE status='active'")
+        cnt = await db.execute_fetchall("SELECT COUNT(*) FROM strategies WHERE status='active'")
         final = cnt[0][0]
         print(f"\n{'='*60}")
         print(f"{final} strategies ACTIVE — deploy_stage=promoted")
-        print(f"NO slippage gate, NO canary trap, NO momentum/flashcrash")
-        print(f"Restart bot: phase62_fix.bat or reset_and_start.bat")
+        print("NO slippage gate, NO canary trap, NO momentum/flashcrash")
+        print("Restart bot: phase62_fix.bat or reset_and_start.bat")
         print(f"{'='*60}")
 
 

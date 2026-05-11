@@ -17,13 +17,12 @@ Env:
     PNL_DIVERGENCE_ALERT_PCT=5.0        # % divergence threshold
     PNL_DIVERGENCE_MIN_TRADES=5         # min trades per bucket
 """
+
 from __future__ import annotations
 
-import os
 import logging
-from datetime import datetime, timedelta, timezone
-
-import asyncio
+import os
+from datetime import UTC, datetime, timedelta
 
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
@@ -58,7 +57,7 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         alert_pct = float(os.getenv("PNL_DIVERGENCE_ALERT_PCT", "5.0"))
         min_trades = int(os.getenv("PNL_DIVERGENCE_MIN_TRADES", "5"))
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_h)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(hours=window_h)).isoformat()
 
         # ═══ Paper PnL (executions table) ═══
         paper_row = await db.conn.execute_fetchall(
@@ -66,7 +65,8 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                       COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0)
                FROM executions
                WHERE result IS NOT NULL AND closed_at >= ?""",
-            (cutoff,))
+            (cutoff,),
+        )
 
         paper_trades = paper_row[0][0] if paper_row else 0
         paper_pnl = paper_row[0][1] if paper_row else 0.0
@@ -79,7 +79,8 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                       COALESCE(SUM(CASE WHEN paper_pnl > 0 THEN 1 ELSE 0 END), 0)
                FROM live_trades
                WHERE paper_pnl IS NOT NULL AND settled_at >= ?""",
-            (cutoff,))
+            (cutoff,),
+        )
 
         shadow_trades = shadow_row[0][0] if shadow_row else 0
         shadow_pnl = shadow_row[0][1] if shadow_row else 0.0
@@ -95,21 +96,21 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         wr_delta = abs(shadow_wr - paper_wr)
 
         # ═══ Build Report ═══
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
         if has_enough and (divergence_pct >= alert_pct or wr_delta >= 10):
             # Alert: significant divergence
             status_emoji = "🔴" if divergence_pct >= 10 else "🟡"
             lines = [
                 f"{status_emoji} <b>PnL Divergence Alert</b> ({int(window_h)}h)",
-                f"━━━━━━━━━━━━━━━━━━━━━",
-                f"",
+                "━━━━━━━━━━━━━━━━━━━━━",
+                "",
                 f"📄 <b>Paper:</b> {paper_trades}t | WR {paper_wr:.1f}% | PnL ${paper_pnl:+.2f}",
                 f"🔴 <b>Shadow:</b> {shadow_trades}t | WR {shadow_wr:.1f}% | PnL ${shadow_pnl:+.2f}",
-                f"",
+                "",
                 f"📊 <b>Divergence: {divergence_pct:.1f}%</b> (threshold: {alert_pct}%)",
                 f"📊 WR Delta: {wr_delta:.1f}pp",
-                f"",
+                "",
             ]
             if divergence_pct >= 10:
                 lines.append("⚠️ Paper sonuclari guvenilir DEGIL! Live scaling durdurun.")
@@ -129,7 +130,8 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             # Not enough data — brief summary only
             logger.debug(
                 f"pnl_divergence: insufficient data (paper={paper_trades}, "
-                f"shadow={shadow_trades}, min={min_trades})")
+                f"shadow={shadow_trades}, min={min_trades})"
+            )
             # Still send daily summary if paper has trades
             if paper_trades > 0:
                 lines = [
@@ -148,18 +150,18 @@ async def pnl_divergence_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
         msg = "\n".join(lines)
         try:
-            await context.bot.send_message(
-                chat_id=admin, text=msg, parse_mode="HTML")
-            logger.info(f"pnl_divergence: sent daily report "
-                        f"(div={divergence_pct:.1f}%, paper={paper_trades}t, "
-                        f"shadow={shadow_trades}t)")
-        except (TelegramError, asyncio.TimeoutError) as e:
+            await context.bot.send_message(chat_id=admin, text=msg, parse_mode="HTML")
+            logger.info(
+                f"pnl_divergence: sent daily report "
+                f"(div={divergence_pct:.1f}%, paper={paper_trades}t, "
+                f"shadow={shadow_trades}t)"
+            )
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. send_message
             # raises TelegramError (NetworkError/BadRequest/Unauthorized) +
             # asyncio.TimeoutError on transport timeout. Other exceptions
             # propagate to outer job wrapper for visibility.
-            logger.error(f"pnl_divergence send failed: "
-                         f"{type(e).__name__}: {e}")
+            logger.error(f"pnl_divergence send failed: " f"{type(e).__name__}: {e}")
 
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally

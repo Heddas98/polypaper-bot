@@ -23,6 +23,7 @@ For binary markets at price p:
   f* = (b*win_rate - loss_rate) / b
   Regime-adjusted Kelly = f* × regime_fraction
 """
+
 import logging
 import os
 
@@ -31,7 +32,8 @@ import aiosqlite
 logger = logging.getLogger("polypaper.core.kelly")
 
 MIN_TRADES_FOR_KELLY = 15  # Need at least 15 trades for reliable WR
-MIN_BET = 1.0              # Polymarket minimum ~$1
+MIN_BET = 1.0  # Polymarket minimum ~$1
+
 
 # P0-09 (2026-05-08): single-source-of-truth for KELLY_MAX_BET_PCT.
 # Previously this was a hardcoded 0.15 here while config/settings.py defaulted
@@ -48,14 +50,14 @@ def _max_bet_pct() -> float:
 
 
 MAX_BET_PCT = _max_bet_pct()  # Module-level snapshot for back-compat
-KELLY_FRACTION = 0.25      # Quarter Kelly — retains 51% of full Kelly growth with only 9% of variance
+KELLY_FRACTION = 0.25  # Quarter Kelly — retains 51% of full Kelly growth with only 9% of variance
 
 # ── Phase 73: Kelly Decay (Regime-Based) ──
 KELLY_DECAY_ENABLED = os.getenv("KELLY_DECAY_ENABLED", "true").lower() in ("true", "1", "yes")
 KELLY_DECAY_FRACTIONS = {
-    "trending":  float(os.getenv("KELLY_DECAY_TRENDING", "0.25")),   # Quarter Kelly
-    "ranging":   float(os.getenv("KELLY_DECAY_RANGING", "0.167")),   # ~Sixth Kelly
-    "volatile":  float(os.getenv("KELLY_DECAY_VOLATILE", "0.125")),  # Eighth Kelly
+    "trending": float(os.getenv("KELLY_DECAY_TRENDING", "0.25")),  # Quarter Kelly
+    "ranging": float(os.getenv("KELLY_DECAY_RANGING", "0.167")),  # ~Sixth Kelly
+    "volatile": float(os.getenv("KELLY_DECAY_VOLATILE", "0.125")),  # Eighth Kelly
 }
 
 
@@ -71,6 +73,7 @@ def get_regime_kelly_fraction(regime: str = "ranging") -> float:
     if not KELLY_DECAY_ENABLED:
         return KELLY_FRACTION
     return KELLY_DECAY_FRACTIONS.get(regime, KELLY_FRACTION)
+
 
 # Phase 47f.9 (2026-04-09): Kelly now uses the REAL wallet bankroll instead of
 # a hardcoded $100. Env caps:
@@ -94,9 +97,9 @@ def _effective_bankroll(bankroll: float) -> float:
 
 
 def calculate_kelly_size(
-    win_rate: float,        # 0.0-1.0
-    avg_entry_price: float, # Average entry odds (e.g., 0.70)
-    bankroll: float,        # Current balance
+    win_rate: float,  # 0.0-1.0
+    avg_entry_price: float,  # Average entry odds (e.g., 0.70)
+    bankroll: float,  # Current balance
     min_trades: int = MIN_TRADES_FOR_KELLY,
     trade_count: int = 0,
     fraction: float = KELLY_FRACTION,
@@ -129,15 +132,19 @@ def calculate_kelly_size(
         # Phase 58: Edge check even during exploration.
         # If strategy already has some trades and WR is below breakeven + margin,
         # don't burn $1/trade on a losing strategy.
-        _expl_min_wr = float(os.getenv("KELLY_EXPLORATION_MIN_WR", "0.50"))  # Phase 62: 0.52→0.50 (true breakeven)
+        _expl_min_wr = float(
+            os.getenv("KELLY_EXPLORATION_MIN_WR", "0.50")
+        )  # Phase 62: 0.52→0.50 (true breakeven)
         if trade_count >= 5 and win_rate < _expl_min_wr:
-            result["reason"] = (f"Exploration WR {win_rate:.0%} < {_expl_min_wr:.0%} "
-                                f"after {trade_count} trades — SKIP")
+            result["reason"] = (
+                f"Exploration WR {win_rate:.0%} < {_expl_min_wr:.0%} "
+                f"after {trade_count} trades — SKIP"
+            )
             result["size"] = 0.0
             result["skip"] = True
             return result
         result["reason"] = f"Need {min_trades}+ trades (have {trade_count})"
-        result["size"] = MIN_BET          # exploration phase — allow MIN_BET
+        result["size"] = MIN_BET  # exploration phase — allow MIN_BET
         result["skip"] = False
         return result
 
@@ -169,7 +176,7 @@ def calculate_kelly_size(
 
     full_kelly = (b * p_win - p_loss) / b
     if full_kelly <= 0:
-        result["reason"] = f"Negative Kelly: edge insufficient at this price, SKIP"
+        result["reason"] = "Negative Kelly: edge insufficient at this price, SKIP"
         result["size"] = 0.0
         result["skip"] = True
         return result
@@ -190,20 +197,23 @@ def calculate_kelly_size(
     else:
         confidence = "low"
 
-    result.update({
-        "size": bet_size,
-        "full_kelly_pct": round(full_kelly * 100, 1),
-        "quarter_kelly_pct": round(quarter_kelly * 100, 1),
-        "confidence": confidence,
-        "skip": False,
-        "reason": f"WR={p_win:.0%} b={b:.2f} FK={full_kelly:.1%} QK={quarter_kelly:.1%} → ${bet_size:.2f}",
-    })
+    result.update(
+        {
+            "size": bet_size,
+            "full_kelly_pct": round(full_kelly * 100, 1),
+            "quarter_kelly_pct": round(quarter_kelly * 100, 1),
+            "confidence": confidence,
+            "skip": False,
+            "reason": f"WR={p_win:.0%} b={b:.2f} FK={full_kelly:.1%} QK={quarter_kelly:.1%} → ${bet_size:.2f}",
+        }
+    )
 
     return result
 
 
-async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
-                             regime: str = "ranging") -> dict:
+async def get_strategy_kelly(
+    db, strategy_id: str, bankroll: float, regime: str = "ranging"
+) -> dict:
     """Calculate Kelly size using REALIZED trade data (not theoretical b).
     This fixes the bug where 92% WR at 0.93 entry gives negative Kelly.
     Phase 47f.9: uses the caller-supplied wallet bankroll (clamped to
@@ -221,13 +231,19 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
                 COALESCE(AVG(execution_price),0.5) as avg_price,
                 COALESCE(AVG(trade_amount),1) as avg_amount
             FROM executions WHERE strategy_id=? AND result IS NOT NULL""",
-            (strategy_id,))
+            (strategy_id,),
+        )
 
         if not rows or rows[0][0] < 5:
             # Exploration phase — allow MIN_BET so strategy can gather data
-            return {"size": MIN_BET, "full_kelly_pct": 0, "quarter_kelly_pct": 0,
-                    "confidence": "low", "skip": False,
-                    "reason": f"Need 5+ trades (have {rows[0][0] if rows else 0})"}
+            return {
+                "size": MIN_BET,
+                "full_kelly_pct": 0,
+                "quarter_kelly_pct": 0,
+                "confidence": "low",
+                "skip": False,
+                "reason": f"Need 5+ trades (have {rows[0][0] if rows else 0})",
+            }
 
         t, w, avg_win, avg_loss, avg_price, avg_amount = rows[0]
         wr = w / t if t > 0 else 0.5
@@ -235,9 +251,14 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
         if wr <= 0.50 or t < MIN_TRADES_FOR_KELLY:
             # Phase 52: NO EDGE → SKIP.  Previously returned MIN_BET which
             # bled $1/trade indefinitely.
-            return {"size": 0.0, "full_kelly_pct": 0, "quarter_kelly_pct": 0,
-                    "confidence": "low", "skip": True,
-                    "reason": f"WR={wr:.0%} {'≤ 50% no edge' if wr<=0.5 else ''} t={t}, SKIP"}
+            return {
+                "size": 0.0,
+                "full_kelly_pct": 0,
+                "quarter_kelly_pct": 0,
+                "confidence": "low",
+                "skip": True,
+                "reason": f"WR={wr:.0%} {'≤ 50% no edge' if wr<=0.5 else ''} t={t}, SKIP",
+            }
 
         # Realized Kelly: f* = (p*W - q*L) / (W*L)
         # where W=avg_win, L=avg_loss, p=win_rate, q=1-p
@@ -247,8 +268,14 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
             if wr >= 0.90 and avg_win > 0:
                 full_kelly = wr - 0.5  # Simple edge-based
             else:
-                return {"size": 0.0, "full_kelly_pct": 0, "quarter_kelly_pct": 0,
-                        "confidence": "low", "skip": True, "reason": "No loss data, SKIP"}
+                return {
+                    "size": 0.0,
+                    "full_kelly_pct": 0,
+                    "quarter_kelly_pct": 0,
+                    "confidence": "low",
+                    "skip": True,
+                    "reason": "No loss data, SKIP",
+                }
         else:
             # Standard Kelly with realized W/L
             b = avg_win / avg_loss  # Realized win/loss ratio
@@ -272,9 +299,14 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
                     "skip": False,
                     "reason": f"EV-based: WR={wr:.0%} EV=${ev_per_trade:.2f}/trade → ${bet_size:.2f}",
                 }
-            return {"size": 0.0, "full_kelly_pct": 0, "quarter_kelly_pct": 0,
-                    "confidence": "low", "skip": True,
-                    "reason": f"No edge: WR={wr:.0%} EV=${ev_per_trade:.2f}, SKIP"}
+            return {
+                "size": 0.0,
+                "full_kelly_pct": 0,
+                "quarter_kelly_pct": 0,
+                "confidence": "low",
+                "skip": True,
+                "reason": f"No edge: WR={wr:.0%} EV=${ev_per_trade:.2f}, SKIP",
+            }
 
         # Phase 73: use regime-aware fraction instead of fixed KELLY_FRACTION
         regime_kelly = full_kelly * fraction
@@ -302,8 +334,14 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
             "regime_fraction": fraction,
             "reason": f"WR={wr:.0%} W=${avg_win:.2f} L=${avg_loss:.2f} {frac_label}={regime_kelly:.1%} → ${bet_size:.2f}",
         }
-    except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
-            IndexError, AttributeError) as e:
+    except (
+        aiosqlite.Error,
+        ValueError,
+        TypeError,
+        ArithmeticError,
+        IndexError,
+        AttributeError,
+    ) as e:
         # T1.4 Faz 3: DB fetch + unpack + Kelly math inside one try.
         # Narrow to the realistic failure modes:
         #   - aiosqlite.Error: executions table missing / locked / schema
@@ -311,5 +349,11 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
         #   - ArithmeticError: ZeroDivisionError when avg_loss drifts to 0
         #   - IndexError/AttributeError: rows[0] guard or db.conn missing
         logger.error(f"Kelly calc: {e}")
-        return {"size": MIN_BET, "reason": f"Error: {e}", "confidence": "low",
-                "skip": False, "full_kelly_pct": 0, "quarter_kelly_pct": 0}
+        return {
+            "size": MIN_BET,
+            "reason": f"Error: {e}",
+            "confidence": "low",
+            "skip": False,
+            "full_kelly_pct": 0,
+            "quarter_kelly_pct": 0,
+        }

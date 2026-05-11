@@ -22,12 +22,12 @@ Env knobs:
 The job is non-blocking and defensive — any failure logs warning, never crashes
 the scheduler.
 """
+
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from telegram.error import TelegramError
@@ -56,7 +56,11 @@ def _env_int(key: str, default: int) -> int:
 
 def _env_bool(key: str, default: bool) -> bool:
     return os.getenv(key, "true" if default else "false").strip().lower() in {
-        "1", "true", "yes", "on"}
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 async def _fetch_aggregate(db, since_iso: str) -> dict:
@@ -69,7 +73,7 @@ async def _fetch_aggregate(db, since_iso: str) -> dict:
            FROM live_trades
            WHERE settled_at IS NOT NULL
              AND settled_at >= ?""",
-        (since_iso,)
+        (since_iso,),
     ) as cur:
         row = await cur.fetchone()
     return {
@@ -94,17 +98,19 @@ async def _fetch_per_strategy(db, since_iso: str, limit: int = 10) -> list[dict]
            GROUP BY strategy_label
            ORDER BY ABS(COALESCE(SUM(pnl), 0) - COALESCE(SUM(paper_pnl), 0) * ?) DESC
            LIMIT ?""",
-        (since_iso, _env_float("REALITY_GAP_MULT", 0.66), limit)
+        (since_iso, _env_float("REALITY_GAP_MULT", 0.66), limit),
     ) as cur:
         rows = await cur.fetchall()
     out = []
     for r in rows:
-        out.append({
-            "label": r[0] or "?",
-            "n": int(r[1] or 0),
-            "paper_sum": float(r[2] or 0.0),
-            "live_sum": float(r[3] or 0.0),
-        })
+        out.append(
+            {
+                "label": r[0] or "?",
+                "n": int(r[1] or 0),
+                "paper_sum": float(r[2] or 0.0),
+                "live_sum": float(r[3] or 0.0),
+            }
+        )
     return out
 
 
@@ -131,18 +137,26 @@ def _classify(drift_pct: float, n: int, min_trades: int, alert_pct: float) -> st
     return "ok"
 
 
-def _format_markdown(window_h: int, mult: float, alert_pct: float, min_trades: int,
-                     agg: dict, per_strategy: list[dict],
-                     expected: float, drift_abs: float, drift_pct: float,
-                     status: str, now: datetime) -> str:
+def _format_markdown(
+    window_h: int,
+    mult: float,
+    alert_pct: float,
+    min_trades: int,
+    agg: dict,
+    per_strategy: list[dict],
+    expected: float,
+    drift_abs: float,
+    drift_pct: float,
+    status: str,
+    now: datetime,
+) -> str:
     L: list[str] = []
     L.append("# Reality Gap Report")
     L.append("")
     L.append(f"**Generated:** {now.strftime('%Y-%m-%d %H:%M UTC')}")
     L.append(f"**Window:** last {window_h}h")
     L.append(f"**Multiplier (paper -> live):** {mult}")
-    L.append(f"**Alert threshold:** ±{alert_pct}% drift  |  "
-             f"**Min trades:** {min_trades}")
+    L.append(f"**Alert threshold:** ±{alert_pct}% drift  |  " f"**Min trades:** {min_trades}")
     L.append("")
 
     status_label = {
@@ -155,8 +169,10 @@ def _format_markdown(window_h: int, mult: float, alert_pct: float, min_trades: i
     L.append("")
 
     if agg["n"] == 0:
-        L.append("> No live_trades in window. Bot may not have settled any "
-                 "live trades yet (paper-only mode or fresh deployment).")
+        L.append(
+            "> No live_trades in window. Bot may not have settled any "
+            "live trades yet (paper-only mode or fresh deployment)."
+        )
         return "\n".join(L) + "\n"
 
     wr = (agg["wins"] / agg["n"] * 100) if agg["n"] > 0 else 0.0
@@ -191,21 +207,29 @@ def _format_markdown(window_h: int, mult: float, alert_pct: float, min_trades: i
     L.append("## Interpretation")
     L.append("")
     if status == "alert":
-        L.append(f"> 🚨 **Drift exceeds ±{alert_pct}% threshold.** Paper "
-                 f"simulator does not match live execution. Investigate: "
-                 f"fill heuristic recalibration (T4.6 family), fee model "
-                 f"drift, slippage estimation, or fundamental edge erosion.")
+        L.append(
+            f"> 🚨 **Drift exceeds ±{alert_pct}% threshold.** Paper "
+            f"simulator does not match live execution. Investigate: "
+            f"fill heuristic recalibration (T4.6 family), fee model "
+            f"drift, slippage estimation, or fundamental edge erosion."
+        )
     elif status == "warn":
-        L.append(f"> ⚠️ **Drift >{alert_pct/2}% but <{alert_pct}%.** "
-                 f"Monitor — not yet actionable but trend bears watching.")
+        L.append(
+            f"> ⚠️ **Drift >{alert_pct/2}% but <{alert_pct}%.** "
+            f"Monitor — not yet actionable but trend bears watching."
+        )
     elif status == "insufficient_data":
-        L.append(f"> ℹ️ Need ≥{min_trades} live trades in window for "
-                 f"meaningful drift. Currently {agg['n']}. Wait for more "
-                 f"data or expand window via REALITY_GAP_WINDOW_H.")
+        L.append(
+            f"> ℹ️ Need ≥{min_trades} live trades in window for "
+            f"meaningful drift. Currently {agg['n']}. Wait for more "
+            f"data or expand window via REALITY_GAP_WINDOW_H."
+        )
     else:
-        L.append("> ✅ Paper-vs-live drift within tolerance. Simulator "
-                 "predictions match actual execution to within "
-                 f"±{alert_pct}%.")
+        L.append(
+            "> ✅ Paper-vs-live drift within tolerance. Simulator "
+            "predictions match actual execution to within "
+            f"±{alert_pct}%."
+        )
 
     return "\n".join(L) + "\n"
 
@@ -227,20 +251,29 @@ async def reality_gap_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         alert_pct = _env_float("REALITY_GAP_ALERT_PCT", 10.0)
         min_trades = _env_int("REALITY_GAP_MIN_TRADES", 10)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         since = now - timedelta(hours=window_h)
         since_iso = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         agg = await _fetch_aggregate(db, since_iso)
         per_strategy = await _fetch_per_strategy(db, since_iso, limit=10)
 
-        expected, drift_abs, drift_pct = _compute_drift(
-            agg["paper_sum"], agg["live_sum"], mult)
+        expected, drift_abs, drift_pct = _compute_drift(agg["paper_sum"], agg["live_sum"], mult)
         status = _classify(drift_pct, agg["n"], min_trades, alert_pct)
 
-        md = _format_markdown(window_h, mult, alert_pct, min_trades,
-                              agg, per_strategy,
-                              expected, drift_abs, drift_pct, status, now)
+        md = _format_markdown(
+            window_h,
+            mult,
+            alert_pct,
+            min_trades,
+            agg,
+            per_strategy,
+            expected,
+            drift_abs,
+            drift_pct,
+            status,
+            now,
+        )
 
         AUDIT_DIR.mkdir(parents=True, exist_ok=True)
         out = AUDIT_DIR / f"reality_gap_{now.strftime('%Y%m%dT%H%M%SZ')}.md"
@@ -250,8 +283,8 @@ async def reality_gap_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         latest.write_text(md, encoding="utf-8")
 
         logger.info(
-            f"[reality_gap] n={agg['n']} drift={drift_pct:+.1f}% "
-            f"status={status} -> {out.name}")
+            f"[reality_gap] n={agg['n']} drift={drift_pct:+.1f}% " f"status={status} -> {out.name}"
+        )
 
         # Telegram alert on alert/warn status (and on first INSUFFICIENT_DATA
         # only — but for now keep INSUFFICIENT_DATA quiet to avoid noise)
@@ -272,12 +305,9 @@ async def reality_gap_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         f"(<code>{drift_pct:+.1f}%</code>)\n"
                         f"\n<i>Detail: <code>{out.name}</code></i>"
                     )
-                    await context.bot.send_message(
-                        chat_id=admin_id, text=text, parse_mode="HTML")
-                except (TelegramError, asyncio.TimeoutError) as e:
-                    logger.warning(
-                        f"[reality_gap] notify failed: "
-                        f"{type(e).__name__}: {e}")
+                    await context.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+                except (TimeoutError, TelegramError) as e:
+                    logger.warning(f"[reality_gap] notify failed: " f"{type(e).__name__}: {e}")
     except Exception as e:  # noqa: BLE001
         # Outermost wrapper intentionally wide — DB/disk/Telegram surfaces
         # all possible. Job-safety exemption: scheduler stays alive.

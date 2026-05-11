@@ -23,13 +23,14 @@ Phase 45 stub policy:
 direktifi). becker_curves dict empty kept for backward-compat with
 inner ReplayEngine attribute (no-op stub).
 """
+
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
-from backtest.replay_engine import ReplayEngine, ReplayConfig
+from backtest.replay_engine import ReplayConfig, ReplayEngine
 from backtest.simulation.fee_model_v3 import FeeCalculatorV3, FeeModeV3
 
 logger = logging.getLogger("polypaper.backtest.replay_v3")
@@ -38,6 +39,7 @@ logger = logging.getLogger("polypaper.backtest.replay_v3")
 @dataclass
 class ReplayV3Config:
     """All v3 knobs in one place — extends ReplayConfig with v3-only fields."""
+
     strategy_name: str
     asset: str = "BTC"
     timeframe: str = "5m"
@@ -71,12 +73,16 @@ class ReplayEngineV3:
         # Phase 47f.3 — fix pre-existing field-name drift: the inner
         # ReplayConfig uses `initial_balance` / `asset_filter` /
         # `timeframe_filter`, NOT the v3 field names.
-        inner_cfg = ReplayConfig(
-            strategy_name=self.config.strategy_name,
-            initial_balance=self.config.start_balance,
-            asset_filter=self.config.asset,
-            timeframe_filter=self.config.timeframe,
-        ) if self._has_replay_config_dataclass() else None
+        inner_cfg = (
+            ReplayConfig(
+                strategy_name=self.config.strategy_name,
+                initial_balance=self.config.start_balance,
+                asset_filter=self.config.asset,
+                timeframe_filter=self.config.timeframe,
+            )
+            if self._has_replay_config_dataclass()
+            else None
+        )
         self._inner = ReplayEngine(self.db, inner_cfg) if inner_cfg else ReplayEngine(self.db)
 
         try:
@@ -117,8 +123,17 @@ def _portfolio_dict(stats) -> dict:
     if isinstance(stats, dict):
         return stats
     out = {}
-    for attr in ("total_trades", "wins", "losses", "win_rate", "total_pnl",
-                 "final_balance", "max_drawdown", "sharpe", "avg_pnl"):
+    for attr in (
+        "total_trades",
+        "wins",
+        "losses",
+        "win_rate",
+        "total_pnl",
+        "final_balance",
+        "max_drawdown",
+        "sharpe",
+        "avg_pnl",
+    ):
         if hasattr(stats, attr):
             try:
                 out[attr] = getattr(stats, attr)

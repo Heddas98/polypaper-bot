@@ -9,28 +9,31 @@ itself is stateless and is mixed in via multiple inheritance.
 Public runtime behaviour is unchanged; every method below is a verbatim
 copy of the original engine.py body.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
 try:
     from telegram.error import TelegramError
 except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
+
     class TelegramError(Exception):  # type: ignore[no-redef]
         ...
 
+
+from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
 from core.fees_v2 import (
     polymarket_maker_rebate,
     polymarket_taker_fee_v2,
 )
+from core.slug_utils import infer_asset_from_slug, infer_tf_from_slug
 from core.trade_journal import log_exit, log_settlement
-from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
-from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
 
 logger = logging.getLogger("polypaper.core.engine")
 
@@ -63,23 +66,23 @@ class EngineSettlementMixin:
             payout = round(shares * price, 4)
             pnl = round(payout - row["trade_amount"] - entry_fee - exit_fee - slip, 4)
             await self._close(row, pnl, payout, reason)
-        log_exit(row["event_slug"], row["direction"], reason, row["execution_price"], price, pnl, payout)
+        log_exit(
+            row["event_slug"], row["direction"], reason, row["execution_price"], price, pnl, payout
+        )
         if exit_fee > 0.001 or slip > 0.001:
             logger.debug(f"  💸 Exit costs: fee={exit_fee:.4f} slip={slip:.4f}")
         # Phase 27: AI per-trade analysis
         # Phase 82e Sprint 2.1: guarded (AI death = no learning from trades)
-        safe_create_task(
-            self._ai_trade_analysis(row, pnl, reason),
-            name="ai_trade_analysis_exit")
+        safe_create_task(self._ai_trade_analysis(row, pnl, reason), name="ai_trade_analysis_exit")
         # Sprint 5 HOTFIX v5 (2026-04-20): classic exit ping.
         # Same as resolution notify but fires on early exit paths (TP/SL,
         # forced close, etc.) so user sees PnL regardless of whether the
         # position settled to market close or exited early.
         if os.getenv("CLASSIC_NOTIFY_RESOLUTION", "true").lower() != "false":
             safe_create_task(
-                self._classic_exit_notify(row, pnl, payout, price, reason,
-                                          exit_fee, slip),
-                name="classic_exit_notify")
+                self._classic_exit_notify(row, pnl, payout, price, reason, exit_fee, slip),
+                name="classic_exit_notify",
+            )
 
     async def _settle(self, row, resolution, shares, last_odds=None):
         # Phase 54 P0-05: per-market lock prevents race with concurrent exit/trade
@@ -88,7 +91,7 @@ class EngineSettlementMixin:
             await self._settle_inner(row, resolution, shares, last_odds)
 
     async def _settle_inner(self, row, resolution, shares, last_odds=None):
-        won = (row["direction"] == resolution)
+        won = row["direction"] == resolution
         fee = row["fee_amount"] or 0
         payout = round(shares * 1.0, 4) if won else 0.0
 
@@ -99,19 +102,21 @@ class EngineSettlementMixin:
         # fee that would have been paid at entry, and credit rebate_pct of it.
         # Env gate: MAKER_REBATE_ENABLED (default on, can turn off for A/B).
         rebate = 0.0
-        if (float(fee) == 0.0
-                and row["trade_amount"] > 0
-                and os.getenv("MAKER_REBATE_ENABLED", "true").lower() == "true"):
+        if (
+            float(fee) == 0.0
+            and row["trade_amount"] > 0
+            and os.getenv("MAKER_REBATE_ENABLED", "true").lower() == "true"
+        ):
             try:
                 entry_px = row.get("execution_price") or 0.5
                 cat = row.get("category") or "crypto"
-                theo_taker = polymarket_taker_fee_v2(
-                    entry_px, row["trade_amount"], cat)
+                theo_taker = polymarket_taker_fee_v2(entry_px, row["trade_amount"], cat)
                 rebate = polymarket_maker_rebate(theo_taker, cat)
                 if rebate > 0:
                     logger.info(
                         f"  💰 MAKER REBATE: {row['id'][:6]} "
-                        f"+${rebate:.4f} ({cat} {entry_px:.3f})")
+                        f"+${rebate:.4f} ({cat} {entry_px:.3f})"
+                    )
             except (TypeError, KeyError, ValueError) as _rex:
                 # T1.4 Faz 1: narrowed — rebate calc is pure arithmetic on row dict.
                 logger.debug(f"maker rebate calc ({type(_rex).__name__}): {_rex}")
@@ -149,12 +154,14 @@ class EngineSettlementMixin:
         logger.info(
             f"  {'🟢' if won else '🔴'} {'WON' if won else 'LOST'}: "
             f"{row['event_slug']} PnL={pnl:+.2f} "
-            f"@{_entry_px:.2f} sig={_sig:.2f} [{_reason_short}]")
+            f"@{_entry_px:.2f} sig={_sig:.2f} [{_reason_short}]"
+        )
         # Phase 27: AI per-trade analysis
         # Phase 82e Sprint 2.1: guarded
         safe_create_task(
             self._ai_trade_analysis(row, pnl, "won" if won else "lost"),
-            name="ai_trade_analysis_settle")
+            name="ai_trade_analysis_settle",
+        )
         # Sprint 5 HOTFIX v5 (2026-04-20): classic-specific Telegram ping.
         # User asked for a "no-protection" strategy that notifies on every
         # resolution: direction, entry, exit, PnL, fee. Fire-and-forget so
@@ -163,9 +170,10 @@ class EngineSettlementMixin:
         if os.getenv("CLASSIC_NOTIFY_RESOLUTION", "true").lower() != "false":
             safe_create_task(
                 self._classic_resolution_notify(
-                    row, won, pnl, payout, fee, rebate, last_odds, _entry_px,
-                    resolution),
-                name="classic_resolve_notify")
+                    row, won, pnl, payout, fee, rebate, last_odds, _entry_px, resolution
+                ),
+                name="classic_resolve_notify",
+            )
 
         # P0-07-b (2026-05-09): reference price audit — settle anında bot'un
         # local Binance/Chainlink reference feed'i ile Polymarket'in resolved
@@ -175,8 +183,8 @@ class EngineSettlementMixin:
         # report generator daha sonra Polymarket Gamma'dan doldurur.
         if os.getenv("REFERENCE_PRICE_AUDIT_ENABLED", "true").lower() != "false":
             safe_create_task(
-                self._record_reference_audit(row, resolution),
-                name="reference_price_audit")
+                self._record_reference_audit(row, resolution), name="reference_price_audit"
+            )
 
     async def _record_reference_audit(self, row, resolution):
         """P0-07-b: Per-settle reference price audit row.
@@ -201,6 +209,7 @@ class EngineSettlementMixin:
         """
         try:
             import time
+
             settle_ts_ms = int(time.time() * 1000)
             slug = row.get("event_slug", "") or ""
             asset_id = row.get("market_token_id") or ""
@@ -228,7 +237,7 @@ class EngineSettlementMixin:
                        FROM external_prices
                        WHERE symbol=? AND ts_ms BETWEEN ? AND ?
                        ORDER BY ABS(ts_ms - ?) ASC""",
-                    (symbol, window_start, window_end, settle_ts_ms)
+                    (symbol, window_start, window_end, settle_ts_ms),
                 ) as c:
                     seen = set()
                     async for src, price, _ts in c:
@@ -245,9 +254,11 @@ class EngineSettlementMixin:
                         if len(seen) >= 3:
                             break
 
-                if (bot_binance_ws_price is None
-                        and bot_binance_rest_price is None
-                        and bot_chainlink_price is None):
+                if (
+                    bot_binance_ws_price is None
+                    and bot_binance_rest_price is None
+                    and bot_chainlink_price is None
+                ):
                     data_quality = "missing_external"
             else:
                 data_quality = "missing_external"
@@ -257,8 +268,7 @@ class EngineSettlementMixin:
             if data_quality == "ok":
                 data_quality = "missing_resolution"
 
-            created_at = datetime.now(timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%SZ")
+            created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
             # INSERT OR REPLACE — backfill can later UPDATE official price
             # without losing this baseline; same (condition_id, settle_ts_ms)
@@ -271,13 +281,23 @@ class EngineSettlementMixin:
                     bot_chainlink_price, dev_binance_bps, dev_chainlink_bps,
                     settle_outcome, data_quality, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (settle_ts_ms, condition_id, asset_id, slug, asset, tf,
-                 None,  # official_resolution_price (backfill later)
-                 bot_binance_rest_price, bot_binance_ws_price,
-                 bot_chainlink_price,
-                 None, None,  # dev bps (computed when official is known)
-                 str(resolution) if resolution is not None else None,
-                 data_quality, created_at)
+                (
+                    settle_ts_ms,
+                    condition_id,
+                    asset_id,
+                    slug,
+                    asset,
+                    tf,
+                    None,  # official_resolution_price (backfill later)
+                    bot_binance_rest_price,
+                    bot_binance_ws_price,
+                    bot_chainlink_price,
+                    None,
+                    None,  # dev bps (computed when official is known)
+                    str(resolution) if resolution is not None else None,
+                    data_quality,
+                    created_at,
+                ),
             )
             await self.db.conn.commit()
             logger.info(
@@ -285,15 +305,11 @@ class EngineSettlementMixin:
                 f"{bot_binance_ws_price}/{bot_binance_rest_price}/"
                 f"{bot_chainlink_price} q={data_quality}"
             )
-        except (aiosqlite.Error, KeyError, TypeError, ValueError,
-                AttributeError) as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, AttributeError) as e:
             # Audit is best-effort. Settlement path already succeeded.
-            logger.warning(
-                f"reference_price_audit failed ({type(e).__name__}): {e}"
-            )
+            logger.warning(f"reference_price_audit failed ({type(e).__name__}): {e}")
 
-    async def _classic_exit_notify(self, row, pnl, payout, exit_price,
-                                     reason, exit_fee, slip):
+    async def _classic_exit_notify(self, row, pnl, payout, exit_price, reason, exit_fee, slip):
         """Sprint 5 HOTFIX v5: Telegram ping for every classic trade that
         exits early (TP/SL/forced-close), separate from settlement.
         Silent on any failure.
@@ -308,8 +324,8 @@ class EngineSettlementMixin:
             if sid:
                 try:
                     rows = await self.db.conn.execute_fetchall(
-                        "SELECT label, strategy_type FROM strategies WHERE id=?",
-                        (sid,))
+                        "SELECT label, strategy_type FROM strategies WHERE id=?", (sid,)
+                    )
                     if rows:
                         label = rows[0][0] or ""
                         stype = (rows[0][1] or "").lower()
@@ -318,8 +334,7 @@ class EngineSettlementMixin:
                     pass
             if not notify_all and stype != "classic":
                 return
-            admin_id = (os.getenv("ADMIN_TELEGRAM_ID")
-                        or os.getenv("ADMIN_CHAT_ID"))
+            admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
             if not admin_id:
                 return
             try:
@@ -336,15 +351,15 @@ class EngineSettlementMixin:
             slip_val = float(slip or 0)
             try:
                 from telegram_bot.templates.safe_html import esc
+
                 slug_safe = esc(slug)
                 label_safe = esc(label or stype or "classic")
                 reason_safe = esc(reason or "exit")
             except (ImportError, AttributeError, TypeError):
                 # T1.4 Faz 1: narrowed — module missing or esc() type coercion.
                 def _esc(x):
-                    return (str(x).replace("&", "&amp;")
-                                  .replace("<", "&lt;")
-                                  .replace(">", "&gt;"))
+                    return str(x).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
                 slug_safe = _esc(slug)
                 label_safe = _esc(label or stype or "classic")
                 reason_safe = _esc(reason or "exit")
@@ -377,9 +392,9 @@ class EngineSettlementMixin:
             # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"classic exit notify failed ({type(_outer).__name__}): {_outer}")
 
-    async def _classic_resolution_notify(self, row, won, pnl, payout, fee,
-                                          rebate, last_odds, entry_px,
-                                          resolution):
+    async def _classic_resolution_notify(
+        self, row, won, pnl, payout, fee, rebate, last_odds, entry_px, resolution
+    ):
         """Sprint 5 HOTFIX v5: Telegram ping for every classic trade that
         resolves. Shows entry price, resolution outcome, PnL components
         (payout, fee, rebate). Never raises — failure is silent.
@@ -400,8 +415,8 @@ class EngineSettlementMixin:
             if sid:
                 try:
                     rows = await self.db.conn.execute_fetchall(
-                        "SELECT label, strategy_type FROM strategies WHERE id=?",
-                        (sid,))
+                        "SELECT label, strategy_type FROM strategies WHERE id=?", (sid,)
+                    )
                     if rows:
                         label = rows[0][0] or ""
                         stype = (rows[0][1] or "").lower()
@@ -411,8 +426,7 @@ class EngineSettlementMixin:
             if not notify_all and stype != "classic":
                 return
 
-            admin_id = (os.getenv("ADMIN_TELEGRAM_ID")
-                        or os.getenv("ADMIN_CHAT_ID"))
+            admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
             if not admin_id:
                 return
             try:
@@ -438,14 +452,14 @@ class EngineSettlementMixin:
             # Escape slug minimally for HTML
             try:
                 from telegram_bot.templates.safe_html import esc
+
                 slug_safe = esc(slug)
                 label_safe = esc(label or stype or "classic")
             except (ImportError, AttributeError, TypeError):
                 # T1.4 Faz 1: narrowed — module missing or esc() type coercion.
                 def _esc(x):
-                    return (str(x).replace("&", "&amp;")
-                                  .replace("<", "&lt;")
-                                  .replace(">", "&gt;"))
+                    return str(x).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
                 slug_safe = _esc(slug)
                 label_safe = _esc(label or stype or "classic")
 
@@ -459,8 +473,7 @@ class EngineSettlementMixin:
                 f"📥 Giriş tutarı: <code>${trade_amount:.2f}</code>\n"
                 f"📤 Ödeme: <code>${payout:.2f}</code>\n"
                 f"💸 Ücret: <code>${fee_val:.4f}</code>"
-                + (f"  •  Rebate: <code>+${rebate_val:.4f}</code>"
-                   if rebate_val > 0 else "")
+                + (f"  •  Rebate: <code>+${rebate_val:.4f}</code>" if rebate_val > 0 else "")
                 + f"\n💰 <b>PnL: ${pnl:+.2f}</b>"
             )
             try:
@@ -485,18 +498,24 @@ class EngineSettlementMixin:
                 return
             # Get strategy label
             label_row = await self.db.conn.execute_fetchall(
-                "SELECT label, strategy_type FROM strategies WHERE id=?", (row.get("strategy_id", ""),))
+                "SELECT label, strategy_type FROM strategies WHERE id=?",
+                (row.get("strategy_id", ""),),
+            )
             label = label_row[0][0] if label_row else "?"
             stype = label_row[0][1] if label_row else "?"
-            await self.analyst.analyze_trade({
-                "label": label, "type": stype,
-                "direction": row.get("direction", "?"),
-                "price": row.get("execution_price", 0),
-                "result": result, "pnl": pnl,
-                "fee": row.get("fee_amount", 0) or 0,
-                "amount": row.get("trade_amount", 0),
-                "slug": row.get("event_slug", ""),
-            })
+            await self.analyst.analyze_trade(
+                {
+                    "label": label,
+                    "type": stype,
+                    "direction": row.get("direction", "?"),
+                    "price": row.get("execution_price", 0),
+                    "result": result,
+                    "pnl": pnl,
+                    "fee": row.get("fee_amount", 0) or 0,
+                    "amount": row.get("trade_amount", 0),
+                    "slug": row.get("event_slug", ""),
+                }
+            )
         except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — AI analyst call wraps httpx (Anthropic
             # SDK), JSON, and dict access. Log type for triage.
@@ -505,10 +524,11 @@ class EngineSettlementMixin:
 
     async def _close(self, row, pnl, payout, result, rebate: float = 0.0):
         """F-03: Single transaction for execution update + wallet credit."""
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         try:
             # Calculate EV for this trade (Phase 75+)
             from core.ev_tracker import EVTracker
+
             ev_tracker = EVTracker(self.db)
 
             _raw = row.get("signal_score")
@@ -527,8 +547,8 @@ class EngineSettlementMixin:
                 try:
                     _t0 = datetime.fromisoformat(str(_created))
                     if _t0.tzinfo is None:
-                        _t0 = _t0.replace(tzinfo=timezone.utc)
-                    _dur = int((datetime.now(timezone.utc) - _t0).total_seconds())
+                        _t0 = _t0.replace(tzinfo=UTC)
+                    _dur = int((datetime.now(UTC) - _t0).total_seconds())
                 except (ValueError, TypeError):
                     # T1.4 Faz 1: narrowed — datetime.fromisoformat parse only.
                     pass
@@ -546,13 +566,26 @@ class EngineSettlementMixin:
                 "UPDATE executions SET status='claimed',pnl=?,payout=?,result=?,closed_at=?,"
                 "updated_at=?,expected_ev=?,win_probability=?,duration_sec=?,"
                 "max_favorable_move=?,max_adverse_move=? WHERE id=?",
-                (pnl, payout, result, now_iso, now_iso, expected_ev, win_prob,
-                 _dur, _max_fav, _max_adv, row["id"]))
+                (
+                    pnl,
+                    payout,
+                    result,
+                    now_iso,
+                    now_iso,
+                    expected_ev,
+                    win_prob,
+                    _dur,
+                    _max_fav,
+                    _max_adv,
+                    row["id"],
+                ),
+            )
             if payout > 0:
                 # F-02: Atomic credit — single SQL, no read-modify-write
                 await self.db.conn.execute(
                     "UPDATE wallets SET balance = balance + ? WHERE id = ?",
-                    (payout, row["wallet_id"]))
+                    (payout, row["wallet_id"]),
+                )
             await self.db.conn.commit()  # Single commit for both
         except Exception as e:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — outer body includes EVTracker
@@ -569,25 +602,29 @@ class EngineSettlementMixin:
 
         pk = f"{row['strategy_id']}:{row['event_slug']}"
         self._open_positions.discard(pk)
-        self._settled_slugs[pk] = datetime.now(timezone.utc)
-        self.risk.record_trade_closed(row["trade_amount"], pnl, row["event_slug"],
-                                      strategy_id=row["strategy_id"])
+        self._settled_slugs[pk] = datetime.now(UTC)
+        self.risk.record_trade_closed(
+            row["trade_amount"], pnl, row["event_slug"], strategy_id=row["strategy_id"]
+        )
 
         # Sprint 2 S2-01: Log CLOSE event to decisions.jsonl
         try:
             from core.trade_journal import log_decision_close
+
             _created = row.get("created_at")
             _dur = None
             if _created:
                 from datetime import datetime as _dt
+
                 try:
                     _t0 = _dt.fromisoformat(str(_created))
-                    _dur = (datetime.now(timezone.utc) - _t0).total_seconds()
+                    _dur = (datetime.now(UTC) - _t0).total_seconds()
                 except (ValueError, TypeError):
                     # T1.4 Faz 1: narrowed — datetime.fromisoformat parse only.
                     pass
-            log_decision_close(row["strategy_id"], row.get("event_slug", ""),
-                               result, float(pnl), duration_sec=_dur)
+            log_decision_close(
+                row["strategy_id"], row.get("event_slug", ""), result, float(pnl), duration_sec=_dur
+            )
         except Exception as _ldc:  # noqa: BLE001
             # T1.4 Faz 1: catch-all kept — journal writes are fire-and-forget
             # side effects (file I/O + import). Log type for triage.
@@ -608,7 +645,9 @@ class EngineSettlementMixin:
                     direction=row.get("direction", ""),
                     result=result,
                     pnl=float(pnl),
-                    signal_score=float(row.get("signal_score", 0) or 0),  # Phase 79 BUG-03: use original signal_score
+                    signal_score=float(
+                        row.get("signal_score", 0) or 0
+                    ),  # Phase 79 BUG-03: use original signal_score
                     entry_price=float(row.get("execution_price", 0) or 0),
                 )
             except (aiosqlite.Error, KeyError, TypeError, ValueError) as _tme:
@@ -625,7 +664,9 @@ class EngineSettlementMixin:
                         asset_guess = a
                         break
                 self.micro_weight.record_close(
-                    order_key=pk, asset=asset_guess, pnl_usd=float(pnl),
+                    order_key=pk,
+                    asset=asset_guess,
+                    pnl_usd=float(pnl),
                 )
             except Exception as _mwc:  # noqa: BLE001
                 # T1.4 Faz 1: catch-all kept — adaptive weight tracker internals
@@ -642,8 +683,11 @@ class EngineSettlementMixin:
         if self.live.is_enabled():
             try:
                 await self.live.check_settlement(
-                    row["event_slug"], won, pnl,
-                    paper_amount=float(row.get("trade_amount", 0) or 25.0))
+                    row["event_slug"],
+                    won,
+                    pnl,
+                    paper_amount=float(row.get("trade_amount", 0) or 25.0),
+                )
             except Exception as _lse:  # noqa: BLE001
                 # T1.4 Faz 1: catch-all kept — live.check_settlement body spans
                 # CLOB + DB + telegram; must not raise into paper close path.
@@ -651,10 +695,16 @@ class EngineSettlementMixin:
                 logger.exception(f"live.check_settlement failed ({type(_lse).__name__}): {_lse}")
         parts = row["event_slug"].split("-")
         if len(parts) >= 3 and row.get("strategy_id"):
-            self._cooldowns[f"{row['strategy_id']}:{parts[0].upper()}_{parts[2]}"] = \
-                datetime.now(timezone.utc) + timedelta(seconds=30)
+            self._cooldowns[f"{row['strategy_id']}:{parts[0].upper()}_{parts[2]}"] = datetime.now(
+                UTC
+            ) + timedelta(seconds=30)
         emoji = {"won": "✅", "lost": "❌", "tp_exit": "🤑", "sl_exit": "🛑"}.get(result, "📊")
-        title = {"won": "Kazandik!", "lost": "Kaybettik", "tp_exit": "TP Hit!", "sl_exit": "SL Hit!"}.get(result, "Kapandi")
+        title = {
+            "won": "Kazandik!",
+            "lost": "Kaybettik",
+            "tp_exit": "TP Hit!",
+            "sl_exit": "SL Hit!",
+        }.get(result, "Kapandi")
         # Phase 79b: Enriched close notification
         _dir_emoji = "📈" if row["direction"].lower() == "up" else "📉"
         _entry_px = row.get("execution_price") or 0
@@ -668,8 +718,8 @@ class EngineSettlementMixin:
             try:
                 _t0 = datetime.fromisoformat(str(_created))
                 if _t0.tzinfo is None:
-                    _t0 = _t0.replace(tzinfo=timezone.utc)
-                _secs = int((datetime.now(timezone.utc) - _t0).total_seconds())
+                    _t0 = _t0.replace(tzinfo=UTC)
+                _secs = int((datetime.now(UTC) - _t0).total_seconds())
                 if _secs < 120:
                     _dur_str = f"{_secs}sn"
                 else:
@@ -681,7 +731,8 @@ class EngineSettlementMixin:
         _label = ""
         try:
             _lbl_row = await self.db.conn.execute_fetchall(
-                "SELECT label FROM strategies WHERE id=?", (row.get("strategy_id", ""),))
+                "SELECT label FROM strategies WHERE id=?", (row.get("strategy_id", ""),)
+            )
             _label = _lbl_row[0][0] if _lbl_row else row.get("strategy_id", "?")[:8]
         except aiosqlite.Error:
             # T1.4 Faz 1: narrowed — only DB errors expected.
@@ -698,7 +749,8 @@ class EngineSettlementMixin:
         if _amount > 0:
             _roi = (pnl / _amount) * 100
             _roi_str = f" ({_roi:+.1f}%)"
-        await self._notify(row["user_id"],
+        await self._notify(
+            row["user_id"],
             f"{emoji} <b>{title}</b>{_roi_str}\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"Strateji: <b>{_label}</b>\n"
@@ -707,7 +759,8 @@ class EngineSettlementMixin:
             f"Fee: ${_fee:.4f} | Rebate: ${rebate:.4f}\n"
             f"Odeme: ${payout:.2f} | <b>PnL: {pnl:+.4f}</b>\n"
             f"Sinyal: {_sig:+.2f} | Sure: {_dur_str or '?'}\n"
-            f"<code>{row['event_slug']}</code>")
+            f"<code>{row['event_slug']}</code>",
+        )
 
     async def _notify(self, uid, text):
         if not self.bot_app:
@@ -715,20 +768,24 @@ class EngineSettlementMixin:
         try:
             u = await self.db.get_user_by_id(uid)
             if u:
-                await self.bot_app.bot.send_message(chat_id=u.telegram_id, text=text, parse_mode="HTML")
+                await self.bot_app.bot.send_message(
+                    chat_id=u.telegram_id, text=text, parse_mode="HTML"
+                )
         except (aiosqlite.Error, TelegramError) as _ne:
             # T1.4 Faz 1: narrowed — DB user lookup + telegram transport only.
             logger.debug(f"_notify skipped ({type(_ne).__name__}): {_ne}")
 
     async def _count(self, sid, slug):
         async with self.db.conn.execute(
-            "SELECT COUNT(*) FROM executions WHERE strategy_id=? AND event_slug=?", (sid, slug)) as c:
+            "SELECT COUNT(*) FROM executions WHERE strategy_id=? AND event_slug=?", (sid, slug)
+        ) as c:
             return (await c.fetchone())[0]
 
     async def _count_losses(self, sid, slug):
         async with self.db.conn.execute(
             "SELECT COUNT(*) FROM executions WHERE strategy_id=? AND event_slug=? AND result='lost'",
-            (sid, slug)) as c:
+            (sid, slug),
+        ) as c:
             return (await c.fetchone())[0]
 
     # ═══ Phase 52: Dynamic Slippage ═══
@@ -742,9 +799,9 @@ class EngineSettlementMixin:
         hitting SQLite on every exit.  Falls back to 0.3% if no data.
         """
         import time
+
         now = time.monotonic()
-        if (self._cached_avg_slip is not None
-                and (now - self._cached_avg_slip_ts) < ttl):
+        if self._cached_avg_slip is not None and (now - self._cached_avg_slip_ts) < ttl:
             return self._cached_avg_slip
         try:
             async with self.db.conn.execute(

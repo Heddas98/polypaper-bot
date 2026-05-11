@@ -2,19 +2,20 @@
 PolyPaper Bot - /dashboard (v9 — Phase 33 Adaptive Intelligence)
 Rich dashboard: balance, PnL, top strategies, regime, AI, TS ranking.
 """
-import asyncio
+
 import datetime
 import logging
 
 import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
 from db.database import Database
 from telegram_bot.banners import banner_dashboard
+from telegram_bot.hub_keyboard import build_main_hub_keyboard
 from telegram_bot.templates.safe_html import esc, esc_code, fmt_usd
 from telegram_bot.version import BOT_VERSION
-from telegram_bot.hub_keyboard import build_main_hub_keyboard
 
 logger = logging.getLogger("polypaper.handlers.dashboard")
 
@@ -29,34 +30,47 @@ async def _build(db, user, engine=None):
         wallet = await db.get_active_wallet(user.id)
         balance = wallet.balance if wallet else 0
         at = await db.conn.execute_fetchall(
-            "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL AND user_id=?", (user.id,))
+            "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL AND user_id=?",
+            (user.id,),
+        )
         alltime_pnl, total_trades = (at[0][0], at[0][1]) if at else (0, 0)
         op = await db.conn.execute_fetchall(
-            "SELECT COUNT(*), COALESCE(SUM(trade_amount),0) FROM executions WHERE status='bet_placed' AND user_id=?", (user.id,))
+            "SELECT COUNT(*), COALESCE(SUM(trade_amount),0) FROM executions WHERE status='bet_placed' AND user_id=?",
+            (user.id,),
+        )
         open_count, open_exp = (op[0][0], op[0][1]) if op else (0, 0)
         strats = await db.conn.execute_fetchall(
-            "SELECT COUNT(*) FROM strategies WHERE status='active' AND user_id=?", (user.id,))
+            "SELECT COUNT(*) FROM strategies WHERE status='active' AND user_id=?", (user.id,)
+        )
         active = strats[0][0] if strats else 0
-        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
         tp = await db.conn.execute_fetchall(
-            "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL AND user_id=? AND created_at>=?", (user.id, today))
+            "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL AND user_id=? AND created_at>=?",
+            (user.id, today),
+        )
         t_pnl, t_count = (tp[0][0], tp[0][1]) if tp else (0, 0)
         wins = await db.conn.execute_fetchall(
-            "SELECT COUNT(*) FROM executions WHERE result IS NOT NULL AND pnl>0 AND user_id=?", (user.id,))
+            "SELECT COUNT(*) FROM executions WHERE result IS NOT NULL AND pnl>0 AND user_id=?",
+            (user.id,),
+        )
         wr = (wins[0][0] / total_trades * 100) if wins and total_trades > 0 else 0
 
         # COMPACT LAYOUT: Key metrics only
         pe = "📈" if alltime_pnl >= 0 else "📉"
         te = "🟢" if t_pnl >= 0 else "🔴"
-        text = (f"🏦 <b>PolyPaper Dashboard</b> <code>{BOT_VERSION}</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"💰 <b>{fmt_usd(balance)}</b> | {pe} {fmt_usd(alltime_pnl, sign=True)} | {te} {fmt_usd(t_pnl, sign=True)}\n"
-                f"🎯 Win: <b>{wr:.0f}%</b> | 📊 Aktif: {active} | 📍 Acik: {open_count}\n")
+        text = (
+            f"🏦 <b>PolyPaper Dashboard</b> <code>{BOT_VERSION}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 <b>{fmt_usd(balance)}</b> | {pe} {fmt_usd(alltime_pnl, sign=True)} | {te} {fmt_usd(t_pnl, sign=True)}\n"
+            f"🎯 Win: <b>{wr:.0f}%</b> | 📊 Aktif: {active} | 📍 Acik: {open_count}\n"
+        )
 
         # Engine status (if available)
         if engine:
             ws = "🟢" if engine._is_ws_fresh() else "⚫"
-            regime_emoji = {"trending": "📈", "ranging": "↔️", "volatile": "🌪"}.get(engine.regime.regime, "❓")
+            regime_emoji = {"trending": "📈", "ranging": "↔️", "volatile": "🌪"}.get(
+                engine.regime.regime, "❓"
+            )
             text += f"\n{regime_emoji} <b>{engine.regime.regime.upper()}</b> | WS={ws}\n"
 
             # Phase 47f.9: risk snapshot directly on dashboard — no more
@@ -73,21 +87,20 @@ async def _build(db, user, engine=None):
                     exp_now = float(getattr(rs, "total_exposure", 0.0) or 0.0)
                     max_exp = float(getattr(lim, "max_total_exposure", 100.0) or 100.0)
                     halted = bool(getattr(rs, "halted", False))
-                    halt_emoji = "🛑" if halted else (
-                        "⚠️" if dpnl <= -0.8 * max_dl else "✅")
+                    halt_emoji = "🛑" if halted else ("⚠️" if dpnl <= -0.8 * max_dl else "✅")
                     pnl_pct = (dpnl / max_dl * 100) if max_dl > 0 else 0.0
                     exp_pct = (exp_now / max_exp * 100) if max_exp > 0 else 0.0
                     text += (
                         f"{halt_emoji} dPnL: <b>{dpnl:+.2f}</b>/"
                         f"{max_dl:.0f} ({pnl_pct:+.0f}%) | "
                         f"streak: <b>{streak}</b>/{max_ls} | "
-                        f"exp: ${exp_now:.0f}/{max_exp:.0f} ({exp_pct:.0f}%)\n")
+                        f"exp: ${exp_now:.0f}/{max_exp:.0f} ({exp_pct:.0f}%)\n"
+                    )
             except (AttributeError, KeyError, TypeError) as _re:
                 # T11.8-B (2026-04-24): narrow from bare Exception. Risk
                 # snapshot deep attribute access; missing engine.risk attr
                 # is the common failure. Skip block, dashboard renders rest.
-                logger.debug(f"dashboard risk snapshot: "
-                             f"{type(_re).__name__}: {_re}")
+                logger.debug(f"dashboard risk snapshot: " f"{type(_re).__name__}: {_re}")
 
         text += "\n<i>Detaylar icin butonlari tıkla ➡️</i>"
         return text
@@ -107,13 +120,15 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = await _build(db, user, context.bot_data.get("engine"))
         banner = banner_dashboard()
-        await update.message.reply_photo(photo=banner, caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
+        await update.message.reply_photo(
+            photo=banner, caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS
+        )
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): outer command wrapper. Banner generation +
         # photo send may surface FileNotFoundError + TelegramError. Fall
         # back to plain reply.
         logger.error(f"Dashboard command error: {esc(str(e))}", exc_info=True)
-        error_msg = f"⚠️ Dashboard yukleme hatasi. Lütfen /start yaziniz."
+        error_msg = "⚠️ Dashboard yukleme hatasi. Lütfen /start yaziniz."
         await update.message.reply_text(error_msg, parse_mode="HTML")
 
 
@@ -121,46 +136,59 @@ async def dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.callback_query.answer()
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
-    if not user: return
+    if not user:
+        return
     text = await _build(db, user, context.bot_data.get("engine"))
-    await update.callback_query.message.reply_text(text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
+    await update.callback_query.message.reply_text(
+        text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS
+    )
 
 
 async def refresh_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer("Yenileniyor...")
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
-    if not user: return
+    if not user:
+        return
     text = await _build(db, user, context.bot_data.get("engine"))
     try:
-        await update.callback_query.edit_message_caption(caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await update.callback_query.edit_message_caption(
+            caption=text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS
+        )
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. edit_message_
         # caption BadRequest "not modified" or original sent without photo
         # (no caption to edit). Fall back to fresh reply.
-        await update.callback_query.message.reply_text(text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS)
+        await update.callback_query.message.reply_text(
+            text, parse_mode="HTML", reply_markup=DASHBOARD_BUTTONS
+        )
 
 
 async def add_funds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
-    if not user: return await update.message.reply_text("Once /start kullanin.")
+    if not user:
+        return await update.message.reply_text("Once /start kullanin.")
     amount = 1000.0
     if context.args:
-        try: amount = float(context.args[0])
-        except ValueError: return await update.message.reply_text("Gecersiz miktar.")
+        try:
+            amount = float(context.args[0])
+        except ValueError:
+            return await update.message.reply_text("Gecersiz miktar.")
     wallet = await db.get_active_wallet(user.id)
-    if not wallet: return await update.message.reply_text("Cuzdan bulunamadi.")
+    if not wallet:
+        return await update.message.reply_text("Cuzdan bulunamadi.")
     await db.conn.execute("UPDATE wallets SET balance=balance+? WHERE id=?", (amount, wallet.id))
     await db.conn.commit()
-    await update.message.reply_text(f"✅ ${amount:.2f} eklendi! Yeni: ${wallet.balance+amount:.2f}", parse_mode="HTML")
-
-
+    await update.message.reply_text(
+        f"✅ ${amount:.2f} eklendi! Yeni: ${wallet.balance+amount:.2f}", parse_mode="HTML"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 Cluster J — merged from journal.py
 # ═══════════════════════════════════════════════════════════════════════
+
 
 async def journal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show recent trade log entries from DB.
@@ -196,26 +224,30 @@ async def journal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """SELECT tl.event, tl.slug, tl.reason, tl.ts, COALESCE(s.label, 'Unknown')
                 FROM trade_log tl LEFT JOIN strategies s ON tl.strategy_id = s.id
                 WHERE tl.event='REJECTION' ORDER BY tl.ts DESC LIMIT ?""",
-                (limit,))
+                (limit,),
+            )
         elif event_filter in ("won", "lost"):
             rows = await db.conn.execute_fetchall(
                 """SELECT tl.event, tl.slug, tl.direction, tl.price, tl.pnl, tl.reason, tl.ts, COALESCE(s.label, 'Unknown')
                 FROM trade_log tl LEFT JOIN strategies s ON tl.strategy_id = s.id
                 WHERE tl.event='SETTLEMENT' AND tl.reason LIKE ?
                 ORDER BY tl.ts DESC LIMIT ?""",
-                (f"%{event_filter}%", limit))
+                (f"%{event_filter}%", limit),
+            )
         elif event_filter:
             rows = await db.conn.execute_fetchall(
                 """SELECT tl.event, tl.slug, tl.direction, tl.price, tl.amount, tl.pnl, tl.reason, tl.ts, COALESCE(s.label, 'Unknown')
                 FROM trade_log tl LEFT JOIN strategies s ON tl.strategy_id = s.id
                 WHERE tl.event=? ORDER BY tl.ts DESC LIMIT ?""",
-                (event_filter, limit))
+                (event_filter, limit),
+            )
         else:
             rows = await db.conn.execute_fetchall(
                 """SELECT tl.event, tl.slug, tl.direction, tl.price, tl.amount, tl.pnl, tl.reason, tl.ts, COALESCE(s.label, 'Unknown')
                 FROM trade_log tl LEFT JOIN strategies s ON tl.strategy_id = s.id
                 ORDER BY tl.ts DESC LIMIT ?""",
-                (limit,))
+                (limit,),
+            )
     except aiosqlite.Error:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT raises
         # aiosqlite.OperationalError when trade_log table missing.
@@ -225,11 +257,13 @@ async def journal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "DB tablosu henuz olusturulmadi.\n"
             "Bot yeniden baslatildiginda otomatik olusacak.\n\n"
             "<i>Yedek: data_store/trade_journal.jsonl</i>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
 
     if not rows:
         return await update.message.reply_text(
-            f"📓 Kayit bulunamadi. Filtre: {event_filter or 'tumu'}")
+            f"📓 Kayit bulunamadi. Filtre: {event_filter or 'tumu'}"
+        )
 
     text = f"📓 <b>Trade Journal</b> (son {len(rows)})\n"
     text += f"Filtre: <b>{event_filter or 'tumu'}</b>\n"
@@ -260,7 +294,7 @@ async def journal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += f"📋 {ts} {event} {esc(slug)} <i>({strat_label})</i>\n"
 
-    text += f"\n<i>/journal 20 | /journal wins | /journal losses | /journal rejects</i>"
+    text += "\n<i>/journal 20 | /journal wins | /journal losses | /journal rejects</i>"
 
     # Truncate for Telegram
     if len(text) > 4000:
@@ -280,84 +314,79 @@ PARAM_DESCRIPTIONS = {
         "📊 Odds Threshold (Fiyat Eşiği)",
         "Minimum fiyat seviyesi. Örneğin 0.45 ayarlanırsa, "
         "sadece Up fiyatı 0.45'in üstündeyken trade açılır. "
-        "Düşük eşik = daha fazla trade, yüksek eşik = daha seçici."
+        "Düşük eşik = daha fazla trade, yüksek eşik = daha seçici.",
     ),
     "trade_amount": (
         "💰 Trade Amount (İşlem Tutarı)",
         "Her trade'de kullanılacak USDC miktarı. "
-        "AI stratejileri $1 ile başlar, 20+ trade sonrası scale edilir."
+        "AI stratejileri $1 ile başlar, 20+ trade sonrası scale edilir.",
     ),
     "direction": (
         "📈 Yön (Direction)",
-        "UP = Fiyat yukarı gidecek bahsi. DOWN = aşağı. "
-        "ANY = her iki yönde de trade açar."
+        "UP = Fiyat yukarı gidecek bahsi. DOWN = aşağı. " "ANY = her iki yönde de trade açar.",
     ),
     "strategy_type": (
         "🎯 Strateji Tipi",
         "momentum: Trend takip. contrarian: Trend karşıtı. "
         "fusion: 6 sinyal birleşimi. scalper: Hızlı al-sat. "
-        "sniper: Yüksek güvenli tek atış."
+        "sniper: Yüksek güvenli tek atış.",
     ),
     "tp_percent": (
         "🎯 Take Profit (%)",
-        "Kâr al seviyesi. %10 ayarlanırsa, "
-        "pozisyon %10 kârda otomatik kapatılır."
+        "Kâr al seviyesi. %10 ayarlanırsa, " "pozisyon %10 kârda otomatik kapatılır.",
     ),
     "sl_percent": (
         "🛑 Stop Loss (%)",
-        "Zarar durdur. %5 ayarlanırsa, "
-        "pozisyon %5 zararda otomatik kapatılır."
+        "Zarar durdur. %5 ayarlanırsa, " "pozisyon %5 zararda otomatik kapatılır.",
     ),
     "min_odds": (
         "📉 Minimum Fiyat",
-        "Bu fiyatın altında trade açılmaz. "
-        "Örn: 0.10 = sadece 10c üstünde işlem."
+        "Bu fiyatın altında trade açılmaz. " "Örn: 0.10 = sadece 10c üstünde işlem.",
     ),
     "max_odds": (
         "📈 Maksimum Fiyat",
-        "Bu fiyatın üstünde trade açılmaz. "
-        "Örn: 0.90 = sadece 90c altında işlem."
+        "Bu fiyatın üstünde trade açılmaz. " "Örn: 0.90 = sadece 90c altında işlem.",
     ),
     "take_profit_odds": (
         "📈 Take Profit (Odds)",
         "Kâr al için fiyat deltası (odds cinsinden). "
-        "Örn: 0.05 = pozisyon 0.05 fiyat deltasında otomatik kapatılır."
+        "Örn: 0.05 = pozisyon 0.05 fiyat deltasında otomatik kapatılır.",
     ),
     "stop_loss_odds": (
         "🛑 Stop Loss (Odds)",
         "Zarar durdur için fiyat deltası (odds cinsinden). "
-        "Örn: 0.03 = pozisyon 0.03 fiyat kaybında otomatik kapatılır."
+        "Örn: 0.03 = pozisyon 0.03 fiyat kaybında otomatik kapatılır.",
     ),
     "price_difference": (
         "📐 Price Difference (%)",
         "Fiyat değişimi filtresi. Örn: %2 = sadece son 2 dakikada "
-        "fiyat %2'den fazla değiştiğinde trade aç."
+        "fiyat %2'den fazla değiştiğinde trade aç.",
     ),
     "ma_filter_enabled": (
         "📏 EMA Filtresi",
         "Exponential Moving Average (Üstel Hareketli Ortalama) filtresi. "
-        "Açık (✅) = trend ile uyumlu trades. Kapalı (❌) = tüm trades."
+        "Açık (✅) = trend ile uyumlu trades. Kapalı (❌) = tüm trades.",
     ),
     "max_executions_per_event": (
         "🔢 Max Executions",
         "Aynı event'te maksimum trade sayısı. "
         "Örn: 2 = bir piyasa olayında en fazla 2 trade. "
-        "0 veya boş = sınırsız."
+        "0 veya boş = sınırsız.",
     ),
     "minutes_after_start": (
         "⏱ Başlangıç Gecikme (dakika)",
         "Event'ten kaç dakika sonra trade açılmaya başlansın. "
-        "Örn: 5 = event'ten 5 dakika sonra trade aç."
+        "Örn: 5 = event'ten 5 dakika sonra trade aç.",
     ),
     "minutes_before_end": (
         "⏱ Bitiş Kaymasi (dakika)",
         "Event'ten kaç dakika kadar trade açılsın. "
-        "Örn: 2 = event'ten 2 dakika kala trades kapat."
+        "Örn: 2 = event'ten 2 dakika kala trades kapat.",
     ),
     "label": (
         "📛 Strateji İsmi",
         "Stratejiniz için özel bir ad. Ayarlanmazsa otomatik ad verilir. "
-        "Örn: 'High Risk Momentum' veya 'Contrarian BTC'"
+        "Örn: 'High Risk Momentum' veya 'Contrarian BTC'",
     ),
 }
 
@@ -391,17 +420,13 @@ def get_param_info_button(param_name: str, button_label: str) -> dict:
                                 callback_data=get_param_info_button("odds_threshold", "🎯 Tetik")["data"])
     Or simpler: InlineKeyboardButton("🎯 Tetik", callback_data="info_odds_threshold")
     """
-    return {
-        "label": f"{button_label} ❓",
-        "data": f"info_{param_name}"
-    }
+    return {"label": f"{button_label} ❓", "data": f"info_{param_name}"}
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 Cluster J — merged from price_alert_handler.py
 # ═══════════════════════════════════════════════════════════════════════
 from typing import Any  # noqa: E402  # Phase 51 P51-03 Faz-2 fix: was aliased but used as Any
-from telegram_bot.templates.safe_html import esc_code as _alert_esc_code  # noqa: E402
 
 VALID_OPS = {">", ">=", "<", "<=", "=="}
 
@@ -442,15 +467,17 @@ async def alert_set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.effective_message.reply_text("Fiyat 0<p<1 aralığında olmalı.")
         return
     alerts = _alerts_store(context)
-    new_id = (max((a["id"] for a in alerts), default=0) + 1)
-    alerts.append({
-        "id": new_id,
-        "chat_id": update.effective_chat.id if update.effective_chat else None,
-        "slug": slug,
-        "op": op,
-        "price": price,
-        "fired": False,
-    })
+    new_id = max((a["id"] for a in alerts), default=0) + 1
+    alerts.append(
+        {
+            "id": new_id,
+            "chat_id": update.effective_chat.id if update.effective_chat else None,
+            "slug": slug,
+            "op": op,
+            "price": price,
+            "fired": False,
+        }
+    )
     await update.effective_message.reply_text(
         f"✅ Alert #{new_id} eklendi: <code>{esc_code(slug)} {esc(op)} {price:.4f}</code>",
         parse_mode="HTML",
@@ -471,9 +498,7 @@ async def alerts_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"{flag} #{a['id']}: <code>{esc_code(a['slug'])} "
             f"{esc(a['op'])} {a['price']:.4f}</code>"
         )
-    await update.effective_message.reply_text(
-        "\n".join(lines), parse_mode="HTML"
-    )
+    await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def alert_delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -551,8 +576,7 @@ async def price_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         ),
                         parse_mode="HTML",
                     )
-                except (TelegramError, asyncio.TimeoutError) as e:
+                except (TimeoutError, TelegramError) as e:
                     # T11.8-B (2026-04-24): narrow from bare Exception. Alert
                     # send transport — best effort, alert still recorded.
-                    logger.warning(f"price_alert DM failed: "
-                                   f"{type(e).__name__}: {e}")
+                    logger.warning(f"price_alert DM failed: " f"{type(e).__name__}: {e}")

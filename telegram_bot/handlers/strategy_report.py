@@ -2,16 +2,16 @@
 Phase 79 S3-09 — /report <id> — Strategy Lifecycle Report
 Shows complete lifecycle of a strategy: creation, backtest, paper, zone breakdown.
 """
+
 import logging
-from datetime import datetime, timezone
 
 import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from db.database import Database
-from telegram_bot.templates.safe_html import esc
 from telegram_bot.handlers._exc_render import render_user_exception
+from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.strategy_report")
 
@@ -24,7 +24,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📊 <b>Strateji Raporu</b>\n\n"
             "Kullanim: <code>/report &lt;strateji_id&gt;</code>\n"
             "Ornek: <code>/report abc123</code>",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
         return
 
@@ -40,18 +40,16 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "SELECT id, label, asset, timeframe, strategy_type, status, "
             "odds_threshold, direction, trade_amount, created_at "
             "FROM strategies WHERE LOWER(id) LIKE ?",
-            (f"{id_prefix}%",)
+            (f"{id_prefix}%",),
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("strategy_report DB query failed")
-        await update.message.reply_text(
-            render_user_exception(e, "❌ DB hatasi"), parse_mode="HTML")
+        await update.message.reply_text(render_user_exception(e, "❌ DB hatasi"), parse_mode="HTML")
         return
 
     if not rows:
         await update.message.reply_text(
-            f"❌ <code>{esc(id_prefix)}</code> ile baslayan strateji bulunamadi.",
-            parse_mode="HTML"
+            f"❌ <code>{esc(id_prefix)}</code> ile baslayan strateji bulunamadi.", parse_mode="HTML"
         )
         return
 
@@ -75,7 +73,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       SUM(pnl),
                       SUM(fee_amount)
                FROM executions WHERE strategy_id = ? AND status = 'claimed'""",
-            (sid,)
+            (sid,),
         )
         total_t = int(stats_row[0][0] or 0)
         wins = int(stats_row[0][1] or 0)
@@ -106,7 +104,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                FROM executions
                WHERE strategy_id = ? AND status = 'claimed'
                GROUP BY zone ORDER BY zone""",
-            (sid,)
+            (sid,),
         )
         for zr in zone_rows:
             z_name, z_cnt, z_wins, z_pnl = zr
@@ -131,12 +129,14 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """SELECT direction, execution_price, pnl, created_at
                FROM executions WHERE strategy_id = ? AND status = 'claimed'
                ORDER BY created_at DESC LIMIT 5""",
-            (sid,)
+            (sid,),
         )
         for rt in recent:
             d, p, pnl_val, ts = rt
             icon = "🟢" if (pnl_val or 0) > 0 else "🔴"
-            recent_text += f"  {icon} {d or '?'} @{float(p or 0):.2f} → {float(pnl_val or 0):+.2f}\n"
+            recent_text += (
+                f"  {icon} {d or '?'} @{float(p or 0):.2f} → {float(pnl_val or 0):+.2f}\n"
+            )
     except (aiosqlite.Error, IndexError, TypeError, ValueError):
         # T11.8-B (2026-04-24): narrow from bare Exception. Recent trades
         # SELECT + per-row coercion. Same fallback pattern as zones_text.
@@ -146,9 +146,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         recent_text = "  (henuz trade yok)\n"
 
     # Status emoji
-    status_emoji = {"active": "✅", "stopped": "⚫", "paused": "⏸"}.get(
-        str(status).lower(), "❓"
-    )
+    status_emoji = {"active": "✅", "stopped": "⚫", "paused": "⏸"}.get(str(status).lower(), "❓")
 
     # WR verdict
     if total_t >= 20:
@@ -180,12 +178,14 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{recent_text}"
     )
 
-    keyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("🧪 Test Et", callback_data=f"test_strat_{sid[:8]}"),
-            InlineKeyboardButton("🔄 Yenile", callback_data=f"report_refresh_{sid[:8]}"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("🧪 Test Et", callback_data=f"test_strat_{sid[:8]}"),
+                InlineKeyboardButton("🔄 Yenile", callback_data=f"report_refresh_{sid[:8]}"),
+            ],
+        ]
+    )
 
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 

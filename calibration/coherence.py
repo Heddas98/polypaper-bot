@@ -35,13 +35,13 @@ ENV:
     MCI_ERROR_WEIGHT=0.25      # Weight of calibration error component
     MCI_VOLUME_WEIGHT=0.15     # Weight of volume/liquidity component
 """
+
 from __future__ import annotations
 
 import logging
 import math
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger("polypaper.calibration.coherence")
 
@@ -58,14 +58,15 @@ _VOLUME_W = float(os.getenv("MCI_VOLUME_WEIGHT", "0.15"))
 @dataclass
 class MCIResult:
     """Market Coherence Index breakdown."""
-    score: float = 0.5           # Final MCI [0, 1]
-    antisym_score: float = 0.5   # Antisymmetry quality [0, 1]
+
+    score: float = 0.5  # Final MCI [0, 1]
+    antisym_score: float = 0.5  # Antisymmetry quality [0, 1]
     coverage_score: float = 0.5  # Surface coverage [0, 1]
-    error_score: float = 0.5     # Mean calibration error [0, 1]
-    volume_score: float = 0.5    # Volume/liquidity [0, 1]
-    should_trade: bool = True    # MCI >= minimum
-    size_multiplier: float = 1.0 # Position size modifier
-    n_pairs_checked: int = 0     # Number of antisymmetry pairs
+    error_score: float = 0.5  # Mean calibration error [0, 1]
+    volume_score: float = 0.5  # Volume/liquidity [0, 1]
+    should_trade: bool = True  # MCI >= minimum
+    size_multiplier: float = 1.0  # Position size modifier
+    n_pairs_checked: int = 0  # Number of antisymmetry pairs
     mean_abs_error: float = 0.0  # Mean |δ| across surface
     reason: str = ""
 
@@ -91,15 +92,19 @@ def compute_mci(
 
     if surface is None or not getattr(surface, "built", False):
         return MCIResult(
-            score=0.5, reason="no_surface",
-            should_trade=True, size_multiplier=1.0,
+            score=0.5,
+            reason="no_surface",
+            should_trade=True,
+            size_multiplier=1.0,
         )
 
     cells = surface.cells
     if len(cells) < min_cells:
         return MCIResult(
-            score=0.5, reason=f"sparse({len(cells)}<{min_cells})",
-            should_trade=True, size_multiplier=0.9,
+            score=0.5,
+            reason=f"sparse({len(cells)}<{min_cells})",
+            should_trade=True,
+            size_multiplier=0.9,
         )
 
     # ── 1. Antisymmetry Score ──
@@ -126,6 +131,7 @@ def compute_mci(
     # What fraction of the grid is populated?
     # Price: 18 bins (0.05-0.90), Time: N bins
     from calibration.surface_2d import _N_TIME_BINS
+
     max_cells = 18 * _N_TIME_BINS
     coverage_ratio = min(1.0, len(cells) / max(1, max_cells))
     # Non-linear: 80% coverage → score 1.0, 20% → 0.25
@@ -158,10 +164,10 @@ def compute_mci(
 
     # ── Combine ──
     score = (
-        antisym_score * _ANTISYM_W +
-        coverage_score * _COVERAGE_W +
-        error_score * _ERROR_W +
-        volume_score * _VOLUME_W
+        antisym_score * _ANTISYM_W
+        + coverage_score * _COVERAGE_W
+        + error_score * _ERROR_W
+        + volume_score * _VOLUME_W
     )
     score = max(0.0, min(1.0, score))
 
@@ -206,19 +212,14 @@ def format_mci_telegram(mci: MCIResult) -> str:
     icon = "🟢" if mci.score >= 0.7 else "🟡" if mci.score >= 0.4 else "🔴"
     lines = [
         f"{icon} <b>Market Coherence Index: {mci.score:.2f}</b>",
-        f"Antisymmetry: {mci.antisym_score:.2f} | "
-        f"Coverage: {mci.coverage_score:.2f}",
-        f"Calibration: {mci.error_score:.2f} | "
-        f"Volume: {mci.volume_score:.2f}",
-        f"Mean |δ|: {mci.mean_abs_error:.4f} | "
-        f"Pairs: {mci.n_pairs_checked}",
+        f"Antisymmetry: {mci.antisym_score:.2f} | " f"Coverage: {mci.coverage_score:.2f}",
+        f"Calibration: {mci.error_score:.2f} | " f"Volume: {mci.volume_score:.2f}",
+        f"Mean |δ|: {mci.mean_abs_error:.4f} | " f"Pairs: {mci.n_pairs_checked}",
     ]
     if not mci.should_trade:
-        lines.append(f"⛔ <b>Trade etme — MCI çok düşük</b>")
+        lines.append("⛔ <b>Trade etme — MCI çok düşük</b>")
     elif mci.size_multiplier < 1.0:
-        lines.append(
-            f"⚠️ Size penalty: {mci.size_multiplier:.0%}"
-        )
+        lines.append(f"⚠️ Size penalty: {mci.size_multiplier:.0%}")
     else:
         lines.append("✅ <b>Kalibrasyon iyi</b>")
     return "\n".join(lines)

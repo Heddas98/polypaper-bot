@@ -21,10 +21,11 @@ ENV:
     REPUTATION_MIN=0.5                  # Floor: never size below 50%
     REPUTATION_MAX=1.5                  # Cap: never size above 150%
 """
+
 from __future__ import annotations
 
-import os
 import logging
+import os
 from dataclasses import dataclass
 
 logger = logging.getLogger("polypaper.utils.reputation")
@@ -40,24 +41,25 @@ _REP_MAX = float(os.getenv("REPUTATION_MAX", "1.5"))
 @dataclass
 class ReputationScore:
     """Strategy reputation breakdown."""
+
     strategy_id: str = ""
-    overall: float = 1.0          # Final multiplier
-    streak_score: float = 1.0     # Based on recent win/loss streak
-    market_score: float = 1.0     # Based on market conditions
-    historical_score: float = 1.0 # Based on overall WR
-    is_hot: bool = False          # 3+ win streak
-    is_cold: bool = False         # 3+ loss streak
+    overall: float = 1.0  # Final multiplier
+    streak_score: float = 1.0  # Based on recent win/loss streak
+    market_score: float = 1.0  # Based on market conditions
+    historical_score: float = 1.0  # Based on overall WR
+    is_hot: bool = False  # 3+ win streak
+    is_cold: bool = False  # 3+ loss streak
     reason: str = ""
 
 
 def compute_reputation(
     strategy_id: str,
-    recent_results: list[bool],     # True=win, False=loss, most recent first
-    win_rate: float,                # Overall WR (0-1)
+    recent_results: list[bool],  # True=win, False=loss, most recent first
+    win_rate: float,  # Overall WR (0-1)
     total_trades: int,
     # Market condition signals
-    is_trending: bool = False,      # From regime detection
-    is_weekend: bool = False,       # Weekend = less competition
+    is_trending: bool = False,  # From regime detection
+    is_weekend: bool = False,  # Weekend = less competition
     hour_utc: int = 12,
     strategy_type: str = "fusion",
 ) -> ReputationScore:
@@ -135,11 +137,7 @@ def compute_reputation(
             historical_score = 0.7
 
     # ── Combine ──
-    overall = (
-        streak_score * _STREAK_W +
-        market_score * _MARKET_W +
-        historical_score * _HIST_W
-    )
+    overall = streak_score * _STREAK_W + market_score * _MARKET_W + historical_score * _HIST_W
 
     # Clamp
     overall = max(_REP_MIN, min(_REP_MAX, overall))

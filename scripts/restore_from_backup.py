@@ -32,6 +32,7 @@ Bot must be stopped before running. The script does not check that for
 you — but it will detect a locked file (`PermissionError`) on Windows
 when overwriting and abort cleanly.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,7 +41,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Allow running both from repo root and from scripts/
@@ -74,8 +75,7 @@ def _load_manifest() -> dict:
         with MANIFEST_PATH.open("r", encoding="utf-8") as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError) as e:
-        print(f"[ERROR] manifest.json read failed: {type(e).__name__}: {e}",
-              file=sys.stderr)
+        print(f"[ERROR] manifest.json read failed: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(2)
 
 
@@ -110,8 +110,10 @@ def cmd_list() -> int:
                 print(f"  {p.name:35s} {_format_size(p.stat().st_size):>10s}")
         return 0
 
-    print(f"{'Filename':35s} {'Size':>10s} {'Schema':>8s}  "
-          f"{'Created (UTC)':20s} {'On disk':8s} {'SHA256 (12)':12s}")
+    print(
+        f"{'Filename':35s} {'Size':>10s} {'Schema':>8s}  "
+        f"{'Created (UTC)':20s} {'On disk':8s} {'SHA256 (12)':12s}"
+    )
     print("-" * 100)
     for e in snaps:
         fn = e.get("filename", "?")
@@ -174,8 +176,7 @@ def _resolve_target(args: argparse.Namespace) -> tuple[Path, dict]:
 
     if args.latest:
         if not snaps:
-            print("[ERROR] --latest requested but manifest has no snapshots.",
-                  file=sys.stderr)
+            print("[ERROR] --latest requested but manifest has no snapshots.", file=sys.stderr)
             sys.exit(2)
         # manifest is appended chronologically; latest = last entry
         entry = snaps[-1]
@@ -183,15 +184,17 @@ def _resolve_target(args: argparse.Namespace) -> tuple[Path, dict]:
         target_name = args.restore
         match = [e for e in snaps if e.get("filename") == target_name]
         if not match:
-            print(f"[ERROR] '{target_name}' not in manifest. Use --list to "
-                  f"see available snapshots.", file=sys.stderr)
+            print(
+                f"[ERROR] '{target_name}' not in manifest. Use --list to "
+                f"see available snapshots.",
+                file=sys.stderr,
+            )
             sys.exit(2)
         entry = match[0]
 
     src = BACKUP_DIR / entry["filename"]
     if not src.exists():
-        print(f"[ERROR] manifest entry exists but file missing on disk: "
-              f"{src}", file=sys.stderr)
+        print(f"[ERROR] manifest entry exists but file missing on disk: " f"{src}", file=sys.stderr)
         sys.exit(2)
     return src, entry
 
@@ -224,8 +227,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     # 2. Confirmation prompt (skip with --yes)
     if not args.yes:
         print("\nThis will OVERWRITE the live database.")
-        print("Make sure the bot is stopped first (Telegram /stop or "
-              "kill the python process).")
+        print("Make sure the bot is stopped first (Telegram /stop or " "kill the python process).")
         ans = input("Type 'restore' to proceed: ").strip()
         if ans.lower() != "restore":
             print("Aborted.")
@@ -233,18 +235,18 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
     # 3. Pre-restore backup of current live DB
     if DB_PATH.exists():
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         pre_path = BACKUP_DIR / f"pre_restore_{ts}.db"
         print(f"[restore] pre-restore backup: {pre_path}")
         try:
             shutil.copy2(DB_PATH, pre_path)
         except (OSError, shutil.Error) as e:
-            print(f"[ERROR] pre-restore backup failed: "
-                  f"{type(e).__name__}: {e}", file=sys.stderr)
+            print(
+                f"[ERROR] pre-restore backup failed: " f"{type(e).__name__}: {e}", file=sys.stderr
+            )
             return 4
     else:
-        print("[restore] no current DB at target — skipping pre-restore "
-              "backup")
+        print("[restore] no current DB at target — skipping pre-restore " "backup")
 
     # 4. Atomic copy: write to .restoring then os.replace
     restoring = DB_PATH.with_suffix(".db.restoring")
@@ -252,8 +254,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     try:
         shutil.copy2(src, restoring)
     except (OSError, shutil.Error) as e:
-        print(f"[ERROR] copy to .restoring failed: "
-              f"{type(e).__name__}: {e}", file=sys.stderr)
+        print(f"[ERROR] copy to .restoring failed: " f"{type(e).__name__}: {e}", file=sys.stderr)
         if restoring.exists():
             try:
                 restoring.unlink()
@@ -279,24 +280,25 @@ def cmd_restore(args: argparse.Namespace) -> int:
     try:
         os.replace(restoring, DB_PATH)
     except OSError as e:
-        print(f"[ERROR] atomic rename failed: {type(e).__name__}: {e}\n"
-              f"  Likely cause: the bot is still running and holds a handle "
-              f"to {DB_PATH.name}.\n"
-              f"  Stop the bot, then re-run this script.\n"
-              f"  The .restoring file at {restoring} has been preserved so "
-              f"you can finish the swap manually.", file=sys.stderr)
+        print(
+            f"[ERROR] atomic rename failed: {type(e).__name__}: {e}\n"
+            f"  Likely cause: the bot is still running and holds a handle "
+            f"to {DB_PATH.name}.\n"
+            f"  Stop the bot, then re-run this script.\n"
+            f"  The .restoring file at {restoring} has been preserved so "
+            f"you can finish the swap manually.",
+            file=sys.stderr,
+        )
         return 7
 
     # 7. Drop stale WAL/SHM siblings — they belong to the OLD DB
-    for sib in (DB_PATH.with_name(DB_PATH.name + "-wal"),
-                DB_PATH.with_name(DB_PATH.name + "-shm")):
+    for sib in (DB_PATH.with_name(DB_PATH.name + "-wal"), DB_PATH.with_name(DB_PATH.name + "-shm")):
         if sib.exists():
             try:
                 sib.unlink()
                 print(f"[restore] removed stale {sib.name}")
             except OSError as e:
-                print(f"[warn] could not remove {sib.name}: "
-                      f"{type(e).__name__}: {e}")
+                print(f"[warn] could not remove {sib.name}: " f"{type(e).__name__}: {e}")
 
     print(f"\n[restore] DONE. Restored {entry['filename']} → {DB_PATH}")
     print("You can now restart the bot.")
@@ -314,18 +316,22 @@ def main() -> int:
         description="Restore polypaper.db from a daily snapshot.",
     )
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--list", action="store_true",
-                   help="List snapshots from manifest + on-disk presence.")
-    g.add_argument("--verify-all", action="store_true",
-                   help="Compute SHA256 of every snapshot, compare to manifest.")
-    g.add_argument("--latest", action="store_true",
-                   help="Restore the most recent snapshot.")
-    g.add_argument("--restore", metavar="FILENAME",
-                   help="Restore a specific snapshot by filename.")
-    p.add_argument("--yes", action="store_true",
-                   help="Skip the typed-confirmation prompt (still verifies).")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Show what would happen; don't change any files.")
+    g.add_argument(
+        "--list", action="store_true", help="List snapshots from manifest + on-disk presence."
+    )
+    g.add_argument(
+        "--verify-all",
+        action="store_true",
+        help="Compute SHA256 of every snapshot, compare to manifest.",
+    )
+    g.add_argument("--latest", action="store_true", help="Restore the most recent snapshot.")
+    g.add_argument("--restore", metavar="FILENAME", help="Restore a specific snapshot by filename.")
+    p.add_argument(
+        "--yes", action="store_true", help="Skip the typed-confirmation prompt (still verifies)."
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="Show what would happen; don't change any files."
+    )
     args = p.parse_args()
 
     # Sanity: backup dir must exist

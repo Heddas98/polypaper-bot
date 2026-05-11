@@ -2,12 +2,15 @@
 PolyPaper Bot - /markets Handler (v4 - FIXED)
 Shows only markets with real odds. Marks no-liquidity as "No liquidity".
 """
+
 import asyncio
 import logging
-from datetime import datetime, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import UTC, datetime
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
 from data.market_scanner import MarketScanner
 from telegram_bot.templates.safe_html import esc
 
@@ -17,7 +20,7 @@ logger = logging.getLogger("polypaper.handlers.markets")
 def _time_remaining(end_str) -> str:
     try:
         end = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
-        secs = int((end - datetime.now(timezone.utc)).total_seconds())
+        secs = int((end - datetime.now(UTC)).total_seconds())
         if secs < 0:
             return "ENDED"
         if secs < 60:
@@ -38,10 +41,12 @@ async def markets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = _build_markets_text(scanner)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_markets")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_markets")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -54,14 +59,16 @@ async def refresh_markets_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     # Step 1: INSTANT render from current cache (no wait)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Yenile", callback_data="refresh_markets")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Yenile", callback_data="refresh_markets")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     try:
         text = _build_markets_text(scanner) + "\n⏳ <i>Güncel fiyatlar yükleniyor...</i>"
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. Initial render
         # may BadRequest "not modified" if user double-clicks; tolerated.
         pass
@@ -74,7 +81,7 @@ async def _refresh_and_update(query, scanner, kb):
     """Background: scan then edit message with fresh data."""
     try:
         await asyncio.wait_for(scanner._do_scan(), timeout=8.0)
-    except (asyncio.TimeoutError, asyncio.CancelledError, AttributeError):
+    except (TimeoutError, asyncio.CancelledError, AttributeError):
         # T11.8-B (2026-04-24): narrow from bare Exception. wait_for
         # TimeoutError is the expected miss case; AttributeError if scanner
         # not yet initialized. Continue with stale snapshot anyway.
@@ -82,7 +89,7 @@ async def _refresh_and_update(query, scanner, kb):
     text = _build_markets_text(scanner)
     try:
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. Same edit_message
         # no-op pattern.
         pass
@@ -124,8 +131,8 @@ def _build_markets_text(scanner: MarketScanner) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 — merged from candle_handler.py
 # ═══════════════════════════════════════════════════════════════════════
-from db.database import Database  # noqa: E402
 from data.polymarket_client import safe_float  # noqa: E402
+from db.database import Database  # noqa: E402
 from telegram_bot.templates.callback_proxy import CallbackUpdateProxy  # noqa: E402
 
 
@@ -146,7 +153,9 @@ async def candles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active = [s for s in strats if s.status.value == "active"]
 
     if not active:
-        return await update.message.reply_text("Aktif strateji yok. /strategies ile bir tane oluşturun.")
+        return await update.message.reply_text(
+            "Aktif strateji yok. /strategies ile bir tane oluşturun."
+        )
 
     seen = set()
     text = "🕯 <b>Live Candles + EMA</b>\n\n"
@@ -194,10 +203,12 @@ async def candles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text += "<i>Refresh for live update</i>"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="candles_refresh")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="candles_refresh")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -259,21 +270,27 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.debug(f"[SIGNALS] empty odds_series for {s.id[:8]} {asset}/{tf} slug={slug}")
 
         from data.polymarket_client import INTERVAL_SECS as _SIG_INTERVAL_SECS
+
         minutes_remaining = None
         total_minutes = _SIG_INTERVAL_SECS.get(tf, 300) / 60
         end_str = market.get("endDate")
         if end_str:
             try:
                 end_dt = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
-                minutes_remaining = (end_dt - datetime.now(timezone.utc)).total_seconds() / 60
+                minutes_remaining = (end_dt - datetime.now(UTC)).total_seconds() / 60
             except (ValueError, TypeError, AttributeError):
                 # T11.8-B (2026-04-24): narrow from bare Exception. Same
                 # ISO-parse surface as _time_remaining above.
                 pass
 
         sig = engine.signals.evaluate(
-            up, down, threshold, s.direction.value,
-            odds_series, minutes_remaining, total_minutes,
+            up,
+            down,
+            threshold,
+            s.direction.value,
+            odds_series,
+            minutes_remaining,
+            total_minutes,
         )
 
         score = sig.composite_score
@@ -303,10 +320,12 @@ async def signals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text += "<i>Score ≥ 0.20 = trade | Refresh for live update</i>"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_signals")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_signals")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 

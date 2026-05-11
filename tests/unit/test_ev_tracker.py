@@ -10,6 +10,7 @@ math.
 Avoids `pytest_asyncio` plugin dependency by manually managing an
 asyncio loop (T9.5 doctrine).
 """
+
 from __future__ import annotations
 
 import asyncio

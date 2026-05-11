@@ -14,13 +14,16 @@ NOTE: Gamma API does NOT provide orderbook snapshots.
       For that, use PolyBackTest API (polybacktest.py).
       Gamma is for market METADATA + resolution outcomes.
 """
-import logging
+
 import asyncio
+import logging
 import time
+from datetime import UTC
 from typing import Optional
+
 import httpx
 
-from backtest.data_sources.cache import BacktestCache, TTL_METADATA
+from backtest.data_sources.cache import TTL_METADATA, BacktestCache
 
 logger = logging.getLogger("polypaper.backtest.gamma")
 
@@ -87,8 +90,9 @@ class GammaHistClient:
         self._last_request = time.time()
         self._request_count += 1
 
-    async def _get(self, path: str, params: Optional[dict] = None,
-                   retries: int = 3) -> Optional[list | dict]:
+    async def _get(
+        self, path: str, params: Optional[dict] = None, retries: int = 3
+    ) -> Optional[list | dict]:
         """GET with rate limiting and exponential backoff on 429."""
         if not self._client:
             logger.error("Client not initialized — call init() first")
@@ -101,8 +105,7 @@ class GammaHistClient:
 
                 if resp.status_code == 429:
                     wait = 2 ** (attempt + 1)
-                    logger.warning("Gamma rate limited (429), waiting %ds",
-                                   wait)
+                    logger.warning("Gamma rate limited (429), waiting %ds", wait)
                     await asyncio.sleep(wait)
                     continue
 
@@ -113,11 +116,9 @@ class GammaHistClient:
                 return resp.json()
 
             except httpx.TimeoutException:
-                logger.error("Gamma timeout: %s (attempt %d)",
-                             path, attempt + 1)
+                logger.error("Gamma timeout: %s (attempt %d)", path, attempt + 1)
             except httpx.HTTPStatusError as e:
-                logger.error("Gamma HTTP %d: %s",
-                             e.response.status_code, path)
+                logger.error("Gamma HTTP %d: %s", e.response.status_code, path)
                 break
             except Exception as e:
                 logger.error("Gamma request failed: %s — %s", path, e)
@@ -136,10 +137,9 @@ class GammaHistClient:
 
     # ── Resolved Markets ─────────────────────────────────────
 
-    async def get_resolved_markets(self, coin: str = "btc",
-                                    limit: int = 10,
-                                    market_type: str = "5m",
-                                    offset: int = 0) -> list:
+    async def get_resolved_markets(
+        self, coin: str = "btc", limit: int = 10, market_type: str = "5m", offset: int = 0
+    ) -> list:
         """
         Fetch resolved crypto up/down markets from Gamma API.
         Uses direct slug pattern queries (btc-updown-5m-{unix_ts}).
@@ -152,8 +152,7 @@ class GammaHistClient:
         Returns:
             List of market dicts with resolution data
         """
-        coin_prefix = SLUG_PREFIXES.get(coin.lower(),
-                                         f"{coin.lower()}-updown")
+        coin_prefix = SLUG_PREFIXES.get(coin.lower(), f"{coin.lower()}-updown")
         slug_base = f"{coin_prefix}-{market_type}"
 
         # Check cache
@@ -161,13 +160,15 @@ class GammaHistClient:
         if self.cache:
             cached = await self.cache.get(cache_key)
             if cached:
-                logger.debug("Resolved markets from cache: %s %s (%d)",
-                             coin, market_type, len(cached))
+                logger.debug(
+                    "Resolved markets from cache: %s %s (%d)", coin, market_type, len(cached)
+                )
                 return cached
 
         # Generate slug patterns based on timestamp intervals.
         # Crypto slugs follow: btc-updown-5m-{unix_timestamp}
         import time as _time
+
         now_ts = int(_time.time())
         interval = INTERVAL_SECONDS.get(market_type, 300)
         base_ts = (now_ts // interval) * interval
@@ -181,10 +182,13 @@ class GammaHistClient:
             ts = base_ts - (i * interval)
             slug = f"{slug_base}-{ts}"
 
-            data = await self._get("/markets", params={
-                "slug": slug,
-                "limit": 2,  # UP and DOWN markets
-            })
+            data = await self._get(
+                "/markets",
+                params={
+                    "slug": slug,
+                    "limit": 2,  # UP and DOWN markets
+                },
+            )
             if data and isinstance(data, list) and data:
                 miss_streak = 0
                 for m in data:
@@ -198,8 +202,7 @@ class GammaHistClient:
                 miss_streak += 1
                 # If we miss 10 consecutive, the market type may not exist
                 if miss_streak >= 10:
-                    logger.info("10 consecutive misses at %s, stopping",
-                                slug)
+                    logger.info("10 consecutive misses at %s, stopping", slug)
                     break
 
             if len(markets) >= limit:
@@ -207,14 +210,12 @@ class GammaHistClient:
 
         # Cache the list
         if self.cache and markets:
-            await self.cache.set(cache_key, markets, ttl=TTL_METADATA,
-                                  source="gamma")
+            await self.cache.set(cache_key, markets, ttl=TTL_METADATA, source="gamma")
 
         logger.info("Fetched %d resolved markets for %s", len(markets), coin)
         return markets
 
-    async def get_all_resolved(self, coin: str = "btc",
-                                max_pages: int = 20) -> list:
+    async def get_all_resolved(self, coin: str = "btc", max_pages: int = 20) -> list:
         """
         Fetch ALL resolved markets with pagination.
         Since we filter by slug in Python, we may need more pages
@@ -232,9 +233,7 @@ class GammaHistClient:
         empty_pages = 0  # Track consecutive pages with 0 matching markets
 
         for page in range(max_pages):
-            batch = await self.get_resolved_markets(
-                coin=coin, limit=page_size, offset=offset
-            )
+            batch = await self.get_resolved_markets(coin=coin, limit=page_size, offset=offset)
             if batch:
                 all_markets.extend(batch)
                 empty_pages = 0
@@ -246,12 +245,14 @@ class GammaHistClient:
 
             offset += page_size
 
-            logger.info("Page %d: %d markets (total: %d)",
-                         page + 1, len(batch) if batch else 0,
-                         len(all_markets))
+            logger.info(
+                "Page %d: %d markets (total: %d)",
+                page + 1,
+                len(batch) if batch else 0,
+                len(all_markets),
+            )
 
-        logger.info("Total resolved markets for %s: %d",
-                     coin, len(all_markets))
+        logger.info("Total resolved markets for %s: %d", coin, len(all_markets))
         return all_markets
 
     # ── Single Event Detail ──────────────────────────────────
@@ -264,10 +265,13 @@ class GammaHistClient:
             if cached:
                 return cached
 
-        data = await self._get("/events", params={
-            "slug": event_slug,
-            "limit": 1,
-        })
+        data = await self._get(
+            "/events",
+            params={
+                "slug": event_slug,
+                "limit": 1,
+            },
+        )
         if not data:
             return None
 
@@ -277,8 +281,7 @@ class GammaHistClient:
 
         event = events[0]
         if self.cache:
-            await self.cache.set(cache_key, event, ttl=TTL_METADATA,
-                                  source="gamma")
+            await self.cache.set(cache_key, event, ttl=TTL_METADATA, source="gamma")
         return event
 
     # ── Market Parsing ───────────────────────────────────────
@@ -294,8 +297,7 @@ class GammaHistClient:
             up_market = None
             down_market = None
             for m in markets:
-                outcome = (m.get("outcome", "") or
-                           m.get("groupItemTitle", "")).lower()
+                outcome = (m.get("outcome", "") or m.get("groupItemTitle", "")).lower()
                 if "up" in outcome or "yes" in outcome:
                     up_market = m
                 elif "down" in outcome or "no" in outcome:
@@ -304,14 +306,18 @@ class GammaHistClient:
             # Determine winner
             winner = ""
             if up_market and up_market.get("resolved_at"):
-                if up_market.get("winner", False) or \
-                   str(up_market.get("resolution", "")).lower() == "yes":
+                if (
+                    up_market.get("winner", False)
+                    or str(up_market.get("resolution", "")).lower() == "yes"
+                ):
                     winner = "UP"
                 else:
                     winner = "DOWN"
             elif down_market and down_market.get("resolved_at"):
-                if down_market.get("winner", False) or \
-                   str(down_market.get("resolution", "")).lower() == "yes":
+                if (
+                    down_market.get("winner", False)
+                    or str(down_market.get("resolution", "")).lower() == "yes"
+                ):
                     winner = "DOWN"
                 else:
                     winner = "UP"
@@ -335,12 +341,11 @@ class GammaHistClient:
                 "volume": float(event.get("volume", 0) or 0),
                 "liquidity": float(event.get("liquidity", 0) or 0),
                 "up_token_id": up_market.get("clobTokenIds", [""])[0]
-                               if up_market and up_market.get("clobTokenIds")
-                               else "",
+                if up_market and up_market.get("clobTokenIds")
+                else "",
                 "down_token_id": down_market.get("clobTokenIds", [""])[0]
-                                 if down_market and
-                                 down_market.get("clobTokenIds")
-                                 else "",
+                if down_market and down_market.get("clobTokenIds")
+                else "",
                 "source": "gamma",
             }
         except Exception as e:
@@ -357,8 +362,7 @@ class GammaHistClient:
             # Determine winner from resolution
             winner = ""
             resolution = str(m.get("resolution", "")).lower()
-            outcome = (m.get("outcome", "") or
-                       m.get("groupItemTitle", "")).lower()
+            outcome = (m.get("outcome", "") or m.get("groupItemTitle", "")).lower()
             if resolution == "yes":
                 if "up" in outcome:
                     winner = "UP"
@@ -387,10 +391,10 @@ class GammaHistClient:
                 # Slug pattern: btc-updown-5m-{unix_ts}
                 parts = slug.rsplit("-", 1)
                 if len(parts) == 2 and parts[1].isdigit():
-                    from datetime import datetime as _dt, timezone as _tz
+                    from datetime import datetime as _dt
+
                     ts_val = int(parts[1])
-                    start_time = (_dt.fromtimestamp(ts_val, tz=_tz.utc)
-                                  .isoformat())
+                    start_time = _dt.fromtimestamp(ts_val, tz=UTC).isoformat()
 
             return {
                 "market_id": str(m.get("id", "")),
@@ -412,8 +416,7 @@ class GammaHistClient:
             logger.error("Failed to parse market: %s", e)
             return None
 
-    def _detect_market_type_from_slug(self, slug: str,
-                                       title: str = "") -> str:
+    def _detect_market_type_from_slug(self, slug: str, title: str = "") -> str:
         """Detect market type from slug string and title."""
         slug_l = slug.lower()
         title_l = title.lower()
@@ -429,8 +432,7 @@ class GammaHistClient:
             return "24h"
         return "unknown"
 
-    def _detect_market_type(self, event: dict,
-                            markets: list = None) -> str:
+    def _detect_market_type(self, event: dict, markets: list = None) -> str:
         """Detect market type (5m, 15m, 1h, etc.) from event data."""
         slug = event.get("slug", "").lower()
         # Also check market-level slugs
@@ -455,6 +457,7 @@ class GammaHistClient:
         # Fallback: check timestamps
         try:
             from datetime import datetime
+
             start = event.get("start_date_time", "")
             end = event.get("end_date_time", "")
             if start and end:
@@ -488,5 +491,4 @@ class GammaHistClient:
         if self._client:
             await self._client.aclose()
             self._client = None
-        logger.info("Gamma historical client closed (reqs=%d)",
-                     self._request_count)
+        logger.info("Gamma historical client closed (reqs=%d)", self._request_count)

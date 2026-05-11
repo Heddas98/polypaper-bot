@@ -16,21 +16,28 @@ Parameters:
   min_win_rate: minimum historical WR to act (default 55%)
   entry_pct: when in market window to enter (0.0-1.0, default 0.1 = early)
 """
-from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Resolution, Direction
-)
+
 from typing import Optional
+
+from backtest.strategies.base import (
+    BaseBacktestStrategy,
+    Direction,
+    MarketData,
+    OrderbookSnapshot,
+    Resolution,
+    Signal,
+    StrategyRegistryV2,
+)
 
 # Default hour edges from PolyBackTest tweet analysis
 DEFAULT_EDGES = {
     # BTC 5m edges
-    6:  ("up", 0.578),     # 57.8% UP, 384 trades
+    6: ("up", 0.578),  # 57.8% UP, 384 trades
     # BTC 1h edges
-    22: ("down", 0.680),   # 68% DOWN, 31 markets
-    17: ("down", 0.650),   # 65% DOWN
+    22: ("down", 0.680),  # 68% DOWN, 31 markets
+    17: ("down", 0.650),  # 65% DOWN
     # BTC 15m edge (9am ET = 14h UTC in summer, 13h winter)
-    14: ("up", 0.818),     # 81.8% UP, 22 trading days (15m)
+    14: ("up", 0.818),  # 81.8% UP, 22 trading days (15m)
 }
 
 
@@ -93,11 +100,9 @@ class HourEdgeStrategy(BaseBacktestStrategy):
             direction=d,
             confidence=win_rate,
             entry_price=entry_price,
-            reason=f"Hour {self._market.hour_utc} edge: {direction.upper()} "
-                   f"WR={win_rate:.1%}",
+            reason=f"Hour {self._market.hour_utc} edge: {direction.upper()} " f"WR={win_rate:.1%}",
             metadata={"hour": self._market.hour_utc, "hist_wr": win_rate},
         )
 
-    def on_market_close(self, market: MarketData,
-                        result: Resolution) -> None:
+    def on_market_close(self, market: MarketData, result: Resolution) -> None:
         pass

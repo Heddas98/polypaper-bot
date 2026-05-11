@@ -2,10 +2,12 @@
 PolyPaper Bot - Data Models (Phase 4.5 FIX)
 FIXED: minutes_before_end default = 0.5 (not 5.0)
 """
+
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -85,7 +87,7 @@ def _uid() -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class User(BaseModel):
@@ -135,8 +137,10 @@ class Strategy(BaseModel):
     max_entry_slippage: Optional[float] = None
     ma_filter_enabled: bool = False
     min_volatility: Optional[float] = None
-    strategy_type: str = "fusion"  # "fusion", "momentum", "contrarian", "scalper", "sniper", "martingale"
-    deploy_stage: str = "canary"   # Phase 47f.10 P3#15: canary | promoted
+    strategy_type: str = (
+        "fusion"  # "fusion", "momentum", "contrarian", "scalper", "sniper", "martingale"
+    )
+    deploy_stage: str = "canary"  # Phase 47f.10 P3#15: canary | promoted
     status: StrategyStatus = StrategyStatus.STOPPED
     started_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_now)
@@ -144,9 +148,18 @@ class Strategy(BaseModel):
 
     def summary_line(self, index: int = 1) -> str:
         status_emoji = "🟢" if self.status == StrategyStatus.ACTIVE else "⚫"
-        type_emoji = {"momentum": "📈", "contrarian": "🔄", "scalper": "⚡",
-                       "sniper": "🎯", "fusion": "🔬", "martingale": "🎰"}.get(self.strategy_type, "🔬")
-        name = self.label or f"{self.asset.value} {self.timeframe.value} {self.direction.value.title()}"
+        type_emoji = {
+            "momentum": "📈",
+            "contrarian": "🔄",
+            "scalper": "⚡",
+            "sniper": "🎯",
+            "fusion": "🔬",
+            "martingale": "🎰",
+        }.get(self.strategy_type, "🔬")
+        name = (
+            self.label
+            or f"{self.asset.value} {self.timeframe.value} {self.direction.value.title()}"
+        )
         return (
             f"{index}. {status_emoji} <b>{name}</b> "
             f"{type_emoji} | ${self.trade_amount} @ {self.odds_threshold}"
@@ -154,8 +167,17 @@ class Strategy(BaseModel):
 
     def auto_label(self) -> str:
         """Generate descriptive label if none set."""
-        t = {"fusion": "F", "contrarian": "C", "sniper": "N",
-             "momentum": "M", "scalper": "S", "martingale": "MG", "highthreshold": "HT", "flashcrash": "FC", "streak": "SR"}.get(self.strategy_type, "?")
+        t = {
+            "fusion": "F",
+            "contrarian": "C",
+            "sniper": "N",
+            "momentum": "M",
+            "scalper": "S",
+            "martingale": "MG",
+            "highthreshold": "HT",
+            "flashcrash": "FC",
+            "streak": "SR",
+        }.get(self.strategy_type, "?")
         return f"{t}_{self.asset.value}_{self.timeframe.value}_{self.direction.value}_{self.odds_threshold}"
 
 

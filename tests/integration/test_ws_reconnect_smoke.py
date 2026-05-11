@@ -23,10 +23,11 @@ Out-of-scope (→ T9.8-REG Windows backlog):
   * Actual _backfill_prices_on_reconnect() with REST /midpoint call
   * Race condition testing (multiple concurrent reconnects)
 """
+
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -38,6 +39,7 @@ def _iso(dt: datetime) -> str:
 
 
 # ═══ Fixture: 3-market seed ═════════════════════════════════════════════
+
 
 @pytest.fixture
 def ws_with_three_markets(monkeypatch):
@@ -66,7 +68,7 @@ def ws_with_three_markets(monkeypatch):
     ws = PolymarketWebSocket()
     # 1s cushion: guarantees entry_ts > _connected_since after roundtrip.
     ws._connected_since = time.time() - 1.0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ws.live_prices["btc-up"] = {"price": 0.52, "ts": _iso(now)}
     ws.live_prices["btc-dn"] = {"price": 0.48, "ts": _iso(now)}
     ws.live_prices["eth-up"] = {"price": 0.60, "ts": _iso(now)}
@@ -74,6 +76,7 @@ def ws_with_three_markets(monkeypatch):
 
 
 # ═══ 1. Baseline: fresh connection serves all 3 ═════════════════════════
+
 
 class TestBaselineHealthy:
     """Pre-drop state: all 3 tokens are within staleness window AND
@@ -92,6 +95,7 @@ class TestBaselineHealthy:
 
 # ═══ 2. Drop sequence: connected_since=0 (legacy path) ═════════════════
 
+
 class TestDropLegacyPath:
     """When `_connected_since=0` (never connected OR reset by drop), the
     reconnect-gate is disabled — only age staleness check applies.
@@ -107,6 +111,7 @@ class TestDropLegacyPath:
 
 # ═══ 3. Reconnect sequence: stale cache invalidated ═════════════════════
 
+
 class TestReconnectInvalidation:
     """After reconnect, pre-drop entries must be served as None until a
     fresh post-reconnect tick replaces them. This is the core T5.4 fix.
@@ -116,7 +121,7 @@ class TestReconnectInvalidation:
         ws = ws_with_three_markets
         # Simulate: pre-drop cache is actually a few seconds old (after a
         # brief outage). Re-age the timestamps to BEFORE the reconnect marker.
-        before = datetime.now(timezone.utc) - timedelta(seconds=3)
+        before = datetime.now(UTC) - timedelta(seconds=3)
         for tid in ("btc-up", "btc-dn", "eth-up"):
             ws.live_prices[tid]["ts"] = _iso(before)
         # Reconnect: connected_since = now
@@ -132,17 +137,18 @@ class TestReconnectInvalidation:
         # Reconnect 2s ago
         ws._connected_since = time.time() - 2.0
         # Pre-reconnect entries aged
-        before = datetime.now(timezone.utc) - timedelta(seconds=5)
+        before = datetime.now(UTC) - timedelta(seconds=5)
         for tid in ("btc-up", "btc-dn", "eth-up"):
             ws.live_prices[tid]["ts"] = _iso(before)
         assert ws.get_live_price("btc-up") is None
         # Post-reconnect fresh tick
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ws.live_prices["btc-up"] = {"price": 0.53, "ts": _iso(now)}
         assert ws.get_live_price("btc-up") == 0.53
 
 
 # ═══ 4. Double drop→reconnect: idempotent ═══════════════════════════════
+
 
 class TestDoubleReconnectIdempotent:
     """Two consecutive drop→reconnect cycles must not leak pre-first-drop
@@ -158,7 +164,7 @@ class TestDoubleReconnectIdempotent:
         ws._connected_since = time.time() - 10.0  # reconnect A (10s ago)
 
         # Post-reconnect-A tick seeded 8s ago
-        post_a = datetime.now(timezone.utc) - timedelta(seconds=8)
+        post_a = datetime.now(UTC) - timedelta(seconds=8)
         ws.live_prices["btc-up"] = {"price": 0.55, "ts": _iso(post_a)}
         # At this point post_a (8s ago) is AFTER reconnect A (10s ago) — served
         assert ws.get_live_price("btc-up") == 0.55
@@ -172,6 +178,7 @@ class TestDoubleReconnectIdempotent:
 
 # ═══ 5. Price freshness doctrine pin ═══════════════════════════════════
 
+
 class TestFreshnessDoctrine:
     """Direct pin of the stated doctrine: fresh > stale; no silent drops;
     reconnect backfill invalidates stale cache.
@@ -181,10 +188,11 @@ class TestFreshnessDoctrine:
         """Even without a reconnect, entries older than WS_STALE_SEC default
         (30s per the module default) should NOT be served."""
         import data.websocket_client as wsmod
+
         # WS_STALE_SEC default — exact number may drift; test the shape
         ws = PolymarketWebSocket()
         ws._connected_since = 0.0  # disable reconnect gate
-        very_old = datetime.now(timezone.utc) - timedelta(seconds=600)
+        very_old = datetime.now(UTC) - timedelta(seconds=600)
         ws.live_prices["tok_x"] = {"price": 0.50, "ts": _iso(very_old)}
         # 600s >> any reasonable WS_STALE_SEC → must be None
         assert ws.get_live_price("tok_x") is None

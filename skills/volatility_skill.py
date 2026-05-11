@@ -8,22 +8,23 @@ Provides:
     - volatility_regime(): Low/Medium/High classification
     - price_range(): High-low range over window
 """
+
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class VolatilityResult:
     """Volatility measurement."""
-    value: float = 0.0          # Annualized or raw volatility
-    regime: str = "medium"      # "low", "medium", "high"
-    percentile: float = 0.5     # Where current vol sits vs history
-    range_high: float = 0.0     # Highest value in window
-    range_low: float = 0.0      # Lowest value in window
-    range_pct: float = 0.0      # (high-low)/mid as percentage
+
+    value: float = 0.0  # Annualized or raw volatility
+    regime: str = "medium"  # "low", "medium", "high"
+    percentile: float = 0.5  # Where current vol sits vs history
+    range_high: float = 0.0  # Highest value in window
+    range_low: float = 0.0  # Lowest value in window
+    range_pct: float = 0.0  # (high-low)/mid as percentage
 
 
 def rolling_volatility(series: list[float], window: int = 20) -> float:

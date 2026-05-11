@@ -1,4 +1,5 @@
 """Tests for telegram_bot/templates/mode_banner.py — Aşama 3.B."""
+
 from __future__ import annotations
 
 import os
@@ -6,8 +7,11 @@ import os
 import pytest
 
 from telegram_bot.templates.mode_banner import (
-    format_banner, format_mode_status_text,
-    get_current_mode, is_paper_mode, is_real_mode,
+    format_banner,
+    format_mode_status_text,
+    get_current_mode,
+    is_paper_mode,
+    is_real_mode,
 )
 
 
@@ -116,6 +120,7 @@ class TestFormatModeStatusText:
             for ch_idx, ch in enumerate(t):
                 if ch == "&":
                     # must be part of an entity
-                    rest = t[ch_idx:ch_idx + 6]
-                    assert rest.startswith(("&amp;", "&lt;", "&gt;", "&quot;", "&#")), \
-                        f"Unescaped & at pos {ch_idx}: '{rest}'"
+                    rest = t[ch_idx : ch_idx + 6]
+                    assert rest.startswith(
+                        ("&amp;", "&lt;", "&gt;", "&quot;", "&#")
+                    ), f"Unescaped & at pos {ch_idx}: '{rest}'"

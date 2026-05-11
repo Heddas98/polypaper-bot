@@ -9,11 +9,11 @@ Yeni mimari:
 LIVE_ENABLED env flag'i ayrıca trade execution'ı kontrol eder
 (paper hep aktif, live ENV ile gate'lenir).
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
@@ -32,18 +32,24 @@ async def main_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     text, kb = await _build_main_dashboard_text_kb(context, user_id)
     if update.message:
         await update.message.reply_text(
-            text, parse_mode="HTML", reply_markup=kb,
+            text,
+            parse_mode="HTML",
+            reply_markup=kb,
             disable_web_page_preview=True,
         )
     elif update.callback_query:
         try:
             await update.callback_query.edit_message_text(
-                text, parse_mode="HTML", reply_markup=kb,
+                text,
+                parse_mode="HTML",
+                reply_markup=kb,
                 disable_web_page_preview=True,
             )
         except (BadRequest, TelegramError):
             await update.callback_query.message.reply_text(
-                text, parse_mode="HTML", reply_markup=kb,
+                text,
+                parse_mode="HTML",
+                reply_markup=kb,
                 disable_web_page_preview=True,
             )
 
@@ -74,7 +80,8 @@ async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def _build_main_dashboard_text_kb(
-    context: ContextTypes.DEFAULT_TYPE, user_id: int = 0,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int = 0,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Build mod-first dashboard text + keyboard.
 
@@ -104,11 +111,13 @@ async def _build_main_dashboard_text_kb(
         f"  Allowance: {live_summary['allowance_status']}\n"
     )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 PAPER MODE →", callback_data="main_paper")],
-        [InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live")],
-        [InlineKeyboardButton("⚙️ Bot Ayarları", callback_data="main_settings")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📋 PAPER MODE →", callback_data="main_paper")],
+            [InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live")],
+            [InlineKeyboardButton("⚙️ Bot Ayarları", callback_data="main_settings")],
+        ]
+    )
     return text, kb
 
 
@@ -147,9 +156,7 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
                 pass
             # Paper balance: ENV display (gerçek paper bakiye trade journal'dan).
             # Default $10,386 (memory: 1417 trade, +$355 PnL, baseline $10,000)
-            summary["balance"] = float(
-                os.getenv("PAPER_BUDGET_DISPLAY", "10386.0")
-            )
+            summary["balance"] = float(os.getenv("PAPER_BUDGET_DISPLAY", "10386.0"))
         summary["pnl_emoji"] = "🟢" if summary["daily_pnl"] >= 0 else "🔴"
     except Exception as e:  # noqa: BLE001
         logger.debug(f"_get_paper_summary: {e}")
@@ -169,13 +176,12 @@ async def _get_live_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
         engine = context.bot_data.get("engine")
         if engine and getattr(engine, "db", None):
             from data.polymarket_portfolio import read_cached_snapshot
+
             snap = await read_cached_snapshot(engine.db)
             if snap:
                 summary["balance"] = float(snap.get("pusd_balance", 0))
                 allowance = float(snap.get("pusd_allowance", 0))
-                summary["allowance_status"] = (
-                    "✅ Hazır" if allowance >= 1.0 else "❌ Eksik"
-                )
+                summary["allowance_status"] = "✅ Hazır" if allowance >= 1.0 else "❌ Eksik"
                 positions = snap.get("positions", [])
                 summary["open_positions"] = len(positions)
                 # Bugünkü PnL: positions cur_value - cost_basis (active only)
@@ -207,19 +213,28 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         f"<b>Aktif strateji:</b> {paper_summary['open_strategies']}\n\n"
         f"<i>Paper trade — gerçek para yok, otomatik bot çalıştırır.</i>"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Dashboard", callback_data="dashboard"),
-         InlineKeyboardButton("📜 Trades", callback_data="trades_page:0")],
-        [InlineKeyboardButton("⚙️ Stratejiler", callback_data="strategies"),
-         InlineKeyboardButton("🤖 AI Brain", callback_data="ai_brain")],
-        [InlineKeyboardButton("📈 Stats", callback_data="stats"),
-         InlineKeyboardButton("🎯 Backtest", callback_data="bt_v2_main")],
-        [InlineKeyboardButton("💡 Öneri", callback_data="suggest"),
-         InlineKeyboardButton("📊 Compare", callback_data="live_compare")],
-        [InlineKeyboardButton("💰 Live'a Geç →", callback_data="main_live")],
-        [InlineKeyboardButton("◀️ Ana Mod Seçimi",
-                               callback_data="main_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📊 Dashboard", callback_data="dashboard"),
+                InlineKeyboardButton("📜 Trades", callback_data="trades_page:0"),
+            ],
+            [
+                InlineKeyboardButton("⚙️ Stratejiler", callback_data="strategies"),
+                InlineKeyboardButton("🤖 AI Brain", callback_data="ai_brain"),
+            ],
+            [
+                InlineKeyboardButton("📈 Stats", callback_data="stats"),
+                InlineKeyboardButton("🎯 Backtest", callback_data="bt_v2_main"),
+            ],
+            [
+                InlineKeyboardButton("💡 Öneri", callback_data="suggest"),
+                InlineKeyboardButton("📊 Compare", callback_data="live_compare"),
+            ],
+            [InlineKeyboardButton("💰 Live'a Geç →", callback_data="main_live")],
+            [InlineKeyboardButton("◀️ Ana Mod Seçimi", callback_data="main_dashboard")],
+        ]
+    )
     q = update.callback_query
     if q:
         try:
@@ -228,7 +243,9 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
     elif update.message:
         await update.message.reply_text(
-            text, parse_mode="HTML", reply_markup=kb,
+            text,
+            parse_mode="HTML",
+            reply_markup=kb,
         )
 
 
@@ -248,24 +265,28 @@ async def live_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"<b>Allowance:</b> {live_summary['allowance_status']}\n\n"
         f"<i>⚠️ Gerçek pUSD ile trade — dikkat.</i>"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🟢 BUY", callback_data="live_market_buy"),
-         InlineKeyboardButton("🔴 SELL", callback_data="live_market_sell")],
-        [InlineKeyboardButton("📊 Pozisyonlar", callback_data="live_main"),
-         InlineKeyboardButton("📜 Trades",
-                               callback_data="live_history:0")],
-        [InlineKeyboardButton("📈 PnL Detay", callback_data="live_pnl"),
-         InlineKeyboardButton("📤 CSV Export",
-                               callback_data="live_export_csv")],
-        [InlineKeyboardButton("💵 Wallet (Portfolio)",
-                               callback_data="live_main"),
-         InlineKeyboardButton("✅ Allowance",
-                               callback_data="live_approve_allowance")],
-        [InlineKeyboardButton("📋 Paper'a Geç →",
-                               callback_data="main_paper")],
-        [InlineKeyboardButton("◀️ Ana Mod Seçimi",
-                               callback_data="main_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🟢 BUY", callback_data="live_market_buy"),
+                InlineKeyboardButton("🔴 SELL", callback_data="live_market_sell"),
+            ],
+            [
+                InlineKeyboardButton("📊 Pozisyonlar", callback_data="live_main"),
+                InlineKeyboardButton("📜 Trades", callback_data="live_history:0"),
+            ],
+            [
+                InlineKeyboardButton("📈 PnL Detay", callback_data="live_pnl"),
+                InlineKeyboardButton("📤 CSV Export", callback_data="live_export_csv"),
+            ],
+            [
+                InlineKeyboardButton("💵 Wallet (Portfolio)", callback_data="live_main"),
+                InlineKeyboardButton("✅ Allowance", callback_data="live_approve_allowance"),
+            ],
+            [InlineKeyboardButton("📋 Paper'a Geç →", callback_data="main_paper")],
+            [InlineKeyboardButton("◀️ Ana Mod Seçimi", callback_data="main_dashboard")],
+        ]
+    )
     q = update.callback_query
     if q:
         try:
@@ -274,7 +295,9 @@ async def live_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
     elif update.message:
         await update.message.reply_text(
-            text, parse_mode="HTML", reply_markup=kb,
+            text,
+            parse_mode="HTML",
+            reply_markup=kb,
         )
 
 
@@ -292,11 +315,12 @@ async def _show_bot_settings(q) -> None:
         "  • <code>/risk</code> — risk limits\n"
         "  • <code>/diagnose</code> — sistem health\n"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔧 Runtime Toggle", callback_data="env_toggle_main")],
-        [InlineKeyboardButton("◀️ Geri",
-                               callback_data="main_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔧 Runtime Toggle", callback_data="env_toggle_main")],
+            [InlineKeyboardButton("◀️ Geri", callback_data="main_dashboard")],
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
     except (BadRequest, TelegramError):

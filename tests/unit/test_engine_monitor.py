@@ -14,6 +14,7 @@ Out-of-scope (→ T9.8 integration smoke):
   * `_monitor` / `_check` / `_smart_exit_check` — DB-heavy async paths
   * `_update_disposition` — DB write + schema check
 """
+
 from __future__ import annotations
 
 import pytest
@@ -30,6 +31,7 @@ class MonitorHarness(EngineMonitorMixin):
 
 
 # ═══ _track_max_moves: Phase 60 favorable/adverse dispatch ═════════════
+
 
 class TestTrackMaxMoves:
     def test_first_favorable_move_sets_fav(self):
@@ -84,6 +86,7 @@ class TestTrackMaxMoves:
 
 # ═══ _pop_max_moves: dict pop semantics ═════════════════════════════════
 
+
 class TestPopMaxMoves:
     def test_pop_returns_tracked_tuple(self):
         h = MonitorHarness()
@@ -103,6 +106,7 @@ class TestPopMaxMoves:
 
 
 # ═══ ENV helpers: runtime read, no import-time freeze ═══════════════════
+
 
 class TestSmartExitEnabled:
     """Phase 60: `_smart_exit_enabled` re-reads env on every call.

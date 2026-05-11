@@ -14,15 +14,15 @@ Endpoints:
 
 Auth: "Authorization: Bearer pdm_xxx" or "X-API-Key: pdm_xxx"
 """
-import os
-import logging
+
 import asyncio
+import logging
+import os
 from typing import Optional
+
 import httpx
 
-from backtest.data_sources.cache import (
-    BacktestCache, TTL_MARKETS, TTL_SNAPSHOTS
-)
+from backtest.data_sources.cache import TTL_MARKETS, BacktestCache
 
 logger = logging.getLogger("polypaper.backtest.polybacktest")
 
@@ -44,8 +44,7 @@ RATE_LIMIT_DELAY = 0.5
 class PolyBackTestClient:
     """Async client for PolyBackTest API with caching and rate limiting."""
 
-    def __init__(self, cache: Optional[BacktestCache] = None,
-                 api_key: Optional[str] = None):
+    def __init__(self, cache: Optional[BacktestCache] = None, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("POLYBACKTEST_API_KEY", "")
         self.cache = cache
         self._client: Optional[httpx.AsyncClient] = None
@@ -66,15 +65,13 @@ class PolyBackTestClient:
         )
         if self.cache and not self.cache.conn:
             await self.cache.init()
-        logger.info(
-            "PolyBackTest client initialized (key=%s)",
-            "set" if self.api_key else "none"
-        )
+        logger.info("PolyBackTest client initialized (key=%s)", "set" if self.api_key else "none")
         return self
 
     async def _rate_limit(self):
         """Enforce rate limit between requests."""
         import time
+
         now = time.time()
         elapsed = now - self._last_request
         if elapsed < RATE_LIMIT_DELAY:
@@ -120,9 +117,7 @@ class PolyBackTestClient:
 
     # ── Market list ──────────────────────────────────────────
 
-    async def get_markets(self, coin: str = "btc",
-                          market_type: str = "5m",
-                          limit: int = 0) -> list:
+    async def get_markets(self, coin: str = "btc", market_type: str = "5m", limit: int = 0) -> list:
         """
         Fetch available markets from PolyBackTest.
 
@@ -141,16 +136,18 @@ class PolyBackTestClient:
         if self.cache:
             cached = await self.cache.get(cache_key)
             if cached:
-                logger.debug("Markets from cache: %s %s (%d)",
-                             coin, market_type, len(cached))
+                logger.debug("Markets from cache: %s %s (%d)", coin, market_type, len(cached))
                 return cached
 
         # API call
-        data = await self._get("/v2/markets", params={
-            "coin": coin.lower(),
-            "market_type": market_type,
-            "limit": limit,
-        })
+        data = await self._get(
+            "/v2/markets",
+            params={
+                "coin": coin.lower(),
+                "market_type": market_type,
+                "limit": limit,
+            },
+        )
 
         if not data:
             return []
@@ -160,8 +157,7 @@ class PolyBackTestClient:
 
         # Cache results + individual markets
         if self.cache and markets:
-            await self.cache.set(cache_key, markets, ttl=TTL_MARKETS,
-                                 source="polybacktest")
+            await self.cache.set(cache_key, markets, ttl=TTL_MARKETS, source="polybacktest")
             for m in markets:
                 m["coin"] = coin.upper()
                 m["market_type"] = market_type
@@ -187,10 +183,13 @@ class PolyBackTestClient:
 
     # ── Snapshots (orderbook history) ────────────────────────
 
-    async def get_snapshots(self, market_id: str,
-                            force_refresh: bool = False,
-                            condition_id: str = "",
-                            market_dict: Optional[dict] = None) -> list:
+    async def get_snapshots(
+        self,
+        market_id: str,
+        force_refresh: bool = False,
+        condition_id: str = "",
+        market_dict: Optional[dict] = None,
+    ) -> list:
         """
         Fetch orderbook snapshots for a market.
         These are the core data for backtesting — sub-second orderbook states.
@@ -214,8 +213,7 @@ class PolyBackTestClient:
             if await self.cache.has_snapshots(market_id):
                 cached = await self.cache.get_snapshots(market_id)
                 if cached:
-                    logger.debug("Snapshots from cache: %s (%d)",
-                                 market_id, len(cached))
+                    logger.debug("Snapshots from cache: %s (%d)", market_id, len(cached))
                     return cached
 
         # Build list of IDs to try (limit to market_id only for speed)
@@ -242,23 +240,21 @@ class PolyBackTestClient:
                     "Snapshots disabled after %d consecutive fails "
                     "(free tier limitation). Engine will run without "
                     "orderbook data.",
-                    self._consecutive_snapshot_fails
+                    self._consecutive_snapshot_fails,
                 )
             return []
 
         snapshots = data if isinstance(data, list) else data.get("snapshots", [])
 
         # Sort by timestamp
-        snapshots.sort(key=lambda s: s.get("timestamp_ms",
-                                           s.get("timestamp", 0)))
+        snapshots.sort(key=lambda s: s.get("timestamp_ms", s.get("timestamp", 0)))
 
         # Cache
         if self.cache and snapshots:
             count = await self.cache.store_snapshots(market_id, snapshots)
             logger.info("Cached %d snapshots for %s", count, market_id)
 
-        logger.info("Fetched %d snapshots for market %s",
-                     len(snapshots), market_id)
+        logger.info("Fetched %d snapshots for market %s", len(snapshots), market_id)
         return snapshots
 
     # ── Spot price ───────────────────────────────────────────
@@ -278,9 +274,9 @@ class PolyBackTestClient:
 
     # ── Bulk fetch for backtesting ───────────────────────────
 
-    async def fetch_backtest_data(self, coin: str = "btc",
-                                  market_type: str = "5m",
-                                  max_markets: int = 0) -> dict:
+    async def fetch_backtest_data(
+        self, coin: str = "btc", market_type: str = "5m", max_markets: int = 0
+    ) -> dict:
         """
         Convenience method: fetch markets + all their snapshots.
         Returns dict with markets list and snapshot count.
@@ -305,14 +301,9 @@ class PolyBackTestClient:
                 errors += 1
                 continue
             try:
-                snaps = await self.get_snapshots(
-                    mid, market_dict=market
-                )
+                snaps = await self.get_snapshots(mid, market_dict=market)
                 total_snapshots += len(snaps)
-                logger.info(
-                    "[%d/%d] %s: %d snapshots",
-                    i + 1, len(markets), mid, len(snaps)
-                )
+                logger.info("[%d/%d] %s: %d snapshots", i + 1, len(markets), mid, len(snaps))
             except Exception as e:
                 logger.error("Failed to fetch snapshots for %s: %s", mid, e)
                 errors += 1

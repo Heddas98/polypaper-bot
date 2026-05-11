@@ -29,10 +29,7 @@ class WhaleFlowSignal:
     """
 
     def __init__(
-        self,
-        lookback_seconds: int = 300,
-        min_trades: int = 2,
-        min_volume_usd: float = 100.0
+        self, lookback_seconds: int = 300, min_trades: int = 2, min_volume_usd: float = 100.0
     ):
         """Initialize whale flow signal tracker.
 
@@ -69,12 +66,7 @@ class WhaleFlowSignal:
             except ValueError:
                 pass
 
-    async def compute(
-        self,
-        db,
-        slug: str,
-        direction: str
-    ) -> float:
+    async def compute(self, db, slug: str, direction: str) -> float:
         """Compute whale flow signal asynchronously.
 
         Queries whale_trades table for recent activity and computes a directional
@@ -118,7 +110,7 @@ class WhaleFlowSignal:
                 WHERE slug LIKE ? AND ts_ms > ?
                 GROUP BY side
                 """,
-                (f"%{asset}%", cutoff_ms)
+                (f"%{asset}%", cutoff_ms),
             )
         except aiosqlite.Error as e:
             # T1.4 Faz 3: try body is a single aiosqlite fetch — narrow to

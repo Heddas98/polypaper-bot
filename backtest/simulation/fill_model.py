@@ -19,13 +19,14 @@ Fill modes:
 
 Liquidity filter: skip markets with volume < threshold.
 """
+
 import logging
 import math
 import os
 from dataclasses import dataclass
 from enum import Enum
 
-from backtest.strategies.base import OrderbookSnapshot, Direction
+from backtest.strategies.base import Direction, OrderbookSnapshot
 
 logger = logging.getLogger("polypaper.backtest.fill")
 
@@ -36,22 +37,23 @@ class FillMode(Enum):
     ORDERBOOK = "orderbook"
     MARKET_IMPACT = "market_impact"
     REAL_ORDERBOOK = "real_orderbook"  # Phase 37: actual L2 depth walk
-    MAKER = "maker"                     # Phase 51 P51-06: post-at-bid, rebate
-    MAKER_HYBRID = "maker_hybrid"       # Phase 51 P51-06: maker then taker
+    MAKER = "maker"  # Phase 51 P51-06: post-at-bid, rebate
+    MAKER_HYBRID = "maker_hybrid"  # Phase 51 P51-06: maker then taker
 
 
 @dataclass
 class FillResult:
     """Result of attempting to fill an order."""
+
     filled: bool = False
     fill_price: float = 0.0
-    slippage: float = 0.0          # price impact from ideal
-    fill_amount: float = 0.0       # USDC filled
-    shares: float = 0.0            # tokens received
+    slippage: float = 0.0  # price impact from ideal
+    fill_amount: float = 0.0  # USDC filled
+    shares: float = 0.0  # tokens received
     reason: str = ""
     # Phase 51 P51-06 — maker/taker accounting for backtests
-    is_maker: bool = False         # True if filled as maker (earned rebate)
-    rebate: float = 0.0            # USDC maker rebate (negative = paid, positive = earned)
+    is_maker: bool = False  # True if filled as maker (earned rebate)
+    rebate: float = 0.0  # USDC maker rebate (negative = paid, positive = earned)
 
 
 class FillSimulator:
@@ -72,13 +74,16 @@ class FillSimulator:
     # to reproduce legacy pre-T4.7-C heuristic behavior).
     SPREAD_COST: float = float(os.getenv("FILL_SPREAD_COST", "0.023"))
 
-    def __init__(self, mode: FillMode = FillMode.SIMPLE,
-                 min_liquidity: float = 0.0,
-                 market_impact_factor: float = 1.0,
-                 maker_queue_probability: float = 0.45,
-                 maker_rebate_bps: float = 0.0,
-                 latency_mean_ms: int = 0,
-                 latency_std_ms: int = 0):
+    def __init__(
+        self,
+        mode: FillMode = FillMode.SIMPLE,
+        min_liquidity: float = 0.0,
+        market_impact_factor: float = 1.0,
+        maker_queue_probability: float = 0.45,
+        maker_rebate_bps: float = 0.0,
+        latency_mean_ms: int = 0,
+        latency_std_ms: int = 0,
+    ):
         """
         Args:
             mode: fill simulation mode
@@ -104,10 +109,13 @@ class FillSimulator:
         self.latency_std_ms = max(0, latency_std_ms)
         self._latency_slippage_applied = 0.0  # last computed latency slippage
 
-    def simulate_fill(self, direction: Direction,
-                      amount_usd: float,
-                      snapshot: OrderbookSnapshot,
-                      market_volume: float = 0.0) -> FillResult:
+    def simulate_fill(
+        self,
+        direction: Direction,
+        amount_usd: float,
+        snapshot: OrderbookSnapshot,
+        market_volume: float = 0.0,
+    ) -> FillResult:
         """
         Simulate filling an order at the current orderbook state.
 
@@ -123,7 +131,7 @@ class FillSimulator:
         if self.min_liquidity > 0 and market_volume < self.min_liquidity:
             return FillResult(
                 filled=False,
-                reason=f"Low liquidity: ${market_volume:.0f} < ${self.min_liquidity:.0f}"
+                reason=f"Low liquidity: ${market_volume:.0f} < ${self.min_liquidity:.0f}",
             )
 
         # Get relevant prices
@@ -166,29 +174,23 @@ class FillSimulator:
             slippage = fill_price - best_ask if best_ask > 0 else self.SPREAD_COST
 
         elif self.mode == FillMode.ORDERBOOK:
-            fill_price = self._orderbook_walk(
-                amount_usd, best_ask, ask_depth
-            )
+            fill_price = self._orderbook_walk(amount_usd, best_ask, ask_depth)
             # Add spread cost for immediate execution
             fill_price = fill_price + self.SPREAD_COST
             slippage = fill_price - best_ask
 
         elif self.mode == FillMode.MARKET_IMPACT:
-            fill_price = self._market_impact_fill(
-                amount_usd, best_ask, market_volume
-            )
+            fill_price = self._market_impact_fill(amount_usd, best_ask, market_volume)
             # Add spread cost for immediate execution
             fill_price = fill_price + self.SPREAD_COST
             slippage = fill_price - best_ask
 
         elif self.mode == FillMode.MAKER:
-            maker = self._maker_fill(amount_usd, best_bid, best_ask,
-                                     bid_depth, direction, snapshot)
+            maker = self._maker_fill(amount_usd, best_bid, best_ask, bid_depth, direction, snapshot)
             return maker
 
         elif self.mode == FillMode.MAKER_HYBRID:
-            maker = self._maker_fill(amount_usd, best_bid, best_ask,
-                                     bid_depth, direction, snapshot)
+            maker = self._maker_fill(amount_usd, best_bid, best_ask, bid_depth, direction, snapshot)
             if maker.filled:
                 return maker
             # Maker miss — fall through to SIMPLE taker path
@@ -197,7 +199,7 @@ class FillSimulator:
 
         elif self.mode == FillMode.REAL_ORDERBOOK:
             # Phase 37: Walk through ACTUAL recorded L2 orderbook levels
-            raw = snapshot.raw if hasattr(snapshot, 'raw') else {}
+            raw = snapshot.raw if hasattr(snapshot, "raw") else {}
             if direction == Direction.UP:
                 asks = raw.get("up_asks", [])
             else:
@@ -233,10 +235,9 @@ class FillSimulator:
         latency_drift = 0.0
         if self.latency_mean_ms > 0:
             import random
+
             lat_ms = max(50, random.gauss(self.latency_mean_ms, self.latency_std_ms))
-            drift_bps_per_ms_env = float(
-                os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "0.04")
-            )
+            drift_bps_per_ms_env = float(os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "0.04"))
             drift_bps_per_ms = drift_bps_per_ms_env / 10000  # bps → fraction
             latency_drift = fill_price * lat_ms * drift_bps_per_ms
             fill_price += latency_drift
@@ -256,12 +257,10 @@ class FillSimulator:
             slippage=round(slippage, 6),
             fill_amount=amount_usd,
             shares=round(shares, 4),
-            reason=f"{self.mode.value} fill @ {fill_price:.4f}{lat_tag}"
+            reason=f"{self.mode.value} fill @ {fill_price:.4f}{lat_tag}",
         )
 
-    def _orderbook_walk(self, amount_usd: float,
-                        best_ask: float,
-                        total_ask_depth: float) -> float:
+    def _orderbook_walk(self, amount_usd: float, best_ask: float, total_ask_depth: float) -> float:
         """
         Walk through orderbook levels with depth-bucketed slippage tiers.
         Slippage increases with fill ratio (order size / available depth).
@@ -299,8 +298,7 @@ class FillSimulator:
 
         return min(best_ask * (1 + slippage), 0.99)
 
-    def _real_orderbook_walk(self, amount_usd: float,
-                             ask_levels: list) -> float:
+    def _real_orderbook_walk(self, amount_usd: float, ask_levels: list) -> float:
         """
         Walk through REAL recorded L2 orderbook ask levels (VWAP fill).
 
@@ -375,12 +373,15 @@ class FillSimulator:
         vwap = total_cost / total_shares
         return min(round(vwap, 6), 0.99)
 
-    def _maker_fill(self, amount_usd: float,
-                    best_bid: float,
-                    best_ask: float,
-                    bid_depth: float,
-                    direction: Direction,
-                    snapshot: OrderbookSnapshot) -> FillResult:
+    def _maker_fill(
+        self,
+        amount_usd: float,
+        best_bid: float,
+        best_ask: float,
+        bid_depth: float,
+        direction: Direction,
+        snapshot: OrderbookSnapshot,
+    ) -> FillResult:
         """Phase 51 P51-06 — Probabilistic maker fill.
 
         Model:
@@ -461,8 +462,13 @@ class FillSimulator:
         # for reproducibility. Not true randomness, but unbiased enough.
         seed_source = getattr(snapshot, "ts", None) or getattr(snapshot, "timestamp", 0)
         try:
-            seed = hash((float(seed_source), float(amount_usd),
-                         direction.value if hasattr(direction, "value") else str(direction)))
+            seed = hash(
+                (
+                    float(seed_source),
+                    float(amount_usd),
+                    direction.value if hasattr(direction, "value") else str(direction),
+                )
+            )
         except Exception:
             seed = hash(str(seed_source))
         roll = (seed & 0xFFFF) / 0xFFFF  # 0..1
@@ -503,9 +509,9 @@ class FillSimulator:
     # observation; not a hard fee, just a slippage proxy.
     IMPACT_MIN_FLOOR: float = float(os.getenv("FILL_IMPACT_MIN_FLOOR", "0.001"))
 
-    def _market_impact_fill(self, amount_usd: float,
-                            best_ask: float,
-                            market_volume: float) -> float:
+    def _market_impact_fill(
+        self, amount_usd: float, best_ask: float, market_volume: float
+    ) -> float:
         """
         Market impact model: slippage ∝ √(order_size / market_volume).
 

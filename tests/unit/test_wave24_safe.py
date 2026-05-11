@@ -3,6 +3,7 @@
 Wave 23 Windows crash sonrası safe pattern: real DB yok, sadece
 mock + boundary input cases. Hedef: stable %43.6 → %45-46.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,20 +17,23 @@ import pytest
 # ════════════════════════════════════════════════════════════════════════
 # Strategy plugins boundary input cases — extreme/edge scenarios
 # ════════════════════════════════════════════════════════════════════════
-@pytest.mark.parametrize("module_name,class_name", [
-    ("calibration_arb", "CalibrationArbStrategy"),
-    ("composite", "CompositeStrategy"),
-    ("cross_coin", "CrossCoinStrategy"),
-    ("fade_rip", "FadeRipStrategy"),
-    ("funding_rate", "FundingRateStrategy"),
-    ("hour_edge", "HourEdgeStrategy"),
-    ("late_convergence", "LateConvergenceStrategy"),
-    ("opening_breakout", "OpeningBreakoutStrategy"),
-    ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-    ("streak_reversal", "StreakReversalStrategy"),
-    ("taker_flow", "TakerFlowStrategy"),
-    ("bonding_yield", "BondingYieldStrategy"),
-])
+@pytest.mark.parametrize(
+    "module_name,class_name",
+    [
+        ("calibration_arb", "CalibrationArbStrategy"),
+        ("composite", "CompositeStrategy"),
+        ("cross_coin", "CrossCoinStrategy"),
+        ("fade_rip", "FadeRipStrategy"),
+        ("funding_rate", "FundingRateStrategy"),
+        ("hour_edge", "HourEdgeStrategy"),
+        ("late_convergence", "LateConvergenceStrategy"),
+        ("opening_breakout", "OpeningBreakoutStrategy"),
+        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+        ("streak_reversal", "StreakReversalStrategy"),
+        ("taker_flow", "TakerFlowStrategy"),
+        ("bonding_yield", "BondingYieldStrategy"),
+    ],
+)
 def test_strategy_boundary_inputs(module_name, class_name):
     """Each strategy with boundary/edge case orderbook snapshots."""
     try:
@@ -39,7 +43,10 @@ def test_strategy_boundary_inputs(module_name, class_name):
             pytest.skip()
             return
         from backtest.strategies.base import (
-            MarketData, OrderbookSnapshot, Resolution, Direction,
+            Direction,
+            MarketData,
+            OrderbookSnapshot,
+            Resolution,
         )
     except (ImportError, AttributeError):
         pytest.skip()
@@ -48,22 +55,42 @@ def test_strategy_boundary_inputs(module_name, class_name):
     # Boundary scenarios
     boundary_snapshots = [
         # Zero depth
-        {"up_bid_depth": 0, "up_ask_depth": 0,
-         "down_bid_depth": 0, "down_ask_depth": 0,
-         "taker_buy_volume": 0, "taker_sell_volume": 0},
+        {
+            "up_bid_depth": 0,
+            "up_ask_depth": 0,
+            "down_bid_depth": 0,
+            "down_ask_depth": 0,
+            "taker_buy_volume": 0,
+            "taker_sell_volume": 0,
+        },
         # Massive depth
-        {"up_bid_depth": 100000, "up_ask_depth": 100000,
-         "down_bid_depth": 100000, "down_ask_depth": 100000,
-         "taker_buy_volume": 50000, "taker_sell_volume": 50000},
+        {
+            "up_bid_depth": 100000,
+            "up_ask_depth": 100000,
+            "down_bid_depth": 100000,
+            "down_ask_depth": 100000,
+            "taker_buy_volume": 50000,
+            "taker_sell_volume": 50000,
+        },
         # Asymmetric depth
-        {"up_bid_depth": 10000, "up_ask_depth": 10,
-         "down_bid_depth": 10, "down_ask_depth": 10000,
-         "taker_buy_volume": 5000, "taker_sell_volume": 50},
+        {
+            "up_bid_depth": 10000,
+            "up_ask_depth": 10,
+            "down_bid_depth": 10,
+            "down_ask_depth": 10000,
+            "taker_buy_volume": 5000,
+            "taker_sell_volume": 50,
+        },
         # Wide spread
-        {"up_bid_depth": 100, "up_ask_depth": 100,
-         "down_bid_depth": 100, "down_ask_depth": 100,
-         "taker_buy_volume": 100, "taker_sell_volume": 100,
-         "spread": 0.20},
+        {
+            "up_bid_depth": 100,
+            "up_ask_depth": 100,
+            "down_bid_depth": 100,
+            "down_ask_depth": 100,
+            "taker_buy_volume": 100,
+            "taker_sell_volume": 100,
+            "spread": 0.20,
+        },
     ]
 
     for hour in [0, 12, 23]:
@@ -76,8 +103,10 @@ def test_strategy_boundary_inputs(module_name, class_name):
 
                 market = MarketData(
                     market_id=f"boundary_{hour}_{module_name}",
-                    coin="BTC", market_type="5m",
-                    duration_seconds=300, hour_utc=hour,
+                    coin="BTC",
+                    market_type="5m",
+                    duration_seconds=300,
+                    hour_utc=hour,
                 )
                 try:
                     s.on_market_open(market)
@@ -112,10 +141,14 @@ def test_strategy_boundary_inputs(module_name, class_name):
                         pass
 
                 try:
-                    s.on_market_close(market, Resolution(
-                        winner=Direction.UP,
-                        final_up_price=1.0, final_down_price=0.0,
-                    ))
+                    s.on_market_close(
+                        market,
+                        Resolution(
+                            winner=Direction.UP,
+                            final_up_price=1.0,
+                            final_down_price=0.0,
+                        ),
+                    )
                 except Exception:
                     pass
             except Exception:
@@ -135,6 +168,7 @@ async def test_approve_allowance_path_a_relayer_success(monkeypatch):
 
     try:
         from data.polymarket_actions import approve_allowance
+
         ok, msg = await approve_allowance()
         assert isinstance(ok, bool)
         assert isinstance(msg, str)
@@ -150,6 +184,7 @@ async def test_redeem_path_full(monkeypatch):
     monkeypatch.setenv("RELAYER_API_KEY_ADDRESS", "0x" + "ee" * 20)
     try:
         from data.polymarket_actions import redeem_position
+
         # Valid format cid
         ok, msg = await redeem_position("0x" + "ab" * 32)
         assert isinstance(ok, bool)
@@ -197,10 +232,12 @@ async def test_execute_market_order_branches():
     assert isinstance(r5, dict)
 
     # Branch 6: market found but tokens missing
-    scanner.get_current_market = MagicMock(return_value={
-        "slug": "btc-up-5m-test",
-        "clobTokenIds": "",
-    })
+    scanner.get_current_market = MagicMock(
+        return_value={
+            "slug": "btc-up-5m-test",
+            "clobTokenIds": "",
+        }
+    )
     r6 = await t.execute_market_order("BUY", "BTC", "UP", 1.0)
     assert isinstance(r6, dict)
 
@@ -231,15 +268,27 @@ async def test_live_handler_callback_variants():
     engine = MagicMock()
     engine.live = MagicMock()
     engine.live.is_enabled = MagicMock(return_value=True)
-    engine.live.get_status = MagicMock(return_value={
-        "auth_verified": True, "remaining": 8.0, "budget": 10.0,
-        "enabled": True,
-    })
+    engine.live.get_status = MagicMock(
+        return_value={
+            "auth_verified": True,
+            "remaining": 8.0,
+            "budget": 10.0,
+            "enabled": True,
+        }
+    )
     engine.live._engine_scanner = MagicMock()
-    engine.live._engine_scanner.get_active_markets = MagicMock(return_value=[
-        {"slug": "btc-up-5m", "coin": "BTC", "direction": "UP",
-         "best_ask": 0.55, "best_bid": 0.54, "type": "5m"},
-    ])
+    engine.live._engine_scanner.get_active_markets = MagicMock(
+        return_value=[
+            {
+                "slug": "btc-up-5m",
+                "coin": "BTC",
+                "direction": "UP",
+                "best_ask": 0.55,
+                "best_bid": 0.54,
+                "type": "5m",
+            },
+        ]
+    )
     engine.scanner = MagicMock()
     engine.scanner.get_active_markets = MagicMock(return_value=[])
     engine.db = MagicMock()
@@ -254,10 +303,15 @@ async def test_live_handler_callback_variants():
 
     # All known callback patterns
     callbacks = [
-        "live_main", "live_compare", "live_history",
-        "live_market_buy", "live_market_sell",
-        "live_market_tf:BUY:5m", "live_market_tf:BUY:15m",
-        "live_market_tf:BUY:1h", "live_market_tf:BUY:4h",
+        "live_main",
+        "live_compare",
+        "live_history",
+        "live_market_buy",
+        "live_market_sell",
+        "live_market_tf:BUY:5m",
+        "live_market_tf:BUY:15m",
+        "live_market_tf:BUY:1h",
+        "live_market_tf:BUY:4h",
         "live_market_tf:SELL:5m",
         "live_market_asset:BUY:BTC_UP:5m",
         "live_market_asset:BUY:ETH_DOWN:15m",
@@ -273,14 +327,17 @@ async def test_live_handler_callback_variants():
         "live_sell_pct:BTC_UP",
         "live_sell_pct:ETH_DOWN",
         "live_sell_pct:SOL_UP",
-        "live_redeem:BTC_UP", "live_redeem:ETH_DOWN",
-        "live_toggle", "live_toggle_confirm", "live_toggle_cancel",
+        "live_redeem:BTC_UP",
+        "live_redeem:ETH_DOWN",
+        "live_toggle",
+        "live_toggle_confirm",
+        "live_toggle_cancel",
     ]
     for cb in callbacks:
         update.callback_query.data = cb
         try:
             await asyncio.wait_for(live_callback(update, ctx), timeout=0.5)
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             pass
 
 
@@ -291,7 +348,8 @@ async def test_live_handler_callback_variants():
 async def test_live_history_full_paths():
     try:
         from telegram_bot.handlers.live_history_handler import (
-            live_history_callback, live_history_command,
+            live_history_callback,
+            live_history_command,
         )
     except ImportError:
         pytest.skip()
@@ -300,36 +358,40 @@ async def test_live_history_full_paths():
     # Realistic activity data
     activity = []
     for i in range(30):
-        activity.append({
-            "timestamp": 1700000000 + i * 300,
-            "type": ["TRADE", "REDEEM", "SPLIT", "MERGE"][i % 4],
-            "side": "BUY" if i % 2 == 0 else "SELL",
-            "title": f"Market {i}",
-            "slug": f"market-{i}",
-            "outcome": "Up" if i % 2 == 0 else "Down",
-            "outcome_index": i % 2,
-            "size": 1.0 + i * 0.1,
-            "price": 0.5 + (i % 10) * 0.01,
-            "usdc_size": 1.0 + i * 0.1,
-            "condition_id": f"0x{'ab' * 32}",
-            "asset": str(1000000 + i),
-            "transaction_hash": f"0x{'12' * 32}",
-        })
+        activity.append(
+            {
+                "timestamp": 1700000000 + i * 300,
+                "type": ["TRADE", "REDEEM", "SPLIT", "MERGE"][i % 4],
+                "side": "BUY" if i % 2 == 0 else "SELL",
+                "title": f"Market {i}",
+                "slug": f"market-{i}",
+                "outcome": "Up" if i % 2 == 0 else "Down",
+                "outcome_index": i % 2,
+                "size": 1.0 + i * 0.1,
+                "price": 0.5 + (i % 10) * 0.01,
+                "usdc_size": 1.0 + i * 0.1,
+                "condition_id": f"0x{'ab' * 32}",
+                "asset": str(1000000 + i),
+                "transaction_hash": f"0x{'12' * 32}",
+            }
+        )
 
     closed_positions = []
     for i in range(5):
-        closed_positions.append({
-            "title": f"Closed {i}",
-            "slug": f"closed-{i}",
-            "condition_id": f"0x{'cd' * 32}",
-            "size": 5.0,
-            "avg_price": 0.5,
-            "realized_pnl": ((-1) ** i) * 1.5,
-            "percent_realized_pnl": ((-1) ** i) * 30,
-            "cash_pnl": ((-1) ** i) * 1.5,
-            "percent_pnl": ((-1) ** i) * 30,
-            "redeemed": i % 2 == 0,
-        })
+        closed_positions.append(
+            {
+                "title": f"Closed {i}",
+                "slug": f"closed-{i}",
+                "condition_id": f"0x{'cd' * 32}",
+                "size": 5.0,
+                "avg_price": 0.5,
+                "realized_pnl": ((-1) ** i) * 1.5,
+                "percent_realized_pnl": ((-1) ** i) * 30,
+                "cash_pnl": ((-1) ** i) * 1.5,
+                "percent_pnl": ((-1) ** i) * 30,
+                "redeemed": i % 2 == 0,
+            }
+        )
 
     snap_data = {
         "positions": [],
@@ -340,6 +402,7 @@ async def test_live_history_full_paths():
     }
 
     import data.polymarket_portfolio as pp
+
     original_read = pp.read_cached_snapshot
     pp.read_cached_snapshot = AsyncMock(return_value=snap_data)
     try:
@@ -373,10 +436,15 @@ async def test_live_history_full_paths():
 
         # All callbacks
         for cb in [
-            "live_history:0", "live_history:1", "live_history:2",
-            "live_history:5", "live_history:99",
-            "live_history_detail:0", "live_history_detail:5",
-            "live_history_detail:15", "live_history_detail:99",
+            "live_history:0",
+            "live_history:1",
+            "live_history:2",
+            "live_history:5",
+            "live_history:99",
+            "live_history_detail:0",
+            "live_history_detail:5",
+            "live_history_detail:15",
+            "live_history_detail:99",
             "live_pnl",
             "live_export_csv",
         ]:
@@ -396,7 +464,10 @@ async def test_live_history_full_paths():
 async def test_main_dashboard_full_paths():
     try:
         from telegram_bot.handlers.main_dashboard import (
-            main_command, main_callback, paper_dashboard, live_dashboard,
+            live_dashboard,
+            main_callback,
+            main_command,
+            paper_dashboard,
         )
     except ImportError:
         pytest.skip()
@@ -433,12 +504,15 @@ async def test_main_dashboard_full_paths():
     engine.db.conn.commit = AsyncMock()
 
     import data.polymarket_portfolio as pp
+
     original_read = pp.read_cached_snapshot
-    pp.read_cached_snapshot = AsyncMock(return_value={
-        "pusd_balance": 12.18,
-        "pusd_allowance": 1e30,
-        "positions": [],
-    })
+    pp.read_cached_snapshot = AsyncMock(
+        return_value={
+            "pusd_balance": 12.18,
+            "pusd_allowance": 1e30,
+            "positions": [],
+        }
+    )
     try:
         ctx = MagicMock()
         ctx.bot_data = {"engine": engine}
@@ -450,8 +524,7 @@ async def test_main_dashboard_full_paths():
         except Exception:
             pass
 
-        for cb in ["main_dashboard", "main_paper", "main_live",
-                   "main_settings"]:
+        for cb in ["main_dashboard", "main_paper", "main_live", "main_settings"]:
             update.callback_query.data = cb
             try:
                 await main_callback(update, ctx)
@@ -477,8 +550,11 @@ async def test_main_dashboard_full_paths():
 async def test_portfolio_fetchers_edge():
     try:
         from data.polymarket_portfolio import (
-            fetch_activity, fetch_closed_positions, fetch_positions,
-            fetch_portfolio_value, _proxy_address,
+            _proxy_address,
+            fetch_activity,
+            fetch_closed_positions,
+            fetch_portfolio_value,
+            fetch_positions,
         )
     except ImportError:
         pytest.skip()
@@ -512,10 +588,20 @@ def test_engine_signals_static_methods():
 
     # _parse_zones edge cases
     test_zones = [
-        "", " ", "0.40-0.60", "0.40-0.60,0.65-0.75",
-        "invalid", "0.5", "0.4-", "-0.6", "0.4-0.6,",
-        ",0.4-0.6", "0.4-0.6, 0.7-0.8", "0.4 - 0.6",
-        "0.4-0.5,0.5-0.6", "1.0-2.0",
+        "",
+        " ",
+        "0.40-0.60",
+        "0.40-0.60,0.65-0.75",
+        "invalid",
+        "0.5",
+        "0.4-",
+        "-0.6",
+        "0.4-0.6,",
+        ",0.4-0.6",
+        "0.4-0.6, 0.7-0.8",
+        "0.4 - 0.6",
+        "0.4-0.5,0.5-0.6",
+        "1.0-2.0",
     ]
     for s in test_zones:
         try:
@@ -526,8 +612,11 @@ def test_engine_signals_static_methods():
 
     # _in_allowed_zone edge cases
     for zones in [
-        [], [(0.40, 0.60)], [(0.40, 0.60), (0.65, 0.75)],
-        [(0.0, 1.0)], [(-1.0, 2.0)],
+        [],
+        [(0.40, 0.60)],
+        [(0.40, 0.60), (0.65, 0.75)],
+        [(0.0, 1.0)],
+        [(-1.0, 2.0)],
     ]:
         for p in [0.0, 0.5, 1.0, -0.1, 1.1, 0.40, 0.60]:
             try:
@@ -536,8 +625,13 @@ def test_engine_signals_static_methods():
                 pass
 
     # _classic_free_mode edge cases
-    for arg in [None, MagicMock(), "test", {"strategy_type": "fade_rip"},
-                MagicMock(strategy_type="fade_rip")]:
+    for arg in [
+        None,
+        MagicMock(),
+        "test",
+        {"strategy_type": "fade_rip"},
+        MagicMock(strategy_type="fade_rip"),
+    ]:
         try:
             EngineSignalsMixin._classic_free_mode(arg)
         except Exception:
@@ -573,8 +667,7 @@ def test_risk_manager_boundary():
         {},
     ]
     for trade in edge_trades:
-        for method in ["check_trade", "validate", "evaluate_risk",
-                       "can_trade", "is_safe"]:
+        for method in ["check_trade", "validate", "evaluate_risk", "can_trade", "is_safe"]:
             m = getattr(rm, method, None)
             if m and callable(m):
                 try:
@@ -599,12 +692,13 @@ async def test_allowance_preflight_full():
         # No allowances
         {"balance": "0", "allowances": {}},
         # Max allowance
-        {"balance": "10000000",
-         "allowances": {
-             "0xE111180000d2663C0091e4f400237545B87B996B":
-                 "115792089237316195423570985008687907853269984665640564"
-                 "039457584007913129639935",
-         }},
+        {
+            "balance": "10000000",
+            "allowances": {
+                "0xE111180000d2663C0091e4f400237545B87B996B": "115792089237316195423570985008687907853269984665640564"
+                "039457584007913129639935",
+            },
+        },
         # V1 format
         {"balance": "10000000", "allowance": "5000000"},
         # Empty dict
@@ -615,12 +709,10 @@ async def test_allowance_preflight_full():
         client_stub = MagicMock()
         client_stub.get_balance_allowance = MagicMock(return_value=resp)
 
-        for fn_name in ["check_collateral_allowance",
-                        "check_conditional_allowance"]:
+        for fn_name in ["check_collateral_allowance", "check_conditional_allowance"]:
             fn = getattr(ap, fn_name, None)
             if fn and asyncio.iscoroutinefunction(fn):
-                for args in [(client_stub,), (client_stub, "123"),
-                             (client_stub, None)]:
+                for args in [(client_stub,), (client_stub, "123"), (client_stub, None)]:
                     try:
                         await fn(*args)
                         break

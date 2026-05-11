@@ -3,14 +3,16 @@ PolyPaper Bot - /live command (Phase 34: Shadow Mode)
 Button UI — toggle live, paper vs real side by side, trade history.
 Real data feeds back into paper model calibration.
 """
-import asyncio
+
 import logging
 import os  # 2026-05-05: market BUY/SELL slippage env read
+from datetime import UTC
 
 import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.live")
@@ -19,7 +21,7 @@ logger = logging.getLogger("polypaper.handlers.live")
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
     engine = context.bot_data.get("engine")
-    if not engine or not hasattr(engine, 'live'):
+    if not engine or not hasattr(engine, "live"):
         return await update.message.reply_text("Live trader bulunamadı.")
     text, kb = await _build_main(engine, context.bot_data.get("db"))
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
@@ -32,7 +34,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = q.data
     engine = context.bot_data.get("engine")
     db = context.bot_data.get("db")
-    if not engine or not hasattr(engine, 'live'):
+    if not engine or not hasattr(engine, "live"):
         return
 
     if data == "live_toggle":
@@ -52,13 +54,17 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "<i>Polymarket gerçek bakiyeni /portfolio'dan kontrol et.</i>\n\n"
                 "Emin misin?"
             )
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Evet, aç", callback_data="live_toggle_confirm"),
-                 InlineKeyboardButton("❌ İptal", callback_data="live_toggle_cancel")],
-            ])
+            kb = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("✅ Evet, aç", callback_data="live_toggle_confirm"),
+                        InlineKeyboardButton("❌ İptal", callback_data="live_toggle_cancel"),
+                    ],
+                ]
+            )
             try:
                 await q.edit_message_text(confirm_text, parse_mode="HTML", reply_markup=kb)
-            except (BadRequest, TelegramError, asyncio.TimeoutError):
+            except (TimeoutError, BadRequest, TelegramError):
                 # T11.8-B (2026-04-24): narrow from bare Exception. edit
                 # BadRequest "not modified" or original message gone — fall
                 # back to fresh reply.
@@ -70,7 +76,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -80,7 +86,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -88,25 +94,29 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_compare":
         text = await _build_compare(engine)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")]])
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")]]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_history":
         text = await _build_history(engine)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")]])
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")]]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -114,7 +124,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, kb = await _build_main(engine, db)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -205,27 +215,28 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cid = info.get("condition_id", "")
             if not cid:
                 await q.message.reply_text(
-                    f"⚠️ condition_id eksik — Polymarket data-api'den çekilemedi.\n"
-                    f"Manuel: polymarket.com/portfolio → Redeem",
+                    "⚠️ condition_id eksik — Polymarket data-api'den çekilemedi.\n"
+                    "Manuel: polymarket.com/portfolio → Redeem",
                     parse_mode="HTML",
                 )
                 return
             from data.polymarket_actions import redeem_position
+
             ok, detail = await redeem_position(cid)
-            kb_post = InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Pozisyon Paneli",
-                                       callback_data="live_market_sell")],
-                [InlineKeyboardButton("📊 Portfolio",
-                                       callback_data="live_main")],
-            ])
+            kb_post = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("◀️ Pozisyon Paneli", callback_data="live_market_sell")],
+                    [InlineKeyboardButton("📊 Portfolio", callback_data="live_main")],
+                ]
+            )
             try:
-                await q.edit_message_text(detail, parse_mode="HTML",
-                                           reply_markup=kb_post,
-                                           disable_web_page_preview=True)
-            except (BadRequest, TelegramError, asyncio.TimeoutError):
-                await q.message.reply_text(detail, parse_mode="HTML",
-                                            reply_markup=kb_post,
-                                            disable_web_page_preview=True)
+                await q.edit_message_text(
+                    detail, parse_mode="HTML", reply_markup=kb_post, disable_web_page_preview=True
+                )
+            except (TimeoutError, BadRequest, TelegramError):
+                await q.message.reply_text(
+                    detail, parse_mode="HTML", reply_markup=kb_post, disable_web_page_preview=True
+                )
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"redeem: {_ex}")
             await q.message.reply_text(
@@ -255,6 +266,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML",
             )
             from data.polymarket_actions import approve_allowance
+
             ok, detail = await approve_allowance()
             if ok:
                 text_post = (
@@ -269,12 +281,14 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"<i>{esc(detail[:300])}</i>\n\n"
                     f"Manuel: polymarket.com/portfolio → Approve"
                 )
-            kb_post = InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
-            ])
-            await q.edit_message_text(text_post, parse_mode="HTML",
-                                       reply_markup=kb_post,
-                                       disable_web_page_preview=True)
+            kb_post = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+                ]
+            )
+            await q.edit_message_text(
+                text_post, parse_mode="HTML", reply_markup=kb_post, disable_web_page_preview=True
+            )
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"approve_allowance UI: {_ex}")
             await q.message.reply_text(
@@ -291,6 +305,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Asset seçimi: BTC/ETH/SOL/XRP × UP/DOWN (8 token).
 # Tutar: $1, $5, $10, $25, custom (env LIVE_MAX_MARKET_TRADE).
 # Güvenlik: live trader auth gerekli, allowance check, FOK order.
+
 
 async def _show_market_form(q, engine, side: str):
     """Timeframe seçici (BUY) veya pozisyon paneli (SELL).
@@ -313,16 +328,22 @@ async def _show_market_form(q, engine, side: str):
         "<b>Hangi timeframe?</b>\n"
         "5dk hızlı | 15dk orta | 1h uzun"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ 5m", callback_data=f"live_market_tf:{side}:5m"),
-         InlineKeyboardButton("⏱ 15m", callback_data=f"live_market_tf:{side}:15m")],
-        [InlineKeyboardButton("🕐 1h", callback_data=f"live_market_tf:{side}:1h"),
-         InlineKeyboardButton("🕓 4h", callback_data=f"live_market_tf:{side}:4h")],
-        [InlineKeyboardButton("◀️ İptal", callback_data="live_main")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⚡ 5m", callback_data=f"live_market_tf:{side}:5m"),
+                InlineKeyboardButton("⏱ 15m", callback_data=f"live_market_tf:{side}:15m"),
+            ],
+            [
+                InlineKeyboardButton("🕐 1h", callback_data=f"live_market_tf:{side}:1h"),
+                InlineKeyboardButton("🕓 4h", callback_data=f"live_market_tf:{side}:4h"),
+            ],
+            [InlineKeyboardButton("◀️ İptal", callback_data="live_main")],
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -345,15 +366,15 @@ async def _show_position_panel(q, engine):
             "İpucu: önce <b>BUY</b> ile pozisyon aç,\n"
             "sonra burada karını/zararını görüp sat."
         )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 BUY (Yeni Pozisyon)",
-                                   callback_data="live_market_buy")],
-            [InlineKeyboardButton("◀️ Ana Panel",
-                                   callback_data="live_main")],
-        ])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🟢 BUY (Yeni Pozisyon)", callback_data="live_market_buy")],
+                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+            ]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -410,16 +431,24 @@ async def _show_position_panel(q, engine):
             )
             if cid:
                 # Bot direct redeem (Relayer gasless) — asset_key ile lookup
-                rows.append([InlineKeyboardButton(
-                    f"🏆 {asset_label} Redeem (gasless)",
-                    callback_data=f"live_redeem:{asset_key}",
-                )])
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🏆 {asset_label} Redeem (gasless)",
+                            callback_data=f"live_redeem:{asset_key}",
+                        )
+                    ]
+                )
             else:
                 # Fallback UI link (condition_id eksik)
-                rows.append([InlineKeyboardButton(
-                    f"🏆 {asset_label} Redeem (UI)",
-                    url="https://polymarket.com/portfolio",
-                )])
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🏆 {asset_label} Redeem (UI)",
+                            url="https://polymarket.com/portfolio",
+                        )
+                    ]
+                )
         else:
             # Aktif pozisyon — normal sat akışı
             emoji = "🟢" if pnl >= 0 else "🔴"
@@ -429,19 +458,21 @@ async def _show_position_panel(q, engine):
                 f"  • Değer: ${cur_val:.2f} (maliyet ${cost:.2f})\n"
                 f"  • PnL: {emoji} {pnl:+.2f} USDC ({pnl_pct:+.1f}%)\n"
             )
-            rows.append([InlineKeyboardButton(
-                f"{emoji} {asset_label} sat → ${cur_val:.2f}",
-                callback_data=f"live_sell_pct:{asset_key}",
-            )])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"{emoji} {asset_label} sat → ${cur_val:.2f}",
+                        callback_data=f"live_sell_pct:{asset_key}",
+                    )
+                ]
+            )
 
-    rows.append([InlineKeyboardButton("🔄 Yenile",
-                                       callback_data="live_market_sell")])
-    rows.append([InlineKeyboardButton("◀️ Ana Panel",
-                                       callback_data="live_main")])
+    rows.append([InlineKeyboardButton("🔄 Yenile", callback_data="live_market_sell")])
+    rows.append([InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")])
     kb = InlineKeyboardMarkup(rows)
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -456,12 +487,14 @@ async def _show_sell_pct_picker(q, engine, asset_key: str):
             f"<i>{asset_key.replace('_', ' ')}</i> artık açık değil.\n"
             "Belki settle oldu ya da satıldı."
         )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Geri", callback_data="live_market_sell")],
-        ])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("◀️ Geri", callback_data="live_market_sell")],
+            ]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -492,13 +525,14 @@ async def _show_sell_pct_picker(q, engine, asset_key: str):
                 f"<i>Polymarket pozisyonu otomatik kapatır.</i>\n"
                 f"Satılabilecek bir şey yok."
             )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Geri",
-                                   callback_data="live_market_sell")],
-        ])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("◀️ Geri", callback_data="live_market_sell")],
+            ]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -526,19 +560,21 @@ async def _show_sell_pct_picker(q, engine, asset_key: str):
     coin, direction = asset_key.split("_")
     rows = []
     # % butonları — value bazlı amount hesapla
-    for label, pct in [("25%", 0.25), ("50%", 0.50),
-                        ("75%", 0.75), ("100%", 1.00)]:
+    for label, pct in [("25%", 0.25), ("50%", 0.50), ("75%", 0.75), ("100%", 1.00)]:
         amt = round(cur_val * pct, 2)
-        rows.append([InlineKeyboardButton(
-            f"{label} sat → ${amt:.2f}",
-            callback_data=f"{base}:SELL:{asset_key}:5m:{amt}",
-        )])
-    rows.append([InlineKeyboardButton("◀️ Geri",
-                                       callback_data="live_market_sell")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{label} sat → ${amt:.2f}",
+                    callback_data=f"{base}:SELL:{asset_key}:5m:{amt}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("◀️ Geri", callback_data="live_market_sell")])
     kb = InlineKeyboardMarkup(rows)
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -556,34 +592,39 @@ async def _show_market_asset_chooser(q, engine, side: str, tf: str):
                 f"⚠️ Satılacak token yok.\n"
                 f"Önce <b>BUY</b> ile pozisyon aç."
             )
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
-            ])
+            kb = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+                ]
+            )
             try:
                 await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-            except (BadRequest, TelegramError, asyncio.TimeoutError):
+            except (TimeoutError, BadRequest, TelegramError):
                 await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
             return
 
         # Pozisyon var → sadece onları göster
         text = (
-            f"{side_emoji} <b>SELL — Açık pozisyonların ({tf}):</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{side_emoji} <b>SELL — Açık pozisyonların ({tf}):</b>\n" "━━━━━━━━━━━━━━━━━━━━━\n\n"
         )
         rows = []
         for asset_key, info in positions.items():
             shares = info.get("shares", 0)
             cost = info.get("cost_basis", 0)
             text += f"  • {asset_key.replace('_', ' ')}: {shares:.0f} hisse (cost ${cost:.2f})\n"
-            rows.append([InlineKeyboardButton(
-                f"{asset_key.replace('_', ' ')}",
-                callback_data=f"{base}:{side}:{asset_key}:{tf}",
-            )])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"{asset_key.replace('_', ' ')}",
+                        callback_data=f"{base}:{side}:{asset_key}:{tf}",
+                    )
+                ]
+            )
         rows.append([InlineKeyboardButton("◀️ Geri", callback_data=f"live_market_{side.lower()}")])
         kb = InlineKeyboardMarkup(rows)
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -595,20 +636,30 @@ async def _show_market_asset_chooser(q, engine, side: str, tf: str):
         "  • UP = fiyat yükselirse kazanır\n"
         "  • DOWN = fiyat düşerse kazanır"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("BTC ⬆", callback_data=f"{base}:{side}:BTC_UP:{tf}"),
-         InlineKeyboardButton("BTC ⬇", callback_data=f"{base}:{side}:BTC_DOWN:{tf}")],
-        [InlineKeyboardButton("ETH ⬆", callback_data=f"{base}:{side}:ETH_UP:{tf}"),
-         InlineKeyboardButton("ETH ⬇", callback_data=f"{base}:{side}:ETH_DOWN:{tf}")],
-        [InlineKeyboardButton("SOL ⬆", callback_data=f"{base}:{side}:SOL_UP:{tf}"),
-         InlineKeyboardButton("SOL ⬇", callback_data=f"{base}:{side}:SOL_DOWN:{tf}")],
-        [InlineKeyboardButton("XRP ⬆", callback_data=f"{base}:{side}:XRP_UP:{tf}"),
-         InlineKeyboardButton("XRP ⬇", callback_data=f"{base}:{side}:XRP_DOWN:{tf}")],
-        [InlineKeyboardButton("◀️ İptal", callback_data="live_main")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("BTC ⬆", callback_data=f"{base}:{side}:BTC_UP:{tf}"),
+                InlineKeyboardButton("BTC ⬇", callback_data=f"{base}:{side}:BTC_DOWN:{tf}"),
+            ],
+            [
+                InlineKeyboardButton("ETH ⬆", callback_data=f"{base}:{side}:ETH_UP:{tf}"),
+                InlineKeyboardButton("ETH ⬇", callback_data=f"{base}:{side}:ETH_DOWN:{tf}"),
+            ],
+            [
+                InlineKeyboardButton("SOL ⬆", callback_data=f"{base}:{side}:SOL_UP:{tf}"),
+                InlineKeyboardButton("SOL ⬇", callback_data=f"{base}:{side}:SOL_DOWN:{tf}"),
+            ],
+            [
+                InlineKeyboardButton("XRP ⬆", callback_data=f"{base}:{side}:XRP_UP:{tf}"),
+                InlineKeyboardButton("XRP ⬇", callback_data=f"{base}:{side}:XRP_DOWN:{tf}"),
+            ],
+            [InlineKeyboardButton("◀️ İptal", callback_data="live_main")],
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -622,6 +673,7 @@ async def _get_open_positions(engine) -> dict:
     positions = {}
     try:
         from data.polymarket_portfolio import read_cached_snapshot
+
         snap = await read_cached_snapshot(engine.db) if engine.db else None
         if snap and snap.get("positions"):
             for p in snap.get("positions", []):
@@ -641,9 +693,7 @@ async def _get_open_positions(engine) -> dict:
                 # 2026-05-05 Redeem support
                 cid = p.get("condition_id", "")
                 closed = bool(p.get("closed", False))
-                is_winner = bool(p.get("is_winner", False)) or (
-                    closed and cur_price > 0.999
-                )
+                is_winner = bool(p.get("is_winner", False)) or (closed and cur_price > 0.999)
                 redeemable = bool(p.get("redeemable", False)) or (
                     closed and is_winner and shares > 0
                 )
@@ -684,23 +734,26 @@ async def _show_market_amount_picker(q, engine, side: str, asset: str, tf: str):
         f"<i>Custom: <code>/{side.lower()} {asset.split('_')[0]} {asset.split('_')[1]} 3.50</code></i>"
     )
     rows = [
-        [InlineKeyboardButton("$1", callback_data=f"{base}:{side}:{asset}:{tf}:1"),
-         InlineKeyboardButton("$5", callback_data=f"{base}:{side}:{asset}:{tf}:5"),
-         InlineKeyboardButton("$10", callback_data=f"{base}:{side}:{asset}:{tf}:10")],
-        [InlineKeyboardButton("$25", callback_data=f"{base}:{side}:{asset}:{tf}:25"),
-         InlineKeyboardButton("$50", callback_data=f"{base}:{side}:{asset}:{tf}:50"),
-         InlineKeyboardButton("$100", callback_data=f"{base}:{side}:{asset}:{tf}:100")],
+        [
+            InlineKeyboardButton("$1", callback_data=f"{base}:{side}:{asset}:{tf}:1"),
+            InlineKeyboardButton("$5", callback_data=f"{base}:{side}:{asset}:{tf}:5"),
+            InlineKeyboardButton("$10", callback_data=f"{base}:{side}:{asset}:{tf}:10"),
+        ],
+        [
+            InlineKeyboardButton("$25", callback_data=f"{base}:{side}:{asset}:{tf}:25"),
+            InlineKeyboardButton("$50", callback_data=f"{base}:{side}:{asset}:{tf}:50"),
+            InlineKeyboardButton("$100", callback_data=f"{base}:{side}:{asset}:{tf}:100"),
+        ],
         [InlineKeyboardButton("◀️ Geri", callback_data=f"live_market_tf:{side}:{tf}")],
     ]
     kb = InlineKeyboardMarkup(rows)
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
-async def _show_market_confirm(q, engine, side: str, asset: str,
-                                 tf: str, amount_str: str):
+async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount_str: str):
     """Onay ekranı — fiyat + hisse + fee + slippage. LIVE-only."""
     side_emoji = "🟢" if side == "BUY" else "🔴"
     asset_label = asset.replace("_", " ")
@@ -711,15 +764,17 @@ async def _show_market_confirm(q, engine, side: str, asset: str,
     st = engine.live.get_status()
     if not st.get("auth_verified", False):
         text = (
-            f"⚠️ <b>Live Trader auth henüz hazır değil</b>\n\n"
-            f"/live ekranında 'Live Aç' butonuna tıkla ve auth verify'i bekle."
+            "⚠️ <b>Live Trader auth henüz hazır değil</b>\n\n"
+            "/live ekranında 'Live Aç' butonuna tıkla ve auth verify'i bekle."
         )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
-        ])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+            ]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -731,12 +786,14 @@ async def _show_market_confirm(q, engine, side: str, asset: str,
             f"<i>{info['error']}</i>\n\n"
             f"Bot scanner offline veya {coin} {tf} market yok olabilir."
         )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
-        ])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
+            ]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -759,6 +816,7 @@ async def _show_market_confirm(q, engine, side: str, asset: str,
     fee_est = 0
     try:
         from core.fees_v2 import polymarket_taker_fee_v2
+
         fee_est = polymarket_taker_fee_v2(limit_price, amount, category="crypto")
     except Exception:  # noqa: BLE001
         fee_est = amount * 0.018  # rough %1.8 estimate
@@ -768,7 +826,9 @@ async def _show_market_confirm(q, engine, side: str, asset: str,
     remaining = float(st.get("remaining", 0))
     balance_text = f"💼 Bot risk limit kalan: <b>${remaining:.2f}</b>\n"
     if amount > remaining and side == "BUY":
-        balance_text = f"❌ <b>YETERSİZ BAKİYE</b> (kalan ${remaining:.2f} &lt; istek ${amount:.2f})\n"
+        balance_text = (
+            f"❌ <b>YETERSİZ BAKİYE</b> (kalan ${remaining:.2f} &lt; istek ${amount:.2f})\n"
+        )
 
     text = (
         f"{side_emoji} <b>LIVE {side} ONAYLA</b>\n"
@@ -787,23 +847,34 @@ async def _show_market_confirm(q, engine, side: str, asset: str,
         f"⚡ Tip: FOK (Fill-Or-Kill)\n"
         f"⚠️ <b>GERÇEK USDC harcanır!</b>\n\nEmin misin?"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            f"✅ EVET, {side} et",
-            callback_data=f"live_market_exec:{side}:{asset}:{tf}:{amount_str}",
-        )],
-        [InlineKeyboardButton("❌ İptal", callback_data="live_main")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"✅ EVET, {side} et",
+                    callback_data=f"live_market_exec:{side}:{asset}:{tf}:{amount_str}",
+                )
+            ],
+            [InlineKeyboardButton("❌ İptal", callback_data="live_main")],
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
     """Market metadata + best ask/bid çek (onay ekranı için)."""
-    out = {"ok": False, "error": "", "price": 0.0, "best_ask": 0.0,
-           "best_bid": 0.0, "slug": "", "end_iso": ""}
+    out = {
+        "ok": False,
+        "error": "",
+        "price": 0.0,
+        "best_ask": 0.0,
+        "best_bid": 0.0,
+        "slug": "",
+        "end_iso": "",
+    }
     if not hasattr(engine, "scanner"):
         out["error"] = "scanner unavailable"
         return out
@@ -818,8 +889,11 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
 
     out["slug"] = market.get("slug", "")
     out["end_iso"] = market.get("endDate", "")
-    odds = engine.scanner.get_current_odds(out["slug"]) if hasattr(
-        engine.scanner, "get_current_odds") else None
+    odds = (
+        engine.scanner.get_current_odds(out["slug"])
+        if hasattr(engine.scanner, "get_current_odds")
+        else None
+    )
     if not odds:
         out["error"] = "odds unavailable"
         return out
@@ -835,6 +909,7 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
         if isinstance(token_ids, str):
             try:
                 import json as _json
+
                 token_ids = _json.loads(token_ids)
             except (ValueError, TypeError):
                 token_ids = []
@@ -846,9 +921,17 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
                     asks = book.get("asks") or []
                     bids = book.get("bids") or []
                     if asks:
-                        out["best_ask"] = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0].get("price", 0))
+                        out["best_ask"] = (
+                            float(asks[0][0])
+                            if isinstance(asks[0], (list, tuple))
+                            else float(asks[0].get("price", 0))
+                        )
                     if bids:
-                        out["best_bid"] = float(bids[0][0]) if isinstance(bids[0], (list, tuple)) else float(bids[0].get("price", 0))
+                        out["best_bid"] = (
+                            float(bids[0][0])
+                            if isinstance(bids[0], (list, tuple))
+                            else float(bids[0].get("price", 0))
+                        )
     except Exception as _ob_e:  # noqa: BLE001
         logger.debug(f"orderbook peek: {_ob_e}")
 
@@ -861,8 +944,7 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
     return out
 
 
-async def _execute_market_trade(q, engine, db, side: str, asset: str,
-                                  tf: str, amount_str: str):
+async def _execute_market_trade(q, engine, db, side: str, asset: str, tf: str, amount_str: str):
     """LIVE manuel trade execute. Polymarket FOK."""
     asset_label = asset.replace("_", " ")
     amount = float(amount_str)
@@ -876,7 +958,7 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str,
     )
     try:
         await q.edit_message_text(text_pre, parse_mode="HTML")
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         pass
 
     # Execute via live_trader
@@ -884,12 +966,20 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str,
         if hasattr(engine.live, "execute_market_order"):
             # P0-08-C (2026-05-08): tf parametresi geçir
             result = await engine.live.execute_market_order(
-                side=side, coin=coin, direction=direction,
-                amount=amount, tf=tf,
+                side=side,
+                coin=coin,
+                direction=direction,
+                amount=amount,
+                tf=tf,
             )
         else:
             result = await _fallback_market_execute(
-                engine, side, coin, direction, amount, tf=tf,
+                engine,
+                side,
+                coin,
+                direction,
+                amount,
+                tf=tf,
             )
     except Exception as e:  # noqa: BLE001
         result = {"status": "error", "error": str(e)[:200]}
@@ -921,13 +1011,17 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str,
     if detail:
         text_post += f"\n<i>{esc(detail[:200])}</i>\n"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
-         InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
+                InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main"),
+            ],
+        ]
+    )
     try:
         await q.edit_message_text(text_post, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         await q.message.reply_text(text_post, parse_mode="HTML", reply_markup=kb)
 
     # ── Bildirim — manuel LIVE trade için "💰 LIVE TRADE" prefix ──
@@ -951,12 +1045,13 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str,
     # Audit log
     if db is not None:
         try:
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt
+
             await db.conn.execute(
                 "INSERT INTO changelog (event, ts, detail) VALUES (?, ?, ?)",
                 (
                     f"MANUAL_LIVE_{side}",
-                    _dt.now(_tz.utc).isoformat(),
+                    _dt.now(UTC).isoformat(),
                     f"asset={asset} amount=${amount} tf={tf} status={status} order={order_id}",
                 ),
             )
@@ -980,11 +1075,11 @@ async def allowance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USDC harcama izni verir. Trade yapmadan önce 1 kez yapılır.
     """
     msg = await update.message.reply_text(
-        "⏳ Allowance approve gönderiliyor...\n"
-        "Polygon network on-chain TX, gas öder.",
+        "⏳ Allowance approve gönderiliyor...\n" "Polygon network on-chain TX, gas öder.",
     )
     try:
         from data.polymarket_actions import approve_allowance
+
         ok, detail = await approve_allowance()
     except Exception as e:  # noqa: BLE001
         ok, detail = False, f"unexpected: {type(e).__name__}: {e}"
@@ -1065,12 +1160,10 @@ async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, si
         return
 
     # P0-08-C: opsiyonel TF arg (4. position). Default 5m geri uyumluluk için.
-    tf = (args[3].lower() if len(args) >= 4 else "5m")
+    tf = args[3].lower() if len(args) >= 4 else "5m"
     valid_tfs = ("5m", "15m", "1h", "24h")
     if tf not in valid_tfs:
-        await update.message.reply_text(
-            f"❌ TF geçersiz: '{tf}'. Geçerli: {', '.join(valid_tfs)}"
-        )
+        await update.message.reply_text(f"❌ TF geçersiz: '{tf}'. Geçerli: {', '.join(valid_tfs)}")
         return
 
     engine = context.bot_data.get("engine")
@@ -1096,19 +1189,28 @@ async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, si
 
 class _MagicQueryStub:
     """Callback query stub — /buy /sell command çağırırken kullanılır."""
+
     def __init__(self, update):
         self._update = update
         self.message = update.message
+
     async def answer(self):
         return None
+
     async def edit_message_text(self, text, parse_mode=None, reply_markup=None):
         await self._update.message.reply_text(
-            text, parse_mode=parse_mode, reply_markup=reply_markup,
+            text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
         )
 
 
 async def _fallback_market_execute(
-    engine, side: str, coin: str, direction: str, amount: float,
+    engine,
+    side: str,
+    coin: str,
+    direction: str,
+    amount: float,
     tf: str = "5m",
 ) -> dict:
     """Fallback: scanner → token_id → live_trader._execute_clob.
@@ -1122,8 +1224,11 @@ async def _fallback_market_execute(
     if not hasattr(engine, "scanner"):
         return {"status": "error", "error": "scanner unavailable"}
 
-    market = engine.scanner.get_current_market(coin, tf) if hasattr(
-        engine.scanner, "get_current_market") else None
+    market = (
+        engine.scanner.get_current_market(coin, tf)
+        if hasattr(engine.scanner, "get_current_market")
+        else None
+    )
     if not market:
         return {"status": "error", "error": f"{coin} {tf} market not found"}
 
@@ -1132,6 +1237,7 @@ async def _fallback_market_execute(
     if isinstance(token_ids, str):
         try:
             import json as _json
+
             token_ids = _json.loads(token_ids)
         except (ValueError, TypeError):
             token_ids = []
@@ -1143,8 +1249,11 @@ async def _fallback_market_execute(
     token_id = token_ids[0] if direction == "UP" else token_ids[1]
 
     # Get current price
-    odds = engine.scanner.get_current_odds(slug) if hasattr(
-        engine.scanner, "get_current_odds") else None
+    odds = (
+        engine.scanner.get_current_odds(slug)
+        if hasattr(engine.scanner, "get_current_odds")
+        else None
+    )
     if not odds:
         return {"status": "error", "error": "odds unavailable"}
 
@@ -1158,7 +1267,9 @@ async def _fallback_market_execute(
     # Execute via live_trader._execute_clob (sync wrapped to async)
     try:
         result = await engine.live._execute_clob(
-            token_id, amount, price,
+            token_id,
+            amount,
+            price,
             "buy" if side == "BUY" else "sell",
         )
         return result or {"status": "failed", "error": "no result"}
@@ -1194,7 +1305,8 @@ async def _build_main(engine, db):
             r = await db.conn.execute_fetchall(
                 "SELECT COALESCE(SUM(pnl),0), COUNT(*), "
                 "COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) "
-                "FROM executions WHERE result IS NOT NULL")
+                "FROM executions WHERE result IS NOT NULL"
+            )
             if r:
                 p_pnl, p_trades = r[0][0], r[0][1]
                 p_wr = r[0][2] / r[0][1] * 100 if r[0][1] > 0 else 0
@@ -1211,7 +1323,8 @@ async def _build_main(engine, db):
     pm_nav = "N/A"
     pm_age = ""
     try:
-        from data.polymarket_portfolio import read_cached_snapshot, cache_age_seconds
+        from data.polymarket_portfolio import cache_age_seconds, read_cached_snapshot
+
         pm_snap = await read_cached_snapshot(db)
         if pm_snap:
             pm_balance = f"${float(pm_snap.get('pusd_balance', 0)):.2f}"
@@ -1224,9 +1337,9 @@ async def _build_main(engine, db):
 
     # 2026-04-29 Aşama 3.B: top-level mode banner
     from telegram_bot.templates.mode_banner import format_banner
+
     text = (
-        format_banner()
-        + f"💰 <b>PolyPaper — Live Trader</b>\n"
+        format_banner() + f"💰 <b>PolyPaper — Live Trader</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📋 <b>PAPER</b> (simülasyon)\n"
         f"  PnL: {p_pnl:+.2f} | {p_trades}t | WR: {p_wr:.0f}%\n\n"
@@ -1262,19 +1375,29 @@ async def _build_main(engine, db):
 
     kb_rows = [
         [InlineKeyboardButton(toggle_btn, callback_data="live_toggle")],
-        [InlineKeyboardButton("🟢 Market BUY", callback_data="live_market_buy"),
-         InlineKeyboardButton("🔴 Market SELL", callback_data="live_market_sell")],
+        [
+            InlineKeyboardButton("🟢 Market BUY", callback_data="live_market_buy"),
+            InlineKeyboardButton("🔴 Market SELL", callback_data="live_market_sell"),
+        ],
     ]
     if allowance_low:
-        kb_rows.append([InlineKeyboardButton(
-            "⚠️ ALLOWANCE EKSİK — Approve",
-            callback_data="live_approve_allowance",
-        )])
-    kb_rows.extend([
-        [InlineKeyboardButton("📊 Paper vs Real", callback_data="live_compare"),
-         InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history")],
-        [InlineKeyboardButton("🔄 Yenile", callback_data="live_main")],
-    ])
+        kb_rows.append(
+            [
+                InlineKeyboardButton(
+                    "⚠️ ALLOWANCE EKSİK — Approve",
+                    callback_data="live_approve_allowance",
+                )
+            ]
+        )
+    kb_rows.extend(
+        [
+            [
+                InlineKeyboardButton("📊 Paper vs Real", callback_data="live_compare"),
+                InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
+            ],
+            [InlineKeyboardButton("🔄 Yenile", callback_data="live_main")],
+        ]
+    )
     kb = InlineKeyboardMarkup(kb_rows)
     return text, kb
 
@@ -1283,9 +1406,11 @@ async def _build_compare(engine):
     """Side-by-side paper vs real from DB."""
     comp = await engine.live.get_comparison()
     if not comp or comp.get("error"):
-        return (f"📊 <b>Paper vs Real</b>\n\n"
-                f"<i>Henuz live trade yok veya DB hatasi.\n"
-                f"Live modu ac ve trade bekle.</i>")
+        return (
+            "📊 <b>Paper vs Real</b>\n\n"
+            "<i>Henuz live trade yok veya DB hatasi.\n"
+            "Live modu ac ve trade bekle.</i>"
+        )
 
     lt = comp.get("total_trades", 0)
     lp = comp.get("live_pnl", 0)
@@ -1317,8 +1442,10 @@ async def _build_compare(engine):
         text += "\n<b>Son Trade'ler:</b>\n"
         for t in recent[:5]:
             e = "🟢" if (t.get("live_pnl") or 0) > 0 else "🔴"
-            text += (f"  {esc(e)} {t.get('strat','')[:18]} {t.get('dir','')[:1].upper()} "
-                    f"Live:{t.get('live_pnl',0):+.4f} Paper:{t.get('paper_pnl',0):+.2f}\n")
+            text += (
+                f"  {esc(e)} {t.get('strat','')[:18]} {t.get('dir','')[:1].upper()} "
+                f"Live:{t.get('live_pnl',0):+.4f} Paper:{t.get('paper_pnl',0):+.2f}\n"
+            )
 
     return text
 
@@ -1327,18 +1454,19 @@ async def _build_history(engine):
     """Show live trade history from DB."""
     history = await engine.live.load_trade_history()
 
-    text = (f"📋 <b>Live Trade Gecmisi</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n\n")
+    text = "📋 <b>Live Trade Gecmisi</b>\n" "━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     if not history:
         text += "<i>Henuz live trade yok.</i>\n"
     else:
         for t in history[:10]:
             emoji = "🟢" if t.get("pnl", 0) > 0 else ("🔴" if t.get("result") else "⏳")
-            text += (f"{emoji} {t.get('strategy','?')[:20]}\n"
-                    f"  {t.get('direction','?').upper()} @{t.get('entry_odds',0):.3f} "
-                    f"${t.get('amount',0):.2f} → "
-                    f"Live:{t.get('pnl',0):+.4f} Paper:{t.get('pnl_paper',0):+.2f}\n")
+            text += (
+                f"{emoji} {t.get('strategy','?')[:20]}\n"
+                f"  {t.get('direction','?').upper()} @{t.get('entry_odds',0):.3f} "
+                f"${t.get('amount',0):.2f} → "
+                f"Live:{t.get('pnl',0):+.4f} Paper:{t.get('pnl_paper',0):+.2f}\n"
+            )
 
     st = engine.live.get_status()
     text += f"\n💵 Toplam: ${st['total_pnl']:+.4f} | Kalan: ${st.get('remaining', 0):.2f}"
@@ -1355,7 +1483,9 @@ async def ws_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ws:
         return await update.message.reply_text(
             "🔌 <b>WebSocket</b>\n\nStatus: ⚫ REST-only mode\n"
-            "Install: <code>pip install websockets</code>", parse_mode="HTML")
+            "Install: <code>pip install websockets</code>",
+            parse_mode="HTML",
+        )
 
     st = ws.get_status()
     e = "🟢" if st["connected"] else "🔴"
@@ -1369,16 +1499,20 @@ async def ws_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Errors: {st.get('errors', 0)}\n"
         f"Last message: {age}\n"
         f"Reconnects: {st.get('reconnects', 0)}\n"
-        f"Cached prices: {st.get('cached_prices', 0)}\n")
+        f"Cached prices: {st.get('cached_prices', 0)}\n"
+    )
 
     if st["connected"]:
         text += "\nReal-time data active."
     else:
         text += "\nFalling back to REST polling."
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_ws")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")]])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_ws")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -1393,29 +1527,37 @@ async def ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     e = "🟢" if st["connected"] else "🔴"
     age = f"{st.get('last_msg_age', '?')}s" if st.get("last_msg_age") else "-"
 
-    text = (f"🔌 {esc(e)} | Tokens: {st.get('subscribed',0)} | "
-            f"Msgs: {st.get('messages',0)} | Last: {age}")
+    text = (
+        f"🔌 {esc(e)} | Tokens: {st.get('subscribed',0)} | "
+        f"Msgs: {st.get('messages',0)} | Last: {age}"
+    )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="show_ws")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")]])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="show_ws")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 Cluster H — merged from daily_handler.py
 # ═══════════════════════════════════════════════════════════════════════
-from db.database import Database as _DailyDatabase  # noqa: E402
 from core.auto_optimizer import AutoOptimizer as _DailyAutoOptimizer  # noqa: E402
+from db.database import Database as _DailyDatabase  # noqa: E402
 
 
 async def _build_daily(db, engine, user_id):
     optimizer = _DailyAutoOptimizer(db, engine)
     text = await optimizer.generate_daily_summary(user_id)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Analytics", callback_data="show_analytics")],
-        [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")]])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 Analytics", callback_data="show_analytics")],
+            [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     return text, kb
 
 

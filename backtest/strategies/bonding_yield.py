@@ -15,19 +15,19 @@ ENV:
   BONDING_CONFIDENCE_BASE=0.80   # Base confidence for qualifying contracts
 """
 
-import os
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-BONDING_MIN_PRICE     = float(os.getenv("BONDING_MIN_PRICE", "0.90"))
-BONDING_MAX_PRICE     = float(os.getenv("BONDING_MAX_PRICE", "0.99"))
-BONDING_MIN_YIELD     = float(os.getenv("BONDING_MIN_YIELD", "0.01"))
-BONDING_TIME_WEIGHT   = os.getenv("BONDING_TIME_WEIGHT", "true").lower() == "true"
-BONDING_MAX_HOURS     = float(os.getenv("BONDING_MAX_HOURS_LEFT", "48"))
-BONDING_CONF_BASE     = float(os.getenv("BONDING_CONFIDENCE_BASE", "0.80"))
+BONDING_MIN_PRICE = float(os.getenv("BONDING_MIN_PRICE", "0.90"))
+BONDING_MAX_PRICE = float(os.getenv("BONDING_MAX_PRICE", "0.99"))
+BONDING_MIN_YIELD = float(os.getenv("BONDING_MIN_YIELD", "0.01"))
+BONDING_TIME_WEIGHT = os.getenv("BONDING_TIME_WEIGHT", "true").lower() == "true"
+BONDING_MAX_HOURS = float(os.getenv("BONDING_MAX_HOURS_LEFT", "48"))
+BONDING_CONF_BASE = float(os.getenv("BONDING_CONFIDENCE_BASE", "0.80"))
 
 
 @dataclass
@@ -65,9 +65,9 @@ class BondingYieldStrategy:
         """
         up = snapshot.up_odds
         down = snapshot.down_odds
-        mins_remaining = getattr(snapshot, 'minutes_remaining', 5.0)
-        total_mins = getattr(snapshot, 'total_minutes', 5.0)
-        spread = getattr(snapshot, 'spread', 0.02)
+        mins_remaining = getattr(snapshot, "minutes_remaining", 5.0)
+        total_mins = getattr(snapshot, "total_minutes", 5.0)
+        spread = getattr(snapshot, "spread", 0.02)
 
         # Check both directions
         candidates = []
@@ -124,7 +124,7 @@ class BondingYieldStrategy:
                 "entry_price": price,
                 "expected_yield": exp_yield,
                 "hours_remaining": round(hours_left, 1),
-            }
+            },
         )
 
 

@@ -16,14 +16,13 @@ Usage:
     fill = sim.simulate_market_buy(notional_usd=100, max_price=0.55)
     # fill = {"avg_price": 0.523, "shares": 191.2, "fee": 1.32, "rejected": False}
 """
+
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Optional
 
 from core.fees_v2 import polymarket_taker_fee_v2  # mevcut FAZ 0.1 oracle
-
 
 # Polymarket V2 docs minimums
 MIN_ORDER_USD = 5.0
@@ -32,6 +31,7 @@ MIN_ORDER_USD = 5.0
 @dataclass
 class FillResult:
     """Simulated fill outcome."""
+
     filled: bool
     avg_price: float
     shares: float
@@ -128,15 +128,25 @@ class SlippageModel:
 
         if not ladder:
             return FillResult(
-                filled=False, avg_price=0, shares=0, notional_filled_usd=0,
-                fee_usd=0, slippage_bps=0, rejected_reason="empty_book",
+                filled=False,
+                avg_price=0,
+                shares=0,
+                notional_filled_usd=0,
+                fee_usd=0,
+                slippage_bps=0,
+                rejected_reason="empty_book",
             )
 
         # Min order check
         if side == "BUY" and notional_usd is not None and notional_usd < MIN_ORDER_USD:
             return FillResult(
-                filled=False, avg_price=0, shares=0, notional_filled_usd=0,
-                fee_usd=0, slippage_bps=0, rejected_reason=f"below_min_${MIN_ORDER_USD}",
+                filled=False,
+                avg_price=0,
+                shares=0,
+                notional_filled_usd=0,
+                fee_usd=0,
+                slippage_bps=0,
+                rejected_reason=f"below_min_${MIN_ORDER_USD}",
             )
 
         filled_shares = 0.0
@@ -149,8 +159,12 @@ class SlippageModel:
                 if max_price is not None and price > max_price:
                     # FOK: any level beyond max_price rejects
                     return FillResult(
-                        filled=False, avg_price=0, shares=0, notional_filled_usd=0,
-                        fee_usd=0, slippage_bps=0,
+                        filled=False,
+                        avg_price=0,
+                        shares=0,
+                        notional_filled_usd=0,
+                        fee_usd=0,
+                        slippage_bps=0,
                         rejected_reason=f"price_above_max ({price:.4f} > {max_price:.4f})",
                         levels_consumed=levels_used,
                     )
@@ -171,8 +185,12 @@ class SlippageModel:
             # Insufficient liquidity (FOK reject)
             if filled_notional < target * 0.999:  # 0.1% tolerance
                 return FillResult(
-                    filled=False, avg_price=0, shares=0, notional_filled_usd=0,
-                    fee_usd=0, slippage_bps=0,
+                    filled=False,
+                    avg_price=0,
+                    shares=0,
+                    notional_filled_usd=0,
+                    fee_usd=0,
+                    slippage_bps=0,
                     rejected_reason=f"insufficient_liquidity (filled ${filled_notional:.2f} of ${target:.2f})",
                     levels_consumed=levels_used,
                 )
@@ -182,8 +200,12 @@ class SlippageModel:
             for price, size in ladder:
                 if max_price is not None and price < max_price:
                     return FillResult(
-                        filled=False, avg_price=0, shares=0, notional_filled_usd=0,
-                        fee_usd=0, slippage_bps=0,
+                        filled=False,
+                        avg_price=0,
+                        shares=0,
+                        notional_filled_usd=0,
+                        fee_usd=0,
+                        slippage_bps=0,
                         rejected_reason=f"price_below_max ({price:.4f} < {max_price:.4f})",
                         levels_consumed=levels_used,
                     )
@@ -200,8 +222,12 @@ class SlippageModel:
 
             if filled_shares < target * 0.999:
                 return FillResult(
-                    filled=False, avg_price=0, shares=0, notional_filled_usd=0,
-                    fee_usd=0, slippage_bps=0,
+                    filled=False,
+                    avg_price=0,
+                    shares=0,
+                    notional_filled_usd=0,
+                    fee_usd=0,
+                    slippage_bps=0,
                     rejected_reason=f"insufficient_liquidity (filled {filled_shares:.2f} of {target:.2f} shares)",
                     levels_consumed=levels_used,
                 )
@@ -225,7 +251,9 @@ class SlippageModel:
             levels_consumed=levels_used,
         )
 
-    def simulate_market_buy(self, notional_usd: float, max_price: Optional[float] = None) -> FillResult:
+    def simulate_market_buy(
+        self, notional_usd: float, max_price: Optional[float] = None
+    ) -> FillResult:
         """Convenience: BUY with notional."""
         return self.simulate_market_order("BUY", notional_usd=notional_usd, max_price=max_price)
 

@@ -11,11 +11,12 @@ Paper mode reads live_trades for training/calibration.
 Toggle via Telegram button or LIVE_ENABLED env var.
 Credentials from Replit Secrets ONLY — NEVER in code.
 """
+
 import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
@@ -23,10 +24,13 @@ import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 try:
     from telegram.error import BadRequest as TelegramBadRequest, TelegramError
 except ImportError:  # pragma: no cover - python-telegram-bot is a hard dep
+
     class TelegramBadRequest(Exception):  # type: ignore[no-redef]
         ...
+
     class TelegramError(Exception):  # type: ignore[no-redef]
         ...
+
 
 logger = logging.getLogger("polypaper.core.live")
 
@@ -53,9 +57,11 @@ def get_shared_creds():
 def set_shared_creds(creds, wallet: str = ""):
     """live_trader.start() derive PASS sonrası çağrılır."""
     import time
+
     SHARED_CREDS_CACHE["creds"] = creds
     SHARED_CREDS_CACHE["fetched_at"] = time.time()
     SHARED_CREDS_CACHE["wallet"] = wallet
+
 
 # ═══ SAFETY LIMITS (ENV-override, runtime re-read via /env_toggle) ═══
 # T7.6 A5 (2026-04-22): module-top floats caused the same ghost-toggle
@@ -111,6 +117,7 @@ def _get_live_budget() -> float:
     except (TypeError, ValueError):
         return 1.49
 
+
 # LIVE_STRATEGIES: whitelist of paper strategies that may mirror to
 # real-money ($1/trade) via py-clob-client. Selection criterion: proven
 # WR + positive EV in paper.
@@ -129,9 +136,9 @@ def _get_live_budget() -> float:
 # are experimental; AI Brain retains the right to stop/tune them on fresh
 # performance evidence.
 LIVE_STRATEGIES = {
-    "M_BTC_5m_any_0.92",       # 35t 89% WR +$139 EV:+3.98  [PROTECTED]
+    "M_BTC_5m_any_0.92",  # 35t 89% WR +$139 EV:+3.98  [PROTECTED]
     "BTC High-Threshold Pure",  # 30t 93% WR +$73  EV:+2.43  [PROTECTED]
-    "AI_F_BTC_5m_up_0.38",     # 21t 86% WR +$104 EV:+4.93  [experimental]
+    "AI_F_BTC_5m_up_0.38",  # 21t 86% WR +$104 EV:+4.93  [experimental]
     # ── P0-08-H placeholders (2026-05-08) ──────────────────────────────
     # Yeni TF/asset kombinasyonları için strategy ID convention:
     #   M_{ASSET}_{TF}_any_0.NN   — Manual baseline (threshold=0.NN)
@@ -151,7 +158,6 @@ LIVE_STRATEGIES = {
 
 
 class LiveTrader:
-
     def __init__(self, db=None, bot_app=None, settings=None):
         self.db = db
         self.bot_app = bot_app
@@ -245,7 +251,7 @@ class LiveTrader:
         """
         try:
             # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
-            from py_clob_client_v2 import ClobClient, ApiCreds
+            from py_clob_client_v2 import ApiCreds, ClobClient
         except ImportError as e:
             return (False, f"py-clob-client-v2 not installed: {e}")
 
@@ -259,7 +265,8 @@ class LiveTrader:
             sig_type = int(os.getenv("CLOB_SIGNATURE_TYPE", "2"))
             client = ClobClient(
                 "https://clob.polymarket.com",
-                key=pk, chain_id=137,
+                key=pk,
+                chain_id=137,
                 signature_type=sig_type,
                 funder=wallet,
             )
@@ -305,11 +312,17 @@ class LiveTrader:
                 # T7.6 Faz 3 + 2026-04-30 P1.X: Cloudflare 403 graceful handling.
                 err_str = str(e)
                 if "403" in err_str or "Cloudflare" in err_str:
-                    return (False, f"Cloudflare 403 derive fail (no stored creds fallback). "
-                                   f"Set POLYMARKET_API_KEY/SECRET/PASSPHRASE in .env to bypass.")
+                    return (
+                        False,
+                        "Cloudflare 403 derive fail (no stored creds fallback). "
+                        "Set POLYMARKET_API_KEY/SECRET/PASSPHRASE in .env to bypass.",
+                    )
                 # Generic fallback
                 if not all([stored_key, stored_secret, stored_pass]):
-                    return (False, f"derive failed ({type(e).__name__}: {e}) and no fallback triplet")
+                    return (
+                        False,
+                        f"derive failed ({type(e).__name__}: {e}) and no fallback triplet",
+                    )
                 try:
                     creds = ApiCreds(
                         api_key=stored_key,
@@ -320,12 +333,16 @@ class LiveTrader:
                     self._api_creds = creds
                     detail_derived = f"fallback stored (derive err: {type(e).__name__})"
                 except Exception as e2:  # noqa: BLE001
-                    return (False, f"both derive ({type(e).__name__}: {e}) and fallback ({type(e2).__name__}: {e2}) failed")
+                    return (
+                        False,
+                        f"both derive ({type(e).__name__}: {e}) and fallback ({type(e2).__name__}: {e2}) failed",
+                    )
 
         # Verify with a cheap authenticated call (get_trades with limit)
         try:
             # 2026-04-30 P0.11: V1 → V2 migration
             from py_clob_client_v2 import TradeParams
+
             _ = client.get_trades(TradeParams())
             # ✅ PASS: shared cache'e yaz (cross-module Cloudflare bypass)
             set_shared_creds(self._api_creds, wallet=wallet)
@@ -338,7 +355,7 @@ class LiveTrader:
             stored_was_used = self._api_creds and detail_derived.startswith("stored")
             if is_auth_fail and stored_was_used:
                 logger.warning(
-                    f"  ⚠ stored ENV creds invalid (verify 401); falling back to derive..."
+                    "  ⚠ stored ENV creds invalid (verify 401); falling back to derive..."
                 )
                 self._api_creds = None  # reset
                 try:
@@ -348,18 +365,24 @@ class LiveTrader:
                     derive_detail = f"derived after stored-fail key={str(getattr(derived, 'api_key', ''))[:8]}..."
                     # Re-verify with new creds
                     _ = client.get_trades(TradeParams())
-                    logger.info(f"  ✅ derive fallback PASS — stored creds were stale")
+                    logger.info("  ✅ derive fallback PASS — stored creds were stale")
                     # ✅ PASS: shared cache'e yaz (cross-module bypass)
                     set_shared_creds(self._api_creds, wallet=wallet)
                     return (True, derive_detail)
                 except Exception as e_derive:  # noqa: BLE001
                     derive_err = str(e_derive)
                     if "403" in derive_err or "Cloudflare" in derive_err:
-                        return (False, f"{detail_derived} verify 401 + derive Cloudflare 403. "
-                                       f"Manuel: ENV POLYMARKET_API_KEY/SECRET/PASSPHRASE update gerek "
-                                       f"veya CLOB_FORCE_DERIVE=true ile retry")
-                    return (False, f"{detail_derived} verify 401 + derive fallback "
-                                   f"({type(e_derive).__name__}: {derive_err[:120]})")
+                        return (
+                            False,
+                            f"{detail_derived} verify 401 + derive Cloudflare 403. "
+                            f"Manuel: ENV POLYMARKET_API_KEY/SECRET/PASSPHRASE update gerek "
+                            f"veya CLOB_FORCE_DERIVE=true ile retry",
+                        )
+                    return (
+                        False,
+                        f"{detail_derived} verify 401 + derive fallback "
+                        f"({type(e_derive).__name__}: {derive_err[:120]})",
+                    )
             # T1.4 Faz 1: catch-all kept — get_trades can raise HTTP/auth/network.
             return (False, f"{detail_derived} | verify failed ({type(e).__name__}): {e}")
 
@@ -373,9 +396,15 @@ class LiveTrader:
         logger.info(f"💰 Live Trader {'PAUSED' if self._paused else 'RESUMED'}")
         return not self._paused
 
-    async def maybe_mirror(self, strategy_label: str, signal_score: float,
-                           direction: str, token_id: str, odds: float,
-                           slug: str) -> Optional[dict]:
+    async def maybe_mirror(
+        self,
+        strategy_label: str,
+        signal_score: float,
+        direction: str,
+        token_id: str,
+        odds: float,
+        slug: str,
+    ) -> Optional[dict]:
         if not self.is_enabled():
             return None
         if strategy_label not in LIVE_STRATEGIES:
@@ -398,9 +427,13 @@ class LiveTrader:
             return None
 
         amount = min(_get_max_trade(), remaining)
-        return await self._place(token_id, direction, amount, odds, slug, strategy_label, signal_score)
+        return await self._place(
+            token_id, direction, amount, odds, slug, strategy_label, signal_score
+        )
 
-    async def _place(self, token_id, direction, amount, odds, slug, strategy, signal) -> Optional[dict]:
+    async def _place(
+        self, token_id, direction, amount, odds, slug, strategy, signal
+    ) -> Optional[dict]:
         try:
             order_result = await self._execute_clob(token_id, amount, odds, direction)
             oid = order_result.get("id", "") if order_result else ""
@@ -408,10 +441,15 @@ class LiveTrader:
 
             if status in ("placed", "mock", "filled"):
                 self._open = {
-                    "token_id": token_id, "direction": direction,
-                    "amount": amount, "entry_odds": odds, "slug": slug,
-                    "strategy": strategy, "signal": signal, "order_id": oid,
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "token_id": token_id,
+                    "direction": direction,
+                    "amount": amount,
+                    "entry_odds": odds,
+                    "slug": slug,
+                    "strategy": strategy,
+                    "signal": signal,
+                    "order_id": oid,
+                    "ts": datetime.now(UTC).isoformat(),
                 }
                 self._total_spent += amount
                 self._daily_trades += 1
@@ -423,21 +461,35 @@ class LiveTrader:
                         """INSERT INTO live_trades (strategy_label, slug, direction, token_id,
                             entry_price, amount, signal_score, order_id, created_at)
                         VALUES (?,?,?,?,?,?,?,?,?)""",
-                        (strategy, slug, direction, token_id, odds, amount, signal, oid,
-                         datetime.now(timezone.utc).isoformat()))
+                        (
+                            strategy,
+                            slug,
+                            direction,
+                            token_id,
+                            odds,
+                            amount,
+                            signal,
+                            oid,
+                            datetime.now(UTC).isoformat(),
+                        ),
+                    )
                     await self.db.conn.commit()
 
                 live_mode = "🟢 REAL" if status != "mock" else "🟡 MOCK"
-                logger.info(f"  💰 {live_mode} TRADE! {strategy} {direction.upper()} "
-                           f"{slug[:30]} ${amount:.2f} @{odds:.3f} sig={signal:.2f}")
+                logger.info(
+                    f"  💰 {live_mode} TRADE! {strategy} {direction.upper()} "
+                    f"{slug[:30]} ${amount:.2f} @{odds:.3f} sig={signal:.2f}"
+                )
                 # Phase 49 P0-05: HTML-escape untrusted strategy label + market slug
                 from telegram_bot.templates.safe_html import esc, esc_code
+
                 await self._notify(
                     f"💰 <b>LIVE TRADE!</b> ({esc(status)})\n"
                     f"📋 {esc(strategy)}\n"
                     f"{'🟢' if direction=='up' else '🔴'} {esc(direction.upper())} @{odds:.3f}\n"
                     f"💵 ${amount:.2f} | sig={signal:.2f}\n"
-                    f"<code>{esc_code(slug[:40])}</code>")
+                    f"<code>{esc_code(slug[:40])}</code>"
+                )
                 return self._open
             else:
                 logger.warning(f"  ⚠️ LIVE FAIL: {slug} — {status}")
@@ -451,7 +503,10 @@ class LiveTrader:
             return None
 
     async def check_settlement(
-        self, slug: str, won: bool, pnl_paper: float,
+        self,
+        slug: str,
+        won: bool,
+        pnl_paper: float,
         paper_amount: float = 0.0,
     ):
         """Called when paper trade settles. Close live if matching.
@@ -487,23 +542,32 @@ class LiveTrader:
                         WHERE slug=? AND settled_at IS NULL
                         ORDER BY created_at DESC LIMIT 1
                     )""",
-                    (live_pnl, "won" if won else "lost", pnl_paper,
-                     actual_exit_price,
-                     datetime.now(timezone.utc).isoformat(), slug))
+                    (
+                        live_pnl,
+                        "won" if won else "lost",
+                        pnl_paper,
+                        actual_exit_price,
+                        datetime.now(UTC).isoformat(),
+                        slug,
+                    ),
+                )
                 await self.db.conn.commit()
             except aiosqlite.Error as e:
                 # T1.4 Faz 1: narrowed from bare Exception — only DB errors expected here.
                 logger.debug(f"Live settle DB: {e}")
 
         emoji = "🟢" if won else "🔴"
-        logger.info(f"  {emoji} LIVE SETTLE: {slug[:30]} Live=${live_pnl:+.4f} Paper=${pnl_paper:+.2f}")
+        logger.info(
+            f"  {emoji} LIVE SETTLE: {slug[:30]} Live=${live_pnl:+.4f} Paper=${pnl_paper:+.2f}"
+        )
         # Phase 49 P0-05: numeric-only below, slug not interpolated — safe
         await self._notify(
             f"{emoji} <b>LIVE SONUC</b>\n"
             f"Live PnL: <b>${live_pnl:+.4f}</b>\n"
             f"Paper PnL: ${pnl_paper:+.2f}\n"
             f"Kalan: ${self._budget - self._total_spent:.2f}\n"
-            f"Toplam: ${self._total_pnl:+.4f}")
+            f"Toplam: ${self._total_pnl:+.4f}"
+        )
 
         self._open = None
         await self._save_state()
@@ -520,7 +584,11 @@ class LiveTrader:
             return None
 
     async def execute_market_order(
-        self, side: str, coin: str, direction: str, amount: float,
+        self,
+        side: str,
+        coin: str,
+        direction: str,
+        amount: float,
         tf: str = "5m",
     ) -> dict:
         """Manuel market BUY/SELL — Heddas 2026-05-05 direktifi.
@@ -543,20 +611,28 @@ class LiveTrader:
         """
         # ── Pre-flight checks ─────────────────────────────────────
         if not self._auth_verified:
-            return {"status": "error", "detail": "auth_verified=False — /live ekranında 'Live Aç' tıkla"}
+            return {
+                "status": "error",
+                "detail": "auth_verified=False — /live ekranında 'Live Aç' tıkla",
+            }
 
         if amount <= 0:
             return {"status": "error", "detail": f"amount must be > 0 (got {amount})"}
 
         max_market = float(os.getenv("LIVE_MAX_MARKET_TRADE", "25.0"))
         if amount > max_market:
-            return {"status": "error", "detail": f"amount ${amount:.2f} > LIVE_MAX_MARKET_TRADE=${max_market:.2f}"}
+            return {
+                "status": "error",
+                "detail": f"amount ${amount:.2f} > LIVE_MAX_MARKET_TRADE=${max_market:.2f}",
+            }
 
         # Budget check
         remaining = self._budget - self._total_spent
         if amount > remaining and side == "BUY":
-            return {"status": "error",
-                    "detail": f"yetersiz risk limit: kalan ${remaining:.2f} < istek ${amount:.2f}"}
+            return {
+                "status": "error",
+                "detail": f"yetersiz risk limit: kalan ${remaining:.2f} < istek ${amount:.2f}",
+            }
 
         # ── Find market via scanner ────────────────────────────────
         scanner = getattr(self, "_engine_scanner", None)
@@ -570,9 +646,11 @@ class LiveTrader:
             return {"status": "error", "detail": f"scanner: {type(e).__name__}: {e}"}
 
         if not market:
-            return {"status": "error",
-                    "detail": f"{coin} {tf} active market not found "
-                              f"(matrix support: {coin} {tf} kombinasyonu Polymarket'ta var mı?)"}
+            return {
+                "status": "error",
+                "detail": f"{coin} {tf} active market not found "
+                f"(matrix support: {coin} {tf} kombinasyonu Polymarket'ta var mı?)",
+            }
 
         slug = market.get("slug", "")
         token_ids = market.get("clobTokenIds")
@@ -590,8 +668,7 @@ class LiveTrader:
         token_id = token_ids[0] if direction.upper() == "UP" else token_ids[1]
 
         # ── Get current price ────────────────────────────────────
-        odds = scanner.get_current_odds(slug) if hasattr(
-            scanner, "get_current_odds") else None
+        odds = scanner.get_current_odds(slug) if hasattr(scanner, "get_current_odds") else None
         if not odds:
             return {"status": "error", "detail": "odds unavailable"}
 
@@ -604,7 +681,9 @@ class LiveTrader:
 
         # ── Execute ──────────────────────────────────────────────
         result = await self._execute_clob(
-            token_id, amount, price,
+            token_id,
+            amount,
+            price,
             "buy" if side == "BUY" else "sell",
         )
         if not result:
@@ -640,7 +719,10 @@ class LiveTrader:
         try:
             # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
             from py_clob_client_v2 import (
-                ClobClient, OrderArgs, OrderType, PartialCreateOrderOptions,
+                ClobClient,
+                OrderArgs,
+                OrderType,
+                PartialCreateOrderOptions,
             )
             from py_clob_client_v2.order_builder.constants import BUY
 
@@ -655,7 +737,8 @@ class LiveTrader:
             sig_type = int(os.getenv("CLOB_SIGNATURE_TYPE", "2"))
             client = ClobClient(
                 "https://clob.polymarket.com",
-                key=pk, chain_id=137,
+                key=pk,
+                chain_id=137,
                 signature_type=sig_type,
                 funder=wallet,
             )
@@ -717,8 +800,10 @@ class LiveTrader:
                     # 1.0.0 BalanceAllowanceParams dataclass'ı korudu (V2 backward
                     # compat). Eski SDK fallback için ImportError yakala.
                     from py_clob_client_v2 import (
-                        BalanceAllowanceParams, AssetType,
+                        AssetType,
+                        BalanceAllowanceParams,
                     )
+
                     bal_params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
                     bal = client.get_balance_allowance(bal_params)
                     avail = float(bal.get("balance", 0) or 0) / 1e6  # raw USDC.e units
@@ -744,13 +829,21 @@ class LiveTrader:
                     if avail < amount:
                         logger.warning(
                             f"  ⚠ pre-flight: bakiye yetersiz ${avail:.2f} < ${amount:.2f} "
-                            f"(allowance ${allow:.2f}) — order skip")
-                        return {"id": "", "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}"}
+                            f"(allowance ${allow:.2f}) — order skip"
+                        )
+                        return {
+                            "id": "",
+                            "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}",
+                        }
                     if allow < amount:
                         logger.warning(
                             f"  ⚠ pre-flight: allowance yetersiz ${allow:.2f} < ${amount:.2f} "
-                            f"— Polymarket UI'dan allowance approve gerekli")
-                        return {"id": "", "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}"}
+                            f"— Polymarket UI'dan allowance approve gerekli"
+                        )
+                        return {
+                            "id": "",
+                            "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}",
+                        }
                 except ImportError:
                     # Eski SDK fallback — dict pattern dene, hata olursa skip
                     try:
@@ -766,11 +859,19 @@ class LiveTrader:
                         else:
                             allow = float(bal.get("allowance", 0) or 0) / 1e6
                         if avail < amount:
-                            return {"id": "", "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}"}
+                            return {
+                                "id": "",
+                                "status": f"skip:insufficient_balance:${avail:.2f}<${amount:.2f}",
+                            }
                         if allow < amount:
-                            return {"id": "", "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}"}
+                            return {
+                                "id": "",
+                                "status": f"skip:insufficient_allowance:${allow:.2f}<${amount:.2f}",
+                            }
                     except Exception as _bal_err2:  # noqa: BLE001
-                        logger.debug(f"  ⓘ pre-flight skip dict-fallback ({type(_bal_err2).__name__}): {_bal_err2}")
+                        logger.debug(
+                            f"  ⓘ pre-flight skip dict-fallback ({type(_bal_err2).__name__}): {_bal_err2}"
+                        )
                 except (AttributeError, KeyError, ValueError, TypeError) as _bal_err:
                     # Response format değişmiş — log, devam (CLOB'a güven)
                     logger.debug(f"  ⓘ pre-flight skip ({type(_bal_err).__name__}): {_bal_err}")
@@ -783,8 +884,10 @@ class LiveTrader:
             builder_code = os.getenv("POLYMARKET_BUILDER_CODE", "").strip()
             try:
                 from py_clob_client_v2 import (
-                    MarketOrderArgs, PartialCreateOrderOptions,
+                    MarketOrderArgs,
+                    PartialCreateOrderOptions,
                 )
+
                 market_kwargs = dict(
                     token_id=token_id,
                     amount=round(float(amount), 2),  # USDC, 2 decimals max
@@ -820,6 +923,7 @@ class LiveTrader:
                 order_args = OrderArgs(**order_args_kwargs)
                 try:
                     from py_clob_client_v2 import PartialCreateOrderOptions
+
                     opts = PartialCreateOrderOptions(
                         tick_size=meta["tick_size"],
                         neg_risk=meta["neg_risk"],
@@ -890,24 +994,34 @@ class LiveTrader:
             live = await self.db.conn.execute_fetchall(
                 """SELECT COUNT(*), COALESCE(SUM(pnl),0), COALESCE(SUM(paper_pnl),0),
                     COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0)
-                FROM live_trades WHERE settled_at IS NOT NULL""")
+                FROM live_trades WHERE settled_at IS NOT NULL"""
+            )
             r = live[0] if live else (0, 0, 0, 0)
 
             # Recent trades
             recent = await self.db.conn.execute_fetchall(
                 """SELECT strategy_label, direction, entry_price, amount, pnl, paper_pnl, result,
-                    created_at FROM live_trades ORDER BY created_at DESC LIMIT 10""")
+                    created_at FROM live_trades ORDER BY created_at DESC LIMIT 10"""
+            )
 
             return {
                 "total_trades": r[0],
                 "live_pnl": round(r[1] or 0, 4),
                 "paper_pnl_equiv": round(r[2] or 0, 2),
                 "wins": r[3],
-                "wr": round(r[3]/r[0]*100, 0) if r[0] > 0 else 0,
+                "wr": round(r[3] / r[0] * 100, 0) if r[0] > 0 else 0,
                 "recent": [
-                    {"strat": t[0], "dir": t[1], "price": t[2], "amt": t[3],
-                     "live_pnl": t[4], "paper_pnl": t[5], "result": t[6],
-                     "ts": str(t[7])[:16]} for t in (recent or [])
+                    {
+                        "strat": t[0],
+                        "dir": t[1],
+                        "price": t[2],
+                        "amt": t[3],
+                        "live_pnl": t[4],
+                        "paper_pnl": t[5],
+                        "result": t[6],
+                        "ts": str(t[7])[:16],
+                    }
+                    for t in (recent or [])
                 ],
             }
         except aiosqlite.Error as e:
@@ -915,14 +1029,20 @@ class LiveTrader:
             return {"error": str(e)}
 
     async def _save_state(self):
-        if not self.db: return
+        if not self.db:
+            return
         try:
-            state = json.dumps({
-                "total_spent": self._total_spent, "total_pnl": self._total_pnl,
-                "trade_count": self._trade_count})
+            state = json.dumps(
+                {
+                    "total_spent": self._total_spent,
+                    "total_pnl": self._total_pnl,
+                    "trade_count": self._trade_count,
+                }
+            )
             await self.db.conn.execute(
                 "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?,?,?)",
-                ("live_state", state, datetime.now(timezone.utc).isoformat()))
+                ("live_state", state, datetime.now(UTC).isoformat()),
+            )
             await self.db.conn.commit()
         except (aiosqlite.Error, TypeError) as e:
             # T1.4 Faz 1: narrowed from bare Exception — DB errors (aiosqlite) or
@@ -931,23 +1051,27 @@ class LiveTrader:
             logger.warning(f"Live _save_state failed ({type(e).__name__}): {e}")
 
     async def _restore_state(self):
-        if not self.db: return
+        if not self.db:
+            return
         try:
             r = await self.db.conn.execute_fetchall(
-                "SELECT value FROM bot_settings WHERE key='live_state'")
+                "SELECT value FROM bot_settings WHERE key='live_state'"
+            )
             if r:
                 s = json.loads(r[0][0])
                 self._total_spent = s.get("total_spent", 0)
                 self._total_pnl = s.get("total_pnl", 0)
                 self._trade_count = s.get("trade_count", 0)
-                logger.info(f"  💰 Live state restored: spent=${self._total_spent:.2f} pnl=${self._total_pnl:+.4f}")
+                logger.info(
+                    f"  💰 Live state restored: spent=${self._total_spent:.2f} pnl=${self._total_pnl:+.4f}"
+                )
         except (aiosqlite.Error, json.JSONDecodeError, KeyError, IndexError) as e:
             # T1.4 Faz 1: narrowed from bare Exception — DB miss, corrupted JSON,
             # missing row index, or missing dict key. Upgrade pass to warning.
             logger.warning(f"Live _restore_state skipped ({type(e).__name__}): {e}")
 
     def _maybe_reset_daily(self):
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         if self._daily_date != today:
             self._daily_pnl = 0.0
             self._daily_trades = 0
@@ -973,8 +1097,9 @@ class LiveTrader:
         }
 
     async def _notify(self, text):
-        aid = getattr(self.settings, 'ADMIN_TELEGRAM_ID', None) if self.settings else None
-        if not aid or not self.bot_app: return
+        aid = getattr(self.settings, "ADMIN_TELEGRAM_ID", None) if self.settings else None
+        if not aid or not self.bot_app:
+            return
         # T1.4 Faz 1: narrowed from bare Exception.
         # BadRequest = HTML parse error → fallback to plain text. Other telegram
         # errors (NetworkError, RetryAfter, Forbidden) still caught by second arm.
@@ -991,7 +1116,7 @@ class LiveTrader:
         # Build from get_comparison data or DB cache
         # For now return basic data from internal state
         history = []
-        if hasattr(self, '_recent_trades'):
+        if hasattr(self, "_recent_trades"):
             history = self._recent_trades
         return history
 
@@ -1002,11 +1127,19 @@ class LiveTrader:
         try:
             rows = await self.db.conn.execute_fetchall(
                 """SELECT strategy_label, direction, entry_price, amount, pnl, paper_pnl, result, created_at
-                FROM live_trades ORDER BY created_at DESC LIMIT 20""")
+                FROM live_trades ORDER BY created_at DESC LIMIT 20"""
+            )
             return [
-                {"strategy": r[0], "direction": r[1], "entry_odds": r[2],
-                 "amount": r[3], "pnl": r[4] or 0, "pnl_paper": r[5] or 0,
-                 "result": r[6] or "", "ts": str(r[7])[:16]}
+                {
+                    "strategy": r[0],
+                    "direction": r[1],
+                    "entry_odds": r[2],
+                    "amount": r[3],
+                    "pnl": r[4] or 0,
+                    "pnl_paper": r[5] or 0,
+                    "result": r[6] or "",
+                    "ts": str(r[7])[:16],
+                }
                 for r in (rows or [])
             ]
         except aiosqlite.Error as e:

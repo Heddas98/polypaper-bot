@@ -19,12 +19,12 @@ ENV toggles the module respects:
   REST_TIMING_TELEMETRY=true  — required for sampling
   REST_TIMING_BUFFER_SIZE     — samples per label (default 10000)
 """
+
 from __future__ import annotations
 
 import logging
 import os
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telegram import Update
@@ -39,9 +39,7 @@ ADMIN_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 DUMP_DIR = Path("data_store")
 
 
-async def dump_rest_timing_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def dump_rest_timing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handler for `/dump_rest_timing [save]`.
 
     Admin-only. Returns aggregated REST RTT statistics.
@@ -85,8 +83,7 @@ async def dump_rest_timing_command(
     # Build HTML table
     lines = [
         "<b>📊 REST Timing Summary</b>",
-        f"<i>Buffer: {rest_timing._BUFFER_SIZE}/label · Labels: "
-        f"{len(summary)}</i>",
+        f"<i>Buffer: {rest_timing._BUFFER_SIZE}/label · Labels: " f"{len(summary)}</i>",
         "",
         "<pre>",
         f"{'Label':<25} {'n':>5} {'p50':>6} {'p90':>6} {'p99':>6} {'mean':>6}",
@@ -101,10 +98,10 @@ async def dump_rest_timing_command(
     lines.append("<i>Birim: milisaniye (ms)</i>")
 
     # Optional JSON dump to disk
-    args = (context.args or [])
+    args = context.args or []
     save_requested = any(a.lower() in ("save", "dump", "json") for a in args)
     if save_requested:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         dest = DUMP_DIR / f"rest_timing_{ts}.json"
         try:
             DUMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -118,9 +115,7 @@ async def dump_rest_timing_command(
         except OSError as e:
             logger.exception("rest_timing dump_to_file OS error")
             lines.append("")
-            lines.append(
-                render_user_exception(e, "⚠️ JSON dump I/O")
-            )
+            lines.append(render_user_exception(e, "⚠️ JSON dump I/O"))
 
     msg = "\n".join(lines)
     # Telegram 4096 char limit — truncate body if very long

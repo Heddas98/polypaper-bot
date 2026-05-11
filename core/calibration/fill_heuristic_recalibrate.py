@@ -25,14 +25,13 @@ Hedef ENV (sweep artifact'ten):
     FILL_IMPACT=0.025
     LATENCY_DRIFT=0.04
 """
+
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import math
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -42,9 +41,9 @@ logger = logging.getLogger("polypaper.calibration.fill_heuristic")
 # T4.6-B sweep'in önerdiği değerler (sweep_fill_heuristic_20260424_193711.json)
 # Heddas onayı sonrası config/settings.py'a yazılır.
 RECOMMENDED_VALUES = {
-    "FILL_SPREAD_COST": 0.023,    # was 0.005
-    "FILL_IMPACT": 0.025,          # was 0.010
-    "LATENCY_DRIFT": 0.04,         # was 0.080
+    "FILL_SPREAD_COST": 0.023,  # was 0.005
+    "FILL_IMPACT": 0.025,  # was 0.010
+    "LATENCY_DRIFT": 0.04,  # was 0.080
 }
 
 LEGACY_VALUES = {
@@ -114,7 +113,9 @@ def evaluate_recalibration(current: dict, recommended: dict) -> dict:
     return deltas
 
 
-async def fetch_recent_paper_live_pairs(db_path: Path, sample_size: int = DEFAULT_SAMPLE_SIZE) -> tuple[list[float], list[float]]:
+async def fetch_recent_paper_live_pairs(
+    db_path: Path, sample_size: int = DEFAULT_SAMPLE_SIZE
+) -> tuple[list[float], list[float]]:
     """Read paired paper/live trades from DB.
 
     Returns: (paper_pnls, live_pnls) — same indices = same trade.
@@ -123,6 +124,7 @@ async def fetch_recent_paper_live_pairs(db_path: Path, sample_size: int = DEFAUL
     `live_trades` tablosunda hem `pnl` hem `paper_pnl` kolonu var (memory).
     """
     import sqlite3
+
     paper, live = [], []
     if not db_path.exists():
         return paper, live
@@ -130,7 +132,7 @@ async def fetch_recent_paper_live_pairs(db_path: Path, sample_size: int = DEFAUL
     try:
         con = sqlite3.connect(str(db_path))
         cur = con.cursor()
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+        cutoff = (datetime.now(UTC) - timedelta(days=30)).timestamp()
         cur.execute(
             """SELECT pnl, paper_pnl FROM live_trades
                WHERE created_at >= ? AND pnl IS NOT NULL AND paper_pnl IS NOT NULL
@@ -150,7 +152,9 @@ async def fetch_recent_paper_live_pairs(db_path: Path, sample_size: int = DEFAUL
     return paper, live
 
 
-async def recalibrate_weekly(db_path: Optional[Path] = None, sample_size: int = DEFAULT_SAMPLE_SIZE) -> dict:
+async def recalibrate_weekly(
+    db_path: Optional[Path] = None, sample_size: int = DEFAULT_SAMPLE_SIZE
+) -> dict:
     """Top-level: weekly recalibration check.
 
     Returns: dict with `delta_pct` (alarm trigger), `recommended_values`,
@@ -171,7 +175,7 @@ async def recalibrate_weekly(db_path: Optional[Path] = None, sample_size: int = 
     should_alert = max_delta > DELTA_ALERT_PCT or drift_delta > DELTA_ALERT_PCT
 
     return {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "current_values": current,
         "recommended_values": RECOMMENDED_VALUES,
         "param_deltas": recalib,
@@ -194,12 +198,12 @@ def format_alert(result: dict) -> str:
         f"📅 Timestamp: <code>{result.get('ts', '')[:16]}</code>",
         f"📊 Sample: {drift.get('n_paper', 0)} pairs (last 30d)",
         "",
-        f"<b>Paper vs Live Drift:</b>",
+        "<b>Paper vs Live Drift:</b>",
         f"  Paper PnL:  ${drift.get('paper_total', 0):.2f}",
         f"  Live PnL:   ${drift.get('live_total', 0):.2f}",
         f"  Drift:      {drift.get('delta_pct', 0):+.2f}%",
         "",
-        f"<b>Param Recommendations (T4.6-B):</b>",
+        "<b>Param Recommendations (T4.6-B):</b>",
     ]
     for key, d in deltas.items():
         emoji = "🔴" if abs(d["delta_pct"]) > DELTA_ALERT_PCT else "✅"
@@ -227,7 +231,7 @@ async def cron_recalibrate_job(context=None):
     result = await recalibrate_weekly()
     out_dir = Path("evidence")
     out_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"fill_heuristic_recalib_{ts}.json"
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)

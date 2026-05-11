@@ -21,13 +21,11 @@ The command runs a "fresh oracle pass" per position before manually settling:
 This mirrors _check() in engine_monitor.py but forces execution regardless
 of the force-settle deadline — operator gets a clean summary + trade receipt.
 """
+
 from __future__ import annotations
 
-import asyncio
 import logging
-
-from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 import httpx
@@ -36,6 +34,7 @@ from telegram.ext import ContextTypes
 
 from config.settings import Settings
 from core.engine_support import _slug_end
+from core.slug_utils import infer_asset_from_slug, infer_tf_from_slug
 from data.polymarket_client import safe_float
 from telegram_bot.templates.safe_html import esc, fmt_usd
 
@@ -45,8 +44,7 @@ logger = logging.getLogger("polypaper.handlers.force_settle")
 def _is_admin(context, telegram_id: int) -> bool:
     settings: Settings = context.bot_data.get("settings")
     if not settings:
-        logger.warning(
-            f"⚠️ force_settle _is_admin: settings missing, denying {telegram_id}")
+        logger.warning(f"⚠️ force_settle _is_admin: settings missing, denying {telegram_id}")
         return False
     return settings.is_admin(telegram_id)
 
@@ -54,8 +52,8 @@ def _is_admin(context, telegram_id: int) -> bool:
 async def _fetch_open_rows(db):
     rows = []
     async with db.conn.execute(
-            "SELECT * FROM executions WHERE status='bet_placed' "
-            "ORDER BY created_at ASC") as c:
+        "SELECT * FROM executions WHERE status='bet_placed' " "ORDER BY created_at ASC"
+    ) as c:
         async for row in c:
             rows.append(dict(row))
     return rows
@@ -76,12 +74,11 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
     # 1) Gamma outcomePrices
     try:
         resolved = await engine.client.check_market_resolved(slug)
-    except (httpx.HTTPError, asyncio.TimeoutError, AttributeError) as e:
+    except (TimeoutError, httpx.HTTPError, AttributeError) as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. check_market_
         # resolved gamma fetch — httpx + JSON parse errors. None falls
         # through to next oracle layer.
-        logger.debug(f"force_settle gamma err {slug[:30]}: "
-                     f"{type(e).__name__}: {e}")
+        logger.debug(f"force_settle gamma err {slug[:30]}: " f"{type(e).__name__}: {e}")
         resolved = None
     if resolved:
         return resolved, None, "gamma"
@@ -91,11 +88,10 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
     if token_id:
         try:
             cur_p = await engine.client.get_resolution_price(token_id)
-        except (httpx.HTTPError, asyncio.TimeoutError, AttributeError) as e:
+        except (TimeoutError, httpx.HTTPError, AttributeError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. CLOB price
             # fetch — same surface as gamma above.
-            logger.debug(f"force_settle clob err {slug[:30]}: "
-                         f"{type(e).__name__}: {e}")
+            logger.debug(f"force_settle clob err {slug[:30]}: " f"{type(e).__name__}: {e}")
             cur_p = None
         if cur_p is not None and (cur_p >= 0.95 or cur_p <= 0.05):
             if cur_p >= 0.95:
@@ -120,8 +116,10 @@ async def _resolve_oracle(engine, row) -> tuple[str | None, float | None, str]:
     # 4) odds_history last row
     try:
         async with engine.db.conn.execute(
-                "SELECT up_odds FROM odds_history WHERE event_slug=? "
-                "ORDER BY timestamp DESC LIMIT 1", (slug,)) as c:
+            "SELECT up_odds FROM odds_history WHERE event_slug=? "
+            "ORDER BY timestamp DESC LIMIT 1",
+            (slug,),
+        ) as c:
             r = await c.fetchone()
         if r and r["up_odds"] is not None:
             lu = float(r["up_odds"])
@@ -144,9 +142,14 @@ async def _settle_one(engine, row) -> dict:
     try:
         await engine._settle(row, winner, shares, price)
         return {
-            "ok": True, "exec_id": row["id"], "slug": row["event_slug"],
-            "winner": winner, "price": price, "source": src,
-            "direction": row["direction"], "trade_amount": row["trade_amount"],
+            "ok": True,
+            "exec_id": row["id"],
+            "slug": row["event_slug"],
+            "winner": winner,
+            "price": price,
+            "source": src,
+            "direction": row["direction"],
+            "trade_amount": row["trade_amount"],
         }
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): _settle outer wrapper intentionally wide.
@@ -155,7 +158,9 @@ async def _settle_one(engine, row) -> dict:
         # ok=False signals failure to caller.
         logger.exception(f"force_settle _settle fail {row['id'][:8]}: {e}")
         return {
-            "ok": False, "exec_id": row["id"], "slug": row["event_slug"],
+            "ok": False,
+            "exec_id": row["id"],
+            "slug": row["event_slug"],
             "error": str(e),
         }
 
@@ -172,39 +177,45 @@ def _format_stuck_list(rows, now: datetime) -> str:
             elapsed_s = f"{-elapsed:.0f}s until close"
         else:
             elapsed_s = f"{elapsed/60:.1f}m past close"
-        parts = r["event_slug"].split("-")
+        slug = r["event_slug"] or ""
         # P0-08-D (2026-05-08): slug_utils — 4 TF aware
         asset = infer_asset_from_slug(slug)
         tf = infer_tf_from_slug(slug)
         lines.append(
             f"• <code>{esc(r['id'][:8])}</code> {esc(asset)} {esc(tf)} "
             f"{r['direction'].upper()} @ {fmt_usd(r['trade_amount'])} "
-            f"— <i>{esc(elapsed_s)}</i>")
+            f"— <i>{esc(elapsed_s)}</i>"
+        )
     lines.append("")
     lines.append(
         "Kullanım:\n"
         "• <code>/force_settle &lt;exec_prefix&gt;</code> — tek pozisyon\n"
-        "• <code>/force_settle all_stuck</code> — hepsini settle et")
+        "• <code>/force_settle all_stuck</code> — hepsini settle et"
+    )
     return "\n".join(lines)
 
 
 def _format_settle_result(res: dict) -> str:
     if not res.get("ok"):
-        return (f"❌ <b>Force-settle FAILED</b>\n"
-                f"exec: <code>{esc(res.get('exec_id', '?')[:8])}</code>\n"
-                f"slug: <code>{esc(res.get('slug', '?'))}</code>\n"
-                f"err: <code>{esc(res.get('error', '?'))[:200]}</code>")
-    parts = res.get("slug", "").split("-")
+        return (
+            f"❌ <b>Force-settle FAILED</b>\n"
+            f"exec: <code>{esc(res.get('exec_id', '?')[:8])}</code>\n"
+            f"slug: <code>{esc(res.get('slug', '?'))}</code>\n"
+            f"err: <code>{esc(res.get('error', '?'))[:200]}</code>"
+        )
+    slug = res.get("slug", "") or ""
     # P0-08-D (2026-05-08): slug_utils — 4 TF aware
     asset = infer_asset_from_slug(slug)
     tf = infer_tf_from_slug(slug)
     price_str = f" @ {res['price']:.3f}" if res.get("price") is not None else ""
-    return (f"⚖️ <b>Force-settled</b>\n"
-            f"exec: <code>{esc(res['exec_id'][:8])}</code>\n"
-            f"market: {esc(asset)} {esc(tf)} {res['direction'].upper()}\n"
-            f"amount: {fmt_usd(res['trade_amount'])}\n"
-            f"winner: <b>{esc(res['winner'])}</b>{price_str}\n"
-            f"source: <code>{esc(res['source'])}</code>")
+    return (
+        f"⚖️ <b>Force-settled</b>\n"
+        f"exec: <code>{esc(res['exec_id'][:8])}</code>\n"
+        f"market: {esc(asset)} {esc(tf)} {res['direction'].upper()}\n"
+        f"amount: {fmt_usd(res['trade_amount'])}\n"
+        f"winner: <b>{esc(res['winner'])}</b>{price_str}\n"
+        f"source: <code>{esc(res['source'])}</code>"
+    )
 
 
 async def force_settle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -232,16 +243,13 @@ async def force_settle_command(update: Update, context: ContextTypes.DEFAULT_TYP
         # SQL parçaları Telegram'a sızmasın.
         logger.exception(f"force_settle fetch_open_rows: {e}")
         return await update.message.reply_text(
-            "❌ Açık pozisyonlar sorgulanamadı. Detay loglarda.",
-            parse_mode="HTML")
+            "❌ Açık pozisyonlar sorgulanamadı. Detay loglarda.", parse_mode="HTML"
+        )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Stuck = closed for > 60s and still bet_placed
-    stuck = [
-        r for r in rows
-        if (_elapsed_since_close(r["event_slug"], now) or -1) > 60
-    ]
+    stuck = [r for r in rows if (_elapsed_since_close(r["event_slug"], now) or -1) > 60]
 
     if mode in ("list",):
         text = _format_stuck_list(stuck, now)
@@ -250,7 +258,8 @@ async def force_settle_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if mode == "all_stuck":
         if not stuck:
             return await update.message.reply_text(
-                "✅ Stuck pozisyon yok — hiçbir şey yapılmadı.", parse_mode="HTML")
+                "✅ Stuck pozisyon yok — hiçbir şey yapılmadı.", parse_mode="HTML"
+            )
         results = []
         for r in stuck:
             results.append(await _settle_one(engine, r))
@@ -259,27 +268,27 @@ async def force_settle_command(update: Update, context: ContextTypes.DEFAULT_TYP
         summary = [f"⚖️ <b>Toplu force-settle</b>\n{ok} OK, {fail} FAIL\n"]
         for res in results:
             summary.append(_format_settle_result(res))
-        return await update.message.reply_text(
-            "\n\n".join(summary), parse_mode="HTML")
+        return await update.message.reply_text("\n\n".join(summary), parse_mode="HTML")
 
     # Treat args[0] as exec_id prefix
     prefix = args[0].strip()
     if len(prefix) < 6:
         return await update.message.reply_text(
-            "❌ exec_id prefix en az 6 karakter olmalı.\n"
-            "Liste: <code>/force_settle</code>", parse_mode="HTML")
+            "❌ exec_id prefix en az 6 karakter olmalı.\n" "Liste: <code>/force_settle</code>",
+            parse_mode="HTML",
+        )
 
     matches = [r for r in rows if r["id"].startswith(prefix)]
     if not matches:
         return await update.message.reply_text(
-            f"❌ <code>{esc(prefix)}</code> ile eşleşen açık pozisyon yok.",
-            parse_mode="HTML")
+            f"❌ <code>{esc(prefix)}</code> ile eşleşen açık pozisyon yok.", parse_mode="HTML"
+        )
     if len(matches) > 1:
         ids = ", ".join(esc(r["id"][:12]) for r in matches)
         return await update.message.reply_text(
-            f"❌ Prefix birden fazla pozisyonla eşleşiyor: {ids}\n"
-            "Daha uzun bir prefix ver.", parse_mode="HTML")
+            f"❌ Prefix birden fazla pozisyonla eşleşiyor: {ids}\n" "Daha uzun bir prefix ver.",
+            parse_mode="HTML",
+        )
 
     res = await _settle_one(engine, matches[0])
-    return await update.message.reply_text(
-        _format_settle_result(res), parse_mode="HTML")
+    return await update.message.reply_text(_format_settle_result(res), parse_mode="HTML")

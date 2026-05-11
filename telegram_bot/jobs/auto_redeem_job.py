@@ -13,6 +13,7 @@ ENV:
   AUTO_REDEEM_INTERVAL_SEC=300 # 5dk default
   AUTO_REDEEM_MIN_VALUE_USD=0.10 # gas-eşdeğeri (gasless ama yine de sınır)
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,8 +50,8 @@ async def auto_redeem_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     min_val = float(os.getenv("AUTO_REDEEM_MIN_VALUE_USD", "0.10"))
 
     try:
-        from data.polymarket_portfolio import read_cached_snapshot
         from data.polymarket_actions import redeem_position
+        from data.polymarket_portfolio import read_cached_snapshot
 
         snap = await read_cached_snapshot(engine.db) if engine.db else None
         if not snap or not snap.get("positions"):
@@ -76,8 +77,7 @@ async def auto_redeem_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 continue
             if cur_val < min_val:
                 logger.debug(
-                    f"auto_redeem skip {slug}: cur_val ${cur_val:.4f} "
-                    f"< min ${min_val:.2f}"
+                    f"auto_redeem skip {slug}: cur_val ${cur_val:.4f} " f"< min ${min_val:.2f}"
                 )
                 continue
 
@@ -86,10 +86,7 @@ async def auto_redeem_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             ok, detail = await redeem_position(cid)
             if ok:
                 redeemed_count += 1
-                logger.info(
-                    f"auto_redeem SUCCESS {slug} ${cur_val:.2f}: "
-                    f"{str(detail)[:120]}"
-                )
+                logger.info(f"auto_redeem SUCCESS {slug} ${cur_val:.2f}: " f"{str(detail)[:120]}")
                 if admin_id:
                     try:
                         await context.bot.send_message(
@@ -106,9 +103,7 @@ async def auto_redeem_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             else:
                 # Fail durumunda set'ten çıkar — bir sonraki cycle tekrar dener
                 _REDEEMED_CONDITIONS.discard(cid)
-                logger.warning(
-                    f"auto_redeem FAIL {slug}: {str(detail)[:200]}"
-                )
+                logger.warning(f"auto_redeem FAIL {slug}: {str(detail)[:200]}")
 
         if redeemed_count > 0 or skipped_count > 0:
             logger.info(

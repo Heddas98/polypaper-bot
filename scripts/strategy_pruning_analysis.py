@@ -26,6 +26,7 @@ Mevcut DB schema (memory'den):
 - shadow_trades (varsa): aynı şema
 - paper trades varsa engine'in kendi tablosu
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,7 +35,7 @@ import math
 import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Karar eşikleri (5AI Yol Haritası §5.1)
@@ -58,7 +59,7 @@ def fetch_strategy_trades(con: sqlite3.Connection, days: int) -> dict[str, list[
     Try multiple table names (live_trades, paper_trades, shadow_trades, trades).
     Returns: {strategy_label: [{pnl, paper_pnl, created_at, ...}, ...]}
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).timestamp()
     out: dict[str, list[dict]] = {}
 
     # Discover tables — basitleştirilmiş (eski filter buggy idi)
@@ -97,10 +98,10 @@ def fetch_strategy_trades(con: sqlite3.Connection, days: int) -> dict[str, list[
         try:
             cur.execute(f"PRAGMA table_info({table})")
             cols = [r[1] for r in cur.fetchall()]
-            label_col = "strategy_label" if "strategy_label" in cols else (
-                "strategy" if "strategy" in cols else (
-                    "label" if "label" in cols else None
-                )
+            label_col = (
+                "strategy_label"
+                if "strategy_label" in cols
+                else ("strategy" if "strategy" in cols else ("label" if "label" in cols else None))
             )
             if not label_col:
                 continue
@@ -110,12 +111,18 @@ def fetch_strategy_trades(con: sqlite3.Connection, days: int) -> dict[str, list[
                 if cand in cols:
                     ts_col = cand
                     break
-            pnl_col = "pnl" if "pnl" in cols else ("realized_pnl" if "realized_pnl" in cols else None)
+            pnl_col = (
+                "pnl" if "pnl" in cols else ("realized_pnl" if "realized_pnl" in cols else None)
+            )
             if not ts_col or not pnl_col:
-                print(f"  ⚠ skip {table}: missing ts ({ts_col}) or pnl ({pnl_col})", file=sys.stderr)
+                print(
+                    f"  ⚠ skip {table}: missing ts ({ts_col}) or pnl ({pnl_col})", file=sys.stderr
+                )
                 continue
 
-            print(f"  ✅ scan {table}: label={label_col} ts={ts_col} pnl={pnl_col}", file=sys.stderr)
+            print(
+                f"  ✅ scan {table}: label={label_col} ts={ts_col} pnl={pnl_col}", file=sys.stderr
+            )
 
             # Detect timestamp format (epoch float vs ISO string)
             cur.execute(f"SELECT {ts_col} FROM {table} WHERE {ts_col} IS NOT NULL LIMIT 1")
@@ -129,16 +136,14 @@ def fetch_strategy_trades(con: sqlite3.Connection, days: int) -> dict[str, list[
 
             if ts_is_epoch:
                 sql = (
-                    f"SELECT {label_col}, {pnl_col}, {ts_col} "
-                    f"FROM {table} WHERE {ts_col} >= ?"
+                    f"SELECT {label_col}, {pnl_col}, {ts_col} " f"FROM {table} WHERE {ts_col} >= ?"
                 )
                 bind = (cutoff,)
             else:
                 # ISO string comparison
-                cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+                cutoff_iso = datetime.fromtimestamp(cutoff, tz=UTC).isoformat()
                 sql = (
-                    f"SELECT {label_col}, {pnl_col}, {ts_col} "
-                    f"FROM {table} WHERE {ts_col} >= ?"
+                    f"SELECT {label_col}, {pnl_col}, {ts_col} " f"FROM {table} WHERE {ts_col} >= ?"
                 )
                 bind = (cutoff_iso,)
 
@@ -148,14 +153,20 @@ def fetch_strategy_trades(con: sqlite3.Connection, days: int) -> dict[str, list[
                     continue
                 # Normalize ts to epoch
                 try:
-                    ts_epoch = float(ts) if ts_is_epoch else datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+                    ts_epoch = (
+                        float(ts)
+                        if ts_is_epoch
+                        else datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+                    )
                 except (ValueError, TypeError):
                     ts_epoch = 0
-                out.setdefault(str(label), []).append({
-                    "pnl": float(pnl or 0),
-                    "ts": ts_epoch,
-                    "table": table,
-                })
+                out.setdefault(str(label), []).append(
+                    {
+                        "pnl": float(pnl or 0),
+                        "ts": ts_epoch,
+                        "table": table,
+                    }
+                )
                 row_count += 1
             print(f"  📊 {table}: {row_count} rows", file=sys.stderr)
         except sqlite3.Error as e:
@@ -169,8 +180,12 @@ def compute_stats(trades: list[dict]) -> dict:
     """Trade list'ten Sharpe / PF / Expectancy / MaxDD hesapla."""
     if not trades:
         return {
-            "n": 0, "win_rate": 0, "expectancy": 0,
-            "profit_factor": 0, "sharpe": 0, "max_dd": 0,
+            "n": 0,
+            "win_rate": 0,
+            "expectancy": 0,
+            "profit_factor": 0,
+            "sharpe": 0,
+            "max_dd": 0,
             "total_pnl": 0,
         }
 
@@ -189,8 +204,8 @@ def compute_stats(trades: list[dict]) -> dict:
     # Profit Factor
     gross_win = sum(wins)
     gross_loss = abs(sum(losses))
-    profit_factor = (gross_win / gross_loss) if gross_loss > 0 else (
-        float("inf") if gross_win > 0 else 0
+    profit_factor = (
+        (gross_win / gross_loss) if gross_loss > 0 else (float("inf") if gross_win > 0 else 0)
     )
 
     # Sharpe (per-trade, annualized assuming daily trading freq)
@@ -258,6 +273,7 @@ def decide_pruning(stats_by_label: dict[str, dict], keep_n: int) -> dict[str, st
     def score(item):
         _, s = item
         return s["sharpe"] * s["profit_factor"] * (1 + s["win_rate"])
+
     eligible.sort(key=score, reverse=True)
 
     # 5. Top keep_n KEEP, rest eligible PRUNE
@@ -288,11 +304,13 @@ def format_table(stats_by_label: dict, decisions: dict) -> str:
     order = {"PROTECTED": 0, "KEEP": 1, "PRUNE": 2, "INSUFFICIENT_DATA": 3}
     sorted_items = sorted(
         stats_by_label.items(),
-        key=lambda x: (order.get(decisions.get(x[0], "PRUNE"), 9), -x[1]["sharpe"])
+        key=lambda x: (order.get(decisions.get(x[0], "PRUNE"), 9), -x[1]["sharpe"]),
     )
     for label, s in sorted_items:
         d = decisions.get(label, "?")
-        emoji = {"PROTECTED": "🛡️", "KEEP": "✅", "PRUNE": "❌", "INSUFFICIENT_DATA": "❓"}.get(d, "?")
+        emoji = {"PROTECTED": "🛡️", "KEEP": "✅", "PRUNE": "❌", "INSUFFICIENT_DATA": "❓"}.get(
+            d, "?"
+        )
         lines.append(
             f"{emoji} {d:<19} {label[:34]:<35} "
             f"{s['n']:>5} {s['win_rate']*100:>6.1f}% "
@@ -346,20 +364,29 @@ def main():
     if not args.dry_run:
         out_dir = Path(args.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         # JSON
         out_json = out_dir / f"strategy_pruning_{ts}.json"
         with out_json.open("w", encoding="utf-8") as f:
-            json.dump({
-                "lookback_days": args.days,
-                "keep_n": args.keep,
-                "thresholds": {"sharpe_min": SHARPE_MIN, "pf_min": PF_MIN, "trades_min": TRADES_MIN},
-                "stats": stats_by_label,
-                "decisions": decisions,
-                "summary": {"keep": keep, "prune": prune, "insufficient": insuf},
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-            }, f, indent=2, ensure_ascii=False)
+            json.dump(
+                {
+                    "lookback_days": args.days,
+                    "keep_n": args.keep,
+                    "thresholds": {
+                        "sharpe_min": SHARPE_MIN,
+                        "pf_min": PF_MIN,
+                        "trades_min": TRADES_MIN,
+                    },
+                    "stats": stats_by_label,
+                    "decisions": decisions,
+                    "summary": {"keep": keep, "prune": prune, "insufficient": insuf},
+                    "generated_at": datetime.now(UTC).isoformat(),
+                },
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
         print(f"\n💾 JSON: {out_json}")
 
         # MD
@@ -369,7 +396,9 @@ def main():
             f.write(f"Lookback: {args.days}d, Keep: {args.keep}\n\n")
             f.write(f"Thresholds: Sharpe≥{SHARPE_MIN}, PF≥{PF_MIN}, N≥{TRADES_MIN}\n\n")
             f.write("```\n" + table + "\n```\n\n")
-            f.write(f"## Summary\n\n- KEEP/PROTECTED: {keep}\n- PRUNE: {prune}\n- INSUFFICIENT: {insuf}\n")
+            f.write(
+                f"## Summary\n\n- KEEP/PROTECTED: {keep}\n- PRUNE: {prune}\n- INSUFFICIENT: {insuf}\n"
+            )
             f.write("\n## Apply\n\n")
             f.write("1. Backup current strategies: `_archive/strategies_pre_pruning_2026_05/`\n")
             f.write("2. ENV `STRATEGY_ENABLED_<LABEL>=false` for PRUNE candidates\n")

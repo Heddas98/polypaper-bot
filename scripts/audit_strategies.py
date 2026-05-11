@@ -1,11 +1,13 @@
 """
 P1-04-a (2026-05-09) Strategy audit (read-only).
 """
+
 from __future__ import annotations
+
 import argparse
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -21,7 +23,7 @@ def _iso_to_dt(s):
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.rstrip("Z")).replace(tzinfo=timezone.utc)
+        return datetime.fromisoformat(s.rstrip("Z")).replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
 
@@ -61,10 +63,11 @@ def main():
         return 1
 
     # SQLite online backup API: consistent snapshot under WAL contention.
-    import tempfile, os
+    import os
+    import tempfile
+
     snap_path = Path(tempfile.gettempdir()) / f"polypaper_ro_{os.getpid()}.db"
-    src_conn = sqlite3.connect(
-        f"file:{DB_PATH}?mode=ro", uri=True, timeout=30.0)
+    src_conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=30.0)
     src_conn.execute("PRAGMA busy_timeout=30000")
     snap_conn = sqlite3.connect(str(snap_path), timeout=30.0)
     src_conn.backup(snap_conn, pages=200, sleep=0.05)
@@ -91,22 +94,24 @@ def main():
         n = r["n"] or 0
         wins = r["wins"] or 0
         wr = wins / n if n > 0 else 0.0
-        stats[sid] = {"n": n, "wins": wins, "wr": wr,
-                      "pnl_sum": r["pnl_sum"] or 0.0,
-                      "last_closed": r["last_closed"]}
+        stats[sid] = {
+            "n": n,
+            "wins": wins,
+            "wr": wr,
+            "pnl_sum": r["pnl_sum"] or 0.0,
+            "last_closed": r["last_closed"],
+        }
     conn.close()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = []
     for s in strategies:
         sid = s["id"]
-        st = stats.get(sid, {"n": 0, "wins": 0, "wr": 0.0,
-                             "pnl_sum": 0.0, "last_closed": None})
+        st = stats.get(sid, {"n": 0, "wins": 0, "wr": 0.0, "pnl_sum": 0.0, "last_closed": None})
         last_dt = _iso_to_dt(st["last_closed"])
-        age_days = ((now - last_dt).total_seconds() / 86400 if last_dt else None)
+        age_days = (now - last_dt).total_seconds() / 86400 if last_dt else None
         lc, rec = _classify(st["n"], st["wr"], st["pnl_sum"], age_days, s["status"])
-        rows.append({**s, **st, "age_days": age_days,
-                     "lifecycle": lc, "recommendation": rec})
+        rows.append({**s, **st, "age_days": age_days, "lifecycle": lc, "recommendation": rec})
 
     total = len(rows)
     by_rec = {"KEEP": [], "WATCH": [], "ARCHIVE": []}
@@ -128,9 +133,13 @@ def main():
     L.append("")
     L.append("## Recommendation Summary")
     L.append("")
-    L.append(f"- **KEEP** ({len(by_rec['KEEP'])}): proven (n>={N_EVAL_TO_PROV}, WR>={WR_PROVEN_MIN*100:.0f}%, PnL>0)")
+    L.append(
+        f"- **KEEP** ({len(by_rec['KEEP'])}): proven (n>={N_EVAL_TO_PROV}, WR>={WR_PROVEN_MIN*100:.0f}%, PnL>0)"
+    )
     L.append(f"- **WATCH** ({len(by_rec['WATCH'])}): exploration / evaluation")
-    L.append(f"- **ARCHIVE** ({len(by_rec['ARCHIVE'])}): no-trades / idle ({DEAD_AFTER_DAYS}+d) / regression")
+    L.append(
+        f"- **ARCHIVE** ({len(by_rec['ARCHIVE'])}): no-trades / idle ({DEAD_AFTER_DAYS}+d) / regression"
+    )
     L.append("")
     L.append("## Lifecycle Distribution")
     L.append("")
@@ -146,14 +155,17 @@ def main():
     else:
         L.append("| Rank | ID | Label | Asset/TF | n | WR | PnL | Last | Status |")
         L.append("|--:|---|---|---|--:|--:|--:|---|---|")
-        keep_sorted = sorted(by_rec["KEEP"],
-            key=lambda r: (r["n"], r["wr"], r["pnl_sum"]), reverse=True)
+        keep_sorted = sorted(
+            by_rec["KEEP"], key=lambda r: (r["n"], r["wr"], r["pnl_sum"]), reverse=True
+        )
         for i, r in enumerate(keep_sorted, 1):
             sid_short = (r["id"] or "?")[:12]
             label = (r["label"] or "?")[:25]
             atf = f"{r['asset']}/{r['timeframe']}"
             last = (r["last_closed"] or "")[:16]
-            L.append(f"| {i} | `{sid_short}` | {label} | {atf} | {r['n']} | {_fmt_pct(r['wr'])} | {_fmt_pnl(r['pnl_sum'])} | {last} | {r['status']} |")
+            L.append(
+                f"| {i} | `{sid_short}` | {label} | {atf} | {r['n']} | {_fmt_pct(r['wr'])} | {_fmt_pnl(r['pnl_sum'])} | {last} | {r['status']} |"
+            )
     L.append("")
 
     L.append("## WATCH Exploration / Evaluation")
@@ -161,8 +173,7 @@ def main():
     if not by_rec["WATCH"]:
         L.append("> None.")
     else:
-        watch_sorted = sorted(by_rec["WATCH"],
-            key=lambda r: (r["n"], r["wr"]), reverse=True)
+        watch_sorted = sorted(by_rec["WATCH"], key=lambda r: (r["n"], r["wr"]), reverse=True)
         L.append("| ID | Label | Asset/TF | n | WR | PnL | Last | Phase |")
         L.append("|---|---|---|--:|--:|--:|---|---|")
         for r in watch_sorted[:20]:
@@ -170,7 +181,9 @@ def main():
             label = (r["label"] or "?")[:25]
             atf = f"{r['asset']}/{r['timeframe']}"
             last = (r["last_closed"] or "-")[:16]
-            L.append(f"| `{sid_short}` | {label} | {atf} | {r['n']} | {_fmt_pct(r['wr'])} | {_fmt_pnl(r['pnl_sum'])} | {last} | {r['lifecycle']} |")
+            L.append(
+                f"| `{sid_short}` | {label} | {atf} | {r['n']} | {_fmt_pct(r['wr'])} | {_fmt_pnl(r['pnl_sum'])} | {last} | {r['lifecycle']} |"
+            )
         if len(by_rec["WATCH"]) > 20:
             L.append(f"\n*(+ {len(by_rec['WATCH']) - 20} more)*")
     L.append("")
@@ -191,7 +204,9 @@ def main():
             why = r["lifecycle"]
             if why == "idle" and r["age_days"]:
                 why = f"idle ({int(r['age_days'])}d)"
-            L.append(f"| `{sid_short}` | {label} | {atf} | {r['n']} | {_fmt_pct(r['wr'])} | {_fmt_pnl(r['pnl_sum'])} | {last} | {why} |")
+            L.append(
+                f"| `{sid_short}` | {label} | {atf} | {r['n']} | {_fmt_pct(r['wr'])} | {_fmt_pnl(r['pnl_sum'])} | {last} | {why} |"
+            )
         if len(by_rec["ARCHIVE"]) > 30:
             L.append(f"\n*(+ {len(by_rec['ARCHIVE']) - 30} more candidates)*")
     L.append("")
@@ -212,13 +227,20 @@ def main():
         out.write_text(md, encoding="utf-8")
         print(f"[audit] wrote {out}")
     else:
-        out = REPO_ROOT / "data_store" / "audits" / f"strategy_audit_{now.strftime('%Y%m%dT%H%M%SZ')}.md"
+        out = (
+            REPO_ROOT
+            / "data_store"
+            / "audits"
+            / f"strategy_audit_{now.strftime('%Y%m%dT%H%M%SZ')}.md"
+        )
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(md, encoding="utf-8")
         print(f"[audit] wrote {out}")
         print()
         print(f"  total={total} trades={total_trades} pnl={total_pnl:+.2f}")
-        print(f"  KEEP={len(by_rec['KEEP'])} WATCH={len(by_rec['WATCH'])} ARCHIVE={len(by_rec['ARCHIVE'])}")
+        print(
+            f"  KEEP={len(by_rec['KEEP'])} WATCH={len(by_rec['WATCH'])} ARCHIVE={len(by_rec['ARCHIVE'])}"
+        )
     return 0
 
 

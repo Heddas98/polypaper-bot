@@ -9,10 +9,11 @@ Usage:
         # We're in a pre-event window — adjust strategy parameters
         # e.g., tighten thresholds, reduce position sizes
 """
+
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -24,11 +25,18 @@ _CALENDAR_PATH = Path(__file__).parent / "event_calendar.json"
 
 class EventAlert:
     """Represents an active event window."""
-    __slots__ = ("name", "event_time", "impact", "hours_until",
-                 "pre_hours", "event_type")
 
-    def __init__(self, name: str, event_time: datetime, impact: str,
-                 hours_until: float, pre_hours: float, event_type: str):
+    __slots__ = ("name", "event_time", "impact", "hours_until", "pre_hours", "event_type")
+
+    def __init__(
+        self,
+        name: str,
+        event_time: datetime,
+        impact: str,
+        hours_until: float,
+        pre_hours: float,
+        event_type: str,
+    ):
         self.name = name
         self.event_time = event_time
         self.impact = impact
@@ -45,8 +53,10 @@ class EventAlert:
         return round(impact_mult * proximity, 3)
 
     def __repr__(self):
-        return (f"EventAlert({self.name}, {self.hours_until:.1f}h away, "
-                f"impact={self.impact}, severity={self.severity})")
+        return (
+            f"EventAlert({self.name}, {self.hours_until:.1f}h away, "
+            f"impact={self.impact}, severity={self.severity})"
+        )
 
 
 class EventMonitor:
@@ -62,6 +72,7 @@ class EventMonitor:
     def _load(self):
         """Load or reload the calendar JSON."""
         import time
+
         now = time.time()
         if now - self._last_load < self._reload_interval and self._events:
             return
@@ -93,7 +104,7 @@ class EventMonitor:
         if not self._events:
             return None
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         best: Optional[EventAlert] = None
 
         for ev in self._events:
@@ -134,7 +145,7 @@ class EventMonitor:
     def get_upcoming(self, hours: float = 24) -> list[dict]:
         """List events in next N hours (for /events command)."""
         self._load()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = []
         for ev in self._events:
             try:
@@ -146,13 +157,15 @@ class EventMonitor:
                     continue
                 hours_until = (event_time - now).total_seconds() / 3600.0
                 if hours_until <= hours:
-                    result.append({
-                        "name": ev.get("name"),
-                        "time": event_time.strftime("%Y-%m-%d %H:%M UTC"),
-                        "hours_until": round(hours_until, 1),
-                        "impact": ev.get("impact"),
-                        "type": ev.get("type"),
-                    })
+                    result.append(
+                        {
+                            "name": ev.get("name"),
+                            "time": event_time.strftime("%Y-%m-%d %H:%M UTC"),
+                            "hours_until": round(hours_until, 1),
+                            "impact": ev.get("impact"),
+                            "type": ev.get("type"),
+                        }
+                    )
             except (KeyError, TypeError, ValueError, AttributeError):
                 # T11.8-B (2026-04-24): narrow from bare Exception. Same
                 # parse-failure surface as get_active_event() above.

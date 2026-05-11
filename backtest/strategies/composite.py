@@ -12,10 +12,16 @@ Parameters:
   - min_agreement: minimum strategies agreeing on direction (default 2)
   - voting: "majority" or "weighted" (default "majority")
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    Direction,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -25,9 +31,7 @@ class CompositeStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Multi-signal fusion: combine multiple strategies"
 
-    def __init__(self, strategies: list = None,
-                 min_agreement: int = 2,
-                 voting: str = "majority"):
+    def __init__(self, strategies: list = None, min_agreement: int = 2, voting: str = "majority"):
         self.min_agreement = min_agreement
         self.voting = voting
 
@@ -40,8 +44,9 @@ class CompositeStrategy(BaseBacktestStrategy):
             self.sub_strategies = []
             try:
                 from backtest.strategies.late_convergence import LateConvergenceStrategy
-                from backtest.strategies.streak_reversal import StreakReversalStrategy
                 from backtest.strategies.orderbook_imbalance import OrderbookImbalanceStrategy
+                from backtest.strategies.streak_reversal import StreakReversalStrategy
+
                 self.sub_strategies = [
                     LateConvergenceStrategy(),
                     StreakReversalStrategy(),
@@ -91,8 +96,7 @@ class CompositeStrategy(BaseBacktestStrategy):
                     direction=Direction.UP,
                     confidence=min(0.95, avg_conf + 0.05 * len(up_votes)),
                     entry_price=avg_entry,
-                    reason=f"composite({len(up_votes)}/{len(signals)} UP): "
-                           + " | ".join(reasons),
+                    reason=f"composite({len(up_votes)}/{len(signals)} UP): " + " | ".join(reasons),
                 )
             if len(down_votes) >= self.min_agreement:
                 avg_conf = sum(s.confidence for s in down_votes) / len(down_votes)
@@ -104,7 +108,7 @@ class CompositeStrategy(BaseBacktestStrategy):
                     confidence=min(0.95, avg_conf + 0.05 * len(down_votes)),
                     entry_price=avg_entry,
                     reason=f"composite({len(down_votes)}/{len(signals)} DOWN): "
-                           + " | ".join(reasons),
+                    + " | ".join(reasons),
                 )
 
         elif self.voting == "weighted":
@@ -123,8 +127,7 @@ class CompositeStrategy(BaseBacktestStrategy):
                     direction=Direction.UP,
                     confidence=min(0.95, up_weight / total_weight),
                     entry_price=avg_entry,
-                    reason=f"composite(weighted UP={up_weight:.2f} "
-                           f"DOWN={down_weight:.2f})",
+                    reason=f"composite(weighted UP={up_weight:.2f} " f"DOWN={down_weight:.2f})",
                 )
             if down_weight > up_weight and len(down_votes) >= self.min_agreement:
                 avg_entry = sum(s.entry_price * s.confidence for s in down_votes) / down_weight
@@ -133,8 +136,7 @@ class CompositeStrategy(BaseBacktestStrategy):
                     direction=Direction.DOWN,
                     confidence=min(0.95, down_weight / total_weight),
                     entry_price=avg_entry,
-                    reason=f"composite(weighted DOWN={down_weight:.2f} "
-                           f"UP={up_weight:.2f})",
+                    reason=f"composite(weighted DOWN={down_weight:.2f} " f"UP={up_weight:.2f})",
                 )
 
         return None

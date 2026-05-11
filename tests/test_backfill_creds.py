@@ -6,6 +6,7 @@ script can build a client object. Does NOT make actual API calls.
 
 Run: py -3.11 tests/test_backfill_creds.py
 """
+
 import os
 import sys
 
@@ -17,6 +18,7 @@ sys.path.insert(0, ROOT)
 # Load .env
 try:
     from dotenv import load_dotenv
+
     load_dotenv(os.path.join(ROOT, ".env"))
 except ImportError:
     pass
@@ -45,6 +47,7 @@ def check_backfill_imports():
     """Check that backfill script modules can be imported."""
     try:
         import aiosqlite  # noqa: F401
+
         print("  ✅ aiosqlite")
     except ImportError:
         print("  ❌ aiosqlite — pip install aiosqlite")
@@ -53,6 +56,7 @@ def check_backfill_imports():
     try:
         # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
         from py_clob_client_v2 import ClobClient  # noqa: F401
+
         print("  ✅ py-clob-client-v2")
     except ImportError:
         print("  ❌ py-clob-client-v2 — pip install py-clob-client-v2")

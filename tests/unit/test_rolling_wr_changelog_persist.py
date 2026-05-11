@@ -33,6 +33,7 @@ Out of scope
   INSERT schema (Phase 79b) which already accepts these columns.
 * ``_notify_paused`` Telegram send — stubbed via ``engine=None``.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -41,7 +42,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import core.auto_optimizer as ao
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Stubs — minimal async surface area mirroring the production DB class
@@ -103,9 +103,9 @@ class _StubDB:
         self.status_updates.append((sid, status))
 
 
-def _make_strategy(sid="deadbeefcafebabe00000000deadbeef",
-                   label="M_BTC_5m",
-                   strategy_type="momentum"):
+def _make_strategy(
+    sid="deadbeefcafebabe00000000deadbeef", label="M_BTC_5m", strategy_type="momentum"
+):
     """Minimal duck-typed strategy for ``_check_rolling_wr``."""
     return SimpleNamespace(
         id=sid,
@@ -132,8 +132,7 @@ def rolling_knobs(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rolling_wr_kill_persists_pnl_and_trades(
-        rolling_knobs, monkeypatch):
+async def test_rolling_wr_kill_persists_pnl_and_trades(rolling_knobs, monkeypatch):
     """Kill path must pass ``wr`` + ``pnl`` + ``trades`` to ``log_change``.
 
     Setup:
@@ -167,6 +166,7 @@ async def test_rolling_wr_kill_persists_pnl_and_trades(
 
     # Strategy was stopped exactly once
     from db.models import StrategyStatus
+
     assert db.status_updates == [(s.id, StrategyStatus.STOPPED)]
 
     # log_change invoked with expected structured metrics
@@ -186,8 +186,7 @@ async def test_rolling_wr_kill_persists_pnl_and_trades(
 
 
 @pytest.mark.asyncio
-async def test_rolling_wr_kill_handles_missing_stats(
-        rolling_knobs, monkeypatch):
+async def test_rolling_wr_kill_handles_missing_stats(rolling_knobs, monkeypatch):
     """When ``_get_strategy_stats`` short-circuits (``r["trades"]==0``
     makes it return ``None``), the kill still fires and ``log_change``
     still gets the action + wr; pnl/trades pass through as ``None``
@@ -213,6 +212,7 @@ async def test_rolling_wr_kill_handles_missing_stats(
 
     # Kill still fires
     from db.models import StrategyStatus
+
     assert db.status_updates == [(s.id, StrategyStatus.STOPPED)]
 
     # log_change still invoked — wr present, pnl/trades None

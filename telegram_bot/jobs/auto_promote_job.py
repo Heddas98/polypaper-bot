@@ -20,11 +20,11 @@ Env:
   AUTO_PROMOTE_NOTIFY        (default "1")
   AUTO_PROMOTE_DRY_RUN       (default "0")
 """
+
 from __future__ import annotations
 
-import asyncio
-import os
 import logging
+import os
 from typing import List, Tuple
 
 import aiosqlite
@@ -77,7 +77,7 @@ async def _candidate_canary_strategies(db) -> List[Tuple[str, str, int, float]]:
                GROUP BY s.id, s.label
                HAVING trades >= ? AND pnl >= ?
                ORDER BY pnl DESC""",
-            (min_trades, min_pnl)
+            (min_trades, min_pnl),
         )
         rows = await cur.fetchall()
     except aiosqlite.Error as e:
@@ -85,8 +85,7 @@ async def _candidate_canary_strategies(db) -> List[Tuple[str, str, int, float]]:
         # + GROUP BY surface is purely aiosqlite (OperationalError on schema
         # missing, DatabaseError on corrupt). Empty list fallback keeps
         # caller flow alive.
-        logger.warning(f"[auto_promote] query failed: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"[auto_promote] query failed: " f"{type(e).__name__}: {e}")
         return []
 
     out: List[Tuple[str, str, int, float]] = []
@@ -118,8 +117,7 @@ async def auto_promote_job(context: ContextTypes.DEFAULT_TYPE):
     candidates = await _candidate_canary_strategies(db)
     if not candidates:
         logger.info(
-            f"[auto_promote] no candidates (min_trades={min_trades}, "
-            f"min_pnl=${min_pnl:.2f})"
+            f"[auto_promote] no candidates (min_trades={min_trades}, " f"min_pnl=${min_pnl:.2f})"
         )
         return
 
@@ -137,7 +135,7 @@ async def auto_promote_job(context: ContextTypes.DEFAULT_TYPE):
                 "UPDATE strategies SET deploy_stage='promoted', "
                 "updated_at=datetime('now') WHERE id=? "
                 "AND deploy_stage='canary'",
-                (sid,)
+                (sid,),
             )
             await db.conn.commit()
             promoted.append((sid, label, trades, pnl))
@@ -150,8 +148,7 @@ async def auto_promote_job(context: ContextTypes.DEFAULT_TYPE):
             # WHERE id=? AND deploy_stage='canary' returns via aiosqlite;
             # IntegrityError/OperationalError expected. Skip this sid and
             # keep scanning the batch.
-            logger.warning(f"[auto_promote] failed for {sid[:8]}: "
-                           f"{type(e).__name__}: {e}")
+            logger.warning(f"[auto_promote] failed for {sid[:8]}: " f"{type(e).__name__}: {e}")
 
     if not promoted:
         return
@@ -172,17 +169,15 @@ async def auto_promote_job(context: ContextTypes.DEFAULT_TYPE):
             "",
         ]
         for sid, label, trades, pnl in promoted:
-            lines.append(
-                f"• <code>{sid[:8]}</code> {label} — "
-                f"{trades}t <b>${pnl:+.2f}</b>"
-            )
+            lines.append(f"• <code>{sid[:8]}</code> {label} — " f"{trades}t <b>${pnl:+.2f}</b>")
         await context.bot.send_message(
-            chat_id=admin_id, text="\n".join(lines), parse_mode="HTML",
+            chat_id=admin_id,
+            text="\n".join(lines),
+            parse_mode="HTML",
         )
-    except (TelegramError, asyncio.TimeoutError) as e:
+    except (TimeoutError, TelegramError) as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. send_message
         # surfaces TelegramError (BadRequest on HTML, NetworkError, etc.)
         # + asyncio.TimeoutError on transport timeout. Promoted strategies
         # still persisted — only notification was lost.
-        logger.warning(f"[auto_promote] notify failed: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"[auto_promote] notify failed: " f"{type(e).__name__}: {e}")

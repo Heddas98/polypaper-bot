@@ -17,9 +17,10 @@ Adaptif eşik (Phase 33):
 BUG-01 FIXED (2026-04-09): SQL'e label sütunu eklendi, exception logging
   seviyesi debug→error'a yükseltildi. Adaptif eşik artık aktif.
 """
+
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 # T8.1: narrow DB exception handling — aiosqlite.Error is the canonical
@@ -47,7 +48,8 @@ def _get_pnl_pause_threshold() -> float:
         return -8.0
 
 
-LOSS_STREAK_LIMIT = 5          # Consecutive losses to trigger pause
+LOSS_STREAK_LIMIT = 5  # Consecutive losses to trigger pause
+
 
 # T7.6 B8 (2026-04-22): Phase 52 rolling-WR gates were module-top constants
 # and therefore frozen at import. Same ghost-toggle class as T6.1 / T6.4 —
@@ -80,8 +82,8 @@ TYPES_TO_WATCH = {"momentum", "scalper", "contrarian", "martingale"}  # Extra sc
 #   Default: "classic"
 # ═══════════════════════════════════════════════════════════════════
 PROTECTED_STRATEGY_TYPES = {
-    t.strip().lower() for t in
-    os.getenv("PROTECTED_STRATEGY_TYPES", "classic").split(",")
+    t.strip().lower()
+    for t in os.getenv("PROTECTED_STRATEGY_TYPES", "classic").split(",")
     if t.strip()
 }
 
@@ -102,12 +104,13 @@ def _is_protected_type(s) -> bool:
         return False
     return stype in PROTECTED_STRATEGY_TYPES
 
+
 # Phase 56 P1-05: Adaptive PnL pause threshold — strategies with more trades
 # get more rope. A strategy with 100+ trades at -$3 is far less concerning
 # than one with 8 trades at -$3. Scale: -$3 base, loosens -$0.50 per 20 trades,
 # capped at -$10.
 ADAPTIVE_PNL_ENABLED = os.getenv("ADAPTIVE_PNL_ENABLED", "true").lower() == "true"
-ADAPTIVE_PNL_STEP = float(os.getenv("ADAPTIVE_PNL_STEP", "0.5"))   # loosen per step
+ADAPTIVE_PNL_STEP = float(os.getenv("ADAPTIVE_PNL_STEP", "0.5"))  # loosen per step
 ADAPTIVE_PNL_TRADES_PER_STEP = int(os.getenv("ADAPTIVE_PNL_TRADES_PER_STEP", "20"))
 ADAPTIVE_PNL_FLOOR = float(os.getenv("ADAPTIVE_PNL_FLOOR", "-10.0"))  # max looseness
 
@@ -173,9 +176,7 @@ class AutoOptimizer:
             # Phase 49 A-03: loud warning if we still have zero active strats
             if not strategies:
                 try:
-                    async with self.db.conn.execute(
-                        "SELECT COUNT(*) FROM strategies"
-                    ) as c:
+                    async with self.db.conn.execute("SELECT COUNT(*) FROM strategies") as c:
                         total_row = await c.fetchone()
                     total = total_row[0] if total_row else 0
                 except (aiosqlite.Error, TypeError):
@@ -188,9 +189,11 @@ class AutoOptimizer:
                     f"or AUTO_RESUME_ON_STARTUP is enabled."
                 )
                 await self._notify_paused(
-                    [f"Total in DB: {total} — all stopped. "
-                     f"Use /resume_all or set AUTO_RESUME_ON_STARTUP=true."],
-                    "Zero Active Strategies"
+                    [
+                        f"Total in DB: {total} — all stopped. "
+                        f"Use /resume_all or set AUTO_RESUME_ON_STARTUP=true."
+                    ],
+                    "Zero Active Strategies",
                 )
             paused = []
             for s in strategies:
@@ -200,25 +203,37 @@ class AutoOptimizer:
                 stats = await self._get_strategy_stats(s.id)
                 if not stats or stats["trades"] < MIN_TRADES_FOR_EVAL:
                     continue
-                stype = getattr(s, 'strategy_type', 'fusion') or 'fusion'
+                stype = getattr(s, "strategy_type", "fusion") or "fusion"
 
                 # Auto-pause if PnL below threshold (Phase 56: adaptive)
                 threshold = _adaptive_pnl_threshold(stats["trades"])
                 if stats["pnl"] < threshold:
                     from db.models import StrategyStatus
+
                     await self.db.update_strategy_status(s.id, StrategyStatus.STOPPED)
-                    reason = f'PnL {stats["pnl"]:+.2f} < {threshold:.1f} (adaptive, {stats["trades"]}t)'
-                    paused.append(f'{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: {reason}')
-                    logger.warning(f"🛑 Startup pause: {s.id[:8]} [{stype}] "
-                                   f"{s.asset.value}/{s.timeframe.value} → {reason}")
+                    reason = (
+                        f'PnL {stats["pnl"]:+.2f} < {threshold:.1f} (adaptive, {stats["trades"]}t)'
+                    )
+                    paused.append(
+                        f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: {reason}"
+                    )
+                    logger.warning(
+                        f"🛑 Startup pause: {s.id[:8]} [{stype}] "
+                        f"{s.asset.value}/{s.timeframe.value} → {reason}"
+                    )
 
                 # Extra scrutiny for risky types — only after enough trades
-                elif (stype in TYPES_TO_WATCH and stats["trades"] >= MIN_TRADES_FOR_EVAL
-                      and stats["pnl"] < -5.0 and stats["wr"] < 45):
+                elif (
+                    stype in TYPES_TO_WATCH
+                    and stats["trades"] >= MIN_TRADES_FOR_EVAL
+                    and stats["pnl"] < -5.0
+                    and stats["wr"] < 45
+                ):
                     from db.models import StrategyStatus
+
                     await self.db.update_strategy_status(s.id, StrategyStatus.STOPPED)
                     reason = f'{stype} WR={stats["wr"]:.0f}% PnL={stats["pnl"]:+.2f}'
-                    paused.append(f'{s.id[:8]} [{stype}]: {reason}')
+                    paused.append(f"{s.id[:8]} [{stype}]: {reason}")
                     logger.warning(f"🛑 Startup pause: {s.id[:8]} [{stype}] → {reason}")
 
             if paused:
@@ -248,14 +263,20 @@ class AutoOptimizer:
                 threshold = _adaptive_pnl_threshold(stats["trades"])
                 if stats["pnl"] < threshold:
                     from db.models import StrategyStatus
+
                     await self.db.update_strategy_status(s.id, StrategyStatus.STOPPED)
-                    stype = getattr(s, 'strategy_type', 'fusion') or 'fusion'
-                    logger.warning(f"⚠️ PnL pause: {s.id[:8]} [{stype}] "
-                                   f"PnL={stats['pnl']:+.2f} < {threshold:.1f} after {stats['trades']}t")
+                    stype = getattr(s, "strategy_type", "fusion") or "fusion"
+                    logger.warning(
+                        f"⚠️ PnL pause: {s.id[:8]} [{stype}] "
+                        f"PnL={stats['pnl']:+.2f} < {threshold:.1f} after {stats['trades']}t"
+                    )
                     await self._notify_paused(
-                        [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
-                         f"PnL={stats['pnl']:+.2f} WR={stats['wr']:.0f}%"],
-                        "PnL Health Check")
+                        [
+                            f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
+                            f"PnL={stats['pnl']:+.2f} WR={stats['wr']:.0f}%"
+                        ],
+                        "PnL Health Check",
+                    )
         except Exception as e:  # noqa: BLE001
             # T8.1 Faz 3 audit: periodic-job umbrella. Inner `_get_strategy_stats`
             # + update_strategy_status narrows aiosqlite.Error; this outer
@@ -285,7 +306,8 @@ class AutoOptimizer:
                         """SELECT pnl FROM executions
                            WHERE strategy_id=? AND result IS NOT NULL
                            ORDER BY closed_at DESC LIMIT ?""",
-                        (s.id, rolling_window))
+                        (s.id, rolling_window),
+                    )
                 except aiosqlite.Error:
                     # T8.1: pure DB read. Per-strategy continue so one bad
                     # row doesn't break the rolling-WR sweep for others.
@@ -296,12 +318,14 @@ class AutoOptimizer:
                 wr = wins / len(rows) * 100
                 if wr < kill_threshold:
                     from db.models import StrategyStatus
+
                     await self.db.update_strategy_status(s.id, StrategyStatus.STOPPED)
-                    stype = getattr(s, 'strategy_type', 'fusion') or 'fusion'
+                    stype = getattr(s, "strategy_type", "fusion") or "fusion"
                     logger.warning(
                         f"⚠️ Rolling WR kill: {s.id[:8]} [{stype}] "
                         f"{s.asset.value}/{s.timeframe.value}: "
-                        f"WR={wr:.0f}% (last {len(rows)}t) < {kill_threshold}%")
+                        f"WR={wr:.0f}% (last {len(rows)}t) < {kill_threshold}%"
+                    )
                     # T11.2 [E]: also persist cumulative pnl + trades to
                     # changelog. Previously only wr_at_time was set; pnl/
                     # trades_at_time were NULL (see G5 probe output where
@@ -315,11 +339,20 @@ class AutoOptimizer:
                     cum_trades = cum_stats["trades"] if cum_stats else None
                     try:
                         from core.changelog import log_change
-                        await log_change(self.db, s.id, "ROLLING_WR_KILL", "adaptive_optimizer",
-                                         old={"status": "active"}, new={"status": "stopped"},
-                                         reason=f"WR={wr:.0f}% < {kill_threshold}% (last {len(rows)}t)",
-                                         label=getattr(s, 'label', ''),
-                                         wr=wr, pnl=cum_pnl, trades=cum_trades)
+
+                        await log_change(
+                            self.db,
+                            s.id,
+                            "ROLLING_WR_KILL",
+                            "adaptive_optimizer",
+                            old={"status": "active"},
+                            new={"status": "stopped"},
+                            reason=f"WR={wr:.0f}% < {kill_threshold}% (last {len(rows)}t)",
+                            label=getattr(s, "label", ""),
+                            wr=wr,
+                            pnl=cum_pnl,
+                            trades=cum_trades,
+                        )
                     except (ImportError, AttributeError, aiosqlite.Error) as _ce:
                         # T8.1: import (ImportError on partial deploy),
                         # getattr(s,'label','') shouldn't raise but keep
@@ -328,9 +361,12 @@ class AutoOptimizer:
                         # trail — strategy is already stopped by L281.
                         logger.debug(f"rolling_wr changelog failed: {_ce}")
                     await self._notify_paused(
-                        [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
-                         f"WR={wr:.0f}% (last {len(rows)}t)"],
-                        f"Rolling WR &lt; {kill_threshold:.0f}%")
+                        [
+                            f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
+                            f"WR={wr:.0f}% (last {len(rows)}t)"
+                        ],
+                        f"Rolling WR &lt; {kill_threshold:.0f}%",
+                    )
         except Exception as e:  # noqa: BLE001
             # T8.1 Faz 3 audit: periodic-job umbrella. Inner blocks narrow
             # aiosqlite.Error + changelog import/DB chain; this outer guard
@@ -346,13 +382,19 @@ class AutoOptimizer:
                    COALESCE(SUM(CASE WHEN pnl<=0 AND result IS NOT NULL THEN 1 ELSE 0 END),0) as losses,
                    COALESCE(SUM(CASE WHEN result IS NOT NULL THEN pnl ELSE 0 END),0) as pnl
                    FROM executions WHERE strategy_id=? AND result IS NOT NULL""",
-                (sid,)) as c:
+                (sid,),
+            ) as c:
                 r = await c.fetchone()
                 if r and r["trades"] > 0:
                     t = r["trades"]
                     w = r["wins"]
-                    return {"trades": t, "wins": w, "losses": r["losses"],
-                            "pnl": r["pnl"], "wr": w / t * 100 if t > 0 else 0}
+                    return {
+                        "trades": t,
+                        "wins": w,
+                        "losses": r["losses"],
+                        "pnl": r["pnl"],
+                        "wr": w / t * 100 if t > 0 else 0,
+                    }
         except (aiosqlite.Error, KeyError, TypeError, ZeroDivisionError):
             # T8.1: DB execute (aiosqlite.Error), r["col"] indexing if the
             # row shape drifted (KeyError), type coercion in w/t arithmetic
@@ -373,14 +415,20 @@ class AutoOptimizer:
                 recent = await self._get_recent_results(s.id, LOSS_STREAK_LIMIT)
                 if len(recent) >= LOSS_STREAK_LIMIT and all(r == "lost" for r in recent):
                     from db.models import StrategyStatus
+
                     await self.db.update_strategy_status(s.id, StrategyStatus.STOPPED)
-                    stype = getattr(s, 'strategy_type', 'fusion') or 'fusion'
-                    logger.warning(f"⚠️ Streak pause: {s.id[:8]} [{stype}] "
-                                   f"{s.asset.value}/{s.timeframe.value}: {LOSS_STREAK_LIMIT} consecutive losses")
+                    stype = getattr(s, "strategy_type", "fusion") or "fusion"
+                    logger.warning(
+                        f"⚠️ Streak pause: {s.id[:8]} [{stype}] "
+                        f"{s.asset.value}/{s.timeframe.value}: {LOSS_STREAK_LIMIT} consecutive losses"
+                    )
                     await self._notify_paused(
-                        [f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
-                         f"{LOSS_STREAK_LIMIT} consecutive losses"],
-                        "Loss Streak")
+                        [
+                            f"{s.id[:8]} [{stype}] {s.asset.value}/{s.timeframe.value}: "
+                            f"{LOSS_STREAK_LIMIT} consecutive losses"
+                        ],
+                        "Loss Streak",
+                    )
         except Exception as e:  # noqa: BLE001
             # T8.1 Faz 3 audit: periodic-job umbrella. Inner `_get_recent_results`
             # + update_strategy_status narrow aiosqlite.Error; this outer guard
@@ -393,7 +441,8 @@ class AutoOptimizer:
             async with self.db.conn.execute(
                 "SELECT result FROM executions WHERE strategy_id=? AND result IS NOT NULL "
                 "ORDER BY closed_at DESC LIMIT ?",
-                (strategy_id, limit)) as c:
+                (strategy_id, limit),
+            ) as c:
                 async for row in c:
                     results.append(row["result"])
         except aiosqlite.Error:
@@ -428,8 +477,7 @@ class AutoOptimizer:
                 "SELECT id, label, strategy_type FROM strategies WHERE status='stopped'"
             ) as c:
                 async for row in c:
-                    rows.append((row["id"], row["label"],
-                                 row["strategy_type"] or "fusion"))
+                    rows.append((row["id"], row["label"], row["strategy_type"] or "fusion"))
 
             if not rows:
                 return
@@ -447,6 +495,7 @@ class AutoOptimizer:
                     continue
                 try:
                     from db.models import StrategyStatus
+
                     await self.db.update_strategy_status(sid, StrategyStatus.ACTIVE)
                     resumed.append(
                         f'{sid[:8]} [{stype}] {label or "?"}: '
@@ -518,11 +567,16 @@ class AutoOptimizer:
                         ) as c:
                             strats = await c.fetchall()
                         for st in strats:
-                            st_wr = (st["w"]/(st["w"]+st["l"])*100) if (st["w"]+st["l"])>0 else 0
+                            st_wr = (
+                                (st["w"] / (st["w"] + st["l"]) * 100)
+                                if (st["w"] + st["l"]) > 0
+                                else 0
+                            )
                             emoji = "🟢" if st["p"] > 0 else "🔴"
                             strat_lines.append(
                                 f"  {emoji} [{st['stype']}] {st['label'] or '?'}: "
-                                f"{st['t']}t {st_wr:.0f}% WR {st['p']:+.2f}$")
+                                f"{st['t']}t {st_wr:.0f}% WR {st['p']:+.2f}$"
+                            )
                     except aiosqlite.Error as _me:
                         # T8.1: pure DB read for top-5 strategy breakdown.
                         # Empty strat_lines handled by the caller below
@@ -581,13 +635,15 @@ class AutoOptimizer:
             admin_id = os.getenv("ADMIN_TELEGRAM_ID")
             if admin_id:
                 await self.engine.bot_app.bot.send_message(
-                    chat_id=int(admin_id), text=text, parse_mode="HTML")
+                    chat_id=int(admin_id), text=text, parse_mode="HTML"
+                )
             else:
                 async with self.db.conn.execute("SELECT telegram_id FROM users LIMIT 1") as c:
                     user = await c.fetchone()
                     if user:
                         await self.engine.bot_app.bot.send_message(
-                            chat_id=user["telegram_id"], text=text, parse_mode="HTML")
+                            chat_id=user["telegram_id"], text=text, parse_mode="HTML"
+                        )
         except Exception as e:  # noqa: BLE001
             # T8.1 Faz 3 audit: telegram send + DB fallback umbrella.
             # telegram.error.* hierarchy varies by ptb version (NetworkError,
@@ -612,7 +668,8 @@ class AutoOptimizer:
                 user = await c.fetchone()
                 if user:
                     await self.engine.bot_app.bot.send_message(
-                        chat_id=user["telegram_id"], text=text, parse_mode="HTML")
+                        chat_id=user["telegram_id"], text=text, parse_mode="HTML"
+                    )
         except Exception as _ne:  # noqa: BLE001
             # T8.1 Faz 3 audit: telegram send + DB fetch umbrella.
             # Same rationale as _send_admin_message — ptb exception
@@ -624,7 +681,7 @@ class AutoOptimizer:
     # ═══ DAILY SUMMARY ═══
     async def generate_daily_summary(self, user_id: str) -> str:
         """Generate daily performance summary."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
 
         try:
             async with self.db.conn.execute(
@@ -635,7 +692,8 @@ class AutoOptimizer:
                    COALESCE(SUM(trade_amount),0) as volume
                    FROM executions WHERE user_id=?
                    AND created_at >= ?""",
-                (user_id, today + "T00:00:00")) as c:
+                (user_id, today + "T00:00:00"),
+            ) as c:
                 day = await c.fetchone()
 
             async with self.db.conn.execute(
@@ -649,14 +707,16 @@ class AutoOptimizer:
                    LEFT JOIN executions e ON e.strategy_id=s.id AND e.created_at >= ?
                    WHERE s.user_id=? AND s.status='active'
                    GROUP BY s.id ORDER BY pnl DESC""",
-                (today + "T00:00:00", user_id)) as c:
+                (today + "T00:00:00", user_id),
+            ) as c:
                 strats = await c.fetchall()
 
             async with self.db.conn.execute(
                 """SELECT COALESCE(SUM(pnl),0) as total_pnl,
                    COUNT(*) as total_trades
                    FROM executions WHERE user_id=? AND result IS NOT NULL""",
-                (user_id,)) as c:
+                (user_id,),
+            ) as c:
                 alltime = await c.fetchone()
 
             wallet = await self.db.get_active_wallet(user_id)
@@ -674,10 +734,16 @@ class AutoOptimizer:
                 f"Trades: {trades} | {wins}W/{losses}L ({wr:.0f}%)\n"
                 f"PnL: <b>{day_pnl:+.2f} USDC</b>\n"
                 f"Volume: ${day['volume'] or 0:.2f}\n\n"
-                f"<b>By Strategy</b>\n")
+                f"<b>By Strategy</b>\n"
+            )
 
-            type_emoji = {"momentum": "📈", "contrarian": "🔄", "scalper": "⚡",
-                          "sniper": "🎯", "fusion": "🔬"}
+            type_emoji = {
+                "momentum": "📈",
+                "contrarian": "🔄",
+                "scalper": "⚡",
+                "sniper": "🎯",
+                "fusion": "🔬",
+            }
             for s in strats:
                 st = s["trades"] or 0
                 if st == 0:
@@ -693,7 +759,8 @@ class AutoOptimizer:
             text += (
                 f"\n<b>All Time</b>\n"
                 f"Total PnL: {alltime['total_pnl']:+.2f} | Trades: {alltime['total_trades']}\n"
-                f"Balance: <b>${balance:.2f}</b>\n")
+                f"Balance: <b>${balance:.2f}</b>\n"
+            )
 
             return text
 
@@ -720,7 +787,8 @@ class AutoOptimizer:
         _DEAD_THR = float(os.getenv("ADAPTIVE_DEAD_THRESHOLD", "0.85"))
         try:
             strats = await self.db.conn.execute_fetchall(
-                "SELECT id, odds_threshold, strategy_type, label FROM strategies WHERE status='active'")
+                "SELECT id, odds_threshold, strategy_type, label FROM strategies WHERE status='active'"
+            )
             for s in strats:
                 sid, threshold, stype, label = s[0], s[1], s[2], (s[3] or "")
                 # Phase 82e HOTFIX: skip protected types (e.g., classic)
@@ -732,7 +800,9 @@ class AutoOptimizer:
                 recent = await self.db.conn.execute_fetchall(
                     """SELECT pnl FROM executions
                        WHERE strategy_id=? AND result IS NOT NULL
-                       ORDER BY created_at DESC LIMIT 20""", (sid,))
+                       ORDER BY created_at DESC LIMIT 20""",
+                    (sid,),
+                )
                 if len(recent) < 15:
                     continue  # Not enough data
                 wins = sum(1 for r in recent if r[0] > 0)
@@ -745,31 +815,45 @@ class AutoOptimizer:
                     if label in PROTECTED:
                         continue
                     await self.db.conn.execute(
-                        "UPDATE strategies SET status='stopped' WHERE id=?", (sid,))
+                        "UPDATE strategies SET status='stopped' WHERE id=?", (sid,)
+                    )
                     await self.db.conn.commit()
                     logger.warning(
                         f"💀 ADAPTIVE_DEAD: {sid[:8]} [{stype}] {label} "
-                        f"auto-stopped (thr={threshold:.2f} WR={wr:.0f}% — unreachable)")
+                        f"auto-stopped (thr={threshold:.2f} WR={wr:.0f}% — unreachable)"
+                    )
                     try:
                         from core.changelog import log_change
-                        await log_change(self.db, sid, "ADAPTIVE_DEAD", "adaptive_optimizer",
-                                         old={"status": "active", "odds_threshold": threshold},
-                                         new={"status": "stopped"},
-                                         reason=f"thr={threshold:.2f} WR={wr:.0f}% — unreachable",
-                                         label=label, wr=wr)
+
+                        await log_change(
+                            self.db,
+                            sid,
+                            "ADAPTIVE_DEAD",
+                            "adaptive_optimizer",
+                            old={"status": "active", "odds_threshold": threshold},
+                            new={"status": "stopped"},
+                            reason=f"thr={threshold:.2f} WR={wr:.0f}% — unreachable",
+                            label=label,
+                            wr=wr,
+                        )
                     except (ImportError, AttributeError, aiosqlite.Error) as _ce:
                         # T8.1: import + DB write inside log_change. Already
                         # stopped above so failure is audit-trail only.
                         logger.debug(f"adaptive_dead changelog failed: {_ce}")
                     # Telegram notification
                     try:
-                        if hasattr(self, 'engine') and self.engine and hasattr(self.engine, 'analyst'):
+                        if (
+                            hasattr(self, "engine")
+                            and self.engine
+                            and hasattr(self.engine, "analyst")
+                        ):
                             brain = self.engine.analyst
                             if brain:
                                 await brain._send(
                                     f"💀 <b>Strateji Otomatik Durduruldu</b>\n"
                                     f"{label or sid[:8]} [{stype}]\n"
-                                    f"Threshold {threshold:.2f} + WR {wr:.0f}% = kurtarilamaz")
+                                    f"Threshold {threshold:.2f} + WR {wr:.0f}% = kurtarilamaz"
+                                )
                     except AttributeError as _ae:
                         # T8.1: `self.engine.analyst._send` attribute chain
                         # narrowed. Telegram send errors propagate from ptb
@@ -790,18 +874,28 @@ class AutoOptimizer:
                 if abs(threshold - old_thr) >= 0.01:
                     await self.db.conn.execute(
                         "UPDATE strategies SET odds_threshold=? WHERE id=?",
-                        (round(threshold, 2), sid))
+                        (round(threshold, 2), sid),
+                    )
                     await self.db.conn.commit()
                     logger.info(
                         f"🎯 ADAPTIVE: {sid[:8]} [{stype}] WR={wr:.0f}% "
-                        f"threshold {old_thr:.2f}→{threshold:.2f}")
+                        f"threshold {old_thr:.2f}→{threshold:.2f}"
+                    )
                     try:
                         from core.changelog import log_change
+
                         _dir = "raised" if threshold > old_thr else "lowered"
-                        await log_change(self.db, sid, "ADAPTIVE_THRESHOLD", "adaptive_optimizer",
-                                         old={"odds_threshold": old_thr}, new={"odds_threshold": round(threshold, 2)},
-                                         reason=f"WR={wr:.0f}% → threshold {_dir}",
-                                         label=label, wr=wr)
+                        await log_change(
+                            self.db,
+                            sid,
+                            "ADAPTIVE_THRESHOLD",
+                            "adaptive_optimizer",
+                            old={"odds_threshold": old_thr},
+                            new={"odds_threshold": round(threshold, 2)},
+                            reason=f"WR={wr:.0f}% → threshold {_dir}",
+                            label=label,
+                            wr=wr,
+                        )
                     except (ImportError, AttributeError, aiosqlite.Error) as _ce:
                         # T8.1: import + DB write inside log_change. Threshold
                         # was already persisted above; this is audit-trail only.

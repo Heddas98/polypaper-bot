@@ -15,10 +15,12 @@ Covers the audit's P0 test gaps:
 
 No external deps (DB, Telegram, WS) — pure logic tests.
 """
+
 import asyncio
-import unittest
-import sys
 import os
+import sys
+import unittest
+from datetime import UTC
 
 # ── Path setup ──
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 class TestFmtUsd(unittest.TestCase):
     def setUp(self):
         from telegram_bot.templates.safe_html import fmt_usd
+
         self.fmt = fmt_usd
 
     def test_basic_format(self):
@@ -83,8 +86,7 @@ class TestPendingReservedBalance(unittest.TestCase):
         wallet_id = "w1"
         wallet_balance = 20.0
 
-        pending_reserved = sum(
-            o.amount for o in pending if o.wallet_id == wallet_id)
+        pending_reserved = sum(o.amount for o in pending if o.wallet_id == wallet_id)
         effective = max(wallet_balance - pending_reserved, 0.0)
 
         self.assertEqual(pending_reserved, 8.0)
@@ -104,12 +106,14 @@ class TestPendingReservedBalance(unittest.TestCase):
 class TestVerdictNoneGuard(unittest.TestCase):
     def test_risk_verdict_creation(self):
         from core.risk_manager import RiskVerdict
+
         v = RiskVerdict(True, "ok")
         self.assertTrue(v.approved)
         self.assertTrue(bool(v))
 
     def test_risk_verdict_false(self):
         from core.risk_manager import RiskVerdict
+
         v = RiskVerdict(False, "HALTED")
         self.assertFalse(v.approved)
         self.assertFalse(bool(v))
@@ -132,11 +136,13 @@ class TestVerdictNoneGuard(unittest.TestCase):
 # ═══════════════════════════════════════
 class TestRiskGates(unittest.TestCase):
     def setUp(self):
-        from core.risk_manager import RiskManager, RiskLimits
         from datetime import datetime, timezone
+
+        from core.risk_manager import RiskLimits, RiskManager
+
         self.rm = RiskManager(RiskLimits())
         # Must be string format to match _maybe_reset_daily comparison
-        self.rm.state.daily_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self.rm.state.daily_reset_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
     def test_gate1_halted(self):
         self.rm.state.halted = True
@@ -164,9 +170,10 @@ class TestRiskGates(unittest.TestCase):
 
     def test_gate7_loss_streak(self):
         from datetime import datetime, timezone
+
         self.rm.state.consecutive_losses = 10
         # Set last_loss_ts to NOW (within cooldown window) so it doesn't auto-reset
-        self.rm.state.last_loss_ts = datetime.now(timezone.utc).isoformat()
+        self.rm.state.last_loss_ts = datetime.now(UTC).isoformat()
         v = self.rm.check_trade(1.0, "test", 1000.0)
         self.assertFalse(v.approved)
         self.assertIn("LOSS_STREAK", v.reason)
@@ -193,32 +200,38 @@ class TestRiskGates(unittest.TestCase):
 class TestFeeV2EdgeCases(unittest.TestCase):
     def test_zero_price(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         result = polymarket_taker_fee_v2(0.0, 10.0)
         self.assertEqual(result, 0.0)
 
     def test_negative_price(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         result = polymarket_taker_fee_v2(-0.5, 10.0)
         self.assertEqual(result, 0.0)
 
     def test_extreme_high_price(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         result = polymarket_taker_fee_v2(0.999, 10.0)
         self.assertEqual(result, 0.0)
 
     def test_zero_amount(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         result = polymarket_taker_fee_v2(0.5, 0.0)
         self.assertEqual(result, 0.0)
 
     def test_normal_calculation(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         result = polymarket_taker_fee_v2(0.5, 10.0)
         self.assertGreater(result, 0.0)
         self.assertLess(result, 10.0)
 
     def test_ev_after_fee_zero_price(self):
         from core.fees_v2 import ev_after_fee_v2
+
         result = ev_after_fee_v2(0.0, 10.0)
         self.assertEqual(result, 0.0)
 
@@ -231,36 +244,42 @@ class TestKellyEdgeCases(unittest.TestCase):
 
     def test_zero_price(self):
         from core.kelly import calculate_kelly_size
+
         result = calculate_kelly_size(0.0, 0.55, 100.0)
         self.assertIsInstance(result, dict)
         self.assertLessEqual(result["size"], 1.0)  # fallback to min
 
     def test_extreme_price(self):
         from core.kelly import calculate_kelly_size
+
         result = calculate_kelly_size(0.999, 0.55, 100.0)
         self.assertIsInstance(result, dict)
         self.assertLessEqual(result["size"], 1.0)
 
     def test_low_wr(self):
         from core.kelly import calculate_kelly_size
+
         result = calculate_kelly_size(0.5, 0.3, 100.0)
         self.assertIsInstance(result, dict)
         self.assertLessEqual(result["size"], 1.0)  # negative Kelly → min
 
     def test_normal_kelly(self):
         from core.kelly import calculate_kelly_size
+
         result = calculate_kelly_size(0.5, 0.6, 1000.0)
         self.assertIsInstance(result, dict)
         self.assertGreater(result["size"], 0.0)
 
     def test_zero_bankroll(self):
         from core.kelly import calculate_kelly_size
+
         result = calculate_kelly_size(0.5, 0.6, 0.0)
         self.assertIsInstance(result, dict)
         self.assertLessEqual(result["size"], 1.0)
 
     def test_result_has_required_keys(self):
         from core.kelly import calculate_kelly_size
+
         result = calculate_kelly_size(0.5, 0.6, 1000.0)
         for key in ("size", "full_kelly_pct", "quarter_kelly_pct", "confidence"):
             self.assertIn(key, result, f"Missing key: {key}")
@@ -343,7 +362,7 @@ class TestRetryConstants(unittest.TestCase):
     def test_retry_backoff_formula(self):
         """Verify exponential backoff: 1, 2, 4, 8 seconds max."""
         for attempt in range(4):
-            wait = min(2 ** attempt, 8)
+            wait = min(2**attempt, 8)
             self.assertIn(wait, [1, 2, 4, 8])
 
 
@@ -405,18 +424,22 @@ class TestWSErrorCounter(unittest.TestCase):
 class TestSafeHtml(unittest.TestCase):
     def test_esc_html_chars(self):
         from telegram_bot.templates.safe_html import esc
+
         self.assertEqual(esc("<b>test</b>"), "&lt;b&gt;test&lt;/b&gt;")
 
     def test_esc_none(self):
         from telegram_bot.templates.safe_html import esc
+
         self.assertEqual(esc(None), "")
 
     def test_esc_number(self):
         from telegram_bot.templates.safe_html import esc
+
         self.assertEqual(esc(42), "42")
 
     def test_esc_ampersand(self):
         from telegram_bot.templates.safe_html import esc
+
         self.assertEqual(esc("foo & bar"), "foo &amp; bar")
 
 
@@ -426,20 +449,36 @@ class TestSafeHtml(unittest.TestCase):
 class TestEngineConstants(unittest.TestCase):
     def test_interval_secs(self):
         from core.engine_support import INTERVAL_SECS
+
         self.assertIn("15m", INTERVAL_SECS)
         self.assertEqual(INTERVAL_SECS["15m"], 900)
 
     def test_virtual_order_attrs(self):
         from core.engine_support import VirtualOrder
+
         vo = VirtualOrder(
-            strategy_id="s1", slug="btc-up", token_id="t1",
-            direction="up", limit_price=0.5, amount=5.0,
-            fee=0.1, is_maker=False, signal_score=0.7,
-            signal_price=0.5, queue_ahead_usd=0.0,
-            cum_traded_at_price_usd=0.0, placement_ts_ms=0,
-            category=None, wallet_id="w1", user_id="u1",
-            sl_pct=0.1, sl_odds=0.0, tp_pct=0.15, tp_odds=0.0,
-            threshold=0.55)
+            strategy_id="s1",
+            slug="btc-up",
+            token_id="t1",
+            direction="up",
+            limit_price=0.5,
+            amount=5.0,
+            fee=0.1,
+            is_maker=False,
+            signal_score=0.7,
+            signal_price=0.5,
+            queue_ahead_usd=0.0,
+            cum_traded_at_price_usd=0.0,
+            placement_ts_ms=0,
+            category=None,
+            wallet_id="w1",
+            user_id="u1",
+            sl_pct=0.1,
+            sl_odds=0.0,
+            tp_pct=0.15,
+            tp_odds=0.0,
+            threshold=0.55,
+        )
         self.assertEqual(vo.amount, 5.0)
         self.assertEqual(vo.wallet_id, "w1")
 
@@ -453,7 +492,9 @@ class TestAdaptivePnlThreshold(unittest.TestCase):
     def setUp(self):
         # Import the function and save originals so we can monkey-patch
         import os
+
         import core.auto_optimizer as ao
+
         self.ao = ao
         self._orig_enabled = ao.ADAPTIVE_PNL_ENABLED
         self._orig_step = ao.ADAPTIVE_PNL_STEP
@@ -471,6 +512,7 @@ class TestAdaptivePnlThreshold(unittest.TestCase):
 
     def tearDown(self):
         import os
+
         self.ao.ADAPTIVE_PNL_ENABLED = self._orig_enabled
         self.ao.ADAPTIVE_PNL_STEP = self._orig_step
         self.ao.ADAPTIVE_PNL_TRADES_PER_STEP = self._orig_tps

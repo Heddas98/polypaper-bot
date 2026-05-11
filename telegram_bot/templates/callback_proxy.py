@@ -27,6 +27,7 @@ This is a targeted fix. Handlers can also be refactored to use
 `update.effective_message.reply_text(...)` which is callback-safe, but the
 proxy is a zero-churn fix that keeps the regression surface tiny.
 """
+
 from __future__ import annotations
 
 

@@ -11,6 +11,7 @@ or schema drift should NOT crash the feed thread — the reconnect
 loop handles it. Wide catches at the orchestration layer are
 intentional and logged.
 """
+
 import asyncio
 import json
 import logging
@@ -39,7 +40,9 @@ class ExternalFeed:
         self.db = db
         self._prices: dict[str, dict] = {}
         self._open_prices: dict[str, float] = {}  # slug → price at market open
-        self._price_history: dict[str, list[tuple[float, float]]] = {}  # Phase 79b: asset → [(ts, price), ...]
+        self._price_history: dict[
+            str, list[tuple[float, float]]
+        ] = {}  # Phase 79b: asset → [(ts, price), ...]
         self._HISTORY_MAX = 12  # 12 samples × 10s interval = 120s lookback
         self._available = False
         self._poll_interval = 10
@@ -67,7 +70,10 @@ class ExternalFeed:
             try:
                 result = subprocess.run(
                     ["curl", "-s", "--max-time", "3", f"{BINANCE_BASE}/ping"],
-                    capture_output=True, text=True, timeout=5)
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
                 if result.returncode == 0 and "{}" in result.stdout:
                     self._available = True
                     self._method = "curl"
@@ -111,9 +117,17 @@ class ExternalFeed:
         for asset, symbol in BINANCE_SYMBOLS.items():
             try:
                 r = subprocess.run(
-                    ["curl", "-s", "--max-time", "3",
-                     f"{BINANCE_BASE}/ticker/price?symbol={symbol}"],
-                    capture_output=True, text=True, timeout=5)
+                    [
+                        "curl",
+                        "-s",
+                        "--max-time",
+                        "3",
+                        f"{BINANCE_BASE}/ticker/price?symbol={symbol}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
                 if r.returncode == 0 and r.stdout:
                     data = json.loads(r.stdout)
                     p = float(data.get("price", 0))
@@ -130,8 +144,8 @@ class ExternalFeed:
         for asset, symbol in BINANCE_SYMBOLS.items():
             try:
                 r = await self._httpx_client.get(
-                    f"{BINANCE_BASE}/ticker/price",
-                    params={"symbol": symbol}, timeout=3.0)
+                    f"{BINANCE_BASE}/ticker/price", params={"symbol": symbol}, timeout=3.0
+                )
                 if r.status_code == 200:
                     price = float(r.json().get("price", 0))
                     if price > 0:
@@ -201,7 +215,9 @@ class ExternalFeed:
             key = slug or asset.upper()
             self._open_prices[key] = price
 
-    def get_divergence(self, asset: str, polymarket_up_odds: float, slug: str = "") -> Optional[dict]:
+    def get_divergence(
+        self, asset: str, polymarket_up_odds: float, slug: str = ""
+    ) -> Optional[dict]:
         current = self.get_price(asset)
         key = slug or asset.upper()
         open_price = self._open_prices.get(key)
@@ -210,14 +226,18 @@ class ExternalFeed:
         spot_change = (current - open_price) / open_price
         spot_dir = "up" if spot_change >= 0 else "down"
         odds_dir = "up" if polymarket_up_odds >= 0.50 else "down"
-        divergence = (spot_dir != odds_dir)
+        divergence = spot_dir != odds_dir
         confidence = min(abs(spot_change) * 200, 1.0)
         signal = spot_dir if (divergence and confidence >= 0.10) else None
         return {
-            "spot_price": current, "open_price": open_price,
-            "spot_direction": spot_dir, "spot_change_pct": round(spot_change * 100, 3),
-            "odds_direction": odds_dir, "polymarket_up": polymarket_up_odds,
-            "divergence": divergence, "confidence": round(confidence, 3),
+            "spot_price": current,
+            "open_price": open_price,
+            "spot_direction": spot_dir,
+            "spot_change_pct": round(spot_change * 100, 3),
+            "odds_direction": odds_dir,
+            "polymarket_up": polymarket_up_odds,
+            "divergence": divergence,
+            "confidence": round(confidence, 3),
             "signal": signal,
         }
 
@@ -227,7 +247,8 @@ class ExternalFeed:
 
     def get_status(self) -> dict:
         return {
-            "available": self._available, "method": self._method,
+            "available": self._available,
+            "method": self._method,
             "prices": {k: round(v["price"], 2) for k, v in self._prices.items()},
             "open_prices": {k: round(v, 2) for k, v in self._open_prices.items()},
         }
@@ -251,6 +272,5 @@ class ExternalFeed:
                 (ts_ms, symbol, source, price),
             )
             await self.db.conn.commit()
-        except Exception as e:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             pass  # external_prices yazımı non-critical
-

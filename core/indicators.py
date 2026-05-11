@@ -2,6 +2,7 @@
 PolyPaper Bot - Technical Indicators (Phase 1)
 EMA, volatility, momentum calculations for strategy filtering.
 """
+
 import math
 from typing import Optional
 
@@ -28,7 +29,7 @@ def calculate_volatility(values: list[float], period: int = 12) -> Optional[floa
     """Calculate volatility as standard deviation of returns."""
     if not values or len(values) < period + 1:
         return None
-    recent = values[-(period + 1):]
+    recent = values[-(period + 1) :]
     returns = []
     for i in range(1, len(recent)):
         if recent[i - 1] != 0:
@@ -51,7 +52,9 @@ def calculate_momentum(values: list[float], period: int = 5) -> Optional[float]:
     return round((current - past) / past, 6)
 
 
-def ema_direction_filter(values: list[float], short_period: int = 5, long_period: int = 12) -> Optional[str]:
+def ema_direction_filter(
+    values: list[float], short_period: int = 5, long_period: int = 12
+) -> Optional[str]:
     """
     EMA direction filter (like Polyscout's Trend Filter).
     Returns "up" if short EMA > long EMA, "down" if short < long, None if insufficient data.

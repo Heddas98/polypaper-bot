@@ -30,6 +30,7 @@ Persistence:
     so the multiplier survives bot restarts. Loaded lazily; corrupt or
     missing file → start fresh at multiplier 1.0.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,7 +38,6 @@ import logging
 import time
 from collections import deque
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("polypaper.core.micro_weight")
 
@@ -45,7 +45,7 @@ STATE_FILE = Path("data_store") / "micro_weight_state.json"
 MAX_HISTORY = 100
 UPDATE_EVERY = 10
 MIN_SAMPLES = 20  # don't tune until we have at least this many pairs
-LR = 0.20         # exponential update rate per recompute
+LR = 0.20  # exponential update rate per recompute
 MULT_LOW = 0.50
 MULT_HIGH = 1.50
 
@@ -55,10 +55,13 @@ ASSETS = ("BTC", "ETH", "SOL", "XRP")
 class MicroWeightTracker:
     """Per-asset rolling history of (boost, pnl_sign) → global multiplier."""
 
-    def __init__(self, max_history: int = MAX_HISTORY,
-                 update_every: int = UPDATE_EVERY,
-                 enabled: bool = False,
-                 state_file: Path = STATE_FILE):
+    def __init__(
+        self,
+        max_history: int = MAX_HISTORY,
+        update_every: int = UPDATE_EVERY,
+        enabled: bool = False,
+        state_file: Path = STATE_FILE,
+    ):
         self.max_history = max_history
         self.update_every = update_every
         self.enabled = enabled
@@ -79,11 +82,8 @@ class MicroWeightTracker:
             mult = float(data.get("global_mult", 1.0))
             self._global_mult = max(MULT_LOW, min(MULT_HIGH, mult))
             self._last_update_ts = float(data.get("last_update_ts", 0.0))
-            logger.info(
-                f"📈 micro_weight: loaded state mult={self._global_mult:.3f}"
-            )
-        except (OSError, json.JSONDecodeError, ValueError, TypeError,
-                AttributeError) as e:
+            logger.info(f"📈 micro_weight: loaded state mult={self._global_mult:.3f}")
+        except (OSError, json.JSONDecodeError, ValueError, TypeError, AttributeError) as e:
             # T1.4 Faz 3: read_text (OSError: perm/missing/locked),
             # json.loads (JSONDecodeError on corrupt state),
             # float() coerce (ValueError/TypeError on bad values),
@@ -93,10 +93,15 @@ class MicroWeightTracker:
     def _save_state(self):
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            self.state_file.write_text(json.dumps({
-                "global_mult": self._global_mult,
-                "last_update_ts": self._last_update_ts,
-            }), encoding="utf-8")
+            self.state_file.write_text(
+                json.dumps(
+                    {
+                        "global_mult": self._global_mult,
+                        "last_update_ts": self._last_update_ts,
+                    }
+                ),
+                encoding="utf-8",
+            )
         except (OSError, TypeError, ValueError) as e:
             # T1.4 Faz 3: mkdir + write_text (OSError: disk/perm),
             # json.dumps (TypeError defensive for future field additions;
@@ -131,8 +136,7 @@ class MicroWeightTracker:
             self._pairs_since_update += 1
             if self._pairs_since_update >= self.update_every:
                 self._recompute()
-        except (ValueError, TypeError, ArithmeticError, KeyError,
-                AttributeError) as e:
+        except (ValueError, TypeError, ArithmeticError, KeyError, AttributeError) as e:
             # T1.4 Faz 3: pnl_usd comparison (TypeError on non-numeric),
             # deque append, then _recompute which calls _pearson_like
             # (ArithmeticError defensive for edge divisions) +

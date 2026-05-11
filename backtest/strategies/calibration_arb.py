@@ -13,10 +13,15 @@ Parameters:
   - target_zone_low: only trade in this price zone (default 0.35)
   - target_zone_high: (default 0.65)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -26,11 +31,14 @@ class CalibrationArbStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Price-probability miscalibration detection"
 
-    def __init__(self, deviation_threshold: float = 0.08,
-                 target_zone_low: float = 0.35,
-                 target_zone_high: float = 0.65,
-                 min_elapsed_pct: float = 0.10,
-                 max_elapsed_pct: float = 0.60):
+    def __init__(
+        self,
+        deviation_threshold: float = 0.08,
+        target_zone_low: float = 0.35,
+        target_zone_high: float = 0.65,
+        min_elapsed_pct: float = 0.10,
+        max_elapsed_pct: float = 0.60,
+    ):
         self.deviation_threshold = deviation_threshold
         self.target_zone_low = target_zone_low
         self.target_zone_high = target_zone_high
@@ -76,9 +84,11 @@ class CalibrationArbStrategy(BaseBacktestStrategy):
         if deviation < -self.deviation_threshold:
             confidence = min(0.80, 0.55 + abs(deviation) * 2)
             return self.make_signal(
-                "up", confidence, current_price,
+                "up",
+                confidence,
+                current_price,
                 reason=f"calibration_arb: UP token undervalued "
-                       f"price={current_price:.3f} (fair=0.50)",
+                f"price={current_price:.3f} (fair=0.50)",
                 deviation=deviation,
                 avg_price=avg_price,
             )
@@ -88,9 +98,10 @@ class CalibrationArbStrategy(BaseBacktestStrategy):
             down_price = 1.0 - current_price
             confidence = min(0.80, 0.55 + abs(deviation) * 2)
             return self.make_signal(
-                "down", confidence, down_price,
-                reason=f"calibration_arb: DOWN token undervalued "
-                       f"up_price={current_price:.3f}",
+                "down",
+                confidence,
+                down_price,
+                reason=f"calibration_arb: DOWN token undervalued " f"up_price={current_price:.3f}",
                 deviation=deviation,
                 avg_price=avg_price,
             )

@@ -8,6 +8,7 @@ Verifies the AST scan + drift detection contract:
   5. AST correctly extracts os.getenv() call keys + defaults
   6. Whitelist cross-ref marker (✅) present for known keys
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -15,7 +16,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "gen_env_reference.py"
@@ -91,12 +91,15 @@ def test_check_mode_on_fresh_output_exits_zero():
     # First: regenerate to make sure it's fresh
     subprocess.run(
         [sys.executable, str(SCRIPT)],
-        check=True, cwd=str(REPO_ROOT),
+        check=True,
+        cwd=str(REPO_ROOT),
     )
     # Now --check should pass
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--check"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     assert result.returncode == 0, (
         f"--check on fresh output must pass; got:\n"
@@ -124,13 +127,17 @@ def test_check_mode_detects_drift(tmp_path: Path, monkeypatch):
 
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--check"],
-            capture_output=True, text=True, cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
         )
-        assert result.returncode == 1, (
-            f"--check on stale output must fail; got rc={result.returncode}"
+        assert (
+            result.returncode == 1
+        ), f"--check on stale output must fail; got rc={result.returncode}"
+        assert (
+            "DRIFT" in (result.stdout + result.stderr)
+            or "stale" in (result.stdout + result.stderr).lower()
         )
-        assert "DRIFT" in (result.stdout + result.stderr) or \
-               "stale" in (result.stdout + result.stderr).lower()
     finally:
         # Restore original
         if backup and backup.exists():
@@ -139,7 +146,8 @@ def test_check_mode_detects_drift(tmp_path: Path, monkeypatch):
             # Regenerate fresh
             subprocess.run(
                 [sys.executable, str(SCRIPT)],
-                check=False, cwd=str(REPO_ROOT),
+                check=False,
+                cwd=str(REPO_ROOT),
             )
 
 
@@ -152,13 +160,13 @@ def test_stdout_mode_prints_without_writing(tmp_path: Path):
 
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--stdout"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     assert result.returncode == 0
     assert result.stdout.startswith("# PolyPaper Bot")
 
     if mtime_before is not None:
         mtime_after = OUTPUT.stat().st_mtime_ns
-        assert mtime_before == mtime_after, (
-            "--stdout should not rewrite OUTPUT file"
-        )
+        assert mtime_before == mtime_after, "--stdout should not rewrite OUTPUT file"

@@ -18,9 +18,11 @@ Call from main.py after constructing Settings:
 Rules are additive — when adding a new env var to Settings, add its rule
 here so typos don't get silently swallowed to the default.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class Rule:
@@ -48,12 +50,14 @@ def _is_number(v: Any) -> bool:
 def _in_range(lo: float, hi: float) -> Callable[[Any], bool]:
     def inner(v: Any) -> bool:
         return _is_number(v) and lo <= float(v) <= hi
+
     return inner
 
 
 def _in_enum(choices: set[str]) -> Callable[[Any], bool]:
     def inner(v: Any) -> bool:
         return isinstance(v, str) and v in choices
+
     return inner
 
 
@@ -64,50 +68,49 @@ def _non_empty_str(v: Any) -> bool:
 # ── Rule table ──────────────────────────────────────────────────────
 RULES: list[Rule] = [
     # Core required (validated only when LIVE_ENABLED or to operate the bot)
-    Rule("TELEGRAM_BOT_TOKEN", _non_empty_str,
-         "TELEGRAM_BOT_TOKEN is empty — bot cannot start"),
-    Rule("ADMIN_TELEGRAM_ID",
-         lambda v: _is_number(v) and int(v) > 0,
-         "ADMIN_TELEGRAM_ID must be a positive integer"),
-
+    Rule("TELEGRAM_BOT_TOKEN", _non_empty_str, "TELEGRAM_BOT_TOKEN is empty — bot cannot start"),
+    Rule(
+        "ADMIN_TELEGRAM_ID",
+        lambda v: _is_number(v) and int(v) > 0,
+        "ADMIN_TELEGRAM_ID must be a positive integer",
+    ),
     # Kelly sizing
-    Rule("KELLY_FRACTION", _in_range(0.0, 1.0),
-         "KELLY_FRACTION must be in [0.0, 1.0]"),
-    Rule("KELLY_MAX_BET_PCT", _in_range(0.0, 1.0),
-         "KELLY_MAX_BET_PCT must be in [0.0, 1.0]"),
-
+    Rule("KELLY_FRACTION", _in_range(0.0, 1.0), "KELLY_FRACTION must be in [0.0, 1.0]"),
+    Rule("KELLY_MAX_BET_PCT", _in_range(0.0, 1.0), "KELLY_MAX_BET_PCT must be in [0.0, 1.0]"),
     # Fee model
-    Rule("FEE_MODEL", _in_enum({"v1", "v2"}),
-         "FEE_MODEL must be 'v1' or 'v2'"),
-    Rule("FEE_TAIL_LOW", _in_range(0.0, 0.5),
-         "FEE_TAIL_LOW must be in [0.0, 0.5]"),
-    Rule("FEE_TAIL_HIGH", _in_range(0.5, 1.0),
-         "FEE_TAIL_HIGH must be in [0.5, 1.0]"),
-
+    Rule("FEE_MODEL", _in_enum({"v1", "v2"}), "FEE_MODEL must be 'v1' or 'v2'"),
+    Rule("FEE_TAIL_LOW", _in_range(0.0, 0.5), "FEE_TAIL_LOW must be in [0.0, 0.5]"),
+    Rule("FEE_TAIL_HIGH", _in_range(0.5, 1.0), "FEE_TAIL_HIGH must be in [0.5, 1.0]"),
     # Latency simulation
-    Rule("REST_LATENCY_MS",
-         lambda v: _is_number(v) and 0 <= float(v) <= 5000,
-         "REST_LATENCY_MS must be in [0, 5000]"),
-    Rule("REST_LATENCY_JITTER_MS",
-         lambda v: _is_number(v) and 0 <= float(v) <= 2000,
-         "REST_LATENCY_JITTER_MS must be in [0, 2000]"),
-
+    Rule(
+        "REST_LATENCY_MS",
+        lambda v: _is_number(v) and 0 <= float(v) <= 5000,
+        "REST_LATENCY_MS must be in [0, 5000]",
+    ),
+    Rule(
+        "REST_LATENCY_JITTER_MS",
+        lambda v: _is_number(v) and 0 <= float(v) <= 2000,
+        "REST_LATENCY_JITTER_MS must be in [0, 2000]",
+    ),
     # UMA timing
-    Rule("UMA_FORCE_SETTLE_SECONDS",
-         lambda v: _is_number(v) and 60 <= float(v) <= 86400,
-         "UMA_FORCE_SETTLE_SECONDS must be in [60, 86400]"),
-
+    Rule(
+        "UMA_FORCE_SETTLE_SECONDS",
+        lambda v: _is_number(v) and 60 <= float(v) <= 86400,
+        "UMA_FORCE_SETTLE_SECONDS must be in [60, 86400]",
+    ),
     # Exposure caps
-    Rule("MAX_TOKEN_EXPOSURE_USD",
-         lambda v: _is_number(v) and float(v) >= 0,
-         "MAX_TOKEN_EXPOSURE_USD must be non-negative"),
-
+    Rule(
+        "MAX_TOKEN_EXPOSURE_USD",
+        lambda v: _is_number(v) and float(v) >= 0,
+        "MAX_TOKEN_EXPOSURE_USD must be non-negative",
+    ),
     # Live trading
-    Rule("LIVE_ENABLED", _is_bool,
-         "LIVE_ENABLED must be a bool"),
-    Rule("LIVE_MAX_TRADE",
-         lambda v: _is_number(v) and 0.0 < float(v) <= 100.0,
-         "LIVE_MAX_TRADE must be in (0, 100]"),
+    Rule("LIVE_ENABLED", _is_bool, "LIVE_ENABLED must be a bool"),
+    Rule(
+        "LIVE_MAX_TRADE",
+        lambda v: _is_number(v) and 0.0 < float(v) <= 100.0,
+        "LIVE_MAX_TRADE must be in (0, 100]",
+    ),
 ]
 
 
@@ -132,8 +135,11 @@ def validate_settings(settings: Any) -> list[str]:
     live_enabled = bool(getattr(settings, "LIVE_ENABLED", False))
     if live_enabled:
         required_for_live = [
-            "POLYMARKET_API_KEY", "POLYMARKET_API_SECRET",
-            "POLYMARKET_PASSPHRASE", "POLYGON_WALLET", "POLYGON_PRIVATE_KEY",
+            "POLYMARKET_API_KEY",
+            "POLYMARKET_API_SECRET",
+            "POLYMARKET_PASSPHRASE",
+            "POLYGON_WALLET",
+            "POLYGON_PRIVATE_KEY",
         ]
         for k in required_for_live:
             v = getattr(settings, k, "")
@@ -142,9 +148,7 @@ def validate_settings(settings: Any) -> list[str]:
 
     tail_low = getattr(settings, "FEE_TAIL_LOW", None)
     tail_high = getattr(settings, "FEE_TAIL_HIGH", None)
-    if (tail_low is not None and tail_high is not None
-            and tail_low >= tail_high):
-        errors.append(
-            f"FEE_TAIL_LOW ({tail_low}) must be < FEE_TAIL_HIGH ({tail_high})")
+    if tail_low is not None and tail_high is not None and tail_low >= tail_high:
+        errors.append(f"FEE_TAIL_LOW ({tail_low}) must be < FEE_TAIL_HIGH ({tail_high})")
 
     return errors

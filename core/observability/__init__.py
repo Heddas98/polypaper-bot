@@ -29,6 +29,7 @@ legacy file has been archived; this __init__.py is now the canonical
 home for the correlation-id helpers. See `feedback_change_impact_check`
 memory for the post-mortem.
 """
+
 from __future__ import annotations
 
 import logging

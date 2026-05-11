@@ -1,4 +1,5 @@
 """Unit tests for core/fees_v2.py (March 2026 linear model)."""
+
 from __future__ import annotations
 
 import pytest
@@ -94,34 +95,34 @@ class TestPolymarketDocsParity:
 
     # (category, price, trade_value_usd, expected_fee_usdc) - 100 shares
     TAKER_FEE_TABLE = [
-        ("crypto",      0.01,  1.00, 0.07),
-        ("crypto",      0.10, 10.00, 0.65),
-        ("crypto",      0.50, 50.00, 1.80),
-        ("crypto",      0.90, 90.00, 0.65),
-        ("crypto",      0.99, 99.00, 0.07),
-        ("sports",      0.50, 50.00, 0.75),
-        ("finance",     0.50, 50.00, 1.00),
-        ("politics",    0.50, 50.00, 1.00),
-        ("mentions",    0.50, 50.00, 1.00),
-        ("tech",        0.50, 50.00, 1.00),
-        ("economics",   0.50, 50.00, 1.25),
-        ("weather",     0.50, 50.00, 1.25),
-        ("culture",     0.50, 50.00, 1.25),
-        ("other",       0.50, 50.00, 1.25),
+        ("crypto", 0.01, 1.00, 0.07),
+        ("crypto", 0.10, 10.00, 0.65),
+        ("crypto", 0.50, 50.00, 1.80),
+        ("crypto", 0.90, 90.00, 0.65),
+        ("crypto", 0.99, 99.00, 0.07),
+        ("sports", 0.50, 50.00, 0.75),
+        ("finance", 0.50, 50.00, 1.00),
+        ("politics", 0.50, 50.00, 1.00),
+        ("mentions", 0.50, 50.00, 1.00),
+        ("tech", 0.50, 50.00, 1.00),
+        ("economics", 0.50, 50.00, 1.25),
+        ("weather", 0.50, 50.00, 1.25),
+        ("culture", 0.50, 50.00, 1.25),
+        ("other", 0.50, 50.00, 1.25),
         ("geopolitics", 0.50, 50.00, 0.00),
     ]
 
     DOCS_REBATE_PCT = {
-        "crypto":      0.20,
-        "sports":      0.25,
-        "politics":    0.25,
-        "finance":     0.25,
-        "economics":   0.25,
-        "culture":     0.25,
-        "weather":     0.25,
-        "other":       0.25,
-        "mentions":    0.25,
-        "tech":        0.25,
+        "crypto": 0.20,
+        "sports": 0.25,
+        "politics": 0.25,
+        "finance": 0.25,
+        "economics": 0.25,
+        "culture": 0.25,
+        "weather": 0.25,
+        "other": 0.25,
+        "mentions": 0.25,
+        "tech": 0.25,
         "geopolitics": 0.00,
     }
 
@@ -132,14 +133,11 @@ class TestPolymarketDocsParity:
         fee = polymarket_taker_fee_v2(price, amount_usd, category=category)
         # Docs round to 2 decimal places in the table; tolerate 0.01 USDC drift.
         assert fee == pytest.approx(expected, abs=0.01), (
-            f"{category} @ p={price} notional=${amount_usd}: "
-            f"bot={fee} docs={expected}"
+            f"{category} @ p={price} notional=${amount_usd}: " f"bot={fee} docs={expected}"
         )
 
     @pytest.mark.parametrize("category,expected_pct", list(DOCS_REBATE_PCT.items()))
-    def test_maker_rebate_pct_matches_docs(
-        self, category: str, expected_pct: float
-    ) -> None:
+    def test_maker_rebate_pct_matches_docs(self, category: str, expected_pct: float) -> None:
         actual = CATEGORY_FEES[category]["maker_rebate_pct"]
         assert actual == pytest.approx(expected_pct, abs=1e-6), (
             f"{category}: maker_rebate_pct bot={actual} docs={expected_pct}. "

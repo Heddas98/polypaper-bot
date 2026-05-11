@@ -7,24 +7,25 @@ Bu 3 modül 0% coverage'da idi. Bu test setiyle ~60%'e çıkar.
 Çalıştırma:
     py -3.11 -m pytest tests/unit/test_p0_p1_extra_coverage.py -v
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ─── P0.6 backtest/walk_forward.py ────────────────────────────────────
+
 
 class TestWalkForwardRunner:
     def _events(self, n: int = 90):
         """Generate n daily events spanning 90 days."""
-        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        base = datetime(2026, 1, 1, tzinfo=UTC)
         return [
             {"ts": (base + timedelta(days=i)).timestamp(), "price": 0.5 + (i % 7) * 0.01}
             for i in range(n)
@@ -32,6 +33,7 @@ class TestWalkForwardRunner:
 
     def test_runner_init_defaults(self):
         from backtest.walk_forward import WalkForwardRunner
+
         runner = WalkForwardRunner()
         assert runner.train_days == 30
         assert runner.test_days == 7
@@ -40,11 +42,13 @@ class TestWalkForwardRunner:
 
     def test_runner_objective_validation(self):
         from backtest.walk_forward import WalkForwardRunner
+
         with pytest.raises(ValueError):
             WalkForwardRunner(objective="invalid_metric")
 
     def test_compute_metrics_empty(self):
         from backtest.walk_forward import _compute_metrics
+
         m = _compute_metrics([])
         assert m["n"] == 0
         assert m["win_rate"] == 0
@@ -52,6 +56,7 @@ class TestWalkForwardRunner:
 
     def test_compute_metrics_basic(self):
         from backtest.walk_forward import _compute_metrics
+
         m = _compute_metrics([1.0, 2.0, -1.0, 0.5, -0.5])
         assert m["n"] == 5
         assert m["win_rate"] == 0.6  # 3 wins of 5
@@ -61,28 +66,33 @@ class TestWalkForwardRunner:
 
     def test_compute_metrics_all_wins(self):
         from backtest.walk_forward import _compute_metrics
+
         m = _compute_metrics([1.0, 2.0, 3.0])
         assert m["win_rate"] == 1.0
         assert m["pf"] == 999.0  # No losses → infinite PF
 
     def test_grid_product_empty(self):
         from backtest.walk_forward import _grid_product
+
         results = list(_grid_product({}))
         assert results == [{}]
 
     def test_grid_product_single_param(self):
         from backtest.walk_forward import _grid_product
+
         results = list(_grid_product({"a": [1, 2, 3]}))
         assert len(results) == 3
         assert {"a": 1} in results
 
     def test_grid_product_cartesian(self):
         from backtest.walk_forward import _grid_product
+
         results = list(_grid_product({"a": [1, 2], "b": ["x", "y"]}))
         assert len(results) == 4
 
     def test_run_empty_events(self):
         from backtest.walk_forward import WalkForwardRunner
+
         runner = WalkForwardRunner(train_days=5, test_days=2)
         result = runner.run([], lambda evs, p: [])
         assert result.windows == []
@@ -93,9 +103,12 @@ class TestWalkForwardRunner:
 
     def test_run_simple_strategy(self):
         from backtest.walk_forward import WalkForwardRunner
+
         events = self._events(60)
         runner = WalkForwardRunner(
-            train_days=20, test_days=7, step_days=7,
+            train_days=20,
+            test_days=7,
+            step_days=7,
             param_grid={"threshold": [0.5, 0.6]},
             min_train_trades=5,
         )
@@ -109,13 +122,15 @@ class TestWalkForwardRunner:
         assert "n_windows" in result.aggregate
 
     def test_window_dataclass(self):
-        from backtest.walk_forward import Window
         from datetime import datetime, timezone
+
+        from backtest.walk_forward import Window
+
         w = Window(
-            train_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            train_end=datetime(2026, 1, 30, tzinfo=timezone.utc),
-            test_start=datetime(2026, 1, 30, tzinfo=timezone.utc),
-            test_end=datetime(2026, 2, 6, tzinfo=timezone.utc),
+            train_start=datetime(2026, 1, 1, tzinfo=UTC),
+            train_end=datetime(2026, 1, 30, tzinfo=UTC),
+            test_start=datetime(2026, 1, 30, tzinfo=UTC),
+            test_end=datetime(2026, 2, 6, tzinfo=UTC),
         )
         assert w.test_pnl == 0.0
         assert w.best_params == {}
@@ -123,12 +138,14 @@ class TestWalkForwardRunner:
 
 # ─── P0.7 core/calibration/fill_heuristic_recalibrate.py ─────────
 
+
 class TestFillHeuristicRecalibrate:
     def test_get_current_values_defaults(self, monkeypatch):
         monkeypatch.delenv("FILL_SPREAD_COST", raising=False)
         monkeypatch.delenv("FILL_IMPACT", raising=False)
         monkeypatch.delenv("LATENCY_DRIFT", raising=False)
-        from core.calibration.fill_heuristic_recalibrate import get_current_values, LEGACY_VALUES
+        from core.calibration.fill_heuristic_recalibrate import LEGACY_VALUES, get_current_values
+
         values = get_current_values()
         assert values["FILL_SPREAD_COST"] == LEGACY_VALUES["FILL_SPREAD_COST"]
         assert values["FILL_IMPACT"] == LEGACY_VALUES["FILL_IMPACT"]
@@ -138,6 +155,7 @@ class TestFillHeuristicRecalibrate:
         monkeypatch.setenv("FILL_IMPACT", "0.030")
         monkeypatch.setenv("LATENCY_DRIFT", "0.05")
         from core.calibration.fill_heuristic_recalibrate import get_current_values
+
         values = get_current_values()
         assert values["FILL_SPREAD_COST"] == 0.025
         assert values["FILL_IMPACT"] == 0.030
@@ -145,6 +163,7 @@ class TestFillHeuristicRecalibrate:
 
     def test_compute_paper_live_delta_empty(self):
         from core.calibration.fill_heuristic_recalibrate import compute_paper_live_delta
+
         result = compute_paper_live_delta([], [])
         assert result["n_paper"] == 0
         assert result["n_live"] == 0
@@ -152,6 +171,7 @@ class TestFillHeuristicRecalibrate:
 
     def test_compute_paper_live_delta_basic(self):
         from core.calibration.fill_heuristic_recalibrate import compute_paper_live_delta
+
         paper = [1.0, 2.0, 3.0]
         live = [0.5, 1.5, 2.5]
         result = compute_paper_live_delta(paper, live)
@@ -162,8 +182,10 @@ class TestFillHeuristicRecalibrate:
 
     def test_evaluate_recalibration(self):
         from core.calibration.fill_heuristic_recalibrate import (
-            evaluate_recalibration, RECOMMENDED_VALUES,
+            RECOMMENDED_VALUES,
+            evaluate_recalibration,
         )
+
         current = {
             "FILL_SPREAD_COST": 0.005,
             "FILL_IMPACT": 0.010,
@@ -176,20 +198,36 @@ class TestFillHeuristicRecalibrate:
 
     def test_evaluate_recalibration_no_change(self):
         from core.calibration.fill_heuristic_recalibrate import (
-            evaluate_recalibration, RECOMMENDED_VALUES,
+            RECOMMENDED_VALUES,
+            evaluate_recalibration,
         )
+
         deltas = evaluate_recalibration(RECOMMENDED_VALUES, RECOMMENDED_VALUES)
         for key, d in deltas.items():
             assert d["delta_pct"] == 0.0
 
     def test_format_alert_no_alert(self):
         from core.calibration.fill_heuristic_recalibrate import format_alert
+
         result = {
             "ts": "2026-05-03T12:00:00Z",
-            "current_values": {"FILL_SPREAD_COST": 0.023, "FILL_IMPACT": 0.025, "LATENCY_DRIFT": 0.04},
-            "recommended_values": {"FILL_SPREAD_COST": 0.023, "FILL_IMPACT": 0.025, "LATENCY_DRIFT": 0.04},
+            "current_values": {
+                "FILL_SPREAD_COST": 0.023,
+                "FILL_IMPACT": 0.025,
+                "LATENCY_DRIFT": 0.04,
+            },
+            "recommended_values": {
+                "FILL_SPREAD_COST": 0.023,
+                "FILL_IMPACT": 0.025,
+                "LATENCY_DRIFT": 0.04,
+            },
             "param_deltas": {},
-            "paper_live_drift": {"paper_total": 100, "live_total": 95, "delta_pct": -5.0, "n_paper": 50},
+            "paper_live_drift": {
+                "paper_total": 100,
+                "live_total": 95,
+                "delta_pct": -5.0,
+                "n_paper": 50,
+            },
             "max_param_delta_pct": 0,
             "drift_pct": 5.0,
             "should_alert": False,
@@ -200,6 +238,7 @@ class TestFillHeuristicRecalibrate:
 
     def test_format_alert_with_alert(self):
         from core.calibration.fill_heuristic_recalibrate import format_alert
+
         result = {
             "ts": "2026-05-03T12:00:00Z",
             "current_values": {"FILL_SPREAD_COST": 0.005},
@@ -207,7 +246,12 @@ class TestFillHeuristicRecalibrate:
             "param_deltas": {
                 "FILL_SPREAD_COST": {"current": 0.005, "recommended": 0.023, "delta_pct": 360.0},
             },
-            "paper_live_drift": {"paper_total": 100, "live_total": 50, "delta_pct": -50.0, "n_paper": 50},
+            "paper_live_drift": {
+                "paper_total": 100,
+                "live_total": 50,
+                "delta_pct": -50.0,
+                "n_paper": 50,
+            },
             "max_param_delta_pct": 360.0,
             "drift_pct": 50.0,
             "should_alert": True,
@@ -218,6 +262,7 @@ class TestFillHeuristicRecalibrate:
     @pytest.mark.asyncio
     async def test_recalibrate_weekly_no_db(self, tmp_path, monkeypatch):
         from core.calibration.fill_heuristic_recalibrate import recalibrate_weekly
+
         # Non-existent DB path
         result = await recalibrate_weekly(db_path=tmp_path / "nonexistent.db")
         assert result["sample_size"] > 0
@@ -227,9 +272,11 @@ class TestFillHeuristicRecalibrate:
 
 # ─── P0.12 data/polymarket_rtds.py ──────────────────────────────────
 
+
 class TestPolymarketRTDS:
     def test_init_defaults(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         assert rtds._enable_chainlink is True
         assert rtds._available is False
@@ -237,11 +284,13 @@ class TestPolymarketRTDS:
 
     def test_init_chainlink_disabled(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS(enable_chainlink=False)
         assert rtds._enable_chainlink is False
 
     def test_get_status_initial(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         s = rtds.get_status()
         assert s["available"] is False
@@ -252,6 +301,7 @@ class TestPolymarketRTDS:
 
     def test_get_price_no_data(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         # No data yet
         assert rtds.get_price("BTC") is None
@@ -260,18 +310,21 @@ class TestPolymarketRTDS:
 
     def test_get_price_binance_fresh(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         assert rtds.get_price("BTC", source="binance") == 70000.0
 
     def test_get_price_chainlink_fresh(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_chainlink["BTC"] = {"price": 70100.0, "ts": time.time()}
         assert rtds.get_price("BTC", source="chainlink") == 70100.0
 
     def test_get_price_auto_chainlink_priority(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         rtds._prices_chainlink["BTC"] = {"price": 70100.0, "ts": time.time()}
@@ -280,13 +333,15 @@ class TestPolymarketRTDS:
 
     def test_get_price_auto_fallback_to_binance(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         # No chainlink data
         assert rtds.get_price("BTC", source="auto") == 70000.0
 
     def test_get_price_stale_data_returns_none(self):
-        from data.polymarket_rtds import PolymarketRTDS, PRICE_FRESHNESS_S
+        from data.polymarket_rtds import PRICE_FRESHNESS_S, PolymarketRTDS
+
         rtds = PolymarketRTDS()
         # 60 seconds old (default freshness 30s)
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time() - 60}
@@ -294,6 +349,7 @@ class TestPolymarketRTDS:
 
     def test_get_price_15m_chainlink_priority(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         rtds._prices_chainlink["BTC"] = {"price": 70100.0, "ts": time.time()}
@@ -301,6 +357,7 @@ class TestPolymarketRTDS:
 
     def test_get_price_15m_fallback_binance(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         # No chainlink
@@ -308,6 +365,7 @@ class TestPolymarketRTDS:
 
     def test_get_price_5m_binance_only(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         rtds._prices_chainlink["BTC"] = {"price": 70100.0, "ts": time.time()}
@@ -317,9 +375,13 @@ class TestPolymarketRTDS:
     def test_constants_defined(self):
         """Check WS URL + constants from docs."""
         from data.polymarket_rtds import (
-            RTDS_WS_URL, BINANCE_TOPIC, CHAINLINK_TOPIC,
-            BINANCE_SYMBOLS, CHAINLINK_SYMBOLS,
+            BINANCE_SYMBOLS,
+            BINANCE_TOPIC,
+            CHAINLINK_SYMBOLS,
+            CHAINLINK_TOPIC,
+            RTDS_WS_URL,
         )
+
         assert RTDS_WS_URL == "wss://ws-live-data.polymarket.com"
         assert BINANCE_TOPIC == "crypto_prices"
         assert CHAINLINK_TOPIC == "crypto_prices_chainlink"
@@ -332,6 +394,7 @@ class TestPolymarketRTDS:
 
     def test_4_assets_supported(self):
         from data.polymarket_rtds import BINANCE_SYMBOLS, CHAINLINK_SYMBOLS
+
         # Bot trade ettiği 4 asset
         for asset in ("BTC", "ETH", "SOL", "XRP"):
             assert asset in BINANCE_SYMBOLS
@@ -340,14 +403,19 @@ class TestPolymarketRTDS:
 
 # ─── Constants doğrulama (Polymarket docs sync) ────────────────────
 
+
 class TestPolymarketDocsCompliance:
     """2026-05-03 docs re-audit: 5 ana contract + bonus 5 yeni constant."""
 
     def test_5_main_contract_addresses(self):
         from core.allowance_preflight import (
-            ADDR_PUSD, ADDR_CTF, ADDR_CTF_EXCHANGE,
-            ADDR_NEG_RISK_EXCHANGE, ADDR_NEG_RISK_ADAPTER,
+            ADDR_CTF,
+            ADDR_CTF_EXCHANGE,
+            ADDR_NEG_RISK_ADAPTER,
+            ADDR_NEG_RISK_EXCHANGE,
+            ADDR_PUSD,
         )
+
         # Polymarket V2 docs/resources/contracts.mdx 2026-05-03 snapshot
         assert ADDR_PUSD == "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
         assert ADDR_CTF == "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
@@ -358,24 +426,34 @@ class TestPolymarketDocsCompliance:
     def test_new_constants_2026_05_03(self):
         """Yeni audit'ten gelen 10 ek constant — bot wired değil ama referans."""
         from core.allowance_preflight import (
-            ADDR_PUSD_IMPL, ADDR_CTF_COLLATERAL_ADAPTER,
+            ADDR_COLLATERAL_OFFRAMP,
+            ADDR_COLLATERAL_ONRAMP,
+            ADDR_CTF_COLLATERAL_ADAPTER,
             ADDR_NEG_RISK_CTF_COLLATERAL_ADAPTER,
-            ADDR_COLLATERAL_ONRAMP, ADDR_COLLATERAL_OFFRAMP,
             ADDR_PERMISSIONED_RAMP,
-            ADDR_UMA_ADAPTER, ADDR_UMA_OPTIMISTIC_ORACLE,
+            ADDR_PUSD_IMPL,
+            ADDR_UMA_ADAPTER,
+            ADDR_UMA_OPTIMISTIC_ORACLE,
         )
+
         # Spot check — 8 constant + 2 ana = 10 yeni
-        for addr in (ADDR_PUSD_IMPL, ADDR_CTF_COLLATERAL_ADAPTER,
-                     ADDR_NEG_RISK_CTF_COLLATERAL_ADAPTER,
-                     ADDR_COLLATERAL_ONRAMP, ADDR_COLLATERAL_OFFRAMP,
-                     ADDR_PERMISSIONED_RAMP,
-                     ADDR_UMA_ADAPTER, ADDR_UMA_OPTIMISTIC_ORACLE):
+        for addr in (
+            ADDR_PUSD_IMPL,
+            ADDR_CTF_COLLATERAL_ADAPTER,
+            ADDR_NEG_RISK_CTF_COLLATERAL_ADAPTER,
+            ADDR_COLLATERAL_ONRAMP,
+            ADDR_COLLATERAL_OFFRAMP,
+            ADDR_PERMISSIONED_RAMP,
+            ADDR_UMA_ADAPTER,
+            ADDR_UMA_OPTIMISTIC_ORACLE,
+        ):
             assert addr.startswith("0x")
             assert len(addr) == 42  # 0x + 40 hex char
 
     def test_ws_endpoints(self):
         """Bot kodu vs Polymarket docs WS endpoint'leri."""
         from data.polymarket_rtds import RTDS_WS_URL
+
         assert RTDS_WS_URL == "wss://ws-live-data.polymarket.com"
         # CLOB market endpoint
         # data/websocket_client.py:26 → wss://ws-subscriptions-clob.polymarket.com/ws/market
@@ -383,33 +461,39 @@ class TestPolymarketDocsCompliance:
 
 # ─── P2.X — Dynamic Fee Query (2026-05-03 docs re-audit) ─────────────
 
+
 class TestDynamicFeeQuery:
     """getClobMarketInfo() dynamic fee params — V2 SDK native method."""
 
     def test_get_market_fee_params_none_client(self):
         from core.fees_v2 import get_market_fee_params
+
         assert get_market_fee_params(None, "0xabc") is None
 
     def test_get_market_fee_params_empty_condition(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         assert get_market_fee_params(client, "") is None
 
     def test_get_market_fee_params_no_method(self):
         """Pre-V2 SDK or stub client — graceful fallback."""
         from core.fees_v2 import get_market_fee_params
+
         client = object()  # no get_clob_market_info attribute
         assert get_market_fee_params(client, "0xabc") is None
 
     def test_get_market_fee_params_sdk_exception(self):
         """SDK raises (network, 401, etc.) → None fallback."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.side_effect = RuntimeError("network err")
         assert get_market_fee_params(client, "0xabc") is None
 
     def test_get_market_fee_params_non_dict_response(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = "not a dict"
         assert get_market_fee_params(client, "0xabc") is None
@@ -417,33 +501,36 @@ class TestDynamicFeeQuery:
     def test_get_market_fee_params_missing_fd(self):
         """Response missing fd field → None fallback."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {"feesEnabled": True}
         assert get_market_fee_params(client, "0xabc") is None
 
     def test_get_market_fee_params_fd_non_dict(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {"fd": "not a dict"}
         assert get_market_fee_params(client, "0xabc") is None
 
     def test_get_market_fee_params_fd_missing_rate(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {"fd": {"e": 1}}  # no r
         assert get_market_fee_params(client, "0xabc") is None
 
     def test_get_market_fee_params_fd_non_numeric(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
-        client.get_clob_market_info.return_value = {
-            "fd": {"r": "garbage", "e": 1}
-        }
+        client.get_clob_market_info.return_value = {"fd": {"r": "garbage", "e": 1}}
         assert get_market_fee_params(client, "0xabc") is None
 
     def test_get_market_fee_params_crypto_market(self):
         """Standard crypto Up/Down market — Polymarket docs example shape."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "feesEnabled": True,
@@ -459,6 +546,7 @@ class TestDynamicFeeQuery:
     def test_get_market_fee_params_geopolitics_zero_fee(self):
         """Geopolitics market — feesEnabled=False, rate=0."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "feesEnabled": False,
@@ -472,6 +560,7 @@ class TestDynamicFeeQuery:
     def test_get_market_fee_params_snake_case_fees_enabled(self):
         """Some endpoints use snake_case — accept both."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "fees_enabled": False,  # snake_case
@@ -483,6 +572,7 @@ class TestDynamicFeeQuery:
     def test_get_market_fee_params_default_taker_only(self):
         """`to` field optional → default True."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "fd": {"r": 0.04, "e": 1},  # no `to`
@@ -493,6 +583,7 @@ class TestDynamicFeeQuery:
     def test_get_market_fee_params_string_numeric_rate(self):
         """Some SDK responses come as strings — coerce to float."""
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "fd": {"r": "0.04", "e": "1", "to": True},
@@ -505,7 +596,8 @@ class TestDynamicFeeQuery:
 
     def test_taker_fee_dynamic_fallback_no_client(self):
         """No client → static crypto fallback."""
-        from core.fees_v2 import taker_fee_dynamic, polymarket_taker_fee_v2
+        from core.fees_v2 import polymarket_taker_fee_v2, taker_fee_dynamic
+
         fee_static = polymarket_taker_fee_v2(0.5, 100, category="crypto")
         fee_dynamic = taker_fee_dynamic(None, "0xabc", 0.5, 100, fallback_category="crypto")
         assert fee_dynamic == fee_static
@@ -513,6 +605,7 @@ class TestDynamicFeeQuery:
     def test_taker_fee_dynamic_geopolitics_zero(self):
         """feesEnabled=False → 0.0."""
         from core.fees_v2 import taker_fee_dynamic
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "feesEnabled": False,
@@ -523,7 +616,8 @@ class TestDynamicFeeQuery:
 
     def test_taker_fee_dynamic_dynamic_override(self):
         """Per-market rate overrides CATEGORY_FEES."""
-        from core.fees_v2 import taker_fee_dynamic, polymarket_taker_fee_v2
+        from core.fees_v2 import polymarket_taker_fee_v2, taker_fee_dynamic
+
         client = MagicMock()
         # Pretend market has rate=0.1 (different from crypto 0.072)
         client.get_clob_market_info.return_value = {
@@ -538,7 +632,8 @@ class TestDynamicFeeQuery:
 
     def test_taker_fee_dynamic_sdk_failure_falls_back(self):
         """SDK exception → static fallback (no crash)."""
-        from core.fees_v2 import taker_fee_dynamic, polymarket_taker_fee_v2
+        from core.fees_v2 import polymarket_taker_fee_v2, taker_fee_dynamic
+
         client = MagicMock()
         client.get_clob_market_info.side_effect = RuntimeError("503")
         fee = taker_fee_dynamic(client, "0xabc", 0.5, 100, fallback_category="crypto")
@@ -548,6 +643,7 @@ class TestDynamicFeeQuery:
 
 # ─── P3.Y — UMA Dispute Window Awareness (2026-05-03 docs re-audit) ──
 
+
 class TestUmaDispute:
     """UMA Optimistic Oracle settlement window gate. Gamma API metadata-driven.
     Pure functions, deterministic clock via now_ts param."""
@@ -556,22 +652,26 @@ class TestUmaDispute:
 
     def test_parse_end_date_iso_z_suffix(self):
         from core.uma_dispute import _parse_end_date
+
         # 2026-05-15T20:00:00Z = 1763236800 (UTC)
         ts = _parse_end_date({"endDate": "2026-05-15T20:00:00Z"})
-        assert ts == int(datetime(2026, 5, 15, 20, 0, 0, tzinfo=timezone.utc).timestamp())
+        assert ts == int(datetime(2026, 5, 15, 20, 0, 0, tzinfo=UTC).timestamp())
 
     def test_parse_end_date_iso_offset(self):
         from core.uma_dispute import _parse_end_date
+
         ts = _parse_end_date({"endDate": "2026-05-15T20:00:00+00:00"})
         assert ts is not None and ts > 0
 
     def test_parse_end_date_naive_iso_treated_as_utc(self):
         from core.uma_dispute import _parse_end_date
+
         ts = _parse_end_date({"endDate": "2026-05-15T20:00:00"})
-        assert ts == int(datetime(2026, 5, 15, 20, 0, 0, tzinfo=timezone.utc).timestamp())
+        assert ts == int(datetime(2026, 5, 15, 20, 0, 0, tzinfo=UTC).timestamp())
 
     def test_parse_end_date_alt_keys(self):
         from core.uma_dispute import _parse_end_date
+
         # end_date_iso, end_date, closeDate (alt key) hepsini denesin
         for key in ("end_date_iso", "end_date", "closeDate"):
             ts = _parse_end_date({key: "2026-05-15T20:00:00Z"})
@@ -579,28 +679,34 @@ class TestUmaDispute:
 
     def test_parse_end_date_epoch_field(self):
         from core.uma_dispute import _parse_end_date
+
         ts = _parse_end_date({"endDateTs": 1763236800})
         assert ts == 1763236800
 
     def test_parse_end_date_close_time_epoch(self):
         from core.uma_dispute import _parse_end_date
+
         assert _parse_end_date({"closeTime": 1763236800}) == 1763236800
 
     def test_parse_end_date_invalid_string(self):
         from core.uma_dispute import _parse_end_date
+
         assert _parse_end_date({"endDate": "garbage"}) is None
 
     def test_parse_end_date_missing_keys(self):
         from core.uma_dispute import _parse_end_date
+
         assert _parse_end_date({}) is None
 
     def test_parse_end_date_non_dict(self):
         from core.uma_dispute import _parse_end_date
+
         assert _parse_end_date("not a dict") is None
         assert _parse_end_date(None) is None
 
     def test_parse_end_date_negative_epoch_ignored(self):
         from core.uma_dispute import _parse_end_date
+
         # 0 or negative epoch ignored (placeholder values)
         assert _parse_end_date({"endDateTs": 0}) is None
 
@@ -608,28 +714,34 @@ class TestUmaDispute:
 
     def test_is_market_closed_field_true(self):
         from core.uma_dispute import is_market_closed
+
         assert is_market_closed({"closed": True}) is True
 
     def test_is_market_closed_active_false(self):
         from core.uma_dispute import is_market_closed
+
         assert is_market_closed({"active": False}) is True
 
     def test_is_market_closed_accepting_orders_false(self):
         from core.uma_dispute import is_market_closed
+
         assert is_market_closed({"acceptingOrders": False}) is True
 
     def test_is_market_closed_resolution_resolved(self):
         from core.uma_dispute import is_market_closed
+
         for status in ("resolved", "settled", "closed", "RESOLVED"):
             assert is_market_closed({"resolutionStatus": status}) is True
 
     def test_is_market_closed_open_market(self):
         from core.uma_dispute import is_market_closed
+
         m = {"closed": False, "active": True, "acceptingOrders": True}
         assert is_market_closed(m) is False
 
     def test_is_market_closed_non_dict(self):
         from core.uma_dispute import is_market_closed
+
         assert is_market_closed(None) is False
         assert is_market_closed("string") is False
 
@@ -637,32 +749,38 @@ class TestUmaDispute:
 
     def test_is_market_disputed_resolution_status(self):
         from core.uma_dispute import is_market_disputed
+
         for status in ("disputed", "challenged", "in_dispute", "DISPUTED"):
             assert is_market_disputed({"resolutionStatus": status}) is True
 
     def test_is_market_disputed_explicit_flags(self):
         from core.uma_dispute import is_market_disputed
+
         for key in ("umaDispute", "uma_dispute", "isDisputed", "is_disputed"):
             assert is_market_disputed({key: True}) is True
 
     def test_is_market_disputed_state_uppercase(self):
         from core.uma_dispute import is_market_disputed
+
         assert is_market_disputed({"state": "DISPUTED"}) is True
         assert is_market_disputed({"state": "in_dispute_phase"}) is True
 
     def test_is_market_disputed_clean_market(self):
         from core.uma_dispute import is_market_disputed
+
         assert is_market_disputed({"resolutionStatus": "open"}) is False
         assert is_market_disputed({}) is False
 
     def test_is_market_disputed_non_dict(self):
         from core.uma_dispute import is_market_disputed
+
         assert is_market_disputed(None) is False
 
     # ─── is_in_settlement_window ──────────────────────────────────
 
     def test_in_settlement_window_far_future(self):
         from core.uma_dispute import is_in_settlement_window
+
         # End 1000 dakika sonra, buffer 150 → açık
         now = 1_700_000_000
         end = now + 1000 * 60
@@ -671,6 +789,7 @@ class TestUmaDispute:
 
     def test_in_settlement_window_close_to_end(self):
         from core.uma_dispute import is_in_settlement_window
+
         now = 1_700_000_000
         # End 60 dakika sonra, buffer 150 → engelle
         end = now + 60 * 60
@@ -679,6 +798,7 @@ class TestUmaDispute:
 
     def test_in_settlement_window_already_past(self):
         from core.uma_dispute import is_in_settlement_window
+
         now = 1_700_000_000
         end = now - 3600  # 1h önce
         market = {"endDateTs": end}
@@ -687,11 +807,13 @@ class TestUmaDispute:
     def test_in_settlement_window_unparseable_end_falls_open(self):
         """endDate parse edilemezse engelleme yapma (false negative kabul)."""
         from core.uma_dispute import is_in_settlement_window
+
         market = {"endDate": "garbage"}
         assert is_in_settlement_window(market, buffer_min=150, now_ts=1_700_000_000) is False
 
     def test_in_settlement_window_env_buffer_override(self, monkeypatch):
         from core.uma_dispute import is_in_settlement_window
+
         now = 1_700_000_000
         end = now + 60 * 60  # 60 dakika sonra
         market = {"endDateTs": end}
@@ -704,6 +826,7 @@ class TestUmaDispute:
 
     def test_buffer_env_clamping(self, monkeypatch):
         from core.uma_dispute import _get_buffer_min
+
         # negative clamped to 0
         monkeypatch.setenv("UMA_SETTLEMENT_BUFFER_MIN", "-100")
         assert _get_buffer_min() == 0
@@ -718,42 +841,49 @@ class TestUmaDispute:
 
     def test_minutes_to_settlement_positive(self):
         from core.uma_dispute import minutes_to_settlement
+
         now = 1_700_000_000
         end = now + 90 * 60
         assert minutes_to_settlement({"endDateTs": end}, now_ts=now) == 90
 
     def test_minutes_to_settlement_negative(self):
         from core.uma_dispute import minutes_to_settlement
+
         now = 1_700_000_000
         end = now - 30 * 60
         assert minutes_to_settlement({"endDateTs": end}, now_ts=now) == -30
 
     def test_minutes_to_settlement_unparseable(self):
         from core.uma_dispute import minutes_to_settlement
+
         assert minutes_to_settlement({"endDate": "garbage"}) is None
 
     # ─── should_block_new_position (decision API) ───────────────
 
     def test_block_no_data(self):
         from core.uma_dispute import should_block_new_position
+
         d = should_block_new_position({})
         assert d.block is False
         assert d.reason == "NO_DATA"
 
     def test_block_non_dict(self):
         from core.uma_dispute import should_block_new_position
+
         d = should_block_new_position(None)
         assert d.block is False
         assert d.reason == "NO_DATA"
 
     def test_block_closed_market(self):
         from core.uma_dispute import should_block_new_position
+
         d = should_block_new_position({"closed": True, "endDateTs": 1_700_000_000})
         assert d.block is True
         assert d.reason == "BLOCK_CLOSED"
 
     def test_block_disputed_market(self):
         from core.uma_dispute import should_block_new_position
+
         # Future endDate (settlement window dışında) ama disputed
         now = 1_700_000_000
         end = now + 100_000  # çok ileride
@@ -765,11 +895,13 @@ class TestUmaDispute:
 
     def test_block_settlement_window(self):
         from core.uma_dispute import should_block_new_position
+
         now = 1_700_000_000
         end = now + 60 * 60  # 60 dakika
         d = should_block_new_position(
             {"endDateTs": end, "resolutionStatus": "open"},
-            buffer_min=150, now_ts=now,
+            buffer_min=150,
+            now_ts=now,
         )
         assert d.block is True
         assert d.reason == "BLOCK_SETTLEMENT_WINDOW"
@@ -777,11 +909,13 @@ class TestUmaDispute:
 
     def test_allow_open_market(self):
         from core.uma_dispute import should_block_new_position
+
         now = 1_700_000_000
         end = now + 24 * 3600  # 24 saat ileride
         d = should_block_new_position(
             {"endDateTs": end, "resolutionStatus": "open", "active": True},
-            buffer_min=150, now_ts=now,
+            buffer_min=150,
+            now_ts=now,
         )
         assert d.block is False
         assert d.reason == "ALLOW"
@@ -790,25 +924,28 @@ class TestUmaDispute:
     def test_precedence_closed_over_disputed(self):
         """Closed precedence > disputed (closed = trading durduğu için)."""
         from core.uma_dispute import should_block_new_position
+
         d = should_block_new_position(
-            {"closed": True, "resolutionStatus": "disputed",
-             "endDateTs": 1_700_000_000}
+            {"closed": True, "resolutionStatus": "disputed", "endDateTs": 1_700_000_000}
         )
         assert d.reason == "BLOCK_CLOSED"  # not BLOCK_DISPUTED
 
     def test_precedence_disputed_over_settlement(self):
         """Disputed precedence > settlement window."""
         from core.uma_dispute import should_block_new_position
+
         now = 1_700_000_000
         end = now + 60 * 60  # window içinde
         d = should_block_new_position(
             {"resolutionStatus": "disputed", "endDateTs": end},
-            buffer_min=150, now_ts=now,
+            buffer_min=150,
+            now_ts=now,
         )
         assert d.reason == "BLOCK_DISPUTED"  # not BLOCK_SETTLEMENT_WINDOW
 
 
 # ─── Coverage Wave 2: data/polymarket_portfolio.py (P1.3) ────────────
+
 
 class TestPolymarketPortfolio:
     """Mock CLOB client + httpx + cache test. Module shoots for ~50% coverage."""
@@ -817,6 +954,7 @@ class TestPolymarketPortfolio:
 
     def test_position_row_defaults(self):
         from data.polymarket_portfolio import PositionRow
+
         p = PositionRow(token_id="0xabc")
         assert p.token_id == "0xabc"
         assert p.shares == 0.0
@@ -824,6 +962,7 @@ class TestPolymarketPortfolio:
 
     def test_trade_row_defaults(self):
         from data.polymarket_portfolio import TradeRow
+
         t = TradeRow(trade_id="t1")
         assert t.trade_id == "t1"
         assert t.role == ""
@@ -831,6 +970,7 @@ class TestPolymarketPortfolio:
 
     def test_portfolio_snapshot_to_dict_roundtrip(self):
         from data.polymarket_portfolio import PortfolioSnapshot
+
         snap = PortfolioSnapshot(fetched_at="2026-05-03T12:00:00+00:00")
         d = snap.to_dict()
         assert d["pusd_balance"] == 0.0
@@ -838,17 +978,20 @@ class TestPolymarketPortfolio:
         assert d["fetch_errors"] == []
         # JSON serializable (no datetime objects)
         import json
+
         json.dumps(d)
 
     # ─── _proxy_address ──────────────────────────────────────────
 
     def test_proxy_address_from_env(self, monkeypatch):
         from data.polymarket_portfolio import _proxy_address
+
         monkeypatch.setenv("POLYGON_WALLET", "0xWALLET ")  # trailing space
         assert _proxy_address() == "0xWALLET"
 
     def test_proxy_address_empty(self, monkeypatch):
         from data.polymarket_portfolio import _proxy_address
+
         monkeypatch.setenv("POLYGON_WALLET", "")
         assert _proxy_address() == ""
 
@@ -857,11 +1000,12 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_balance_allowance_success(self):
         from data.polymarket_portfolio import fetch_balance_allowance
+
         client = MagicMock()
         # CLOB SDK returns raw USDC.e units (1e6 multiplier)
         client.get_balance_allowance.return_value = {
-            "balance": "5000000",      # 5 USDC
-            "allowance": "1000000000", # 1000 USDC
+            "balance": "5000000",  # 5 USDC
+            "allowance": "1000000000",  # 1000 USDC
         }
         bal, allow, err = await fetch_balance_allowance(client)
         assert bal == 5.0
@@ -871,6 +1015,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_balance_allowance_zero_response(self):
         from data.polymarket_portfolio import fetch_balance_allowance
+
         client = MagicMock()
         client.get_balance_allowance.return_value = {"balance": 0, "allowance": 0}
         bal, allow, err = await fetch_balance_allowance(client)
@@ -881,6 +1026,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_balance_allowance_sdk_exception(self):
         from data.polymarket_portfolio import fetch_balance_allowance
+
         client = MagicMock()
         client.get_balance_allowance.side_effect = ValueError("API error")
         bal, allow, err = await fetch_balance_allowance(client)
@@ -892,6 +1038,7 @@ class TestPolymarketPortfolio:
     async def test_fetch_balance_allowance_unknown_exception(self):
         """Bare Exception path via noqa: BLE001."""
         from data.polymarket_portfolio import fetch_balance_allowance
+
         client = MagicMock()
         client.get_balance_allowance.side_effect = RuntimeError("network")
         bal, allow, err = await fetch_balance_allowance(client)
@@ -903,6 +1050,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_positions_empty_user(self):
         from data.polymarket_portfolio import fetch_positions
+
         rows, err = await fetch_positions("", MagicMock())
         assert rows == []
         assert "user_address empty" in err
@@ -910,14 +1058,24 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_positions_success_shape_list(self):
         from data.polymarket_portfolio import fetch_positions
+
         # _http_get_json mocked via MagicMock at module attr level
-        with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value=[
-            {
-                "asset": "0xtoken1", "slug": "btc-up-may-3",
-                "outcome": "Up", "size": 100, "avgPrice": 0.5,
-                "curPrice": 0.55, "endDate": "2026-05-15T00:00:00Z",
-            },
-        ])):
+        with patch(
+            "data.polymarket_portfolio._http_get_json",
+            new=AsyncMock(
+                return_value=[
+                    {
+                        "asset": "0xtoken1",
+                        "slug": "btc-up-may-3",
+                        "outcome": "Up",
+                        "size": 100,
+                        "avgPrice": 0.5,
+                        "curPrice": 0.55,
+                        "endDate": "2026-05-15T00:00:00Z",
+                    },
+                ]
+            ),
+        ):
             rows, err = await fetch_positions("0xwallet", MagicMock())
             assert err is None
             assert len(rows) == 1
@@ -934,11 +1092,17 @@ class TestPolymarketPortfolio:
     async def test_fetch_positions_success_shape_dict_wrapper(self):
         """Some endpoints wrap in {'positions': [...]}."""
         from data.polymarket_portfolio import fetch_positions
-        with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value={
-            "positions": [
-                {"asset": "0xt", "size": 10, "avgPrice": 0.4, "curPrice": 0.4},
-            ],
-        })):
+
+        with patch(
+            "data.polymarket_portfolio._http_get_json",
+            new=AsyncMock(
+                return_value={
+                    "positions": [
+                        {"asset": "0xt", "size": 10, "avgPrice": 0.4, "curPrice": 0.4},
+                    ],
+                }
+            ),
+        ):
             rows, err = await fetch_positions("0xw", MagicMock())
             assert err is None
             assert len(rows) == 1
@@ -946,6 +1110,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_positions_empty_response(self):
         from data.polymarket_portfolio import fetch_positions
+
         with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value=None)):
             rows, err = await fetch_positions("0xw", MagicMock())
             assert rows == []
@@ -955,30 +1120,46 @@ class TestPolymarketPortfolio:
     async def test_fetch_positions_zero_cost_pnl_pct(self):
         """Cost basis 0 → pnl_pct = 0 (no division by zero)."""
         from data.polymarket_portfolio import fetch_positions
-        with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value=[
-            {"asset": "0x", "size": 0, "avgPrice": 0, "curPrice": 0.5},
-        ])):
+
+        with patch(
+            "data.polymarket_portfolio._http_get_json",
+            new=AsyncMock(
+                return_value=[
+                    {"asset": "0x", "size": 0, "avgPrice": 0, "curPrice": 0.5},
+                ]
+            ),
+        ):
             rows, err = await fetch_positions("0xw", MagicMock())
             assert rows[0].pnl_pct == 0.0
 
     @pytest.mark.asyncio
     async def test_fetch_positions_skips_non_dict_entries(self):
         from data.polymarket_portfolio import fetch_positions
-        with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value=[
-            "not a dict",
-            {"asset": "0xreal", "size": 1, "avgPrice": 0.5, "curPrice": 0.5},
-            42,
-        ])):
+
+        with patch(
+            "data.polymarket_portfolio._http_get_json",
+            new=AsyncMock(
+                return_value=[
+                    "not a dict",
+                    {"asset": "0xreal", "size": 1, "avgPrice": 0.5, "curPrice": 0.5},
+                    42,
+                ]
+            ),
+        ):
             rows, err = await fetch_positions("0xw", MagicMock())
             assert len(rows) == 1
             assert rows[0].token_id == "0xreal"
 
     @pytest.mark.asyncio
     async def test_fetch_positions_http_exception(self):
-        from data.polymarket_portfolio import fetch_positions
         import httpx
-        with patch("data.polymarket_portfolio._http_get_json",
-                   new=AsyncMock(side_effect=httpx.RequestError("network", request=None))):
+
+        from data.polymarket_portfolio import fetch_positions
+
+        with patch(
+            "data.polymarket_portfolio._http_get_json",
+            new=AsyncMock(side_effect=httpx.RequestError("network", request=None)),
+        ):
             rows, err = await fetch_positions("0xw", MagicMock())
             assert rows == []
             assert "RequestError" in err
@@ -988,6 +1169,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_portfolio_value_empty_user(self):
         from data.polymarket_portfolio import fetch_portfolio_value
+
         v, err = await fetch_portfolio_value("", MagicMock())
         assert v == 0.0
         assert "empty" in err
@@ -996,8 +1178,11 @@ class TestPolymarketPortfolio:
     async def test_fetch_portfolio_value_list_response(self):
         """data-api shape: [{'user': '0x...', 'value': 12.34}]"""
         from data.polymarket_portfolio import fetch_portfolio_value
-        with patch("data.polymarket_portfolio._http_get_json",
-                   new=AsyncMock(return_value=[{"user": "0xw", "value": 12.34}])):
+
+        with patch(
+            "data.polymarket_portfolio._http_get_json",
+            new=AsyncMock(return_value=[{"user": "0xw", "value": 12.34}]),
+        ):
             v, err = await fetch_portfolio_value("0xw", MagicMock())
             assert v == 12.34
             assert err is None
@@ -1006,14 +1191,17 @@ class TestPolymarketPortfolio:
     async def test_fetch_portfolio_value_dict_response(self):
         """Alt shape: {'value': X}"""
         from data.polymarket_portfolio import fetch_portfolio_value
-        with patch("data.polymarket_portfolio._http_get_json",
-                   new=AsyncMock(return_value={"value": 99.99})):
+
+        with patch(
+            "data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value={"value": 99.99})
+        ):
             v, err = await fetch_portfolio_value("0xw", MagicMock())
             assert v == 99.99
 
     @pytest.mark.asyncio
     async def test_fetch_portfolio_value_none_response(self):
         from data.polymarket_portfolio import fetch_portfolio_value
+
         with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value=None)):
             v, err = await fetch_portfolio_value("0xw", MagicMock())
             assert v == 0.0
@@ -1022,6 +1210,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_portfolio_value_unexpected_shape(self):
         from data.polymarket_portfolio import fetch_portfolio_value
+
         with patch("data.polymarket_portfolio._http_get_json", new=AsyncMock(return_value="weird")):
             v, err = await fetch_portfolio_value("0xw", MagicMock())
             assert v == 0.0
@@ -1032,11 +1221,20 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_success(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.return_value = [
-            {"id": "t1", "market": "btc-up", "side": "BUY", "trader_side": "TAKER",
-             "price": 0.5, "size": 10, "fee_rate_bps": 72, "status": "MINED",
-             "match_time": "2026-05-03T12:00:00Z"},
+            {
+                "id": "t1",
+                "market": "btc-up",
+                "side": "BUY",
+                "trader_side": "TAKER",
+                "price": 0.5,
+                "size": 10,
+                "fee_rate_bps": 72,
+                "status": "MINED",
+                "match_time": "2026-05-03T12:00:00Z",
+            },
         ]
         rows, err = await fetch_recent_trades(client, limit=20)
         assert err is None
@@ -1050,6 +1248,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_empty(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.return_value = []
         rows, err = await fetch_recent_trades(client)
@@ -1059,6 +1258,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_dict_wrapper(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.return_value = {"trades": [{"id": "t1", "size": 1, "price": 0.5}]}
         rows, err = await fetch_recent_trades(client)
@@ -1067,6 +1267,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_limit_applied(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.return_value = [
             {"id": f"t{i}", "size": 1, "price": 0.5} for i in range(50)
@@ -1077,6 +1278,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_skips_non_dict(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.return_value = ["not dict", {"id": "t1", "size": 1, "price": 0.5}]
         rows, err = await fetch_recent_trades(client)
@@ -1085,6 +1287,7 @@ class TestPolymarketPortfolio:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_sdk_exception(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.side_effect = ValueError("API")
         rows, err = await fetch_recent_trades(client)
@@ -1095,8 +1298,10 @@ class TestPolymarketPortfolio:
 
     def test_build_clob_client_cooldown_active(self, monkeypatch):
         """Cloudflare 403 cooldown → return None without attempt."""
-        from data.polymarket_portfolio import _build_clob_client, _CLOB_CLIENT_CACHE
         import time
+
+        from data.polymarket_portfolio import _CLOB_CLIENT_CACHE, _build_clob_client
+
         # Clean state + cooldown 1h ahead
         _CLOB_CLIENT_CACHE["client"] = None
         _CLOB_CLIENT_CACHE["creds"] = None
@@ -1109,8 +1314,10 @@ class TestPolymarketPortfolio:
 
     def test_build_clob_client_cache_hit(self, monkeypatch):
         """Cached client returned without re-derive."""
-        from data.polymarket_portfolio import _build_clob_client, _CLOB_CLIENT_CACHE
         import time
+
+        from data.polymarket_portfolio import _CLOB_CLIENT_CACHE, _build_clob_client
+
         sentinel = object()
         _CLOB_CLIENT_CACHE["client"] = sentinel
         _CLOB_CLIENT_CACHE["fetched_at"] = time.time()
@@ -1123,7 +1330,8 @@ class TestPolymarketPortfolio:
 
     def test_build_clob_client_cache_expired(self, monkeypatch):
         """Expired cache → cleared (then derive attempted, no PK → None)."""
-        from data.polymarket_portfolio import _build_clob_client, _CLOB_CLIENT_CACHE
+        from data.polymarket_portfolio import _CLOB_CLIENT_CACHE, _build_clob_client
+
         sentinel = object()
         _CLOB_CLIENT_CACHE["client"] = sentinel
         _CLOB_CLIENT_CACHE["fetched_at"] = 0.0  # very old
@@ -1141,7 +1349,8 @@ class TestPolymarketPortfolio:
 
     def test_build_clob_client_no_credentials(self, monkeypatch):
         """No PK or wallet → None (no derive)."""
-        from data.polymarket_portfolio import _build_clob_client, _CLOB_CLIENT_CACHE
+        from data.polymarket_portfolio import _CLOB_CLIENT_CACHE, _build_clob_client
+
         _CLOB_CLIENT_CACHE["client"] = None
         _CLOB_CLIENT_CACHE["cooldown_until"] = 0.0
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "")
@@ -1153,46 +1362,55 @@ class TestPolymarketPortfolio:
 
 # ─── Coverage Wave 2 Batch 2: core/live_trader.py (P1.3) ─────────────
 
+
 class TestLiveTraderEnvKnobs:
     """ENV-overridable runtime knobs (T6.1 ghost-toggle pattern)."""
 
     def test_get_max_trade_default(self, monkeypatch):
         from core.live_trader import _get_max_trade
+
         monkeypatch.delenv("LIVE_MAX_TRADE", raising=False)
         assert _get_max_trade() == 1.00
 
     def test_get_max_trade_env_override(self, monkeypatch):
         from core.live_trader import _get_max_trade
+
         monkeypatch.setenv("LIVE_MAX_TRADE", "5.50")
         assert _get_max_trade() == 5.50
 
     def test_get_max_trade_garbage_falls_back(self, monkeypatch):
         from core.live_trader import _get_max_trade
+
         monkeypatch.setenv("LIVE_MAX_TRADE", "garbage")
         assert _get_max_trade() == 1.00
 
     def test_get_max_daily_loss_default(self, monkeypatch):
         from core.live_trader import _get_max_daily_loss
+
         monkeypatch.delenv("LIVE_MAX_DAILY_LOSS", raising=False)
         assert _get_max_daily_loss() == 1.00
 
     def test_get_min_signal_default(self, monkeypatch):
         from core.live_trader import _get_min_signal
+
         monkeypatch.delenv("LIVE_MIN_SIGNAL", raising=False)
         assert _get_min_signal() == 0.75
 
     def test_get_min_odds_default(self, monkeypatch):
         from core.live_trader import _get_min_odds
+
         monkeypatch.delenv("LIVE_MIN_ODDS", raising=False)
         assert _get_min_odds() == 0.75
 
     def test_get_live_budget_default(self, monkeypatch):
         from core.live_trader import _get_live_budget
+
         monkeypatch.delenv("LIVE_BUDGET", raising=False)
         assert _get_live_budget() == 1.49
 
     def test_get_live_budget_env_override(self, monkeypatch):
         from core.live_trader import _get_live_budget
+
         monkeypatch.setenv("LIVE_BUDGET", "100.0")
         assert _get_live_budget() == 100.0
 
@@ -1201,7 +1419,8 @@ class TestLiveTraderSharedCache:
     """Cross-module SHARED_CREDS_CACHE (Cloudflare 403 fix)."""
 
     def test_set_and_get_shared_creds(self):
-        from core.live_trader import set_shared_creds, get_shared_creds, SHARED_CREDS_CACHE
+        from core.live_trader import SHARED_CREDS_CACHE, get_shared_creds, set_shared_creds
+
         # Clean
         SHARED_CREDS_CACHE["creds"] = None
         SHARED_CREDS_CACHE["fetched_at"] = 0.0
@@ -1215,7 +1434,8 @@ class TestLiveTraderSharedCache:
         assert SHARED_CREDS_CACHE["wallet"] == "0xWALLET"
 
     def test_get_shared_creds_when_empty(self):
-        from core.live_trader import get_shared_creds, SHARED_CREDS_CACHE
+        from core.live_trader import SHARED_CREDS_CACHE, get_shared_creds
+
         SHARED_CREDS_CACHE["creds"] = None
         SHARED_CREDS_CACHE["fetched_at"] = 0.0
         creds, ts = get_shared_creds()
@@ -1229,6 +1449,7 @@ class TestLiveTraderState:
     def _make_trader(self):
         """Helper: minimal LiveTrader without DB or bot."""
         from core.live_trader import LiveTrader
+
         return LiveTrader(db=None, bot_app=None, settings=None)
 
     def test_init_defaults(self):
@@ -1279,7 +1500,7 @@ class TestLiveTraderState:
 
     def test_maybe_reset_daily_same_day_no_op(self):
         t = self._make_trader()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         t._daily_date = today
         t._daily_pnl = -0.50
         t._daily_trades = 3
@@ -1295,7 +1516,7 @@ class TestLiveTraderState:
         t._daily_trades = 3
         t._maybe_reset_daily()
         # Reset to current day
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         assert t._daily_date == today
         assert t._daily_pnl == 0.0
         assert t._daily_trades == 0
@@ -1306,9 +1527,22 @@ class TestLiveTraderState:
         t = self._make_trader()
         s = t.get_status()
         # Required keys
-        for k in ("enabled", "paused", "auth_verified", "active", "wallet",
-                  "total_spent", "total_pnl", "daily_pnl", "daily_trades",
-                  "trade_count", "open", "open_detail", "budget", "remaining"):
+        for k in (
+            "enabled",
+            "paused",
+            "auth_verified",
+            "active",
+            "wallet",
+            "total_spent",
+            "total_pnl",
+            "daily_pnl",
+            "daily_trades",
+            "trade_count",
+            "open",
+            "open_detail",
+            "budget",
+            "remaining",
+        ):
             assert k in s, f"missing status key: {k}"
         # Wallet redaction
         assert s["wallet"].startswith("0x1234")
@@ -1338,13 +1572,14 @@ class TestLiveTraderMaybeMirror:
     def _ready_trader(self, monkeypatch):
         """Authed + enabled + auth_verified, fresh state."""
         from core.live_trader import LiveTrader
+
         t = LiveTrader()
         t._enabled = True
         t._auth_verified = True
         t._paused = False
         t._open = None
         t._daily_pnl = 0.0
-        t._daily_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        t._daily_date = datetime.now(UTC).strftime("%Y-%m-%d")
         t._total_spent = 0.0
         # Permissive ENV
         monkeypatch.setenv("LIVE_MIN_SIGNAL", "0.0")
@@ -1359,7 +1594,12 @@ class TestLiveTraderMaybeMirror:
         t = self._ready_trader(monkeypatch)
         t._enabled = False  # gate 1
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.85, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.95,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result is None
 
@@ -1367,7 +1607,12 @@ class TestLiveTraderMaybeMirror:
     async def test_mirror_strategy_not_whitelisted(self, monkeypatch):
         t = self._ready_trader(monkeypatch)
         result = await t.maybe_mirror(
-            "RANDOM_NOT_WHITELISTED", 0.95, "up", "0xtok", 0.85, "btc-up",
+            "RANDOM_NOT_WHITELISTED",
+            0.95,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result is None
 
@@ -1376,7 +1621,12 @@ class TestLiveTraderMaybeMirror:
         t = self._ready_trader(monkeypatch)
         monkeypatch.setenv("LIVE_MIN_SIGNAL", "0.90")
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.50, "up", "0xtok", 0.85, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.50,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result is None
 
@@ -1385,7 +1635,12 @@ class TestLiveTraderMaybeMirror:
         t = self._ready_trader(monkeypatch)
         monkeypatch.setenv("LIVE_MIN_ODDS", "0.90")
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.50, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.95,
+            "up",
+            "0xtok",
+            0.50,
+            "btc-up",
         )
         assert result is None
 
@@ -1395,7 +1650,12 @@ class TestLiveTraderMaybeMirror:
         monkeypatch.setenv("LIVE_MAX_DAILY_LOSS", "1.00")
         t._daily_pnl = -1.50  # exceeds limit
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.85, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.95,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result is None
 
@@ -1404,7 +1664,12 @@ class TestLiveTraderMaybeMirror:
         t = self._ready_trader(monkeypatch)
         t._open = {"token_id": "0xother", "amount": 0.5}  # already open
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.85, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.95,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result is None
 
@@ -1414,7 +1679,12 @@ class TestLiveTraderMaybeMirror:
         monkeypatch.setenv("LIVE_BUDGET", "1.00")
         t._total_spent = 0.95  # remaining 0.05 < 0.10 floor
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.85, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.95,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result is None
 
@@ -1424,15 +1694,29 @@ class TestLiveTraderMaybeMirror:
         t = self._ready_trader(monkeypatch)
         # Mock _place to verify it was reached and observe args
         placed_args = {}
+
         async def fake_place(token_id, direction, amount, odds, slug, strat, sig):
-            placed_args.update({
-                "token_id": token_id, "direction": direction, "amount": amount,
-                "odds": odds, "slug": slug, "strat": strat, "sig": sig,
-            })
+            placed_args.update(
+                {
+                    "token_id": token_id,
+                    "direction": direction,
+                    "amount": amount,
+                    "odds": odds,
+                    "slug": slug,
+                    "strat": strat,
+                    "sig": sig,
+                }
+            )
             return {"order_id": "fake-id", "status": "placed"}
+
         t._place = fake_place
         result = await t.maybe_mirror(
-            "M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.85, "btc-up",
+            "M_BTC_5m_any_0.92",
+            0.95,
+            "up",
+            "0xtok",
+            0.85,
+            "btc-up",
         )
         assert result == {"order_id": "fake-id", "status": "placed"}
         assert placed_args["token_id"] == "0xtok"
@@ -1448,9 +1732,11 @@ class TestLiveTraderMaybeMirror:
         monkeypatch.setenv("LIVE_BUDGET", "1.00")
         t._total_spent = 0.50  # remaining 0.50 < LIVE_MAX_TRADE=1.0
         captured = {}
+
         async def fake_place(token_id, direction, amount, *args, **kwargs):
             captured["amount"] = amount
             return {"order_id": "x", "status": "placed"}
+
         t._place = fake_place
         await t.maybe_mirror("M_BTC_5m_any_0.92", 0.95, "up", "0xtok", 0.85, "btc-up")
         assert captured["amount"] == 0.50  # clamped
@@ -1459,18 +1745,30 @@ class TestLiveTraderMaybeMirror:
     async def test_mirror_uses_protected_strategy_btc_high_threshold(self, monkeypatch):
         """All 3 LIVE_STRATEGIES whitelisted entries pass."""
         t = self._ready_trader(monkeypatch)
+
         async def fake_place(*args, **kwargs):
             return {"order_id": "x", "status": "placed"}
+
         t._place = fake_place
         # Whitelisted strategy 2 (BTC High-Threshold Pure)
         result = await t.maybe_mirror(
-            "BTC High-Threshold Pure", 0.95, "down", "0xtok", 0.90, "btc-down",
+            "BTC High-Threshold Pure",
+            0.95,
+            "down",
+            "0xtok",
+            0.90,
+            "btc-down",
         )
         assert result is not None
         # Whitelisted strategy 3 (AI_F_BTC_5m_up_0.38)
         t._open = None
         result2 = await t.maybe_mirror(
-            "AI_F_BTC_5m_up_0.38", 0.95, "up", "0xtok2", 0.90, "btc-up",
+            "AI_F_BTC_5m_up_0.38",
+            0.95,
+            "up",
+            "0xtok2",
+            0.90,
+            "btc-up",
         )
         assert result2 is not None
 
@@ -1480,10 +1778,20 @@ class TestLiveTraderDeriveAndVerify:
 
     def _make_trader(self):
         from core.live_trader import LiveTrader
+
         return LiveTrader()
 
-    def _patch_sdk(self, monkeypatch, *, ctor_ok=True, derive_ok=True, verify_ok=True,
-                   ctor_exc=None, derive_exc_msg=None, verify_exc_msg=None):
+    def _patch_sdk(
+        self,
+        monkeypatch,
+        *,
+        ctor_ok=True,
+        derive_ok=True,
+        verify_ok=True,
+        ctor_exc=None,
+        derive_exc_msg=None,
+        verify_exc_msg=None,
+    ):
         """Helper: full ClobClient + ApiCreds + TradeParams stub."""
         client_mock = MagicMock()
         if not verify_ok and verify_exc_msg:
@@ -1501,14 +1809,17 @@ class TestLiveTraderDeriveAndVerify:
 
         # Build a fake module — ApiCreds factory: positional & keyword safe
         import sys
+
         fake_mod = MagicMock()
         fake_mod.ClobClient = ClobClientMock
+
         def _ApiCreds(api_key="", api_secret="", api_passphrase="", **_):
             m = MagicMock()
             m.api_key = api_key
             m.api_secret = api_secret
             m.api_passphrase = api_passphrase
             return m
+
         fake_mod.ApiCreds = _ApiCreds
         fake_mod.TradeParams = lambda: MagicMock()
         monkeypatch.setitem(sys.modules, "py_clob_client_v2", fake_mod)
@@ -1549,11 +1860,13 @@ class TestLiveTraderDeriveAndVerify:
         client_mock, _ = self._patch_sdk(monkeypatch)
         # First verify (with stored) → 401, then derive succeed + re-verify OK
         verify_call = {"n": 0}
+
         def trades_side_effect(*args, **kwargs):
             verify_call["n"] += 1
             if verify_call["n"] == 1:
                 raise RuntimeError("Unauthorized 401")
             return []
+
         client_mock.get_trades.side_effect = trades_side_effect
 
         monkeypatch.setenv("POLYMARKET_API_KEY", "stale_key")
@@ -1571,7 +1884,8 @@ class TestLiveTraderDeriveAndVerify:
     def test_derive_path_4_cloudflare_403(self, monkeypatch):
         """Cloudflare 403 derive fail (no stored fallback) → graceful error."""
         client_mock, _ = self._patch_sdk(
-            monkeypatch, derive_ok=False,
+            monkeypatch,
+            derive_ok=False,
             derive_exc_msg="Cloudflare 403 forbidden",
         )
         # No stored creds
@@ -1601,7 +1915,8 @@ class TestLiveTraderDeriveAndVerify:
     def test_derive_client_init_fails(self, monkeypatch):
         """ClobClient ctor exception → graceful fail."""
         self._patch_sdk(
-            monkeypatch, ctor_ok=False,
+            monkeypatch,
+            ctor_ok=False,
             ctor_exc=ValueError("invalid pk"),
         )
         t = self._make_trader()
@@ -1612,14 +1927,21 @@ class TestLiveTraderDeriveAndVerify:
     def test_derive_sdk_not_installed(self, monkeypatch):
         """ImportError on py_clob_client_v2 → graceful fail."""
         import sys
+
         # Remove the module if cached
         sys.modules.pop("py_clob_client_v2", None)
         # Make import raise
-        original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+        original_import = (
+            __builtins__["__import__"]
+            if isinstance(__builtins__, dict)
+            else __builtins__.__import__
+        )
+
         def bad_import(name, *args, **kwargs):
             if name == "py_clob_client_v2":
                 raise ImportError("not installed in test")
             return original_import(name, *args, **kwargs)
+
         if isinstance(__builtins__, dict):
             monkeypatch.setitem(__builtins__, "__import__", bad_import)
         else:
@@ -1636,6 +1958,7 @@ class TestLiveTraderStartFlow:
     @pytest.mark.asyncio
     async def test_start_no_pk_returns_disabled(self, monkeypatch):
         from core.live_trader import LiveTrader
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "")
         monkeypatch.setenv("POLYGON_WALLET", "0xwallet")
         t = LiveTrader()
@@ -1646,6 +1969,7 @@ class TestLiveTraderStartFlow:
     @pytest.mark.asyncio
     async def test_start_no_wallet_returns_disabled(self, monkeypatch):
         from core.live_trader import LiveTrader
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xpk")
         monkeypatch.setenv("POLYGON_WALLET", "")
         t = LiveTrader()
@@ -1655,18 +1979,23 @@ class TestLiveTraderStartFlow:
     @pytest.mark.asyncio
     async def test_start_derive_fail_disables(self, monkeypatch):
         from core.live_trader import LiveTrader
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xpk")
         monkeypatch.setenv("POLYGON_WALLET", "0xwallet")
         monkeypatch.setenv("LIVE_ENABLED", "true")
         t = LiveTrader()
+
         # Override _restore_state (no DB) and _derive_and_verify_sync to return fail
         async def fake_restore():
             return None
+
         t._restore_state = fake_restore
         # Wrap derive sync method
         orig_derive = t._derive_and_verify_sync
+
         def fake_derive(pk, wallet):
             return (False, "test-fail")
+
         t._derive_and_verify_sync = fake_derive
         await t.start()
         assert t._enabled is False
@@ -1675,16 +2004,21 @@ class TestLiveTraderStartFlow:
     @pytest.mark.asyncio
     async def test_start_derive_pass_shadow_active(self, monkeypatch):
         from core.live_trader import LiveTrader
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xpk")
         monkeypatch.setenv("POLYGON_WALLET", "0xwallet1234567890abcdef1234567890abcdef")
         monkeypatch.setenv("LIVE_ENABLED", "true")
         monkeypatch.setenv("LIVE_BUDGET", "1.49")
         t = LiveTrader()
+
         async def fake_restore():
             return None
+
         t._restore_state = fake_restore
+
         def fake_derive(pk, wallet):
             return (True, "test-derived")
+
         t._derive_and_verify_sync = fake_derive
         await t.start()
         assert t._auth_verified is True
@@ -1693,15 +2027,20 @@ class TestLiveTraderStartFlow:
     @pytest.mark.asyncio
     async def test_start_derive_pass_standby_when_live_disabled(self, monkeypatch):
         from core.live_trader import LiveTrader
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xpk")
         monkeypatch.setenv("POLYGON_WALLET", "0xwallet1234567890")
         monkeypatch.setenv("LIVE_ENABLED", "false")
         t = LiveTrader()
+
         async def fake_restore():
             return None
+
         t._restore_state = fake_restore
+
         def fake_derive(pk, wallet):
             return (True, "test-derived")
+
         t._derive_and_verify_sync = fake_derive
         await t.start()
         assert t._auth_verified is True
@@ -1710,6 +2049,7 @@ class TestLiveTraderStartFlow:
 
 # ─── Coverage Wave 2 Batch 3: core/engine_support.py + engine_signals helpers ─
 
+
 class TestEngineSupport:
     """Saf helpers + dataclasses — pure function coverage."""
 
@@ -1717,6 +2057,7 @@ class TestEngineSupport:
 
     def test_interval_secs_canonical(self):
         from core.engine_support import INTERVAL_SECS
+
         assert INTERVAL_SECS["5m"] == 300
         assert INTERVAL_SECS["15m"] == 900
         assert INTERVAL_SECS["1h"] == 3600
@@ -1725,7 +2066,8 @@ class TestEngineSupport:
 
     def test_max_mbe_proportional(self):
         """MAX_MBE = INTERVAL_SECS / 300 — minutes basis events estimate."""
-        from core.engine_support import MAX_MBE, INTERVAL_SECS
+        from core.engine_support import INTERVAL_SECS, MAX_MBE
+
         assert MAX_MBE["5m"] == 1.0
         assert MAX_MBE["1h"] == 12.0
         for tf in ("5m", "15m", "1h", "4h", "24h"):
@@ -1735,6 +2077,7 @@ class TestEngineSupport:
 
     def test_skip_counter_record_increments(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         sc.record("EMA_BLOCK")
         sc.record("EMA_BLOCK")
@@ -1745,6 +2088,7 @@ class TestEngineSupport:
 
     def test_skip_counter_should_log_dedupe(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         assert sc.should_log("S1", "EMA_BLOCK") is True
         # Same sid+reason → suppress
@@ -1756,10 +2100,12 @@ class TestEngineSupport:
 
     def test_skip_counter_summary_empty(self):
         from core.engine_support import SkipCounter
+
         assert SkipCounter().summary() == "no skips"
 
     def test_skip_counter_summary_top_4(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         for _ in range(5):
             sc.record("A")
@@ -1778,6 +2124,7 @@ class TestEngineSupport:
 
     def test_skip_counter_get_counts_returns_copy(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         sc.record("X")
         c = sc.get_counts()
@@ -1786,6 +2133,7 @@ class TestEngineSupport:
 
     def test_skip_counter_reset_clears_all(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         sc.record("X")
         sc.should_log("S1", "X")
@@ -1798,6 +2146,7 @@ class TestEngineSupport:
 
     def test_slug_end_valid_5m(self):
         from core.engine_support import _slug_end
+
         # btc-up-5m-1700000000 → end = 1700000000 + 300
         result = _slug_end("btc-up-5m-1700000000")
         assert result is not None
@@ -1805,35 +2154,42 @@ class TestEngineSupport:
 
     def test_slug_end_valid_15m(self):
         from core.engine_support import _slug_end
+
         result = _slug_end("eth-down-15m-1700000000")
         assert result.timestamp() == 1700000000 + 900
 
     def test_slug_end_too_short(self):
         from core.engine_support import _slug_end
+
         assert _slug_end("btc-up") is None
         assert _slug_end("btc-up-5m") is None
 
     def test_slug_end_non_numeric_timestamp(self):
         from core.engine_support import _slug_end
+
         assert _slug_end("btc-up-5m-NOT_NUMBER") is None
 
     def test_slug_end_unknown_timeframe_uses_300_default(self):
         from core.engine_support import _slug_end
+
         # 'XYZ' not in INTERVAL_SECS → default 300
         result = _slug_end("btc-up-XYZ-1700000000")
         assert result.timestamp() == 1700000000 + 300
 
     def test_slug_start_valid(self):
         from core.engine_support import _slug_start
+
         result = _slug_start("btc-up-5m-1700000000")
         assert result.timestamp() == 1700000000
 
     def test_slug_start_too_short(self):
         from core.engine_support import _slug_start
+
         assert _slug_start("btc-up") is None
 
     def test_slug_start_non_numeric(self):
         from core.engine_support import _slug_start
+
         assert _slug_start("btc-up-5m-not_a_num") is None
 
     # ─── _stagger ────────────────────────────────────────────────
@@ -1841,12 +2197,14 @@ class TestEngineSupport:
     def test_stagger_deterministic(self):
         """Same sid → same stagger (deterministic)."""
         from core.engine_support import _stagger
+
         a = _stagger("strategy_id_1")
         b = _stagger("strategy_id_1")
         assert a == b
 
     def test_stagger_in_range(self):
         from core.engine_support import _stagger
+
         for sid in ["a", "bcdef", "test_strategy_long_name_xyz"]:
             v = _stagger(sid)
             # 0.001 + 0..8 × 0.001 → 0.001..0.009 (float tolerance)
@@ -1854,6 +2212,7 @@ class TestEngineSupport:
 
     def test_stagger_different_sids_distribute(self):
         from core.engine_support import _stagger
+
         seen = set()
         for i in range(50):
             seen.add(_stagger(f"sid_{i}"))
@@ -1864,14 +2223,28 @@ class TestEngineSupport:
 
     def test_virtual_order_kw_init(self):
         from core.engine_support import VirtualOrder
+
         o = VirtualOrder(
-            strategy_id="s1", slug="btc-up-5m-1700000000", token_id="0xtok",
-            direction="up", limit_price=0.85, amount=1.0, fee=0.072,
-            created_at=time.time(), wallet_id="paper", user_id=42,
-            sl_pct=0.0, sl_odds=0.0, tp_pct=0.0, tp_odds=0.0,
-            threshold=0.85, queue_ahead_usd=0.0,
-            cum_traded_at_price_usd=0.0, placement_ts_ms=0,
-            category="crypto", reasoning_json="{}",
+            strategy_id="s1",
+            slug="btc-up-5m-1700000000",
+            token_id="0xtok",
+            direction="up",
+            limit_price=0.85,
+            amount=1.0,
+            fee=0.072,
+            created_at=time.time(),
+            wallet_id="paper",
+            user_id=42,
+            sl_pct=0.0,
+            sl_odds=0.0,
+            tp_pct=0.0,
+            tp_odds=0.0,
+            threshold=0.85,
+            queue_ahead_usd=0.0,
+            cum_traded_at_price_usd=0.0,
+            placement_ts_ms=0,
+            category="crypto",
+            reasoning_json="{}",
         )
         assert o.strategy_id == "s1"
         assert o.amount == 1.0
@@ -1888,21 +2261,25 @@ class TestEngineSignalsHelpers:
 
     def test_parse_zones_empty_string(self):
         from core.engine_signals import EngineSignalsMixin
+
         assert EngineSignalsMixin._parse_zones("") == []
         assert EngineSignalsMixin._parse_zones("   ") == []
 
     def test_parse_zones_single(self):
         from core.engine_signals import EngineSignalsMixin
+
         z = EngineSignalsMixin._parse_zones("30-40")
         assert z == [(0.3, 0.4)]
 
     def test_parse_zones_multiple(self):
         from core.engine_signals import EngineSignalsMixin
+
         z = EngineSignalsMixin._parse_zones("0-35,50-55,75-90")
         assert z == [(0.0, 0.35), (0.5, 0.55), (0.75, 0.9)]
 
     def test_parse_zones_invalid_format_returns_empty(self):
         from core.engine_signals import EngineSignalsMixin
+
         # ValueError swallowed → empty list (no filter)
         assert EngineSignalsMixin._parse_zones("garbage") == []
         assert EngineSignalsMixin._parse_zones("30-") == []
@@ -1911,11 +2288,13 @@ class TestEngineSignalsHelpers:
     def test_in_allowed_zone_no_zones(self):
         """Empty zones list = no filter (always True)."""
         from core.engine_signals import EngineSignalsMixin
+
         assert EngineSignalsMixin._in_allowed_zone(0.5, []) is True
         assert EngineSignalsMixin._in_allowed_zone(0.95, []) is True
 
     def test_in_allowed_zone_inside(self):
         from core.engine_signals import EngineSignalsMixin
+
         zones = [(0.30, 0.50)]
         assert EngineSignalsMixin._in_allowed_zone(0.40, zones) is True
         assert EngineSignalsMixin._in_allowed_zone(0.30, zones) is True  # inclusive lo
@@ -1923,21 +2302,24 @@ class TestEngineSignalsHelpers:
 
     def test_in_allowed_zone_outside(self):
         from core.engine_signals import EngineSignalsMixin
+
         zones = [(0.30, 0.50)]
         assert EngineSignalsMixin._in_allowed_zone(0.29, zones) is False
         assert EngineSignalsMixin._in_allowed_zone(0.51, zones) is False
 
     def test_in_allowed_zone_multiple_match_any(self):
         from core.engine_signals import EngineSignalsMixin
+
         zones = [(0.0, 0.35), (0.50, 0.55), (0.75, 0.90)]
-        assert EngineSignalsMixin._in_allowed_zone(0.20, zones) is True   # zone 1
-        assert EngineSignalsMixin._in_allowed_zone(0.52, zones) is True   # zone 2
-        assert EngineSignalsMixin._in_allowed_zone(0.80, zones) is True   # zone 3
+        assert EngineSignalsMixin._in_allowed_zone(0.20, zones) is True  # zone 1
+        assert EngineSignalsMixin._in_allowed_zone(0.52, zones) is True  # zone 2
+        assert EngineSignalsMixin._in_allowed_zone(0.80, zones) is True  # zone 3
         assert EngineSignalsMixin._in_allowed_zone(0.40, zones) is False  # gap
         assert EngineSignalsMixin._in_allowed_zone(0.60, zones) is False  # gap
 
     def test_classic_free_mode_non_classic_returns_false(self, monkeypatch):
         from core.engine_signals import EngineSignalsMixin
+
         monkeypatch.setenv("CLASSIC_BYPASS_ALL_GATES", "true")
         assert EngineSignalsMixin._classic_free_mode("fusion") is False
         assert EngineSignalsMixin._classic_free_mode("momentum") is False
@@ -1947,18 +2329,21 @@ class TestEngineSignalsHelpers:
     def test_classic_free_mode_classic_default_true(self, monkeypatch):
         """Classic stype + ENV unset → default true (free mode)."""
         from core.engine_signals import EngineSignalsMixin
+
         monkeypatch.delenv("CLASSIC_BYPASS_ALL_GATES", raising=False)
         assert EngineSignalsMixin._classic_free_mode("classic") is True
 
     def test_classic_free_mode_opt_out(self, monkeypatch):
         """ENV CLASSIC_BYPASS_ALL_GATES=false → no bypass."""
         from core.engine_signals import EngineSignalsMixin
+
         monkeypatch.setenv("CLASSIC_BYPASS_ALL_GATES", "false")
         assert EngineSignalsMixin._classic_free_mode("classic") is False
 
     def test_classic_free_mode_accepts_dict_ctx(self, monkeypatch):
         """Helper accepts both raw stype and ctx dict."""
         from core.engine_signals import EngineSignalsMixin
+
         monkeypatch.setenv("CLASSIC_BYPASS_ALL_GATES", "true")
         assert EngineSignalsMixin._classic_free_mode({"stype": "classic"}) is True
         assert EngineSignalsMixin._classic_free_mode({"stype": "fusion"}) is False
@@ -1966,6 +2351,7 @@ class TestEngineSignalsHelpers:
 
     def test_get_brier_bin_canonical_buckets(self):
         from core.engine_signals import EngineSignalsMixin
+
         # method uses self only for _brier_cache — but method uses bare price math
         # we can call it on a stub instance
         stub = MagicMock()
@@ -1981,6 +2367,7 @@ class TestEngineSignalsHelpers:
 
     def test_get_brier_bin_clamps_out_of_range(self):
         from core.engine_signals import EngineSignalsMixin
+
         stub = MagicMock()
         # Negative → clamped to 0.0
         assert EngineSignalsMixin._get_brier_bin(stub, -0.5) == "0.0-0.1"
@@ -1990,41 +2377,49 @@ class TestEngineSignalsHelpers:
 
 # ─── Coverage Wave 2 Batch 5: core/ai_brain.py helpers ───────────────
 
+
 class TestAiBrainHelpers:
     """ENV knobs + LLMRateLimitError + ModelRouter — saf yüzey."""
 
     def test_get_llm_ratelimit_backoff_default(self, monkeypatch):
         from core.ai_brain import _get_llm_ratelimit_backoff
+
         monkeypatch.delenv("LLM_RATELIMIT_BACKOFF_SEC", raising=False)
         assert _get_llm_ratelimit_backoff() == 60.0
 
     def test_get_llm_ratelimit_backoff_env_override(self, monkeypatch):
         from core.ai_brain import _get_llm_ratelimit_backoff
+
         monkeypatch.setenv("LLM_RATELIMIT_BACKOFF_SEC", "120")
         assert _get_llm_ratelimit_backoff() == 120.0
 
     def test_get_llm_ratelimit_backoff_garbage_falls_back(self, monkeypatch):
         from core.ai_brain import _get_llm_ratelimit_backoff
+
         monkeypatch.setenv("LLM_RATELIMIT_BACKOFF_SEC", "garbage")
         assert _get_llm_ratelimit_backoff() == 60.0
 
     def test_get_llm_ratelimit_min_cost_default(self, monkeypatch):
         from core.ai_brain import _get_llm_ratelimit_min_cost
+
         monkeypatch.delenv("LLM_RATELIMIT_MIN_COST", raising=False)
         assert _get_llm_ratelimit_min_cost() == 0.001
 
     def test_get_llm_ratelimit_min_cost_env_override(self, monkeypatch):
         from core.ai_brain import _get_llm_ratelimit_min_cost
+
         monkeypatch.setenv("LLM_RATELIMIT_MIN_COST", "0.05")
         assert _get_llm_ratelimit_min_cost() == 0.05
 
     def test_get_llm_ratelimit_min_cost_garbage_falls_back(self, monkeypatch):
         from core.ai_brain import _get_llm_ratelimit_min_cost
+
         monkeypatch.setenv("LLM_RATELIMIT_MIN_COST", "garbage")
         assert _get_llm_ratelimit_min_cost() == 0.001
 
     def test_llm_ratelimit_error_carries_provider_and_retry_after(self):
         from core.ai_brain import LLMRateLimitError
+
         err = LLMRateLimitError(provider="claude", retry_after=42.0)
         assert err.provider == "claude"
         assert err.retry_after == 42.0
@@ -2035,6 +2430,7 @@ class TestAiBrainHelpers:
 
     def test_llm_ratelimit_error_can_be_raised_and_caught(self):
         from core.ai_brain import LLMRateLimitError
+
         with pytest.raises(LLMRateLimitError) as excinfo:
             raise LLMRateLimitError("groq", 1.5)
         assert excinfo.value.provider == "groq"
@@ -2042,12 +2438,14 @@ class TestAiBrainHelpers:
 
     def test_model_router_known_task_routes(self):
         from core.ai_brain import ModelRouter
+
         provider, model = ModelRouter.get("brain_cycle")
         assert provider == "claude"
         assert model == "claude-sonnet-4-6"
 
     def test_model_router_groq_tasks(self):
         from core.ai_brain import ModelRouter
+
         for task in ("market_scan", "trade_analysis", "mistake_analysis"):
             provider, model = ModelRouter.get(task)
             assert provider == "groq"
@@ -2056,6 +2454,7 @@ class TestAiBrainHelpers:
     def test_model_router_unknown_task_fallback(self):
         """Unknown task → groq llama-3.3-70b default."""
         from core.ai_brain import ModelRouter
+
         provider, model = ModelRouter.get("nonexistent_task_xyz")
         assert provider == "groq"
         assert model == "llama-3.3-70b-versatile"
@@ -2063,6 +2462,7 @@ class TestAiBrainHelpers:
     def test_model_router_complete_task_map(self):
         """All advertised tasks have a mapping."""
         from core.ai_brain import ModelRouter
+
         for task in ModelRouter.TASK_MODEL_MAP.keys():
             provider, model = ModelRouter.get(task)
             assert provider in ("claude", "groq", "openrouter")
@@ -2070,6 +2470,7 @@ class TestAiBrainHelpers:
 
     def test_protected_strategies_constants(self):
         from core.ai_brain import PROTECTED_STRATEGIES
+
         # Mevcut whitelist
         assert "M_BTC_5m_any_0.92" in PROTECTED_STRATEGIES
         assert PROTECTED_STRATEGIES["M_BTC_5m_any_0.92"] == 0.92
@@ -2078,9 +2479,14 @@ class TestAiBrainHelpers:
     def test_safety_constants(self):
         """MAX_ACTIONS / scale / threshold caps — sabit kalmalı."""
         from core.ai_brain import (
-            MAX_ACTIONS, MAX_SCALE_HUMAN, MAX_SCALE_AI,
-            MAX_THR_DELTA_HUMAN, MAX_THR_DELTA_AI, MAX_TRADE_AMOUNT,
+            MAX_ACTIONS,
+            MAX_SCALE_AI,
+            MAX_SCALE_HUMAN,
+            MAX_THR_DELTA_AI,
+            MAX_THR_DELTA_HUMAN,
+            MAX_TRADE_AMOUNT,
         )
+
         assert MAX_ACTIONS == 8
         assert MAX_SCALE_HUMAN == 3.0
         assert MAX_SCALE_AI == 5.0
@@ -2095,6 +2501,7 @@ class TestAiBrainInstanceMethods:
     def _make_brain(self):
         """Minimal AIBrain with stub db (no SDK dependency)."""
         from core.ai_brain import AIBrain
+
         # Stub db that won't crash on .conn access
         db = MagicMock()
         return AIBrain(db=db, engine=None, bot_app=None, settings=None)
@@ -2103,11 +2510,13 @@ class TestAiBrainInstanceMethods:
 
     def test_extract_json_clean_input(self):
         from core.ai_brain import AIBrain
+
         result = AIBrain._extract_json('{"a": 1}')
         assert result == '{"a": 1}'
 
     def test_extract_json_with_markdown_wrapper(self):
         from core.ai_brain import AIBrain
+
         text = 'Here is JSON:\n```json\n{"actions": [{"type": "DELETE"}]}\n```'
         result = AIBrain._extract_json(text)
         # Should strip markdown to find first { and last }
@@ -2117,15 +2526,18 @@ class TestAiBrainInstanceMethods:
 
     def test_extract_json_empty_string(self):
         from core.ai_brain import AIBrain
+
         assert AIBrain._extract_json("") == "{}"
 
     def test_extract_json_no_braces(self):
         from core.ai_brain import AIBrain
+
         assert AIBrain._extract_json("plain text no json") == "{}"
 
     def test_extract_json_partial_braces(self):
         """Only opening brace — return empty."""
         from core.ai_brain import AIBrain
+
         # If start >= 0 and end > start fails → "{}"
         assert AIBrain._extract_json("partial {") == "{}"
 
@@ -2230,11 +2642,13 @@ class TestAiBrainHandleApproval:
 
     def _make_brain(self):
         from core.ai_brain import AIBrain
+
         return AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
 
     @pytest.mark.asyncio
     async def test_handle_approval_unknown_msg_id(self):
         from core.ai_brain import AIBrain
+
         AIBrain._pending_approval.clear()  # cleanup
         b = self._make_brain()
         result = await b.handle_approval(True, "nonexistent_msg")
@@ -2243,6 +2657,7 @@ class TestAiBrainHandleApproval:
     @pytest.mark.asyncio
     async def test_handle_approval_approved(self):
         from core.ai_brain import AIBrain
+
         AIBrain._pending_approval.clear()
         AIBrain._pending_approval["msg1"] = {
             "actions": [{"type": "DELETE", "id": "s1", "reason": "test"}],
@@ -2250,11 +2665,14 @@ class TestAiBrainHandleApproval:
             "data": "test data",
         }
         b = self._make_brain()
+
         # Stub _execute and _save_decision
         async def fake_execute(actions):
             return ["✅ Deleted s1"]
+
         async def fake_save(*args, **kwargs):
             return None
+
         b._execute = fake_execute
         b._save_decision = fake_save
         result = await b.handle_approval(True, "msg1")
@@ -2264,6 +2682,7 @@ class TestAiBrainHandleApproval:
     @pytest.mark.asyncio
     async def test_handle_approval_rejected(self):
         from core.ai_brain import AIBrain
+
         AIBrain._pending_approval.clear()
         AIBrain._pending_approval["msg2"] = {
             "actions": [{"type": "TUNE"}],
@@ -2271,8 +2690,10 @@ class TestAiBrainHandleApproval:
             "data": "x",
         }
         b = self._make_brain()
+
         async def fake_save(*args, **kwargs):
             return None
+
         b._save_decision = fake_save
         result = await b.handle_approval(False, "msg2")
         assert "reddedildi" in result
@@ -2282,13 +2703,17 @@ class TestAiBrainHandleApproval:
     @pytest.mark.asyncio
     async def test_handle_approval_consumes_pending_on_approve(self):
         from core.ai_brain import AIBrain
+
         AIBrain._pending_approval.clear()
         AIBrain._pending_approval["m3"] = {"actions": [], "parsed": {}, "data": ""}
         b = self._make_brain()
+
         async def fake_execute(_):
             return []
+
         async def fake_save(*args, **kwargs):
             return None
+
         b._execute = fake_execute
         b._save_decision = fake_save
         await b.handle_approval(True, "m3")
@@ -2298,11 +2723,13 @@ class TestAiBrainHandleApproval:
 
 # ─── Coverage Wave 2 Bonus: data/chainlink_oracle.py (0%→hedef ~70%) ─
 
+
 class TestChainlinkOracle:
     """ChainlinkOracle — saf math + state methods (no real RPC)."""
 
     def test_aggregator_addresses_canonical(self):
         from data.chainlink_oracle import AGGREGATORS
+
         assert "BTC" in AGGREGATORS
         assert "ETH" in AGGREGATORS
         assert "SOL" in AGGREGATORS
@@ -2312,7 +2739,8 @@ class TestChainlinkOracle:
             assert info["decimals"] == 8
 
     def test_init_defaults(self):
-        from data.chainlink_oracle import ChainlinkOracle, DEFAULT_RPC
+        from data.chainlink_oracle import DEFAULT_RPC, ChainlinkOracle
+
         o = ChainlinkOracle()
         assert o.parity_bps == 20.0
         assert o.rpc_url == DEFAULT_RPC
@@ -2323,29 +2751,34 @@ class TestChainlinkOracle:
 
     def test_init_custom_params(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle(parity_bps=50.0, rpc_url="https://custom.rpc")
         assert o.parity_bps == 50.0
         assert o.rpc_url == "https://custom.rpc"
 
     def test_get_price_no_data(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         assert o.get_price("BTC") is None
 
     def test_get_price_fresh(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         assert o.get_price("BTC") == 65000.0
 
     def test_get_price_case_insensitive(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         assert o.get_price("btc") == 65000.0
 
     def test_get_price_stale_returns_none(self):
-        from data.chainlink_oracle import ChainlinkOracle, POLL_INTERVAL_S
+        from data.chainlink_oracle import POLL_INTERVAL_S, ChainlinkOracle
+
         o = ChainlinkOracle()
         # 3× poll interval ago = stale
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time() - (POLL_INTERVAL_S * 3 + 10)}
@@ -2353,6 +2786,7 @@ class TestChainlinkOracle:
 
     def test_parity_delta_bps_basic(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         # ref = 65010, oracle = 65000, delta = 10/65010*1e4 ≈ 1.538 bps
@@ -2362,11 +2796,13 @@ class TestChainlinkOracle:
 
     def test_parity_delta_bps_no_oracle_data(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         assert o.parity_delta_bps("BTC", 65000.0) is None
 
     def test_parity_delta_bps_zero_ref(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         assert o.parity_delta_bps("BTC", 0) is None
@@ -2374,6 +2810,7 @@ class TestChainlinkOracle:
 
     def test_parity_break_below_threshold(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle(parity_bps=20.0)
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         # ref = 65010, ~1.5 bps < 20 → no break
@@ -2381,6 +2818,7 @@ class TestChainlinkOracle:
 
     def test_parity_break_above_threshold(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle(parity_bps=20.0)
         o._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         # 65000 vs 65500 = 76 bps > 20 → break
@@ -2388,11 +2826,13 @@ class TestChainlinkOracle:
 
     def test_parity_break_no_oracle_returns_false(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         assert o.parity_break("BTC", 65000.0) is False
 
     def test_get_status_shape(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle(parity_bps=15.0, rpc_url="https://rpc.test")
         o._prices["BTC"] = {"price": 65000.123456, "ts": time.time()}
         o._fetches = 10
@@ -2409,6 +2849,7 @@ class TestChainlinkOracle:
     @pytest.mark.asyncio
     async def test_eth_call_no_client_returns_none(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         # _client is None
         result = await o._eth_call_latest("0xabc", 8)
@@ -2417,6 +2858,7 @@ class TestChainlinkOracle:
     @pytest.mark.asyncio
     async def test_eth_call_http_error(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         client = MagicMock()
         client.post = AsyncMock(return_value=MagicMock(status_code=500))
@@ -2428,11 +2870,12 @@ class TestChainlinkOracle:
     async def test_eth_call_success_decode(self):
         """Mock RPC returns hex int, decode via decimals."""
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         client = MagicMock()
         # 65000 * 1e8 = 6500000000000 = 0x5E9F53B400 padded to 64 hex
         # Construct a valid hex price (8 decimals → 65000.00 = 6500000000000)
-        hex_val = "0x" + format(6500000000000, '064x')
+        hex_val = "0x" + format(6500000000000, "064x")
         response = MagicMock()
         response.status_code = 200
         response.json = MagicMock(return_value={"jsonrpc": "2.0", "id": 1, "result": hex_val})
@@ -2444,6 +2887,7 @@ class TestChainlinkOracle:
     @pytest.mark.asyncio
     async def test_eth_call_zero_result(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         client = MagicMock()
         response = MagicMock(status_code=200)
@@ -2456,28 +2900,33 @@ class TestChainlinkOracle:
 
 # ─── Coverage Wave 2 Bonus: data/polymarket_actions.py (0%→hedef ~70%) ─
 
+
 class TestPolymarketActions:
     """Wallet action helpers — saf URI/dict generators."""
 
     def test_proxy_address_strips(self, monkeypatch):
         from data.polymarket_actions import _proxy_address
+
         monkeypatch.setenv("POLYGON_WALLET", "  0xWALLET  ")
         assert _proxy_address() == "0xWALLET"
 
     def test_proxy_address_empty(self, monkeypatch):
         from data.polymarket_actions import _proxy_address
+
         monkeypatch.setenv("POLYGON_WALLET", "")
         assert _proxy_address() == ""
 
     def test_deposit_info_no_wallet(self, monkeypatch):
         from data.polymarket_actions import deposit_info
+
         monkeypatch.setenv("POLYGON_WALLET", "")
         info = deposit_info()
         assert info["address"] == ""
         assert "error" in info
 
     def test_deposit_info_with_wallet(self, monkeypatch):
-        from data.polymarket_actions import deposit_info, POLYGON_CHAIN_ID
+        from data.polymarket_actions import POLYGON_CHAIN_ID, deposit_info
+
         monkeypatch.setenv("POLYGON_WALLET", "0xWALLET123")
         info = deposit_info()
         assert info["address"] == "0xWALLET123"
@@ -2494,6 +2943,7 @@ class TestPolymarketActions:
 
     def test_withdraw_info_basic(self, monkeypatch):
         from data.polymarket_actions import withdraw_info
+
         monkeypatch.setenv("POLYGON_WALLET", "0xWALLET")
         info = withdraw_info()
         assert "polymarket.com" in info["ui_url"]
@@ -2503,18 +2953,21 @@ class TestPolymarketActions:
 
     def test_withdraw_info_with_amount(self, monkeypatch):
         from data.polymarket_actions import withdraw_info
+
         monkeypatch.setenv("POLYGON_WALLET", "0xWALLET")
         info = withdraw_info(amount=5.50)
         assert info["amount_requested"] == 5.50
 
     def test_withdraw_info_no_wallet_no_polygonscan(self, monkeypatch):
         from data.polymarket_actions import withdraw_info
+
         monkeypatch.setenv("POLYGON_WALLET", "")
         info = withdraw_info()
         assert info["polygonscan"] == ""
 
     def test_wallet_import_steps_complete(self):
         from data.polymarket_actions import wallet_import_steps
+
         steps = wallet_import_steps()
         # 4 steps + warning
         assert "step_1" in steps
@@ -2532,22 +2985,26 @@ class TestPolymarketActions:
 
 # ─── Coverage Wave 2 Bonus: core/intent_parser.py (0%→hedef ~50%) ────
 
+
 class TestIntentParser:
     """Saf metin parsing — Türkçe NLP-lite katmanı."""
 
     def test_tokenize_basic(self):
         from core.intent_parser import _tokenize
+
         tokens = _tokenize("portföy bakiyemi göster lütfen")
         assert "bakiyemi" in tokens
         assert "göster" in tokens
 
     def test_tokenize_empty(self):
         from core.intent_parser import _tokenize
+
         assert _tokenize("") == set()
         assert _tokenize(None) == set()
 
     def test_tokenize_lowercase(self):
         from core.intent_parser import _tokenize
+
         # Python str.lower() Turkish I/İ Unicode handling varies; sadece ASCII
         # kısmı kontrol et — gerçek bot input zaten ASCII-uyumlu küçük harf.
         tokens = _tokenize("BTC FIYATI NEDIR")
@@ -2558,37 +3015,44 @@ class TestIntentParser:
 
     def test_token_matches_exact(self):
         from core.intent_parser import _token_matches
+
         assert _token_matches("bakiye", {"bakiye", "göster"}) is True
 
     def test_token_matches_turkish_suffix(self):
         from core.intent_parser import _token_matches
+
         # 'strateji' should match 'stratejileri'
         assert _token_matches("strateji", {"stratejileri"}) is True
         assert _token_matches("strateji", {"stratejimi"}) is True
 
     def test_token_matches_no_match_short(self):
         from core.intent_parser import _token_matches
+
         # Short keywords don't suffix-match
         assert _token_matches("ab", {"abc"}) is False
 
     def test_intent_result_high_confidence(self):
         from core.intent_parser import IntentResult
+
         r = IntentResult(command="/portfolio", confidence=0.95)
         assert r.is_high_confidence is True
 
     def test_intent_result_low_confidence(self):
         from core.intent_parser import IntentResult
+
         r = IntentResult(command="/portfolio", confidence=0.50)
         assert r.is_high_confidence is False
 
     def test_intent_result_no_slash_low_conf(self):
         from core.intent_parser import IntentResult
+
         # Even with high conf, must start with /
         r = IntentResult(command="bakiye", confidence=0.95)
         assert r.is_high_confidence is False
 
     def test_intent_result_to_dict(self):
         from core.intent_parser import IntentResult
+
         r = IntentResult(command="/x", args=["BTC"], confidence=0.9, source="keyword")
         d = r.to_dict()
         assert d["command"] == "/x"
@@ -2597,6 +3061,7 @@ class TestIntentParser:
 
     def test_keyword_match_unknown(self):
         from core.intent_parser import keyword_match
+
         r = keyword_match("zzzzz qwerty asdf")
         assert r.command == ""
         assert r.confidence == 0.0
@@ -2604,12 +3069,14 @@ class TestIntentParser:
 
     def test_keyword_match_empty(self):
         from core.intent_parser import keyword_match
+
         r = keyword_match("")
         assert r.command == ""
 
     def test_keyword_match_extracts_asset(self):
         """If catalog includes /price + asset arg, extract asset token."""
         from core.intent_parser import keyword_match
+
         # Test a known catalog command (depending on COMMAND_CATALOG content)
         r = keyword_match("BTC fiyatı nedir")
         # Confidence may be 0 (no match) or > 0 (matched)
@@ -2620,6 +3087,7 @@ class TestIntentParser:
     def test_parse_intent_sync_low_text(self):
         """parse_intent_sync — async dependency yok, kolay test."""
         from core.intent_parser import parse_intent_sync
+
         r = parse_intent_sync("garbage input xyz", use_claude=False)
         # Either no match or some keyword match
         assert hasattr(r, "command")
@@ -2627,6 +3095,7 @@ class TestIntentParser:
 
     def test_list_commands_returns_catalog(self):
         from core.intent_parser import list_commands
+
         cmds = list_commands()
         assert isinstance(cmds, list)
         # Should have entries
@@ -2637,18 +3106,21 @@ class TestIntentParser:
             assert "name" in entry or "command" in entry
 
     def test_score_no_tokens_returns_zero(self):
-        from core.intent_parser import _score, COMMAND_CATALOG
+        from core.intent_parser import COMMAND_CATALOG, _score
+
         if COMMAND_CATALOG:
             assert _score(COMMAND_CATALOG[0], set(), "") == 0.0
 
 
 # ─── Coverage Wave 2 Bonus 2: data/external_feed.py (0%→hedef ~60%) ──
 
+
 class TestExternalFeed:
     """ExternalFeed — saf price/momentum/divergence calculations."""
 
     def test_init_defaults(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         assert f._available is False
         assert f._poll_interval == 10
@@ -2660,6 +3132,7 @@ class TestExternalFeed:
 
     def test_is_available_property(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         assert f.is_available is False
         f._available = True
@@ -2667,29 +3140,34 @@ class TestExternalFeed:
 
     def test_get_price_no_data(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         assert f.get_price("BTC") is None
 
     def test_get_price_fresh(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         assert f.get_price("BTC") == 65000.0
 
     def test_get_price_case_insensitive(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         assert f.get_price("btc") == 65000.0
 
     def test_get_price_stale_30s(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000.0, "ts": time.time() - 60}
         assert f.get_price("BTC") is None
 
     def test_record_history_appends(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._record_history("BTC", time.time(), 65000.0)
         assert len(f._price_history["BTC"]) == 1
@@ -2699,6 +3177,7 @@ class TestExternalFeed:
     def test_record_history_ring_buffer_cap(self):
         """Buffer caps at _HISTORY_MAX=12; oldest evicted."""
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         for i in range(20):
             f._record_history("BTC", float(i), 65000.0 + i)
@@ -2710,6 +3189,7 @@ class TestExternalFeed:
 
     def test_get_spot_momentum_insufficient_data(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         # < 3 samples → None
         assert f.get_spot_momentum("BTC") is None
@@ -2719,6 +3199,7 @@ class TestExternalFeed:
 
     def test_get_spot_momentum_up_direction(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         now = time.time()
         # 3 samples in last 60s, going up
@@ -2737,6 +3218,7 @@ class TestExternalFeed:
 
     def test_get_spot_momentum_down_direction(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         now = time.time()
         f._price_history["ETH"] = [
@@ -2751,6 +3233,7 @@ class TestExternalFeed:
     def test_get_spot_momentum_lookback_filter(self):
         """Samples outside lookback ignored."""
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         now = time.time()
         f._price_history["BTC"] = [
@@ -2768,6 +3251,7 @@ class TestExternalFeed:
 
     def test_get_spot_momentum_zero_oldest(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         now = time.time()
         f._price_history["BTC"] = [
@@ -2780,6 +3264,7 @@ class TestExternalFeed:
 
     def test_record_market_open_with_price(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         f.record_market_open("BTC", slug="btc-up-5m-1700000000")
@@ -2788,12 +3273,14 @@ class TestExternalFeed:
     def test_record_market_open_no_price(self):
         """No spot price → no open_prices entry."""
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f.record_market_open("BTC", slug="x")
         assert "x" not in f._open_prices
 
     def test_record_market_open_default_key_is_asset(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         f.record_market_open("btc")  # no slug
@@ -2801,11 +3288,13 @@ class TestExternalFeed:
 
     def test_get_divergence_no_data(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         assert f.get_divergence("BTC", 0.55) is None
 
     def test_get_divergence_no_open_price(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000.0, "ts": time.time()}
         # No open price → None
@@ -2814,6 +3303,7 @@ class TestExternalFeed:
     def test_get_divergence_aligned(self):
         """Spot up + odds up → no divergence."""
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65500.0, "ts": time.time()}
         f._open_prices["BTC"] = 65000.0
@@ -2827,6 +3317,7 @@ class TestExternalFeed:
     def test_get_divergence_spot_up_odds_down(self):
         """Strong divergence: spot up >0.5%, odds down — fade signal."""
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65500.0, "ts": time.time()}
         f._open_prices["BTC"] = 65000.0  # ~0.77% up
@@ -2839,6 +3330,7 @@ class TestExternalFeed:
 
     def test_get_divergence_with_slug_key(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65500.0, "ts": time.time()}
         f._open_prices["btc-up-5m-1700000000"] = 65000.0
@@ -2848,6 +3340,7 @@ class TestExternalFeed:
 
     def test_get_status_shape(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._available = True
         f._method = "httpx"
@@ -2862,11 +3355,13 @@ class TestExternalFeed:
 
 # ─── Coverage Wave 2 Bonus 3: telegram_bot/templates/callback_proxy.py (0%→100%) ─
 
+
 class TestCallbackUpdateProxy:
     """CallbackUpdateProxy — saf delegation wrapper."""
 
     def test_init_stores_real_and_message(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         real = MagicMock()
         msg = MagicMock()
         proxy = CallbackUpdateProxy(real, msg)
@@ -2876,6 +3371,7 @@ class TestCallbackUpdateProxy:
     def test_from_update_no_callback_returns_original(self):
         """No callback_query → return update untouched."""
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         update = MagicMock()
         update.callback_query = None
         result = CallbackUpdateProxy.from_update(update)
@@ -2883,6 +3379,7 @@ class TestCallbackUpdateProxy:
 
     def test_from_update_callback_no_message_returns_original(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         update = MagicMock()
         update.callback_query = MagicMock()
         update.callback_query.message = None
@@ -2891,6 +3388,7 @@ class TestCallbackUpdateProxy:
 
     def test_from_update_with_callback_returns_proxy(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         msg = MagicMock(name="cb_message")
         update = MagicMock()
         update.callback_query.message = msg
@@ -2901,6 +3399,7 @@ class TestCallbackUpdateProxy:
 
     def test_getattr_delegates_to_real(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         real = MagicMock()
         real.effective_user = "user_xyz"
         real.callback_query = "cb_obj"
@@ -2911,6 +3410,7 @@ class TestCallbackUpdateProxy:
 
     def test_repr_shows_real(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         real = MagicMock()
         real.__repr__ = lambda self: "FakeUpdate"
         proxy = CallbackUpdateProxy(real, MagicMock())
@@ -2922,6 +3422,7 @@ class TestCallbackUpdateProxy:
 
 # ─── Coverage Wave 2 Bonus 4: backtest/strategies/live_adapter.py (0%→hedef ~50%) ─
 
+
 class TestLiveStrategyBacktestAdapter:
     """LiveStrategyBacktestAdapter — bridge adapter."""
 
@@ -2932,8 +3433,11 @@ class TestLiveStrategyBacktestAdapter:
         live.description = "test desc"
         if sig is None:
             from core.strategy_plugins import StrategySignal
+
             sig = StrategySignal(
-                should_trade=False, direction=None, confidence=0.0,
+                should_trade=False,
+                direction=None,
+                confidence=0.0,
                 reason="no signal",
             )
         live.evaluate = MagicMock(return_value=sig)
@@ -2941,6 +3445,7 @@ class TestLiveStrategyBacktestAdapter:
 
     def test_init_sets_attrs(self):
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
+
         live = self._make_fake_live_strategy()
         adapter = LiveStrategyBacktestAdapter(live)
         assert adapter.live is live
@@ -2952,6 +3457,7 @@ class TestLiveStrategyBacktestAdapter:
 
     def test_init_with_extra_params_set_lowercase(self):
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
+
         live = self._make_fake_live_strategy()
         # Add a real attr on live so setattr can apply
         live.trend_threshold = 0.01
@@ -2966,8 +3472,10 @@ class TestLiveStrategyBacktestAdapter:
             name = "fake"
             description = "fake desc"
             MIN_CONFIDENCE = 0.3  # only uppercase exists
+
             def evaluate(self, snap):
                 from core.strategy_plugins import StrategySignal
+
                 return StrategySignal(should_trade=False, direction=None, confidence=0.0, reason="")
 
         live = FakeLive()
@@ -2977,14 +3485,18 @@ class TestLiveStrategyBacktestAdapter:
 
     def test_init_extra_params_unknown_skipped(self):
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
+
         live = self._make_fake_live_strategy()
         # Unknown param → silently skipped (no AttributeError)
         adapter = LiveStrategyBacktestAdapter(live, extra_params={"unknown_xyz": 999})
         # No crash, value not set
-        assert not hasattr(live, "unknown_xyz") or getattr(live, "unknown_xyz", None) is None or True
+        assert (
+            not hasattr(live, "unknown_xyz") or getattr(live, "unknown_xyz", None) is None or True
+        )
 
     def test_configure_returns_self(self):
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
+
         live = self._make_fake_live_strategy()
         adapter = LiveStrategyBacktestAdapter(live)
         result = adapter.configure(direction_filter="up", threshold=0.85, total_minutes=15.0)
@@ -2994,8 +3506,9 @@ class TestLiveStrategyBacktestAdapter:
         assert adapter._total_minutes == 15.0
 
     def test_on_market_open_resets_state(self):
-        from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
         from backtest.strategies.base import MarketData
+        from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
+
         live = self._make_fake_live_strategy()
         adapter = LiveStrategyBacktestAdapter(live)
         # Pollute state
@@ -3017,8 +3530,9 @@ class TestLiveStrategyBacktestAdapter:
         assert adapter._total_minutes == 5.0  # 300/60
 
     def test_on_market_close_clears_history(self):
+        from backtest.strategies.base import Direction, MarketData, Resolution
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
-        from backtest.strategies.base import MarketData, Resolution, Direction
+
         live = self._make_fake_live_strategy()
         adapter = LiveStrategyBacktestAdapter(live)
         adapter._odds_history = [0.5, 0.6, 0.7]
@@ -3031,18 +3545,23 @@ class TestLiveStrategyBacktestAdapter:
 
     def test_on_snapshot_no_signal_returns_none(self):
         """live evaluate returns should_trade=False → adapter returns None."""
-        from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
         from backtest.strategies.base import OrderbookSnapshot
+        from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
         from core.strategy_plugins import StrategySignal
+
         no_sig = StrategySignal(should_trade=False, direction=None, confidence=0.0, reason="no")
         live = self._make_fake_live_strategy(sig=no_sig)
         adapter = LiveStrategyBacktestAdapter(live)
         adapter._total_minutes = 5.0
         snap = OrderbookSnapshot(
             timestamp_ms=1700000000000,
-            up_best_bid=0.55, up_best_ask=0.56,
-            down_best_bid=0.44, down_best_ask=0.45, spread=0.01,
-            elapsed_pct=0.1, remaining_seconds=270,
+            up_best_bid=0.55,
+            up_best_ask=0.56,
+            down_best_bid=0.44,
+            down_best_ask=0.45,
+            spread=0.01,
+            elapsed_pct=0.1,
+            remaining_seconds=270,
         )
         result = adapter.on_snapshot(snap)
         assert result is None
@@ -3051,11 +3570,14 @@ class TestLiveStrategyBacktestAdapter:
 
     def test_on_snapshot_emits_signal_once(self):
         """Signal returned, _signal_emitted set, second call returns None."""
+        from backtest.strategies.base import Direction, OrderbookSnapshot
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
-        from backtest.strategies.base import OrderbookSnapshot, Direction
         from core.strategy_plugins import StrategySignal
+
         sig = StrategySignal(
-            should_trade=True, direction="up", confidence=0.85,
+            should_trade=True,
+            direction="up",
+            confidence=0.85,
             reason="strong momentum",
         )
         live = self._make_fake_live_strategy(sig=sig)
@@ -3063,9 +3585,13 @@ class TestLiveStrategyBacktestAdapter:
         adapter._total_minutes = 5.0
         snap = OrderbookSnapshot(
             timestamp_ms=1700000000000,
-            up_best_bid=0.55, up_best_ask=0.57,
-            down_best_bid=0.43, down_best_ask=0.45, spread=0.02,
-            elapsed_pct=0.1, remaining_seconds=270,
+            up_best_bid=0.55,
+            up_best_ask=0.57,
+            down_best_bid=0.43,
+            down_best_ask=0.45,
+            spread=0.02,
+            elapsed_pct=0.1,
+            remaining_seconds=270,
         )
         result1 = adapter.on_snapshot(snap)
         assert result1 is not None
@@ -3079,17 +3605,22 @@ class TestLiveStrategyBacktestAdapter:
         assert result2 is None
 
     def test_on_snapshot_down_direction_uses_down_ask(self):
+        from backtest.strategies.base import Direction, OrderbookSnapshot
         from backtest.strategies.live_adapter import LiveStrategyBacktestAdapter
-        from backtest.strategies.base import OrderbookSnapshot, Direction
         from core.strategy_plugins import StrategySignal
+
         sig = StrategySignal(should_trade=True, direction="down", confidence=0.8, reason="x")
         live = self._make_fake_live_strategy(sig=sig)
         adapter = LiveStrategyBacktestAdapter(live)
         snap = OrderbookSnapshot(
             timestamp_ms=1000,
-            up_best_bid=0.4, up_best_ask=0.42,
-            down_best_bid=0.58, down_best_ask=0.60, spread=0.02,
-            elapsed_pct=0.5, remaining_seconds=150,
+            up_best_bid=0.4,
+            up_best_ask=0.42,
+            down_best_bid=0.58,
+            down_best_ask=0.60,
+            spread=0.02,
+            elapsed_pct=0.5,
+            remaining_seconds=150,
         )
         result = adapter.on_snapshot(snap)
         assert result.direction == Direction.DOWN
@@ -3098,11 +3629,13 @@ class TestLiveStrategyBacktestAdapter:
 
 # ─── Coverage Wave 2 Bonus 5: core/strategy_suggester.py night helper ─
 
+
 class TestStrategySuggesterNightHelper:
     """_is_night_utc — Türkiye gece penceresi check (saf saat math)."""
 
     def _make_suggester(self):
         from core.strategy_suggester import StrategySuggester
+
         return StrategySuggester(db=MagicMock(), engine=MagicMock(), bot_app=None)
 
     def test_init_attrs(self):
@@ -3115,9 +3648,10 @@ class TestStrategySuggesterNightHelper:
     def test_is_night_utc_during_night(self, monkeypatch):
         """22:00 UTC = 01:00 TR → night."""
         from core import strategy_suggester
+
         s = self._make_suggester()
         # 22:00 UTC
-        fake_now = datetime(2026, 5, 3, 22, 0, 0, tzinfo=timezone.utc)
+        fake_now = datetime(2026, 5, 3, 22, 0, 0, tzinfo=UTC)
         with patch.object(strategy_suggester, "datetime") as mock_dt:
             mock_dt.now.return_value = fake_now
             mock_dt.timezone = timezone
@@ -3126,8 +3660,9 @@ class TestStrategySuggesterNightHelper:
     def test_is_night_utc_during_day(self):
         """12:00 UTC = 15:00 TR → not night."""
         from core import strategy_suggester
+
         s = self._make_suggester()
-        fake_now = datetime(2026, 5, 3, 12, 0, 0, tzinfo=timezone.utc)
+        fake_now = datetime(2026, 5, 3, 12, 0, 0, tzinfo=UTC)
         with patch.object(strategy_suggester, "datetime") as mock_dt:
             mock_dt.now.return_value = fake_now
             assert s._is_night_utc() is False
@@ -3135,8 +3670,9 @@ class TestStrategySuggesterNightHelper:
     def test_is_night_utc_boundary_start(self):
         """21:00 UTC (NIGHT_START) → night."""
         from core import strategy_suggester
+
         s = self._make_suggester()
-        fake_now = datetime(2026, 5, 3, 21, 0, 0, tzinfo=timezone.utc)
+        fake_now = datetime(2026, 5, 3, 21, 0, 0, tzinfo=UTC)
         with patch.object(strategy_suggester, "datetime") as mock_dt:
             mock_dt.now.return_value = fake_now
             assert s._is_night_utc() is True
@@ -3144,8 +3680,9 @@ class TestStrategySuggesterNightHelper:
     def test_is_night_utc_boundary_end(self):
         """6:00 UTC (NIGHT_END) → not night (exclusive)."""
         from core import strategy_suggester
+
         s = self._make_suggester()
-        fake_now = datetime(2026, 5, 3, 6, 0, 0, tzinfo=timezone.utc)
+        fake_now = datetime(2026, 5, 3, 6, 0, 0, tzinfo=UTC)
         with patch.object(strategy_suggester, "datetime") as mock_dt:
             mock_dt.now.return_value = fake_now
             assert s._is_night_utc() is False
@@ -3153,8 +3690,9 @@ class TestStrategySuggesterNightHelper:
     def test_is_night_utc_early_morning(self):
         """3:00 UTC = 06:00 TR → night."""
         from core import strategy_suggester
+
         s = self._make_suggester()
-        fake_now = datetime(2026, 5, 3, 3, 0, 0, tzinfo=timezone.utc)
+        fake_now = datetime(2026, 5, 3, 3, 0, 0, tzinfo=UTC)
         with patch.object(strategy_suggester, "datetime") as mock_dt:
             mock_dt.now.return_value = fake_now
             assert s._is_night_utc() is True
@@ -3162,11 +3700,13 @@ class TestStrategySuggesterNightHelper:
 
 # ─── Coverage Wave 2 Bonus 6: core/keepalive.py saf wrappers ─────────
 
+
 class TestKeepAliveBasics:
     """KeepAlive saf yüzeyler — _do_ping + ctor (no aiohttp server start)."""
 
     def test_ctor_no_engine(self):
         from core.keepalive import KeepAlive
+
         ka = KeepAlive(engine=None, db=None)
         assert ka.engine is None
         assert ka.db is None
@@ -3175,6 +3715,7 @@ class TestKeepAliveBasics:
 
     def test_ctor_with_deps(self):
         from core.keepalive import KeepAlive
+
         engine = MagicMock()
         db = MagicMock()
         ka = KeepAlive(engine=engine, db=db)
@@ -3184,15 +3725,18 @@ class TestKeepAliveBasics:
     def test_do_ping_swallows_httpx_error(self, monkeypatch):
         """_do_ping httpx.HTTPError → silent return (fire-and-forget)."""
         from core.keepalive import KeepAlive
+
         ka = KeepAlive()
         # Patch httpx.get inside _do_ping to raise
         import httpx
+
         with patch("httpx.get", side_effect=httpx.RequestError("network", request=None)):
             # Must not raise
             ka._do_ping()  # No assertion, just no-throw
 
     def test_do_ping_swallows_oserror(self, monkeypatch):
         from core.keepalive import KeepAlive
+
         ka = KeepAlive()
         with patch("httpx.get", side_effect=OSError("dns")):
             ka._do_ping()
@@ -3200,31 +3744,38 @@ class TestKeepAliveBasics:
     def test_do_ping_uses_replit_url_when_set(self, monkeypatch):
         """REPLIT_DEV_DOMAIN env → https URL constructed."""
         from core.keepalive import KeepAlive
+
         ka = KeepAlive()
         monkeypatch.setenv("REPLIT_DEV_DOMAIN", "myrepl.replit.dev")
         called = {}
+
         def fake_get(target, **kw):
             called["target"] = target
             return MagicMock()
+
         with patch("httpx.get", side_effect=fake_get):
             ka._do_ping()
         assert called["target"] == "https://myrepl.replit.dev/health"
 
     def test_do_ping_falls_back_to_localhost(self, monkeypatch):
-        from core.keepalive import KeepAlive, PORT
+        from core.keepalive import PORT, KeepAlive
+
         ka = KeepAlive()
         monkeypatch.delenv("REPLIT_DEV_DOMAIN", raising=False)
         monkeypatch.setenv("REPLIT_DEV_DOMAIN", "")
         called = {}
+
         def fake_get(target, **kw):
             called["target"] = target
             return MagicMock()
+
         with patch("httpx.get", side_effect=fake_get):
             ka._do_ping()
         assert called["target"] == f"http://localhost:{PORT}/health"
 
     def test_constants_canonical(self):
         from core.keepalive import PORT, SELF_PING_INTERVAL
+
         # Default 8080, override-able via PORT env
         assert PORT > 0
         assert SELF_PING_INTERVAL == 240
@@ -3232,11 +3783,13 @@ class TestKeepAliveBasics:
 
 # ─── Coverage Wave 2 Bonus 7: data/odds_feed.py (23%→hedef 90%) ──────
 
+
 class TestOddsFeed:
     """OddsFeed — saf deque storage + getters."""
 
     def test_init_defaults(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         assert f.window_size == 200
         assert f._count == 0
@@ -3244,11 +3797,13 @@ class TestOddsFeed:
 
     def test_init_custom_window(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed(window_size=50)
         assert f.window_size == 50
 
     def test_record_odds_in_range(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         f.record_odds("btc-up-5m-x", 0.55)
         assert f._count == 1
@@ -3256,6 +3811,7 @@ class TestOddsFeed:
 
     def test_record_odds_out_of_range_skipped(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         # < 0.01
         f.record_odds("btc-up", 0.005)
@@ -3269,6 +3825,7 @@ class TestOddsFeed:
 
     def test_record_odds_window_cap(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed(window_size=5)
         for i in range(10):
             f.record_odds("x", 0.5)
@@ -3278,29 +3835,34 @@ class TestOddsFeed:
 
     def test_on_ws_price_records(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         f.on_ws_price("0xtok", 0.55, slug="btc-up")
         assert f.get_data_count("btc-up") == 1
 
     def test_on_ws_price_no_slug_ignored(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         f.on_ws_price("0xtok", 0.55, slug="")
         assert f.get_data_count("") == 0
 
     def test_on_ws_price_zero_ignored(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         f.on_ws_price("0xtok", 0, slug="btc-up")
         assert f.get_data_count("btc-up") == 0
 
     def test_get_odds_series_unknown_slug(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         assert f.get_odds_series("nonexistent") == []
 
     def test_get_odds_series_chronological(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         for v in [0.5, 0.55, 0.60]:
             f.record_odds("btc-up", v)
@@ -3308,6 +3870,7 @@ class TestOddsFeed:
 
     def test_get_last_returns_dict(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         f.record_odds("btc-up", 0.65)
         last = f.get_last("btc-up")
@@ -3315,11 +3878,13 @@ class TestOddsFeed:
 
     def test_get_last_no_data(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         assert f.get_last("unknown") is None
 
     def test_get_last_clamps_out_of_range(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         # Force-insert directly — bypass record_odds clamp
         f._series["x"].append(1.5)
@@ -3329,6 +3894,7 @@ class TestOddsFeed:
 
     def test_get_status_shape(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         f.record_odds("a", 0.5)
         f.record_odds("a", 0.6)
@@ -3341,6 +3907,7 @@ class TestOddsFeed:
 
     def test_get_status_top_5_only(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         for i in range(10):
             f.record_odds(f"slug_{i}", 0.5)
@@ -3351,15 +3918,21 @@ class TestOddsFeed:
 
 # ─── Coverage Wave 2 Bonus 8: data/event_monitor.py (20%→hedef 80%) ──
 
+
 class TestEventMonitor:
     """EventMonitor — JSON calendar parser + pre-event window detection."""
 
     def test_event_alert_init(self):
         from data.event_monitor import EventAlert
-        ev_time = datetime(2026, 5, 5, 14, 0, tzinfo=timezone.utc)
+
+        ev_time = datetime(2026, 5, 5, 14, 0, tzinfo=UTC)
         a = EventAlert(
-            name="FOMC", event_time=ev_time,
-            impact="high", hours_until=1.0, pre_hours=2.0, event_type="macro",
+            name="FOMC",
+            event_time=ev_time,
+            impact="high",
+            hours_until=1.0,
+            pre_hours=2.0,
+            event_type="macro",
         )
         assert a.name == "FOMC"
         assert a.impact == "high"
@@ -3368,26 +3941,30 @@ class TestEventMonitor:
     def test_event_alert_severity_high_close(self):
         """high impact + close → high severity."""
         from data.event_monitor import EventAlert
-        a = EventAlert("X", datetime.now(timezone.utc), "high", 0.5, 2.0, "macro")
+
+        a = EventAlert("X", datetime.now(UTC), "high", 0.5, 2.0, "macro")
         # impact_mult 1.0 × proximity 0.75 = 0.75
         assert 0.7 < a.severity < 0.8
 
     def test_event_alert_severity_low_far(self):
         from data.event_monitor import EventAlert
-        a = EventAlert("X", datetime.now(timezone.utc), "low", 1.9, 2.0, "macro")
+
+        a = EventAlert("X", datetime.now(UTC), "low", 1.9, 2.0, "macro")
         # impact_mult 0.3 × proximity 0.05 = 0.015
         assert a.severity < 0.1
 
     def test_event_alert_severity_unknown_impact_default(self):
         from data.event_monitor import EventAlert
-        a = EventAlert("X", datetime.now(timezone.utc), "weird", 1.0, 2.0, "macro")
+
+        a = EventAlert("X", datetime.now(UTC), "weird", 1.0, 2.0, "macro")
         # Unknown impact → 0.3 default
         # 0.3 × 0.5 = 0.15
         assert 0.10 < a.severity < 0.20
 
     def test_event_alert_repr(self):
         from data.event_monitor import EventAlert
-        a = EventAlert("FOMC", datetime.now(timezone.utc), "high", 1.5, 2.0, "macro")
+
+        a = EventAlert("FOMC", datetime.now(UTC), "high", 1.5, 2.0, "macro")
         r = repr(a)
         assert "FOMC" in r
         assert "high" in r
@@ -3395,6 +3972,7 @@ class TestEventMonitor:
 
     def test_monitor_init_defaults(self, monkeypatch):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
         m = EventMonitor()
         assert m._enabled is True
@@ -3403,12 +3981,14 @@ class TestEventMonitor:
 
     def test_monitor_disabled_returns_none(self, monkeypatch):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "false")
         m = EventMonitor()
         assert m.get_active_event() is None
 
     def test_monitor_get_active_event_no_calendar(self, monkeypatch, tmp_path):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
         # Empty path
         m = EventMonitor(calendar_path=str(tmp_path / "nonexistent.json"))
@@ -3417,15 +3997,25 @@ class TestEventMonitor:
     def test_monitor_get_active_event_in_window(self, tmp_path, monkeypatch):
         """Event 1h ahead, pre_hours=2 → active."""
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
-        future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
         cal = tmp_path / "cal.json"
-        cal.write_text(json.dumps({
-            "upcoming": [{
-                "name": "FOMC", "datetime": future,
-                "impact": "high", "pre_hours": 2, "type": "macro",
-            }]
-        }))
+        cal.write_text(
+            json.dumps(
+                {
+                    "upcoming": [
+                        {
+                            "name": "FOMC",
+                            "datetime": future,
+                            "impact": "high",
+                            "pre_hours": 2,
+                            "type": "macro",
+                        }
+                    ]
+                }
+            )
+        )
         m = EventMonitor(calendar_path=str(cal))
         alert = m.get_active_event()
         assert alert is not None
@@ -3435,42 +4025,83 @@ class TestEventMonitor:
     def test_monitor_get_active_event_out_of_window(self, tmp_path, monkeypatch):
         """Event 5h ahead, pre_hours=2 → not active yet."""
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
-        future = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+        future = (datetime.now(UTC) + timedelta(hours=5)).isoformat().replace("+00:00", "Z")
         cal = tmp_path / "cal.json"
-        cal.write_text(json.dumps({"upcoming": [{
-            "name": "X", "datetime": future, "impact": "high",
-            "pre_hours": 2, "type": "macro",
-        }]}))
+        cal.write_text(
+            json.dumps(
+                {
+                    "upcoming": [
+                        {
+                            "name": "X",
+                            "datetime": future,
+                            "impact": "high",
+                            "pre_hours": 2,
+                            "type": "macro",
+                        }
+                    ]
+                }
+            )
+        )
         m = EventMonitor(calendar_path=str(cal))
         assert m.get_active_event() is None
 
     def test_monitor_skips_past_events(self, tmp_path, monkeypatch):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
-        past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        past = (datetime.now(UTC) - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
         cal = tmp_path / "cal.json"
-        cal.write_text(json.dumps({"upcoming": [{
-            "name": "X", "datetime": past, "impact": "high",
-            "pre_hours": 2, "type": "macro",
-        }]}))
+        cal.write_text(
+            json.dumps(
+                {
+                    "upcoming": [
+                        {
+                            "name": "X",
+                            "datetime": past,
+                            "impact": "high",
+                            "pre_hours": 2,
+                            "type": "macro",
+                        }
+                    ]
+                }
+            )
+        )
         m = EventMonitor(calendar_path=str(cal))
         assert m.get_active_event() is None
 
     def test_monitor_picks_highest_severity(self, tmp_path, monkeypatch):
         """Two active events → return highest severity."""
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ev_close_low = (now + timedelta(hours=0.1)).isoformat().replace("+00:00", "Z")
         ev_far_high = (now + timedelta(hours=1.5)).isoformat().replace("+00:00", "Z")
         cal = tmp_path / "cal.json"
-        cal.write_text(json.dumps({"upcoming": [
-            {"name": "LowImpact", "datetime": ev_close_low, "impact": "low",
-             "pre_hours": 2, "type": "x"},
-            {"name": "HighImpact", "datetime": ev_far_high, "impact": "high",
-             "pre_hours": 2, "type": "x"},
-        ]}))
+        cal.write_text(
+            json.dumps(
+                {
+                    "upcoming": [
+                        {
+                            "name": "LowImpact",
+                            "datetime": ev_close_low,
+                            "impact": "low",
+                            "pre_hours": 2,
+                            "type": "x",
+                        },
+                        {
+                            "name": "HighImpact",
+                            "datetime": ev_far_high,
+                            "impact": "high",
+                            "pre_hours": 2,
+                            "type": "x",
+                        },
+                    ]
+                }
+            )
+        )
         m = EventMonitor(calendar_path=str(cal))
         alert = m.get_active_event()
         # Severity HighImpact = 1.0 × 0.25 = 0.25
@@ -3481,15 +4112,22 @@ class TestEventMonitor:
 
     def test_monitor_get_upcoming_filters_by_hours(self, tmp_path, monkeypatch):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         in_3h = (now + timedelta(hours=3)).isoformat().replace("+00:00", "Z")
         in_36h = (now + timedelta(hours=36)).isoformat().replace("+00:00", "Z")
         cal = tmp_path / "cal.json"
-        cal.write_text(json.dumps({"upcoming": [
-            {"name": "Soon", "datetime": in_3h, "impact": "high", "type": "x"},
-            {"name": "Later", "datetime": in_36h, "impact": "high", "type": "x"},
-        ]}))
+        cal.write_text(
+            json.dumps(
+                {
+                    "upcoming": [
+                        {"name": "Soon", "datetime": in_3h, "impact": "high", "type": "x"},
+                        {"name": "Later", "datetime": in_36h, "impact": "high", "type": "x"},
+                    ]
+                }
+            )
+        )
         m = EventMonitor(calendar_path=str(cal))
         upcoming_24h = m.get_upcoming(hours=24)
         assert len(upcoming_24h) == 1
@@ -3497,12 +4135,24 @@ class TestEventMonitor:
 
     def test_monitor_skips_invalid_iso(self, tmp_path, monkeypatch):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
         cal = tmp_path / "cal.json"
-        cal.write_text(json.dumps({"upcoming": [
-            {"name": "Bad", "datetime": "garbage-iso", "impact": "high",
-             "pre_hours": 2, "type": "x"},
-        ]}))
+        cal.write_text(
+            json.dumps(
+                {
+                    "upcoming": [
+                        {
+                            "name": "Bad",
+                            "datetime": "garbage-iso",
+                            "impact": "high",
+                            "pre_hours": 2,
+                            "type": "x",
+                        },
+                    ]
+                }
+            )
+        )
         m = EventMonitor(calendar_path=str(cal))
         # Bad ISO swallowed, nothing returned
         assert m.get_active_event() is None
@@ -3510,6 +4160,7 @@ class TestEventMonitor:
 
     def test_monitor_load_corrupt_json(self, tmp_path, monkeypatch):
         from data.event_monitor import EventMonitor
+
         monkeypatch.setenv("EVENT_CALENDAR_ENABLED", "true")
         cal = tmp_path / "cal.json"
         cal.write_text("{ corrupt json content")
@@ -3520,6 +4171,7 @@ class TestEventMonitor:
 
 # ─── Coverage Wave 2 Bonus 9: data/polymarket_client.py (8%→hedef ~30%) ─
 
+
 class TestPolymarketClientHelpers:
     """safe_float + saf instance helpers (no HTTP)."""
 
@@ -3527,11 +4179,13 @@ class TestPolymarketClientHelpers:
 
     def test_safe_float_none(self):
         from data.polymarket_client import safe_float
+
         assert safe_float(None) is None
         assert safe_float(None, default=0.5) == 0.5
 
     def test_safe_float_in_range(self):
         from data.polymarket_client import safe_float
+
         assert safe_float(0.5) == 0.5
         assert safe_float("0.85") == 0.85
         assert safe_float(0.0) == 0.0
@@ -3539,6 +4193,7 @@ class TestPolymarketClientHelpers:
 
     def test_safe_float_out_of_range(self):
         from data.polymarket_client import safe_float
+
         # > 1.0 or < 0.0 → default
         assert safe_float(1.5) is None
         assert safe_float(-0.1, default=0.5) == 0.5
@@ -3546,6 +4201,7 @@ class TestPolymarketClientHelpers:
 
     def test_safe_float_invalid_string(self):
         from data.polymarket_client import safe_float
+
         assert safe_float("garbage") is None
         assert safe_float("garbage", default=0.5) == 0.5
 
@@ -3553,8 +4209,9 @@ class TestPolymarketClientHelpers:
 
     def _make_client(self):
         """Minimal PolymarketClient with stub settings (no HTTP)."""
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
+        from data.polymarket_client import PolymarketClient
+
         settings = Settings(
             TELEGRAM_BOT_TOKEN="test",
             ADMIN_TELEGRAM_ID=1,
@@ -3565,6 +4222,7 @@ class TestPolymarketClientHelpers:
 
     def test_slug_prefixes_canonical(self):
         from data.polymarket_client import PolymarketClient
+
         assert "BTC" in PolymarketClient.SLUG_PREFIXES
         assert "ETH" in PolymarketClient.SLUG_PREFIXES
         assert "SOL" in PolymarketClient.SLUG_PREFIXES
@@ -3744,72 +4402,85 @@ class TestPolymarketClientHelpers:
 
 # ─── Coverage Wave 2 Bonus 10: core/maker_taker_decision.py (82%→hedef 100%) ─
 
+
 class TestMakerTakerDecision:
     """decide_order_type 5-path matrix + helpers."""
 
     def test_get_maker_spread_threshold_default(self, monkeypatch):
         from core.maker_taker_decision import _get_maker_spread_threshold_ticks
+
         monkeypatch.delenv("MAKER_SPREAD_THRESHOLD_TICKS", raising=False)
         v = _get_maker_spread_threshold_ticks()
         assert v >= 1  # positive threshold
 
     def test_get_maker_spread_threshold_env(self, monkeypatch):
         from core.maker_taker_decision import _get_maker_spread_threshold_ticks
+
         monkeypatch.setenv("MAKER_SPREAD_THRESHOLD_TICKS", "5")
         assert _get_maker_spread_threshold_ticks() == 5
 
     def test_get_maker_spread_threshold_garbage(self, monkeypatch):
         from core.maker_taker_decision import _get_maker_spread_threshold_ticks
+
         monkeypatch.setenv("MAKER_SPREAD_THRESHOLD_TICKS", "garbage")
         # falls to default (positive int)
         assert _get_maker_spread_threshold_ticks() >= 1
 
     def test_get_maker_enabled_default(self, monkeypatch):
         from core.maker_taker_decision import _get_maker_enabled
+
         monkeypatch.delenv("MAKER_MODE_ENABLED", raising=False)
         assert isinstance(_get_maker_enabled(), bool)
 
     def test_get_maker_enabled_true(self, monkeypatch):
         from core.maker_taker_decision import _get_maker_enabled
+
         monkeypatch.setenv("MAKER_MODE_ENABLED", "true")
         assert _get_maker_enabled() is True
 
     def test_get_maker_enabled_false(self, monkeypatch):
         from core.maker_taker_decision import _get_maker_enabled
+
         monkeypatch.setenv("MAKER_MODE_ENABLED", "false")
         assert _get_maker_enabled() is False
 
     def test_orderbook_spread_ticks_list_format(self):
         from core.maker_taker_decision import _orderbook_spread_ticks
+
         ob = {"asks": [[0.55, 100]], "bids": [[0.50, 100]]}
         ticks = _orderbook_spread_ticks(ob, tick_size=0.01)
         assert ticks == pytest.approx(5.0)
 
     def test_orderbook_spread_ticks_dict_format(self):
         from core.maker_taker_decision import _orderbook_spread_ticks
+
         ob = {"asks": [{"price": 0.55}], "bids": [{"price": 0.50}]}
         ticks = _orderbook_spread_ticks(ob, tick_size=0.01)
         assert ticks == pytest.approx(5.0)
 
     def test_orderbook_spread_ticks_empty(self):
         from core.maker_taker_decision import _orderbook_spread_ticks
+
         assert _orderbook_spread_ticks({}) is None
         assert _orderbook_spread_ticks({"asks": [], "bids": []}) is None
         assert _orderbook_spread_ticks(None) is None
 
     def test_orderbook_spread_ticks_invalid_zero(self):
         from core.maker_taker_decision import _orderbook_spread_ticks
+
         ob = {"asks": [[0, 100]], "bids": [[0, 100]]}
         assert _orderbook_spread_ticks(ob) is None
 
     def test_orderbook_spread_ticks_malformed(self):
         from core.maker_taker_decision import _orderbook_spread_ticks
+
         # Non-numeric raises ValueError → caught
         ob = {"asks": [["bad", 100]], "bids": [[0.5, 100]]}
         assert _orderbook_spread_ticks(ob) is None
 
     def test_compute_maker_rebate_proportional(self):
         from core.maker_taker_decision import _compute_maker_rebate
+
         # Crypto fee at p=0.5, $100 = 100 × 0.072 × 0.25 = 1.80
         # Rebate = 1.80 × 0.20 = 0.36
         rebate = _compute_maker_rebate(100, 0.5)
@@ -3819,6 +4490,7 @@ class TestMakerTakerDecision:
 
     def test_decide_extreme_urgency_returns_fok(self):
         from core.maker_taker_decision import decide_order_type
+
         ob = {"asks": [[0.55, 100]], "bids": [[0.50, 100]]}
         d = decide_order_type(ob, 100, 0.5, urgency="extreme")
         assert d.order_type == "FOK"
@@ -3827,6 +4499,7 @@ class TestMakerTakerDecision:
 
     def test_decide_high_urgency_returns_fak(self):
         from core.maker_taker_decision import decide_order_type
+
         ob = {"asks": [[0.55, 100]], "bids": [[0.50, 100]]}
         d = decide_order_type(ob, 100, 0.5, urgency="high")
         assert d.order_type == "FAK"
@@ -3834,6 +4507,7 @@ class TestMakerTakerDecision:
 
     def test_decide_maker_disabled_returns_fok(self, monkeypatch):
         from core.maker_taker_decision import decide_order_type
+
         monkeypatch.setenv("MAKER_MODE_ENABLED", "false")
         ob = {"asks": [[0.55, 100]], "bids": [[0.50, 100]]}
         d = decide_order_type(ob, 100, 0.5, urgency="normal")
@@ -3843,6 +4517,7 @@ class TestMakerTakerDecision:
     def test_decide_wide_spread_returns_maker(self, monkeypatch):
         """Spread >= threshold → GTC_POST_ONLY maker."""
         from core.maker_taker_decision import decide_order_type
+
         monkeypatch.setenv("MAKER_MODE_ENABLED", "true")
         monkeypatch.setenv("MAKER_SPREAD_THRESHOLD_TICKS", "3")
         # spread = 5 ticks >= 3
@@ -3854,6 +4529,7 @@ class TestMakerTakerDecision:
 
     def test_decide_tight_spread_returns_taker(self, monkeypatch):
         from core.maker_taker_decision import decide_order_type
+
         monkeypatch.setenv("MAKER_MODE_ENABLED", "true")
         monkeypatch.setenv("MAKER_SPREAD_THRESHOLD_TICKS", "10")
         # 5 ticks < 10
@@ -3864,19 +4540,29 @@ class TestMakerTakerDecision:
 
     def test_decision_net_cost_property(self):
         from core.maker_taker_decision import OrderDecision
+
         d = OrderDecision(
-            order_type="GTC_POST_ONLY", role="maker",
-            estimated_fee_usd=1.80, estimated_rebate_usd=0.36,
-            reason="test", spread_ticks=5.0, urgency="normal",
+            order_type="GTC_POST_ONLY",
+            role="maker",
+            estimated_fee_usd=1.80,
+            estimated_rebate_usd=0.36,
+            reason="test",
+            spread_ticks=5.0,
+            urgency="normal",
         )
         assert d.net_cost_usd == pytest.approx(1.80 - 0.36)
 
     def test_decision_html_breakdown_maker(self):
         from core.maker_taker_decision import OrderDecision
+
         d = OrderDecision(
-            order_type="GTC_POST_ONLY", role="maker",
-            estimated_fee_usd=1.80, estimated_rebate_usd=0.36,
-            reason="r", spread_ticks=5.0, urgency="normal",
+            order_type="GTC_POST_ONLY",
+            role="maker",
+            estimated_fee_usd=1.80,
+            estimated_rebate_usd=0.36,
+            reason="r",
+            spread_ticks=5.0,
+            urgency="normal",
         )
         html = d.html_breakdown()
         assert "GTC_POST_ONLY" in html
@@ -3885,10 +4571,15 @@ class TestMakerTakerDecision:
 
     def test_decision_html_breakdown_taker(self):
         from core.maker_taker_decision import OrderDecision
+
         d = OrderDecision(
-            order_type="FOK", role="taker",
-            estimated_fee_usd=1.80, estimated_rebate_usd=0,
-            reason="r", spread_ticks=2.0, urgency="normal",
+            order_type="FOK",
+            role="taker",
+            estimated_fee_usd=1.80,
+            estimated_rebate_usd=0,
+            reason="r",
+            spread_ticks=2.0,
+            urgency="normal",
         )
         html = d.html_breakdown()
         assert "FOK" in html
@@ -3898,10 +4589,15 @@ class TestMakerTakerDecision:
 
     def test_render_decision_log(self):
         from core.maker_taker_decision import OrderDecision, render_decision_log
+
         d = OrderDecision(
-            order_type="FOK", role="taker",
-            estimated_fee_usd=0.50, estimated_rebate_usd=0,
-            reason="test reason", spread_ticks=3.0, urgency="normal",
+            order_type="FOK",
+            role="taker",
+            estimated_fee_usd=0.50,
+            estimated_rebate_usd=0,
+            reason="test reason",
+            spread_ticks=3.0,
+            urgency="normal",
         )
         log = render_decision_log(d, slug="btc-up-5m-x")
         assert "FOK" in log
@@ -3911,12 +4607,14 @@ class TestMakerTakerDecision:
 
 # ─── Coverage Wave 2 Bonus 11: core/portfolio_kill_switch.py (75%→hedef 95%) ─
 
+
 class TestPortfolioKillSwitch:
     """3-layer halt + state lifecycle."""
 
     def _ks(self, monkeypatch):
         """Fresh kill-switch with permissive defaults."""
         from core.portfolio_kill_switch import PortfolioKillSwitch
+
         monkeypatch.setenv("KILL_SWITCH_ENABLED", "true")
         monkeypatch.setenv("KILL_DAILY_MAX_LOSS_PCT", "0.10")
         monkeypatch.setenv("KILL_CONSECUTIVE_LOSS_LIMIT", "3")
@@ -3926,6 +4624,7 @@ class TestPortfolioKillSwitch:
 
     def test_init_default_state(self):
         from core.portfolio_kill_switch import PortfolioKillSwitch
+
         ks = PortfolioKillSwitch()
         assert ks.state.consecutive_losses == 0
         assert ks.state.consecutive_cooldown_until == 0.0
@@ -3951,6 +4650,7 @@ class TestPortfolioKillSwitch:
             ks.record_trade(-0.20)
         assert ks.state.consecutive_cooldown_until > 0
         from core.portfolio_kill_switch import HALT_CONSECUTIVE
+
         assert ks.state.last_trigger_reason == HALT_CONSECUTIVE
 
     def test_reset_consecutive_clears(self, monkeypatch):
@@ -3981,7 +4681,8 @@ class TestPortfolioKillSwitch:
         assert "-W" in s
 
     def test_evaluate_disabled(self, monkeypatch):
-        from core.portfolio_kill_switch import PortfolioKillSwitch, HALT_DISABLED
+        from core.portfolio_kill_switch import HALT_DISABLED, PortfolioKillSwitch
+
         monkeypatch.setenv("KILL_SWITCH_ENABLED", "false")
         ks = PortfolioKillSwitch()
         d = ks.evaluate(current_equity=1000)
@@ -3990,6 +4691,7 @@ class TestPortfolioKillSwitch:
 
     def test_evaluate_consecutive_cooldown_active(self, monkeypatch):
         from core.portfolio_kill_switch import HALT_CONSECUTIVE
+
         ks = self._ks(monkeypatch)
         # Set cooldown 60s in future
         ks.state.consecutive_cooldown_until = time.time() + 60
@@ -4020,21 +4722,29 @@ class TestPortfolioKillSwitch:
 # Coverage Wave 3 (2026-05-05) — Heddas direktifi: %80 hedef
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestBondingYieldStrategy:
     """backtest/strategies/bonding_yield.py — saf evaluate logic."""
 
     def _make_snap(self, up=0.95, down=0.05, mins=120, total=300, spread=0.005):
         from core.strategy_plugins import MarketSnapshot
+
         return MarketSnapshot(
-            up_odds=up, down_odds=down,
-            threshold=0.5, direction_filter="any",
-            odds_series=[up], minutes_remaining=mins,
-            total_minutes=total, spread=spread,
-            best_ask=up, best_bid=up,
+            up_odds=up,
+            down_odds=down,
+            threshold=0.5,
+            direction_filter="any",
+            odds_series=[up],
+            minutes_remaining=mins,
+            total_minutes=total,
+            spread=spread,
+            best_ask=up,
+            best_bid=up,
         )
 
     def test_bonding_qualifies_high_up(self, monkeypatch):
         from backtest.strategies.bonding_yield import BondingYieldStrategy
+
         s = BondingYieldStrategy()
         snap = self._make_snap(up=0.95, down=0.05)
         sig = s.evaluate(snap)
@@ -4043,6 +4753,7 @@ class TestBondingYieldStrategy:
 
     def test_bonding_no_qualifying(self):
         from backtest.strategies.bonding_yield import BondingYieldStrategy
+
         s = BondingYieldStrategy()
         snap = self._make_snap(up=0.55, down=0.45)
         sig = s.evaluate(snap)
@@ -4050,6 +4761,7 @@ class TestBondingYieldStrategy:
 
     def test_bonding_picks_higher_yield(self):
         from backtest.strategies.bonding_yield import BondingYieldStrategy
+
         s = BondingYieldStrategy()
         # Both qualify, down=0.91 (yield 0.07), up=0.95 (yield 0.03)
         snap = self._make_snap(up=0.95, down=0.91)
@@ -4059,15 +4771,17 @@ class TestBondingYieldStrategy:
 
     def test_bonding_too_far_from_resolution(self):
         from backtest.strategies.bonding_yield import BondingYieldStrategy
+
         s = BondingYieldStrategy()
         # 60h > 48h max
-        snap = self._make_snap(up=0.95, mins=60*60)
+        snap = self._make_snap(up=0.95, mins=60 * 60)
         sig = s.evaluate(snap)
         assert sig.should_trade is False
         assert "too far" in sig.reason.lower()
 
     def test_bonding_wide_spread_blocks(self):
         from backtest.strategies.bonding_yield import BondingYieldStrategy
+
         s = BondingYieldStrategy()
         # spread 0.10 > yield × 0.5
         snap = self._make_snap(up=0.95, spread=0.10)
@@ -4077,11 +4791,13 @@ class TestBondingYieldStrategy:
 
     def test_bonding_signal_post_init_metadata(self):
         from backtest.strategies.bonding_yield import BondingSignal
+
         sig = BondingSignal()
         assert sig.metadata == {}
 
     def test_create_strategy_factory(self):
         from backtest.strategies.bonding_yield import create_strategy
+
         s = create_strategy()
         assert s.name == "BondingYield"
 
@@ -4091,12 +4807,18 @@ class TestStrategyPluginsBaseClass:
 
     def test_market_snapshot_basic(self):
         from core.strategy_plugins import MarketSnapshot
+
         m = MarketSnapshot(
-            up_odds=0.6, down_odds=0.4,
-            threshold=0.55, direction_filter="up",
+            up_odds=0.6,
+            down_odds=0.4,
+            threshold=0.55,
+            direction_filter="up",
             odds_series=[0.55, 0.58, 0.60],
-            minutes_remaining=2.0, total_minutes=5.0,
-            spread=0.02, best_ask=0.62, best_bid=0.58,
+            minutes_remaining=2.0,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.62,
+            best_bid=0.58,
         )
         assert m.up_odds == 0.6
         assert m.spread == 0.02
@@ -4104,9 +4826,12 @@ class TestStrategyPluginsBaseClass:
 
     def test_strategy_signal_basic(self):
         from core.strategy_plugins import StrategySignal
+
         sig = StrategySignal(
-            should_trade=True, direction="up",
-            confidence=0.85, reason="momentum strong",
+            should_trade=True,
+            direction="up",
+            confidence=0.85,
+            reason="momentum strong",
         )
         assert sig.should_trade is True
         assert sig.direction == "up"
@@ -4114,12 +4839,13 @@ class TestStrategyPluginsBaseClass:
 
     def test_strategy_signal_default_metadata(self):
         from core.strategy_plugins import StrategySignal
-        sig = StrategySignal(should_trade=False, direction=None,
-                             confidence=0.0, reason="")
+
+        sig = StrategySignal(should_trade=False, direction=None, confidence=0.0, reason="")
         assert sig.metadata == {} or isinstance(sig.metadata, dict)
 
     def test_strategy_registry_has_get(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         # Default strategies should exist
         # Just smoke test get() returns None for unknown
@@ -4132,6 +4858,7 @@ class TestCallbackProxyEdgeCases:
 
     def test_proxy_message_attr_direct(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         msg = MagicMock(name="m")
         real = MagicMock()
         proxy = CallbackUpdateProxy(real, msg)
@@ -4140,6 +4867,7 @@ class TestCallbackProxyEdgeCases:
 
     def test_proxy_real_attr_via_getattr(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         real = MagicMock()
         real.update_id = 42
         proxy = CallbackUpdateProxy(real, MagicMock())
@@ -4152,12 +4880,14 @@ class TestKillSwitchModule:
 
     def test_kill_switch_init(self):
         from core.kill_switch import KillSwitch
+
         ks = KillSwitch()
         # Should have basic state
         assert ks is not None
 
     def test_kill_switch_class_exists(self):
         from core.kill_switch import KillSwitch
+
         assert callable(KillSwitch)
 
 
@@ -4166,27 +4896,32 @@ class TestSafeHtmlTemplate:
 
     def test_esc_basic(self):
         from telegram_bot.templates.safe_html import esc
+
         assert esc("hello") == "hello"
 
     def test_esc_html_chars(self):
         from telegram_bot.templates.safe_html import esc
+
         result = esc("<script>alert('xss')</script>")
         # Should escape < > but not necessarily quotes
         assert "<script>" not in result or "&lt;" in result
 
     def test_esc_ampersand(self):
         from telegram_bot.templates.safe_html import esc
+
         result = esc("A & B")
         # & should escape to &amp;
         assert "&amp;" in result or "&" in result
 
     def test_esc_code_basic(self):
         from telegram_bot.templates.safe_html import esc_code
+
         result = esc_code("hello world")
         assert result is not None
 
     def test_esc_none_or_empty(self):
         from telegram_bot.templates.safe_html import esc
+
         # Should handle empty/None gracefully
         assert esc("") == ""
 
@@ -4197,6 +4932,7 @@ class TestErrorTemplates:
     def test_module_imports(self):
         # Smoke test
         from telegram_bot.templates import errors
+
         assert errors is not None
 
 
@@ -4205,6 +4941,7 @@ class TestFillsHeuristicRecalibrate:
 
     def test_get_current_values_default(self, monkeypatch):
         from core.calibration.fill_heuristic_recalibrate import get_current_values
+
         for k in ("FILL_SPREAD_COST", "FILL_IMPACT", "FILL_LATENCY_DRIFT", "LATENCY_DRIFT"):
             monkeypatch.delenv(k, raising=False)
         v = get_current_values()
@@ -4215,6 +4952,7 @@ class TestFillsHeuristicRecalibrate:
 
     def test_get_current_values_env(self, monkeypatch):
         from core.calibration.fill_heuristic_recalibrate import get_current_values
+
         monkeypatch.setenv("FILL_SPREAD_COST", "0.025")
         monkeypatch.setenv("FILL_IMPACT", "0.03")
         v = get_current_values()
@@ -4223,6 +4961,7 @@ class TestFillsHeuristicRecalibrate:
 
     def test_compute_paper_live_delta_empty(self):
         from core.calibration.fill_heuristic_recalibrate import compute_paper_live_delta
+
         d = compute_paper_live_delta([], [])
         # Function takes (paper_pnls, live_pnls)
         assert d.get("paper_pnl", 0) == 0
@@ -4234,11 +4973,13 @@ class TestBacktestMetrics:
 
     def test_module_imports(self):
         from backtest import metrics
+
         assert metrics is not None
 
     def test_compute_basic_metrics(self):
         try:
             from backtest.metrics import compute_metrics
+
             pnls = [1.0, 2.0, -1.0, 0.5, -0.5, 1.5, -2.0, 0.3, -0.7, 1.2]
             m = compute_metrics(pnls) if callable(compute_metrics) else None
             if m is not None:
@@ -4252,16 +4993,20 @@ class TestPolymarketBulkEndpoint:
     """data/polymarket_client.py P3.X bulk endpoint (yeni 2026-05-05)."""
 
     def _make_client(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
+        from data.polymarket_client import PolymarketClient
+
         settings = Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+            TELEGRAM_BOT_TOKEN="t",
+            ADMIN_TELEGRAM_ID=1,
+            ANTHROPIC_API_KEY="t",
+            POLYMARKET_API_KEY="t",
         )
         return PolymarketClient(settings)
 
     def test_bulk_constants(self):
         from data.polymarket_client import PolymarketClient
+
         assert PolymarketClient.BULK_ORDER_MAX == 15
         assert PolymarketClient.BULK_ORDER_ENDPOINT == "/orders"
 
@@ -4286,12 +5031,14 @@ class TestPolymarketBulkEndpoint:
         c = self._make_client()
         client_mock = MagicMock()
         # post_orders sync method (run in executor)
-        client_mock.post_orders = MagicMock(return_value={
-            "results": [
-                {"id": "ord1", "status": "placed"},
-                {"id": "ord2", "status": "placed"},
-            ]
-        })
+        client_mock.post_orders = MagicMock(
+            return_value={
+                "results": [
+                    {"id": "ord1", "status": "placed"},
+                    {"id": "ord2", "status": "placed"},
+                ]
+            }
+        )
         orders = [{"orderID": "1"}, {"orderID": "2"}]
         result = await c.post_orders_bulk(orders, clob_client=client_mock)
         assert result["submitted"] == 2
@@ -4303,14 +5050,17 @@ class TestPolymarketBulkEndpoint:
     async def test_bulk_sdk_path_partial(self):
         c = self._make_client()
         client_mock = MagicMock()
-        client_mock.post_orders = MagicMock(return_value={
-            "results": [
-                {"id": "1", "status": "placed"},
-                {"id": "2", "status": "rejected"},
-            ]
-        })
+        client_mock.post_orders = MagicMock(
+            return_value={
+                "results": [
+                    {"id": "1", "status": "placed"},
+                    {"id": "2", "status": "rejected"},
+                ]
+            }
+        )
         result = await c.post_orders_bulk(
-            [{"o": 1}, {"o": 2}], clob_client=client_mock,
+            [{"o": 1}, {"o": 2}],
+            clob_client=client_mock,
         )
         assert result["succeeded"] == 1
         assert result["failed"] == 1
@@ -4327,7 +5077,8 @@ class TestPolymarketBulkEndpoint:
             MockAsyncClient.return_value.__aenter__ = AsyncMock(return_value=mock_async)
             MockAsyncClient.return_value.__aexit__ = AsyncMock(return_value=None)
             result = await c.post_orders_bulk(
-                [{"o": 1}], clob_client=bare_client,
+                [{"o": 1}],
+                clob_client=bare_client,
             )
             assert "HTTP 500" in result["error"]
 
@@ -4341,7 +5092,8 @@ class TestPolymarketBulkEndpoint:
         with patch("httpx.AsyncClient") as MockAsyncClient:
             MockAsyncClient.side_effect = RuntimeError("httpx err")
             result = await c.post_orders_bulk(
-                [{"o": 1}], clob_client=client_mock,
+                [{"o": 1}],
+                clob_client=client_mock,
             )
             assert result["error"] is not None
             assert result["succeeded"] == 0
@@ -4353,11 +5105,13 @@ class TestPolymarketBulkEndpoint:
 
     def test_parse_bulk_response_v2_shape(self):
         c = self._make_client()
-        resp = {"results": [
-            {"id": "a", "status": "placed"},
-            {"id": "b", "status": "live"},
-            {"id": "c", "status": "rejected"},
-        ]}
+        resp = {
+            "results": [
+                {"id": "a", "status": "placed"},
+                {"id": "b", "status": "live"},
+                {"id": "c", "status": "rejected"},
+            ]
+        }
         result = c._parse_bulk_response(resp, [{"o": 1}, {"o": 2}, {"o": 3}])
         assert result["succeeded"] == 2  # placed + live
         assert result["failed"] == 1
@@ -4365,9 +5119,11 @@ class TestPolymarketBulkEndpoint:
 
     def test_parse_bulk_response_alt_shape(self):
         c = self._make_client()
-        resp = {"orders": [
-            {"id": "a", "status": "matched"},
-        ]}
+        resp = {
+            "orders": [
+                {"id": "a", "status": "matched"},
+            ]
+        }
         result = c._parse_bulk_response(resp, [{"o": 1}])
         assert result["succeeded"] == 1
 
@@ -4378,6 +5134,7 @@ class TestBacktestAnalyticsModuleSmoke:
     def test_charts_imports(self):
         try:
             from backtest.analytics import charts
+
             assert charts is not None
         except ImportError:
             pytest.skip("charts module not importable")
@@ -4385,6 +5142,7 @@ class TestBacktestAnalyticsModuleSmoke:
     def test_comparator_imports(self):
         try:
             from backtest.analytics import comparator
+
             assert comparator is not None
         except ImportError:
             pytest.skip("comparator not importable")
@@ -4392,6 +5150,7 @@ class TestBacktestAnalyticsModuleSmoke:
     def test_reporter_imports(self):
         try:
             from backtest.analytics import reporter
+
             assert reporter is not None
         except ImportError:
             pytest.skip("reporter not importable")
@@ -4403,6 +5162,7 @@ class TestEngineWireSmoke:
     def test_structured_logging_env_off_default(self, monkeypatch):
         """STRUCTURED_LOG_ENABLED=false → setup returns None."""
         from core.structured_logging import setup_structured_logging
+
         monkeypatch.setenv("STRUCTURED_LOG_ENABLED", "false")
         result = setup_structured_logging()
         assert result is None
@@ -4429,11 +5189,13 @@ class TestTradeMemoryHelpers:
 
     def test_module_imports(self):
         from core import trade_memory
+
         assert trade_memory is not None
 
     def test_class_exists(self):
         try:
             from core.trade_memory import TradeMemory
+
             assert TradeMemory is not None
         except (ImportError, AttributeError):
             pytest.skip("TradeMemory class not in expected form")
@@ -4444,6 +5206,7 @@ class TestExecutorAbstraction:
 
     def test_get_executor_paper(self):
         from core.executor import get_executor
+
         ex = get_executor("paper")
         assert ex is not None
         assert hasattr(ex, "place_order")
@@ -4451,6 +5214,7 @@ class TestExecutorAbstraction:
     def test_get_executor_live_no_trader(self):
         """live without trader → may raise or return None."""
         from core.executor import get_executor
+
         try:
             ex = get_executor("live", live_trader=None)
             # If no exception, smoke ok
@@ -4462,9 +5226,14 @@ class TestExecutorAbstraction:
     def test_order_request_dataclass_smoke(self):
         try:
             from core.executor import OrderRequest
+
             req = OrderRequest(
-                token_id="0xtok", side="BUY", amount_usd=1.0,
-                price=0.5, order_type="FOK", strategy_label="test",
+                token_id="0xtok",
+                side="BUY",
+                amount_usd=1.0,
+                price=0.5,
+                order_type="FOK",
+                strategy_label="test",
                 slug="btc-up",
             )
             assert req.amount_usd == 1.0
@@ -4477,6 +5246,7 @@ class TestStatusPollerSmoke:
 
     def test_module_imports(self):
         from core import status_poller
+
         assert status_poller is not None
 
 
@@ -4485,11 +5255,13 @@ class TestPolymarketErrorsSmoke:
 
     def test_module_imports(self):
         from core.error_handler import polymarket_errors
+
         assert polymarket_errors is not None
 
     def test_has_mapping(self):
         try:
             from core.error_handler.polymarket_errors import POLYMARKET_ERROR_MAP
+
             assert isinstance(POLYMARKET_ERROR_MAP, dict)
         except (ImportError, AttributeError):
             pytest.skip("error map not exported as expected name")
@@ -4497,11 +5269,13 @@ class TestPolymarketErrorsSmoke:
 
 # ─── Risk Manager Coverage Wave 3 ──────────────────────────────────
 
+
 class TestRiskLimits:
     """RiskLimits dataclass + roundtrip."""
 
     def test_default_values(self):
         from core.risk_manager import RiskLimits
+
         rl = RiskLimits()
         assert rl.max_position_size == 10.0
         assert rl.max_open_positions == 5
@@ -4513,6 +5287,7 @@ class TestRiskLimits:
     def test_per_asset_default_independent(self):
         """Each instance has own per_asset dict (no shared state bug)."""
         from core.risk_manager import RiskLimits
+
         a = RiskLimits()
         b = RiskLimits()
         a.per_asset_limits["BTC"] = 9999.0
@@ -4521,6 +5296,7 @@ class TestRiskLimits:
 
     def test_to_dict_flattens_per_asset(self):
         from core.risk_manager import RiskLimits
+
         rl = RiskLimits()
         d = rl.to_dict()
         assert "risk.per_asset.BTC" in d
@@ -4529,6 +5305,7 @@ class TestRiskLimits:
 
     def test_from_dict_roundtrip(self):
         from core.risk_manager import RiskLimits
+
         original = RiskLimits()
         d = original.to_dict()
         restored = RiskLimits.from_dict(d)
@@ -4537,6 +5314,7 @@ class TestRiskLimits:
 
     def test_to_dict_per_market_limit_prefix(self):
         from core.risk_manager import RiskLimits
+
         rl = RiskLimits(per_market_limit=75.0)
         d = rl.to_dict()
         assert "risk.per_market_limit" in d
@@ -4546,11 +5324,13 @@ class TestRiskManagerHelpers:
     """RiskManager saf yardımcılar."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_init_default_limits(self):
         from core.risk_manager import RiskManager
+
         rm = RiskManager()
         assert rm.limits is not None
 
@@ -4648,7 +5428,9 @@ class TestRiskManagerHelpers:
         rm.state.consecutive_losses = 3
         try:
             rm.record_trade_closed(
-                trade_amount=1.0, pnl=0.5, market_slug="btc-up",
+                trade_amount=1.0,
+                pnl=0.5,
+                market_slug="btc-up",
             )
         except TypeError:
             try:
@@ -4664,6 +5446,7 @@ class TestRegimeClassifier:
 
     def test_regime_classifier_init(self):
         from core.regime import RegimeClassifier
+
         rc = RegimeClassifier(window=30)
         # Internal attr name may differ — just smoke
         assert rc is not None
@@ -4672,6 +5455,7 @@ class TestRegimeClassifier:
 
     def test_drift_detector_init(self):
         from core.regime import DriftDetector
+
         dd = DriftDetector(window=100)
         assert dd is not None
 
@@ -4681,10 +5465,12 @@ class TestIndicatorsModule:
 
     def test_module_imports(self):
         from core import indicators
+
         assert indicators is not None
 
     def test_ema_direction_filter_exists(self):
         from core.indicators import ema_direction_filter
+
         assert callable(ema_direction_filter)
 
 
@@ -4693,12 +5479,14 @@ class TestStatsUtilsModule:
 
     def test_module_imports(self):
         from core import stats_utils
+
         assert stats_utils is not None
 
     def test_pearson_like_function(self):
         # If pearson_like exists
         try:
             from core.stats_utils import pearson_like
+
             assert callable(pearson_like)
         except (ImportError, AttributeError):
             pytest.skip("pearson_like not exported")
@@ -4709,6 +5497,7 @@ class TestModeBannerTemplate:
 
     def test_module_imports(self):
         from telegram_bot.templates import mode_banner
+
         assert mode_banner is not None
 
 
@@ -4717,6 +5506,7 @@ class TestExcRenderHandler:
 
     def test_module_imports(self):
         from telegram_bot.handlers import _exc_render
+
         assert _exc_render is not None
 
 
@@ -4725,6 +5515,7 @@ class TestEngineSettlementImports:
 
     def test_module_imports(self):
         from core import engine_settlement
+
         assert engine_settlement is not None
 
 
@@ -4733,6 +5524,7 @@ class TestEngineFillsImports:
 
     def test_module_imports(self):
         from core import engine_fills
+
         assert engine_fills is not None
 
 
@@ -4741,6 +5533,7 @@ class TestEngineMonitorImports:
 
     def test_module_imports(self):
         from core import engine_monitor
+
         assert engine_monitor is not None
 
 
@@ -4749,10 +5542,12 @@ class TestSignalFusionSmoke:
 
     def test_module_imports(self):
         from core import signal_fusion
+
         assert signal_fusion is not None
 
     def test_signal_weights_dataclass(self):
         from core.signal_fusion import SignalWeights
+
         sw = SignalWeights()
         assert sw is not None
 
@@ -4762,6 +5557,7 @@ class TestKellyModule:
 
     def test_module_imports(self):
         from core import kelly
+
         assert kelly is not None
 
 
@@ -4770,45 +5566,76 @@ class TestAllowancePreflightConstants:
 
     def test_main_addresses_format(self):
         from core.allowance_preflight import (
-            ADDR_PUSD, ADDR_CTF, ADDR_CTF_EXCHANGE,
-            ADDR_NEG_RISK_EXCHANGE, ADDR_NEG_RISK_ADAPTER,
+            ADDR_CTF,
+            ADDR_CTF_EXCHANGE,
+            ADDR_NEG_RISK_ADAPTER,
+            ADDR_NEG_RISK_EXCHANGE,
+            ADDR_PUSD,
         )
-        for addr in (ADDR_PUSD, ADDR_CTF, ADDR_CTF_EXCHANGE,
-                     ADDR_NEG_RISK_EXCHANGE, ADDR_NEG_RISK_ADAPTER):
+
+        for addr in (
+            ADDR_PUSD,
+            ADDR_CTF,
+            ADDR_CTF_EXCHANGE,
+            ADDR_NEG_RISK_EXCHANGE,
+            ADDR_NEG_RISK_ADAPTER,
+        ):
             assert addr.startswith("0x")
             assert len(addr) == 42
 
     def test_extension_addresses_2026_05(self):
         """10 yeni constant 2026-05-03 docs re-audit."""
         from core.allowance_preflight import (
-            ADDR_PUSD_IMPL, ADDR_CTF_COLLATERAL_ADAPTER,
+            ADDR_COLLATERAL_OFFRAMP,
+            ADDR_COLLATERAL_ONRAMP,
+            ADDR_CTF_COLLATERAL_ADAPTER,
             ADDR_NEG_RISK_CTF_COLLATERAL_ADAPTER,
-            ADDR_COLLATERAL_ONRAMP, ADDR_COLLATERAL_OFFRAMP,
             ADDR_PERMISSIONED_RAMP,
-            ADDR_UMA_ADAPTER, ADDR_UMA_OPTIMISTIC_ORACLE,
+            ADDR_PUSD_IMPL,
+            ADDR_UMA_ADAPTER,
+            ADDR_UMA_OPTIMISTIC_ORACLE,
         )
-        for addr in (ADDR_PUSD_IMPL, ADDR_CTF_COLLATERAL_ADAPTER,
-                     ADDR_NEG_RISK_CTF_COLLATERAL_ADAPTER,
-                     ADDR_COLLATERAL_ONRAMP, ADDR_COLLATERAL_OFFRAMP,
-                     ADDR_PERMISSIONED_RAMP,
-                     ADDR_UMA_ADAPTER, ADDR_UMA_OPTIMISTIC_ORACLE):
+
+        for addr in (
+            ADDR_PUSD_IMPL,
+            ADDR_CTF_COLLATERAL_ADAPTER,
+            ADDR_NEG_RISK_CTF_COLLATERAL_ADAPTER,
+            ADDR_COLLATERAL_ONRAMP,
+            ADDR_COLLATERAL_OFFRAMP,
+            ADDR_PERMISSIONED_RAMP,
+            ADDR_UMA_ADAPTER,
+            ADDR_UMA_OPTIMISTIC_ORACLE,
+        ):
             assert addr.startswith("0x")
             assert len(addr) == 42
 
 
 # ─── Backtest Strategies Smoke Coverage Wave 3 ─────────────────────
 
+
 class TestBacktestStrategiesSmoke:
     """11 backtest strategies — smoke import + ctor + base interface."""
 
-    @pytest.mark.parametrize("module_name", [
-        "calibration_arb", "cross_coin", "fade_rip", "funding_rate",
-        "hour_edge", "late_convergence", "opening_breakout",
-        "orderbook_imbalance", "streak_reversal", "taker_flow", "composite",
-    ])
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "calibration_arb",
+            "cross_coin",
+            "fade_rip",
+            "funding_rate",
+            "hour_edge",
+            "late_convergence",
+            "opening_breakout",
+            "orderbook_imbalance",
+            "streak_reversal",
+            "taker_flow",
+            "composite",
+        ],
+    )
     def test_strategy_module_imports(self, module_name):
         """Each strategy module imports cleanly."""
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.strategies.{module_name}")
             assert mod is not None
@@ -4818,6 +5645,7 @@ class TestBacktestStrategiesSmoke:
     def test_calibration_arb_instantiates(self):
         try:
             from backtest.strategies.calibration_arb import CalibrationArbStrategy
+
             s = CalibrationArbStrategy()
             assert s.name == "calibration_arb"
             assert s.deviation_threshold == 0.08
@@ -4827,6 +5655,7 @@ class TestBacktestStrategiesSmoke:
     def test_calibration_arb_custom_params(self):
         try:
             from backtest.strategies.calibration_arb import CalibrationArbStrategy
+
             s = CalibrationArbStrategy(deviation_threshold=0.15)
             assert s.deviation_threshold == 0.15
         except (ImportError, TypeError):
@@ -4835,6 +5664,7 @@ class TestBacktestStrategiesSmoke:
     def test_cross_coin_instantiates(self):
         try:
             from backtest.strategies.cross_coin import CrossCoinStrategy
+
             s = CrossCoinStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4843,6 +5673,7 @@ class TestBacktestStrategiesSmoke:
     def test_fade_rip_instantiates(self):
         try:
             from backtest.strategies.fade_rip import FadeRipStrategy
+
             s = FadeRipStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4851,6 +5682,7 @@ class TestBacktestStrategiesSmoke:
     def test_funding_rate_instantiates(self):
         try:
             from backtest.strategies.funding_rate import FundingRateStrategy
+
             s = FundingRateStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4859,6 +5691,7 @@ class TestBacktestStrategiesSmoke:
     def test_hour_edge_instantiates(self):
         try:
             from backtest.strategies.hour_edge import HourEdgeStrategy
+
             s = HourEdgeStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4867,6 +5700,7 @@ class TestBacktestStrategiesSmoke:
     def test_late_convergence_instantiates(self):
         try:
             from backtest.strategies.late_convergence import LateConvergenceStrategy
+
             s = LateConvergenceStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4875,6 +5709,7 @@ class TestBacktestStrategiesSmoke:
     def test_opening_breakout_instantiates(self):
         try:
             from backtest.strategies.opening_breakout import OpeningBreakoutStrategy
+
             s = OpeningBreakoutStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4883,6 +5718,7 @@ class TestBacktestStrategiesSmoke:
     def test_orderbook_imbalance_instantiates(self):
         try:
             from backtest.strategies.orderbook_imbalance import OrderbookImbalanceStrategy
+
             s = OrderbookImbalanceStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4891,6 +5727,7 @@ class TestBacktestStrategiesSmoke:
     def test_streak_reversal_instantiates(self):
         try:
             from backtest.strategies.streak_reversal import StreakReversalStrategy
+
             s = StreakReversalStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4899,6 +5736,7 @@ class TestBacktestStrategiesSmoke:
     def test_taker_flow_instantiates(self):
         try:
             from backtest.strategies.taker_flow import TakerFlowStrategy
+
             s = TakerFlowStrategy()
             assert s is not None
         except (ImportError, TypeError, AttributeError):
@@ -4907,6 +5745,7 @@ class TestBacktestStrategiesSmoke:
     def test_composite_instantiates(self):
         try:
             from backtest.strategies.composite import CompositeStrategy
+
             # CompositeStrategy may need substrategies
             try:
                 s = CompositeStrategy(strategies=[])
@@ -4922,11 +5761,13 @@ class TestBacktestStrategyBase:
 
     def test_direction_enum(self):
         from backtest.strategies.base import Direction
+
         assert Direction.UP.value == "up"
         assert Direction.DOWN.value == "down"
 
     def test_market_data_defaults(self):
         from backtest.strategies.base import MarketData
+
         m = MarketData()
         assert m.market_id == ""
         assert m.coin == "BTC"
@@ -4936,12 +5777,14 @@ class TestBacktestStrategyBase:
 
     def test_market_data_custom(self):
         from backtest.strategies.base import MarketData
+
         m = MarketData(market_id="x", coin="ETH", market_type="15m", duration_seconds=900)
         assert m.coin == "ETH"
         assert m.duration_seconds == 900
 
     def test_orderbook_snapshot_defaults(self):
         from backtest.strategies.base import OrderbookSnapshot
+
         s = OrderbookSnapshot()
         assert s.timestamp_ms == 0
         assert s.up_best_bid == 0.0
@@ -4949,7 +5792,8 @@ class TestBacktestStrategyBase:
         assert s.raw == {}
 
     def test_signal_defaults(self):
-        from backtest.strategies.base import Signal, Direction
+        from backtest.strategies.base import Direction, Signal
+
         sig = Signal(direction=Direction.UP)
         assert sig.confidence == 0.5
         assert sig.entry_price == 0.5
@@ -4957,13 +5801,15 @@ class TestBacktestStrategyBase:
         assert sig.is_down is False
 
     def test_signal_is_down_property(self):
-        from backtest.strategies.base import Signal, Direction
+        from backtest.strategies.base import Direction, Signal
+
         sig = Signal(direction=Direction.DOWN, confidence=0.85)
         assert sig.is_down is True
         assert sig.is_up is False
 
     def test_resolution_dataclass(self):
-        from backtest.strategies.base import Resolution, Direction
+        from backtest.strategies.base import Direction, Resolution
+
         r = Resolution(winner=Direction.UP, final_up_price=1.0, final_down_price=0.0)
         assert r.winner == Direction.UP
         assert r.final_up_price == 1.0
@@ -4974,8 +5820,11 @@ class TestPolymarketRtdsBasics:
 
     def test_constants_defined(self):
         from data.polymarket_rtds import (
-            RTDS_WS_URL, BINANCE_TOPIC, CHAINLINK_TOPIC,
+            BINANCE_TOPIC,
+            CHAINLINK_TOPIC,
+            RTDS_WS_URL,
         )
+
         assert RTDS_WS_URL == "wss://ws-live-data.polymarket.com"
         assert "crypto" in BINANCE_TOPIC.lower() or "binance" in BINANCE_TOPIC.lower()
         assert "chainlink" in CHAINLINK_TOPIC.lower()
@@ -4986,10 +5835,12 @@ class TestObservabilityModule:
 
     def test_module_imports(self):
         from core import observability
+
         assert observability is not None
 
     def test_rest_timing_imports(self):
         from core.observability import rest_timing
+
         assert rest_timing is not None
 
 
@@ -4998,11 +5849,13 @@ class TestStructuredLoggingHelpers:
 
     def test_module_imports(self):
         from core import structured_logging
+
         assert structured_logging is not None
 
     def test_json_formatter_exists(self):
         try:
             from core.structured_logging import JsonFormatter
+
             f = JsonFormatter()
             assert f is not None
         except (ImportError, AttributeError):
@@ -5011,6 +5864,7 @@ class TestStructuredLoggingHelpers:
     def test_secret_scrub_filter_exists(self):
         try:
             from core.structured_logging import SecretScrubFilter
+
             f = SecretScrubFilter()
             assert f is not None
         except (ImportError, AttributeError):
@@ -5019,12 +5873,19 @@ class TestStructuredLoggingHelpers:
     def test_scrub_filter_redacts_pk(self):
         try:
             from core.structured_logging import SecretScrubFilter
+
             f = SecretScrubFilter(enabled=True)
             # Smoke: test record should not crash
             import logging
+
             r = logging.LogRecord(
-                name="test", level=logging.INFO, pathname="x", lineno=1,
-                msg="my key is 0x" + "a" * 64, args=(), exc_info=None,
+                name="test",
+                level=logging.INFO,
+                pathname="x",
+                lineno=1,
+                msg="my key is 0x" + "a" * 64,
+                args=(),
+                exc_info=None,
             )
             result = f.filter(r)
             assert result is True or result is None or isinstance(result, bool)
@@ -5037,10 +5898,12 @@ class TestStrategyPluginsExtraSmoke:
 
     def test_module_imports(self):
         from core import strategy_plugins
+
         assert strategy_plugins is not None
 
     def test_base_strategy_protocol(self):
         from core.strategy_plugins import BaseStrategy
+
         # Protocol/ABC — just ensure it exists
         assert BaseStrategy is not None
 
@@ -5050,10 +5913,12 @@ class TestEngineSignalsImports:
 
     def test_module_imports(self):
         from core import engine_signals
+
         assert engine_signals is not None
 
     def test_mixin_class_exists(self):
         from core.engine_signals import EngineSignalsMixin
+
         assert EngineSignalsMixin is not None
 
 
@@ -5062,6 +5927,7 @@ class TestObservabilityRestTiming:
 
     def test_time_call_context_manager(self):
         from core.observability.rest_timing import time_call
+
         # Smoke: should be context manager or callable
         assert callable(time_call)
 
@@ -5071,6 +5937,7 @@ class TestLiveAdapterFunctions:
 
     def test_get_live_adapter_unknown_returns_none(self):
         from backtest.strategies.live_adapter import get_live_adapter
+
         result = get_live_adapter("nonexistent_strategy_xyz")
         # Returns None for unknown
         assert result is None or hasattr(result, "name")
@@ -5081,6 +5948,7 @@ class TestCircuitBreakerCoverage:
 
     def test_module_imports(self):
         from core import circuit_breaker
+
         assert circuit_breaker is not None
 
 
@@ -5089,6 +5957,7 @@ class TestKillSwitchCoverage:
 
     def test_module_imports(self):
         from core import kill_switch
+
         assert kill_switch is not None
 
 
@@ -5097,6 +5966,7 @@ class TestSlippageModelCoverage:
 
     def test_module_imports(self):
         from backtest import slippage_model
+
         assert slippage_model is not None
 
 
@@ -5105,11 +5975,13 @@ class TestTradeJournalCoverage:
 
     def test_module_imports(self):
         from core import trade_journal
+
         assert trade_journal is not None
 
     def test_logger_functions_exist(self):
         try:
             from core.trade_journal import log_entry, log_exit, log_settlement
+
             assert callable(log_entry)
             assert callable(log_exit)
             assert callable(log_settlement)
@@ -5122,6 +5994,7 @@ class TestChangelogCoverage:
 
     def test_module_imports(self):
         from core import changelog
+
         assert changelog is not None
 
 
@@ -5130,6 +6003,7 @@ class TestAutoOptimizerImports:
 
     def test_module_imports(self):
         from core import auto_optimizer
+
         assert auto_optimizer is not None
 
 
@@ -5138,6 +6012,7 @@ class TestStrategyLifecycleImports:
 
     def test_module_imports(self):
         from core import strategy_lifecycle
+
         assert strategy_lifecycle is not None
 
 
@@ -5146,6 +6021,7 @@ class TestStrategySelectorImports:
 
     def test_module_imports(self):
         from core import strategy_selector
+
         assert strategy_selector is not None
 
 
@@ -5154,6 +6030,7 @@ class TestSignalsWhaleFlowImports:
 
     def test_module_imports(self):
         from core.signals import whale_flow
+
         assert whale_flow is not None
 
 
@@ -5162,6 +6039,7 @@ class TestExperimentRunnerImports:
 
     def test_module_imports(self):
         from core import experiment_runner
+
         assert experiment_runner is not None
 
 
@@ -5170,6 +6048,7 @@ class TestDecisionExplainerImports:
 
     def test_module_imports(self):
         from core import decision_explainer
+
         assert decision_explainer is not None
 
 
@@ -5178,10 +6057,12 @@ class TestEngineCoreImports:
 
     def test_module_imports(self):
         from core import engine
+
         assert engine is not None
 
     def test_trading_engine_class(self):
         from core.engine import TradingEngine
+
         assert TradingEngine is not None
 
 
@@ -5190,6 +6071,7 @@ class TestMicroWeightTrackerImports:
 
     def test_module_imports(self):
         from core import micro_weight_tracker
+
         assert micro_weight_tracker is not None
 
 
@@ -5198,6 +6080,7 @@ class TestFeeModelV3Imports:
 
     def test_module_imports(self):
         from backtest.simulation import fee_model_v3
+
         assert fee_model_v3 is not None
 
 
@@ -5206,6 +6089,7 @@ class TestPortfolioSimulationImports:
 
     def test_module_imports(self):
         from backtest.simulation import portfolio
+
         assert portfolio is not None
 
 
@@ -5214,6 +6098,7 @@ class TestSafetyHtmlConstants:
 
     def test_esc_quote(self):
         from telegram_bot.templates.safe_html import esc
+
         result = esc('"hello"')
         # Quote escape
         assert "&quot;" in result or '"' in result
@@ -5224,10 +6109,12 @@ class TestKeepAliveImports:
 
     def test_module_imports(self):
         from core import keepalive
+
         assert keepalive is not None
 
     def test_dashboard_html_constant(self):
         from core.keepalive import DASHBOARD_HTML
+
         assert "<!DOCTYPE html>" in DASHBOARD_HTML or "html" in DASHBOARD_HTML.lower()
 
 
@@ -5236,21 +6123,26 @@ class TestCallbackProxySafeAttributes:
 
     def test_slots_are_only_two(self):
         from telegram_bot.templates.callback_proxy import CallbackUpdateProxy
+
         assert set(CallbackUpdateProxy.__slots__) == {"_real", "message"}
 
 
 class TestEmptyModuleSmoke:
     """Smoke imports for tiny modules to lift base coverage."""
 
-    @pytest.mark.parametrize("mod_path", [
-        "backtest.__init__",
-        "backtest.simulation.__init__",
-        "backtest.strategies.__init__",
-        "core.signals.__init__",
-        "telegram_bot.templates.__init__",
-    ])
+    @pytest.mark.parametrize(
+        "mod_path",
+        [
+            "backtest.__init__",
+            "backtest.simulation.__init__",
+            "backtest.strategies.__init__",
+            "core.signals.__init__",
+            "telegram_bot.templates.__init__",
+        ],
+    )
     def test_init_modules_import(self, mod_path):
         import importlib
+
         mod = importlib.import_module(mod_path.replace(".__init__", ""))
         assert mod is not None
 
@@ -5258,14 +6150,23 @@ class TestEmptyModuleSmoke:
 class TestTelegramJobsModulesSmoke:
     """telegram_bot/jobs/* — at least imports for coverage."""
 
-    @pytest.mark.parametrize("job_module", [
-        "auto_promote_job", "db_archive_job", "db_retention_job",
-        "maintenance_jobs", "pattern_discovery_job",
-        "pnl_divergence_job", "polymarket_portfolio_job",
-        "shadow_report_job", "shadow_vs_paper_job",
-    ])
+    @pytest.mark.parametrize(
+        "job_module",
+        [
+            "auto_promote_job",
+            "db_archive_job",
+            "db_retention_job",
+            "maintenance_jobs",
+            "pattern_discovery_job",
+            "pnl_divergence_job",
+            "polymarket_portfolio_job",
+            "shadow_report_job",
+            "shadow_vs_paper_job",
+        ],
+    )
     def test_job_module_imports(self, job_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"telegram_bot.jobs.{job_module}")
             assert mod is not None
@@ -5276,15 +6177,27 @@ class TestTelegramJobsModulesSmoke:
 class TestDataModulesSmoke:
     """data/* — at least imports for coverage."""
 
-    @pytest.mark.parametrize("data_module", [
-        "binance_multistream", "candle_collector", "market_recorder",
-        "market_scanner", "polymarket_actions", "polymarket_rtds",
-        "websocket_client", "external_feed", "odds_feed",
-        "polymarket_portfolio", "polymarket_client",
-        "chainlink_oracle", "event_monitor",
-    ])
+    @pytest.mark.parametrize(
+        "data_module",
+        [
+            "binance_multistream",
+            "candle_collector",
+            "market_recorder",
+            "market_scanner",
+            "polymarket_actions",
+            "polymarket_rtds",
+            "websocket_client",
+            "external_feed",
+            "odds_feed",
+            "polymarket_portfolio",
+            "polymarket_client",
+            "chainlink_oracle",
+            "event_monitor",
+        ],
+    )
     def test_data_module_imports(self, data_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"data.{data_module}")
             assert mod is not None
@@ -5295,11 +6208,19 @@ class TestDataModulesSmoke:
 class TestBacktestDataSourcesSmoke:
     """backtest/data_sources/* — at least imports."""
 
-    @pytest.mark.parametrize("ds_module", [
-        "binance_hist", "cache", "collector", "gamma_hist", "polybacktest",
-    ])
+    @pytest.mark.parametrize(
+        "ds_module",
+        [
+            "binance_hist",
+            "cache",
+            "collector",
+            "gamma_hist",
+            "polybacktest",
+        ],
+    )
     def test_data_source_module_imports(self, ds_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.data_sources.{ds_module}")
             assert mod is not None
@@ -5310,11 +6231,18 @@ class TestBacktestDataSourcesSmoke:
 class TestBacktestEngineModulesSmoke:
     """backtest engine modules at 0%."""
 
-    @pytest.mark.parametrize("be_module", [
-        "replay_engine", "replay_engine_v3", "engine_v2", "archive_reader",
-    ])
+    @pytest.mark.parametrize(
+        "be_module",
+        [
+            "replay_engine",
+            "replay_engine_v3",
+            "engine_v2",
+            "archive_reader",
+        ],
+    )
     def test_engine_module_imports(self, be_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.{be_module}")
             assert mod is not None
@@ -5325,11 +6253,17 @@ class TestBacktestEngineModulesSmoke:
 class TestBacktestAnalyticsImports:
     """backtest/analytics/*."""
 
-    @pytest.mark.parametrize("an_module", [
-        "charts", "comparator", "reporter",
-    ])
+    @pytest.mark.parametrize(
+        "an_module",
+        [
+            "charts",
+            "comparator",
+            "reporter",
+        ],
+    )
     def test_analytics_module_imports(self, an_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.analytics.{an_module}")
             assert mod is not None
@@ -5340,11 +6274,17 @@ class TestBacktestAnalyticsImports:
 class TestTelegramHandlersSmoke:
     """telegram_bot/handlers/* — saf imports."""
 
-    @pytest.mark.parametrize("handler_module", [
-        "live_guards_handler", "order_validator", "phase77_handler",
-    ])
+    @pytest.mark.parametrize(
+        "handler_module",
+        [
+            "live_guards_handler",
+            "order_validator",
+            "phase77_handler",
+        ],
+    )
     def test_handler_imports(self, handler_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"telegram_bot.handlers.{handler_module}")
             assert mod is not None
@@ -5357,6 +6297,7 @@ class TestSimulationFillModelImports:
 
     def test_module_imports(self):
         from backtest.simulation import fill_model
+
         assert fill_model is not None
 
 
@@ -5365,10 +6306,12 @@ class TestStrategySuggesterFull:
 
     def test_module_imports(self):
         from core import strategy_suggester
+
         assert strategy_suggester is not None
 
     def test_class_init_with_minimal_deps(self):
         from core.strategy_suggester import StrategySuggester
+
         ss = StrategySuggester(db=MagicMock(), engine=MagicMock(), bot_app=None)
         assert ss is not None
         assert ss._last_run is None
@@ -5379,11 +6322,13 @@ class TestAutopilotImports:
 
     def test_module_imports(self):
         from core import autopilot
+
         assert autopilot is not None
 
     def test_autopilot_class(self):
         try:
             from core.autopilot import AutoPilot
+
             assert AutoPilot is not None
         except (ImportError, AttributeError):
             pytest.skip("AutoPilot class not exported")
@@ -5394,6 +6339,7 @@ class TestEvTrackerImports:
 
     def test_module_imports(self):
         from core import ev_tracker
+
         assert ev_tracker is not None
 
 
@@ -5402,10 +6348,12 @@ class TestBgTaskImports:
 
     def test_module_imports(self):
         from core import bg_task
+
         assert bg_task is not None
 
     def test_safe_create_task_exists(self):
         from core.bg_task import safe_create_task
+
         assert callable(safe_create_task)
 
 
@@ -5414,6 +6362,7 @@ class TestEnginesSettlementMixin:
 
     def test_mixin_class(self):
         from core.engine_settlement import EngineSettlementMixin
+
         assert EngineSettlementMixin is not None
 
 
@@ -5422,6 +6371,7 @@ class TestEngineFillsMixin:
 
     def test_mixin_class(self):
         from core.engine_fills import EngineFillsMixin
+
         assert EngineFillsMixin is not None
 
 
@@ -5430,6 +6380,7 @@ class TestEngineMonitorMixin:
 
     def test_mixin_class(self):
         from core.engine_monitor import EngineMonitorMixin
+
         assert EngineMonitorMixin is not None
 
 
@@ -5438,11 +6389,13 @@ class TestReconciliationOnchainSync:
 
     def test_module_imports(self):
         from core.reconciliation import onchain_sync
+
         assert onchain_sync is not None
 
     def test_reconciliation_task_class(self):
         try:
             from core.reconciliation.onchain_sync import ReconciliationTask
+
             assert ReconciliationTask is not None
         except (ImportError, AttributeError):
             pytest.skip("ReconciliationTask not exported")
@@ -5453,11 +6406,13 @@ class TestHeartbeatModule:
 
     def test_module_imports(self):
         from core import heartbeat
+
         assert heartbeat is not None
 
     def test_heartbeat_task_class(self):
         try:
             from core.heartbeat import HeartbeatTask
+
             assert HeartbeatTask is not None
         except (ImportError, AttributeError):
             pytest.skip("HeartbeatTask not exported")
@@ -5468,6 +6423,7 @@ class TestExecutorImports:
 
     def test_module_imports(self):
         from core import executor
+
         assert executor is not None
 
 
@@ -5477,6 +6433,7 @@ class TestStatusPollerExtra:
     def test_class_exists(self):
         try:
             from core.status_poller import StatusPoller
+
             assert StatusPoller is not None
         except (ImportError, AttributeError):
             pytest.skip("StatusPoller class not exported")
@@ -5487,6 +6444,7 @@ class TestErrorHandlerImports:
 
     def test_polymarket_errors_imports(self):
         from core.error_handler import polymarket_errors
+
         assert polymarket_errors is not None
 
 
@@ -5495,6 +6453,7 @@ class TestCalibrationImports:
 
     def test_fill_recalibrate_imports(self):
         from core.calibration import fill_heuristic_recalibrate
+
         assert fill_heuristic_recalibrate is not None
 
 
@@ -5503,6 +6462,7 @@ class TestTelegramHubKeyboard:
 
     def test_module_imports(self):
         from telegram_bot import hub_keyboard
+
         assert hub_keyboard is not None
 
 
@@ -5511,6 +6471,7 @@ class TestTelegramVersionConstant:
 
     def test_module_imports(self):
         from telegram_bot import version
+
         assert version is not None
 
 
@@ -5520,6 +6481,7 @@ class TestTelegramBannersSmoke:
     def test_module_imports(self):
         try:
             from telegram_bot import banners
+
             assert banners is not None
         except ImportError as e:
             pytest.skip(f"banners import failed: {e}")
@@ -5531,6 +6493,7 @@ class TestTelegramBotMain:
     def test_module_imports(self):
         try:
             from telegram_bot import bot
+
             assert bot is not None
         except ImportError as e:
             pytest.skip(f"bot.py import failed: {e}")
@@ -5542,10 +6505,12 @@ class TestModeBannerHelpers:
     def test_paper_banner_function(self):
         try:
             from telegram_bot.templates.mode_banner import paper_banner
+
             assert callable(paper_banner)
         except (ImportError, AttributeError):
             try:
                 from telegram_bot.templates.mode_banner import get_mode_banner
+
                 assert callable(get_mode_banner)
             except (ImportError, AttributeError):
                 pytest.skip("mode_banner API differs")
@@ -5557,12 +6522,15 @@ class TestObservabilityRestTimingDeep:
     def test_time_call_no_op_when_disabled(self, monkeypatch):
         """REST_TIMING_ENABLED default off → no-op async context."""
         monkeypatch.delenv("REST_TIMING_ENABLED", raising=False)
-        from core.observability.rest_timing import time_call
         import asyncio as _aio
+
+        from core.observability.rest_timing import time_call
+
         # time_call is async context manager
         async def _smoke():
             async with time_call("test_label"):
                 pass
+
         try:
             _aio.run(_smoke())
         except (RuntimeError, TypeError):
@@ -5576,6 +6544,7 @@ class TestTradeMemoryClassExists:
     def test_class_imports(self):
         try:
             from core.trade_memory import TradeMemory
+
             assert TradeMemory is not None
         except (ImportError, AttributeError):
             pytest.skip("TradeMemory not exported")
@@ -5587,6 +6556,7 @@ class TestStructuredLoggingPattern:
     def test_secret_patterns_count(self):
         try:
             from core.structured_logging import SECRET_PATTERNS
+
             # 13 regex per Epic 10
             assert len(SECRET_PATTERNS) >= 6
         except (ImportError, AttributeError):
@@ -5595,23 +6565,47 @@ class TestStructuredLoggingPattern:
 
 # ─── Coverage Wave 3 — Telegram Handlers Smoke Imports (büyük dosyalar) ─
 
+
 class TestTelegramHandlersAllSmoke:
     """telegram_bot/handlers/* — 30+ dosya. Smoke imports = anlamlı coverage boost."""
 
-    @pytest.mark.parametrize("handler_module", [
-        "ai_handler", "archive_info_handler", "backtest_v2",
-        "brier_handler", "changelog_handler", "dashboard",
-        "diagnose_handler", "env_toggle", "filters_handler",
-        "force_settle_handler", "lifecycle_handler", "live_handler",
-        "markets", "menu_handler", "mode_handler", "phase77_handler",
-        "portfolio_handler", "positions", "rest_timing_handler",
-        "risk_handler", "roadmap_handler", "settings_handler",
-        "start", "stats", "strategies", "strategy_builder",
-        "strategy_report", "strategy_tester",
-    ])
+    @pytest.mark.parametrize(
+        "handler_module",
+        [
+            "ai_handler",
+            "archive_info_handler",
+            "backtest_v2",
+            "brier_handler",
+            "changelog_handler",
+            "dashboard",
+            "diagnose_handler",
+            "env_toggle",
+            "filters_handler",
+            "force_settle_handler",
+            "lifecycle_handler",
+            "live_handler",
+            "markets",
+            "menu_handler",
+            "mode_handler",
+            "phase77_handler",
+            "portfolio_handler",
+            "positions",
+            "rest_timing_handler",
+            "risk_handler",
+            "roadmap_handler",
+            "settings_handler",
+            "start",
+            "stats",
+            "strategies",
+            "strategy_builder",
+            "strategy_report",
+            "strategy_tester",
+        ],
+    )
     def test_handler_module_import(self, handler_module):
         """Each handler module should at least import cleanly."""
         import importlib
+
         try:
             mod = importlib.import_module(f"telegram_bot.handlers.{handler_module}")
             assert mod is not None
@@ -5622,14 +6616,18 @@ class TestTelegramHandlersAllSmoke:
 class TestCoreEngineMixinDiscovery:
     """core/engine_*.py mixin classes — discoverable from module."""
 
-    @pytest.mark.parametrize("mixin_module,mixin_class", [
-        ("engine_signals", "EngineSignalsMixin"),
-        ("engine_monitor", "EngineMonitorMixin"),
-        ("engine_fills", "EngineFillsMixin"),
-        ("engine_settlement", "EngineSettlementMixin"),
-    ])
+    @pytest.mark.parametrize(
+        "mixin_module,mixin_class",
+        [
+            ("engine_signals", "EngineSignalsMixin"),
+            ("engine_monitor", "EngineMonitorMixin"),
+            ("engine_fills", "EngineFillsMixin"),
+            ("engine_settlement", "EngineSettlementMixin"),
+        ],
+    )
     def test_mixin_class_imports(self, mixin_module, mixin_class):
         import importlib
+
         mod = importlib.import_module(f"core.{mixin_module}")
         assert hasattr(mod, mixin_class)
 
@@ -5637,12 +6635,18 @@ class TestCoreEngineMixinDiscovery:
 class TestDataModulesAllSmokeRetry:
     """data/* — kapsam vurması için liste yenilendi."""
 
-    @pytest.mark.parametrize("data_module", [
-        "binance_multistream", "candle_collector", "market_recorder",
-        "market_scanner",
-    ])
+    @pytest.mark.parametrize(
+        "data_module",
+        [
+            "binance_multistream",
+            "candle_collector",
+            "market_recorder",
+            "market_scanner",
+        ],
+    )
     def test_data_smoke_import(self, data_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"data.{data_module}")
             assert mod is not None
@@ -5653,18 +6657,22 @@ class TestDataModulesAllSmokeRetry:
 class TestBacktestEngineDeepImports:
     """Backtest engine modules — deep imports."""
 
-    @pytest.mark.parametrize("be_path", [
-        "backtest.archive_reader",
-        "backtest.engine_v2",
-        "backtest.replay_engine",
-        "backtest.replay_engine_v3",
-        "backtest.metrics",
-        "backtest.simulation.fill_model",
-        "backtest.simulation.fee_model_v3",
-        "backtest.simulation.portfolio",
-    ])
+    @pytest.mark.parametrize(
+        "be_path",
+        [
+            "backtest.archive_reader",
+            "backtest.engine_v2",
+            "backtest.replay_engine",
+            "backtest.replay_engine_v3",
+            "backtest.metrics",
+            "backtest.simulation.fill_model",
+            "backtest.simulation.fee_model_v3",
+            "backtest.simulation.portfolio",
+        ],
+    )
     def test_be_module_import(self, be_path):
         import importlib
+
         try:
             mod = importlib.import_module(be_path)
             assert mod is not None
@@ -5675,28 +6683,54 @@ class TestBacktestEngineDeepImports:
 class TestCoreModulesDeepImports:
     """core/* — deep imports for coverage."""
 
-    @pytest.mark.parametrize("c_path", [
-        "core.changelog", "core.autopilot", "core.intent_parser",
-        "core.engine", "core.engine_signals", "core.engine_settlement",
-        "core.engine_fills", "core.engine_monitor", "core.engine_support",
-        "core.executor", "core.heartbeat", "core.bg_task",
-        "core.kelly", "core.regime", "core.signal_fusion",
-        "core.strategy_plugins", "core.strategy_lifecycle",
-        "core.strategy_selector", "core.strategy_suggester",
-        "core.trade_journal", "core.trade_memory",
-        "core.decision_explainer", "core.experiment_runner",
-        "core.auto_optimizer", "core.ai_brain",
-        "core.live_trader", "core.fees_v2",
-        "core.uma_dispute", "core.maker_taker_decision",
-        "core.portfolio_kill_switch", "core.kill_switch",
-        "core.circuit_breaker", "core.allowance_preflight",
-        "core.status_poller", "core.ev_tracker",
-        "core.micro_weight_tracker", "core.indicators",
-        "core.structured_logging", "core.stats_utils",
-        "core.keepalive",
-    ])
+    @pytest.mark.parametrize(
+        "c_path",
+        [
+            "core.changelog",
+            "core.autopilot",
+            "core.intent_parser",
+            "core.engine",
+            "core.engine_signals",
+            "core.engine_settlement",
+            "core.engine_fills",
+            "core.engine_monitor",
+            "core.engine_support",
+            "core.executor",
+            "core.heartbeat",
+            "core.bg_task",
+            "core.kelly",
+            "core.regime",
+            "core.signal_fusion",
+            "core.strategy_plugins",
+            "core.strategy_lifecycle",
+            "core.strategy_selector",
+            "core.strategy_suggester",
+            "core.trade_journal",
+            "core.trade_memory",
+            "core.decision_explainer",
+            "core.experiment_runner",
+            "core.auto_optimizer",
+            "core.ai_brain",
+            "core.live_trader",
+            "core.fees_v2",
+            "core.uma_dispute",
+            "core.maker_taker_decision",
+            "core.portfolio_kill_switch",
+            "core.kill_switch",
+            "core.circuit_breaker",
+            "core.allowance_preflight",
+            "core.status_poller",
+            "core.ev_tracker",
+            "core.micro_weight_tracker",
+            "core.indicators",
+            "core.structured_logging",
+            "core.stats_utils",
+            "core.keepalive",
+        ],
+    )
     def test_core_module_import(self, c_path):
         import importlib
+
         try:
             mod = importlib.import_module(c_path)
             assert mod is not None
@@ -5707,20 +6741,24 @@ class TestCoreModulesDeepImports:
 class TestSubpackageImports:
     """sub-package modules."""
 
-    @pytest.mark.parametrize("path", [
-        "core.calibration",
-        "core.calibration.fill_heuristic_recalibrate",
-        "core.error_handler",
-        "core.error_handler.polymarket_errors",
-        "core.observability",
-        "core.observability.rest_timing",
-        "core.reconciliation",
-        "core.reconciliation.onchain_sync",
-        "core.signals",
-        "core.signals.whale_flow",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "core.calibration",
+            "core.calibration.fill_heuristic_recalibrate",
+            "core.error_handler",
+            "core.error_handler.polymarket_errors",
+            "core.observability",
+            "core.observability.rest_timing",
+            "core.reconciliation",
+            "core.reconciliation.onchain_sync",
+            "core.signals",
+            "core.signals.whale_flow",
+        ],
+    )
     def test_subpackage_import(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -5731,14 +6769,28 @@ class TestSubpackageImports:
 class TestBacktestStrategiesDeepImports:
     """backtest/strategies/* — all 14 modules."""
 
-    @pytest.mark.parametrize("s_module", [
-        "base", "bonding_yield", "calibration_arb", "composite",
-        "cross_coin", "fade_rip", "funding_rate", "hour_edge",
-        "late_convergence", "live_adapter", "opening_breakout",
-        "orderbook_imbalance", "streak_reversal", "taker_flow",
-    ])
+    @pytest.mark.parametrize(
+        "s_module",
+        [
+            "base",
+            "bonding_yield",
+            "calibration_arb",
+            "composite",
+            "cross_coin",
+            "fade_rip",
+            "funding_rate",
+            "hour_edge",
+            "late_convergence",
+            "live_adapter",
+            "opening_breakout",
+            "orderbook_imbalance",
+            "streak_reversal",
+            "taker_flow",
+        ],
+    )
     def test_strategy_import(self, s_module):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.strategies.{s_module}")
             assert mod is not None
@@ -5749,14 +6801,23 @@ class TestBacktestStrategiesDeepImports:
 class TestTelegramJobsAllSmoke:
     """telegram_bot/jobs/* — full sweep."""
 
-    @pytest.mark.parametrize("job_path", [
-        "auto_promote_job", "db_archive_job", "db_retention_job",
-        "maintenance_jobs", "pattern_discovery_job",
-        "pnl_divergence_job", "polymarket_portfolio_job",
-        "shadow_report_job", "shadow_vs_paper_job",
-    ])
+    @pytest.mark.parametrize(
+        "job_path",
+        [
+            "auto_promote_job",
+            "db_archive_job",
+            "db_retention_job",
+            "maintenance_jobs",
+            "pattern_discovery_job",
+            "pnl_divergence_job",
+            "polymarket_portfolio_job",
+            "shadow_report_job",
+            "shadow_vs_paper_job",
+        ],
+    )
     def test_job_import(self, job_path):
         import importlib
+
         try:
             mod = importlib.import_module(f"telegram_bot.jobs.{job_path}")
             assert mod is not None
@@ -5767,11 +6828,19 @@ class TestTelegramJobsAllSmoke:
 class TestBacktestDataSourcesDeepImports:
     """backtest/data_sources/* — full."""
 
-    @pytest.mark.parametrize("ds_path", [
-        "binance_hist", "cache", "collector", "gamma_hist", "polybacktest",
-    ])
+    @pytest.mark.parametrize(
+        "ds_path",
+        [
+            "binance_hist",
+            "cache",
+            "collector",
+            "gamma_hist",
+            "polybacktest",
+        ],
+    )
     def test_ds_import(self, ds_path):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.data_sources.{ds_path}")
             assert mod is not None
@@ -5782,11 +6851,17 @@ class TestBacktestDataSourcesDeepImports:
 class TestBacktestAnalyticsDeepImports:
     """backtest/analytics/* — full."""
 
-    @pytest.mark.parametrize("a_path", [
-        "charts", "comparator", "reporter",
-    ])
+    @pytest.mark.parametrize(
+        "a_path",
+        [
+            "charts",
+            "comparator",
+            "reporter",
+        ],
+    )
     def test_a_import(self, a_path):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.analytics.{a_path}")
             assert mod is not None
@@ -5797,12 +6872,18 @@ class TestBacktestAnalyticsDeepImports:
 class TestTelegramBotMainModule:
     """telegram_bot/bot.py + sibling modules."""
 
-    @pytest.mark.parametrize("path", [
-        "telegram_bot.bot", "telegram_bot.banners",
-        "telegram_bot.hub_keyboard", "telegram_bot.version",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "telegram_bot.bot",
+            "telegram_bot.banners",
+            "telegram_bot.hub_keyboard",
+            "telegram_bot.version",
+        ],
+    )
     def test_module_import(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -5813,11 +6894,16 @@ class TestTelegramBotMainModule:
 class TestDbModuleImports:
     """db/* package."""
 
-    @pytest.mark.parametrize("path", [
-        "db.database", "db.models",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "db.database",
+            "db.models",
+        ],
+    )
     def test_db_import(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -5828,11 +6914,15 @@ class TestDbModuleImports:
 class TestConfigPackage:
     """config/* package."""
 
-    @pytest.mark.parametrize("path", [
-        "config.settings",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "config.settings",
+        ],
+    )
     def test_config_import(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -5842,21 +6932,25 @@ class TestConfigPackage:
 
 # ─── Coverage Wave 3 Final — Real logic tests for high-impact modules ─
 
+
 @pytest.mark.skip(
     reason="P1-01-c1 (2026-05-09): CandleBuilder API changed in P0-08-E3 "
     "multi-TF refactor. tick() now requires (asset_id, timeframe, price), "
     "flush() and active_slugs() removed (per-(asset_id,tf) key). Tests "
-    "need full re-write — tracked as P1-01 follow-up.")
+    "need full re-write — tracked as P1-01 follow-up."
+)
 class TestCandleBuilder:
     """data/candle_collector.py CandleBuilder — saf OHLCV aggregator."""
 
     def test_init_empty(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         assert b._current == {}
 
     def test_tick_invalid_price_skipped(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("btc-up", 0.0)
         b.tick("btc-up", -0.1)
@@ -5866,6 +6960,7 @@ class TestCandleBuilder:
 
     def test_tick_first_creates_candle(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("btc-up", 0.55, volume=10.0, ts=1700000000.0)
         c = b._current["btc-up"]
@@ -5879,6 +6974,7 @@ class TestCandleBuilder:
 
     def test_tick_updates_high_low_close(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("btc-up", 0.50)
         b.tick("btc-up", 0.55)  # new high
@@ -5893,6 +6989,7 @@ class TestCandleBuilder:
 
     def test_tick_accumulates_volume(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("btc-up", 0.5, volume=10)
         b.tick("btc-up", 0.5, volume=15)
@@ -5901,6 +6998,7 @@ class TestCandleBuilder:
 
     def test_flush_returns_candle(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("btc-up", 0.55, volume=10)
         result = b.flush("btc-up")
@@ -5912,11 +7010,13 @@ class TestCandleBuilder:
 
     def test_flush_unknown_slug_returns_none(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         assert b.flush("unknown") is None
 
     def test_flush_all_clears_state(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("a", 0.5)
         b.tick("b", 0.6)
@@ -5928,6 +7028,7 @@ class TestCandleBuilder:
 
     def test_active_slugs(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("a", 0.5)
         b.tick("b", 0.5)
@@ -5937,6 +7038,7 @@ class TestCandleBuilder:
 
     def test_active_slugs_empty(self):
         from data.candle_collector import CandleBuilder
+
         assert CandleBuilder().active_slugs() == []
 
 
@@ -5945,6 +7047,7 @@ class TestCandleCollectorBasic:
 
     def test_init_minimal(self):
         from data.candle_collector import CandleCollector
+
         cc = CandleCollector(db=MagicMock())
         assert cc.db is not None
         assert cc.odds_feed is None
@@ -5952,9 +7055,12 @@ class TestCandleCollectorBasic:
 
     def test_init_with_deps(self):
         from data.candle_collector import CandleCollector
+
         cc = CandleCollector(
-            db=MagicMock(), odds_feed=MagicMock(),
-            ws_client=MagicMock(), external_feed=MagicMock(),
+            db=MagicMock(),
+            odds_feed=MagicMock(),
+            ws_client=MagicMock(),
+            external_feed=MagicMock(),
             httpx_client=MagicMock(),
         )
         assert cc.odds_feed is not None
@@ -5965,18 +7071,23 @@ class TestBgTaskHelpers:
     """core/bg_task.py — safe_create_task + helpers."""
 
     def test_safe_create_task_with_running_loop(self):
-        from core.bg_task import safe_create_task
         import asyncio
+
+        from core.bg_task import safe_create_task
+
         async def _run():
             async def coro():
                 return 42
+
             t = safe_create_task(coro(), name="test")
             assert t is not None
             await t
+
         asyncio.run(_run())
 
     def test_module_constants(self):
         from core.bg_task import _BG_TASK_OBJECTS
+
         # Strong-ref set exists
         assert isinstance(_BG_TASK_OBJECTS, set)
 
@@ -5986,16 +7097,19 @@ class TestStrategyPluginsRegistry:
 
     def test_registry_init(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         assert reg is not None
 
     def test_registry_get_unknown(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         assert reg.get("nonexistent_xyz") is None
 
     def test_registry_set_config_unknown_returns_false(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         try:
             result = reg.set_config("nonexistent_strategy", "param", 0.5)
@@ -6010,9 +7124,14 @@ class TestExecutorOrderRequest:
     def test_order_request_minimal(self):
         try:
             from core.executor import OrderRequest
+
             req = OrderRequest(
-                token_id="0xtok", side="BUY", amount_usd=1.0,
-                price=0.5, order_type="FOK", strategy_label="test",
+                token_id="0xtok",
+                side="BUY",
+                amount_usd=1.0,
+                price=0.5,
+                order_type="FOK",
+                strategy_label="test",
                 slug="btc-up",
             )
             assert req.token_id == "0xtok"
@@ -6028,12 +7147,14 @@ class TestStatusPollerClass:
     def test_class_exists(self):
         try:
             from core.status_poller import StatusPoller
+
             assert StatusPoller is not None
         except (ImportError, AttributeError):
             pytest.skip("StatusPoller not exported")
 
     def test_module_smoke(self):
         from core import status_poller
+
         # Module should have at least poll-related names
         attrs = dir(status_poller)
         assert any("poll" in a.lower() or "status" in a.lower() for a in attrs)
@@ -6045,6 +7166,7 @@ class TestPolymarketErrorsLogic:
     def test_error_format_function(self):
         try:
             from core.error_handler.polymarket_errors import format_error
+
             result = format_error("INVALID_ORDER_MIN_TICK_SIZE")
             assert result is not None
             assert isinstance(result, str) or isinstance(result, dict)
@@ -6054,6 +7176,7 @@ class TestPolymarketErrorsLogic:
     def test_error_classify_function(self):
         try:
             from core.error_handler.polymarket_errors import classify_error
+
             result = classify_error("Generic error message")
             assert result is not None
         except (ImportError, AttributeError):
@@ -6065,6 +7188,7 @@ class TestSignalsWhaleFlowLogic:
 
     def test_module_constants(self):
         from core.signals import whale_flow
+
         # Module should have analysis function
         assert whale_flow is not None
 
@@ -6075,6 +7199,7 @@ class TestKellyFunctions:
     def test_get_strategy_kelly_callable(self):
         try:
             from core.kelly import get_strategy_kelly
+
             assert callable(get_strategy_kelly)
         except (ImportError, AttributeError):
             pytest.skip("get_strategy_kelly not exported")
@@ -6085,6 +7210,7 @@ class TestSignalFusionWeights:
 
     def test_signal_weights_default(self):
         from core.signal_fusion import SignalWeights
+
         sw = SignalWeights()
         # Should have weight attrs (e.g., odds, ema, momentum, volatility)
         attrs = dir(sw)
@@ -6092,6 +7218,7 @@ class TestSignalFusionWeights:
 
     def test_signal_fusion_init_smoke(self):
         from core.signal_fusion import SignalFusion, SignalWeights
+
         try:
             sf = SignalFusion(SignalWeights())
             assert sf is not None
@@ -6103,7 +7230,8 @@ class TestRiskManagerExtraPaths:
     """core/risk_manager.py — extra path coverage."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_check_trade_zero_amount(self):
@@ -6111,8 +7239,10 @@ class TestRiskManagerExtraPaths:
         # Zero amount should be blocked or allowed gracefully
         try:
             result = rm.check_trade(
-                trade_amount=0.0, market_slug="btc-up",
-                current_balance=1000, total_exposure=0,
+                trade_amount=0.0,
+                market_slug="btc-up",
+                current_balance=1000,
+                total_exposure=0,
                 open_count=0,
             )
             # Some return tuple, some return RiskDecision
@@ -6124,8 +7254,10 @@ class TestRiskManagerExtraPaths:
         rm = self._make()
         try:
             result = rm.check_trade(
-                trade_amount=1.0, market_slug="btc-up",
-                current_balance=1000, total_exposure=0,
+                trade_amount=1.0,
+                market_slug="btc-up",
+                current_balance=1000,
+                total_exposure=0,
                 open_count=0,
             )
             # Smoke
@@ -6151,6 +7283,7 @@ class TestCircuitBreakerLogic:
     def test_class_imports(self):
         try:
             from core.circuit_breaker import CircuitBreaker
+
             assert CircuitBreaker is not None
         except (ImportError, AttributeError):
             pytest.skip("CircuitBreaker not exported")
@@ -6158,6 +7291,7 @@ class TestCircuitBreakerLogic:
     def test_init_default_attrs(self):
         try:
             from core.circuit_breaker import CircuitBreaker
+
             cb = CircuitBreaker()
             assert cb is not None
         except (ImportError, TypeError, AttributeError):
@@ -6170,6 +7304,7 @@ class TestAllowancePreflightFunctions:
     def test_run_preflight_callable(self):
         try:
             from core.allowance_preflight import run_preflight
+
             assert callable(run_preflight)
         except (ImportError, AttributeError):
             pytest.skip("run_preflight not exported")
@@ -6181,6 +7316,7 @@ class TestHeartbeatTaskClass:
     def test_class_imports(self):
         try:
             from core.heartbeat import HeartbeatTask
+
             assert HeartbeatTask is not None
         except (ImportError, AttributeError):
             pytest.skip("HeartbeatTask not exported")
@@ -6188,6 +7324,7 @@ class TestHeartbeatTaskClass:
     def test_init_with_client(self):
         try:
             from core.heartbeat import HeartbeatTask
+
             ht = HeartbeatTask(client=MagicMock())
             assert ht is not None
         except (TypeError, AttributeError):
@@ -6200,6 +7337,7 @@ class TestReconciliationOnchainSyncFunctions:
     def test_class_imports(self):
         try:
             from core.reconciliation.onchain_sync import ReconciliationTask
+
             assert ReconciliationTask is not None
         except (ImportError, AttributeError):
             pytest.skip("ReconciliationTask not exported")
@@ -6211,10 +7349,12 @@ class TestEvTrackerClass:
     def test_class_imports(self):
         try:
             from core.ev_tracker import EVTracker
+
             assert EVTracker is not None
         except (ImportError, AttributeError):
             try:
                 from core.ev_tracker import EvTracker
+
                 assert EvTracker is not None
             except (ImportError, AttributeError):
                 pytest.skip("EVTracker not exported")
@@ -6225,6 +7365,7 @@ class TestMicroWeightTrackerClass:
 
     def test_module_smoke(self):
         from core import micro_weight_tracker
+
         assert micro_weight_tracker is not None
 
 
@@ -6234,6 +7375,7 @@ class TestAutoOptimizerClass:
     def test_class_imports(self):
         try:
             from core.auto_optimizer import AutoOptimizer
+
             assert AutoOptimizer is not None
         except (ImportError, AttributeError):
             pytest.skip("AutoOptimizer not exported")
@@ -6245,6 +7387,7 @@ class TestStrategySelectorClass:
     def test_class_imports(self):
         try:
             from core.strategy_selector import StrategySelector
+
             assert StrategySelector is not None
         except (ImportError, AttributeError):
             pytest.skip("StrategySelector not exported")
@@ -6256,6 +7399,7 @@ class TestStrategyLifecycleClass:
     def test_class_imports(self):
         try:
             from core.strategy_lifecycle import StrategyLifecycle
+
             assert StrategyLifecycle is not None
         except (ImportError, AttributeError):
             pytest.skip("StrategyLifecycle not exported")
@@ -6266,6 +7410,7 @@ class TestExperimentRunnerClass:
 
     def test_module_smoke(self):
         from core import experiment_runner
+
         assert experiment_runner is not None
 
 
@@ -6275,6 +7420,7 @@ class TestKillSwitchClassFn:
     def test_class_imports(self):
         try:
             from core.kill_switch import KillSwitch
+
             ks = KillSwitch()
             assert ks is not None
         except (ImportError, TypeError, AttributeError):
@@ -6286,6 +7432,7 @@ class TestDecisionExplainerClass:
 
     def test_module_smoke(self):
         from core import decision_explainer
+
         assert decision_explainer is not None
 
 
@@ -6294,6 +7441,7 @@ class TestTradeMemoryClassDeep:
 
     def test_module_smoke(self):
         from core import trade_memory
+
         assert trade_memory is not None
 
 
@@ -6302,21 +7450,25 @@ class TestSignalFusionClass:
 
     def test_module_smoke(self):
         from core import signal_fusion
+
         assert signal_fusion is not None
 
     def test_drift_detector_with_window(self):
         from core.regime import DriftDetector
+
         dd = DriftDetector(window=50)
         assert dd is not None
 
 
 # ─── data/binance_multistream.py _AssetState — saf microstructure ─────
 
+
 class TestBinanceAssetState:
     """_AssetState — saf microstructure feature extraction."""
 
     def test_init(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         assert s.asset == "BTC"
         assert s.best_bid == 0.0
@@ -6325,6 +7477,7 @@ class TestBinanceAssetState:
 
     def test_apply_depth_basic(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_depth({"bids": [["65000", "0.5"]], "asks": [["65010", "0.3"]]})
         assert s.best_bid == 65000.0
@@ -6336,6 +7489,7 @@ class TestBinanceAssetState:
 
     def test_apply_depth_data_wrapper(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_depth({"data": {"bids": [["65000", "0.5"]], "asks": [["65010", "0.3"]]}})
         assert s.best_bid == 65000.0
@@ -6343,24 +7497,28 @@ class TestBinanceAssetState:
     def test_apply_depth_short_keys(self):
         """Binance combined stream shape: b/a instead of bids/asks."""
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_depth({"b": [["65000", "0.5"]], "a": [["65010", "0.3"]]})
         assert s.best_bid == 65000.0
 
     def test_apply_depth_empty_skipped(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_depth({"bids": [], "asks": []})
         assert s.best_bid == 0.0  # unchanged
 
     def test_apply_depth_invalid_skipped(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_depth({"bids": [["bad", "x"]], "asks": [["x", "x"]]})
         assert s.best_bid == 0.0
 
     def test_apply_trade_basic(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_trade({"T": 1700000000000, "p": "65000", "q": "0.5", "m": False})
         assert len(s.trades) == 1
@@ -6371,12 +7529,14 @@ class TestBinanceAssetState:
 
     def test_apply_trade_invalid_skipped(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_trade({"p": "bad"})
         assert len(s.trades) == 0
 
     def test_apply_mark_funding(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_mark({"p": "65500.5", "r": "0.0001"})
         assert s.mark_price == 65500.5
@@ -6384,11 +7544,13 @@ class TestBinanceAssetState:
 
     def test_features_no_data_returns_none(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         assert s.features(60.0) is None
 
     def test_features_with_data(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         s.apply_depth({"bids": [["65000", "1.0"]], "asks": [["65010", "1.0"]]})
         f = s.features(60.0)
@@ -6400,6 +7562,7 @@ class TestBinanceAssetState:
 
     def test_features_microprice(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         # Heavier ask side → microprice should lean to bid
         s.apply_depth({"bids": [["65000", "0.1"]], "asks": [["65010", "1.0"]]})
@@ -6414,6 +7577,7 @@ class TestBinanceMultiStreamCtor:
 
     def test_init_defaults(self):
         from data.binance_multistream import BinanceMultiStream
+
         bms = BinanceMultiStream()
         assert bms.trade_window == 60.0
         assert bms.enable_funding is True
@@ -6422,12 +7586,14 @@ class TestBinanceMultiStreamCtor:
 
     def test_init_custom(self):
         from data.binance_multistream import BinanceMultiStream
+
         bms = BinanceMultiStream(trade_window_seconds=120.0, enable_funding=False)
         assert bms.trade_window == 120.0
         assert bms.enable_funding is False
 
     def test_symbol_to_asset(self):
         from data.binance_multistream import BinanceMultiStream
+
         bms = BinanceMultiStream()
         # btcusdt → BTC
         result = bms._symbol_to_asset("btcusdt")
@@ -6435,12 +7601,14 @@ class TestBinanceMultiStreamCtor:
 
     def test_features_unknown_asset(self):
         from data.binance_multistream import BinanceMultiStream
+
         bms = BinanceMultiStream()
         result = bms.features("UNKNOWN_ASSET_XYZ")
         assert result is None
 
     def test_get_status_shape(self):
         from data.binance_multistream import BinanceMultiStream
+
         bms = BinanceMultiStream()
         s = bms.get_status()
         assert isinstance(s, dict)
@@ -6451,6 +7619,7 @@ class TestPolymarketRtdsClass:
 
     def test_class_imports(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         assert PolymarketRTDS is not None
 
 
@@ -6459,6 +7628,7 @@ class TestMarketScannerImports:
 
     def test_module_imports(self):
         from data import market_scanner
+
         assert market_scanner is not None
 
 
@@ -6467,6 +7637,7 @@ class TestMarketRecorderImports:
 
     def test_module_imports(self):
         from data import market_recorder
+
         assert market_recorder is not None
 
 
@@ -6475,6 +7646,7 @@ class TestWebsocketClientImports:
 
     def test_module_imports(self):
         from data import websocket_client
+
         assert websocket_client is not None
 
 
@@ -6483,6 +7655,7 @@ class TestBacktestEngineV2Imports:
 
     def test_module_imports(self):
         from backtest import engine_v2
+
         assert engine_v2 is not None
 
 
@@ -6491,6 +7664,7 @@ class TestBacktestArchiveReaderImports:
 
     def test_module_imports(self):
         from backtest import archive_reader
+
         assert archive_reader is not None
 
 
@@ -6499,6 +7673,7 @@ class TestBacktestReplayEngineImports:
 
     def test_module_imports(self):
         from backtest import replay_engine
+
         assert replay_engine is not None
 
 
@@ -6507,6 +7682,7 @@ class TestBacktestSimulationFillModelImports:
 
     def test_module_imports(self):
         from backtest.simulation import fill_model
+
         assert fill_model is not None
 
 
@@ -6515,6 +7691,7 @@ class TestSlippageModelClass:
 
     def test_module_imports(self):
         from backtest import slippage_model
+
         assert slippage_model is not None
 
 
@@ -6523,21 +7700,30 @@ class TestStrategyPluginsBaseStrategy:
 
     def test_market_snapshot_metadata_default(self):
         from core.strategy_plugins import MarketSnapshot
+
         m = MarketSnapshot(
-            up_odds=0.6, down_odds=0.4,
-            threshold=0.55, direction_filter="any",
-            odds_series=[0.6], minutes_remaining=2.0,
-            total_minutes=5.0, spread=0.02,
-            best_ask=0.62, best_bid=0.58,
+            up_odds=0.6,
+            down_odds=0.4,
+            threshold=0.55,
+            direction_filter="any",
+            odds_series=[0.6],
+            minutes_remaining=2.0,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.62,
+            best_bid=0.58,
         )
         # metadata default empty
         assert m.metadata == {}
 
     def test_strategy_signal_with_metadata(self):
         from core.strategy_plugins import StrategySignal
+
         sig = StrategySignal(
-            should_trade=True, direction="up",
-            confidence=0.85, reason="test",
+            should_trade=True,
+            direction="up",
+            confidence=0.85,
+            reason="test",
             metadata={"score": 0.95},
         )
         assert sig.metadata == {"score": 0.95}
@@ -6548,8 +7734,13 @@ class TestStatsUtilsFunctions:
 
     def test_module_dir(self):
         from core import stats_utils
+
         # Should have at least 1 callable
-        callables = [a for a in dir(stats_utils) if not a.startswith("_") and callable(getattr(stats_utils, a, None))]
+        callables = [
+            a
+            for a in dir(stats_utils)
+            if not a.startswith("_") and callable(getattr(stats_utils, a, None))
+        ]
         assert len(callables) >= 0  # smoke
 
 
@@ -6558,6 +7749,7 @@ class TestIndicatorsExtraSmoke:
 
     def test_ema_direction_filter_basic(self):
         from core.indicators import ema_direction_filter
+
         # Smoke call with simple values
         try:
             result = ema_direction_filter([0.5, 0.55, 0.60, 0.58, 0.62], "up")
@@ -6572,6 +7764,7 @@ class TestAiBrainModelRouterFull:
 
     def test_all_task_types_resolved(self):
         from core.ai_brain import ModelRouter
+
         # Each task in TASK_MODEL_MAP should have valid provider+model
         for task_type, (provider, model) in ModelRouter.TASK_MODEL_MAP.items():
             assert isinstance(provider, str)
@@ -6581,6 +7774,7 @@ class TestAiBrainModelRouterFull:
 
     def test_fallback_chain_parsed(self):
         from core.ai_brain import ModelRouter
+
         # FALLBACK_CHAIN ENV-parsed list
         assert isinstance(ModelRouter.FALLBACK_CHAIN, list)
         assert len(ModelRouter.FALLBACK_CHAIN) >= 1
@@ -6591,26 +7785,31 @@ class TestFeesV2ExtraEdgeCases:
 
     def test_polymarket_taker_fee_v2_zero_price(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         assert polymarket_taker_fee_v2(0.0, 100) == 0.0
 
     def test_polymarket_taker_fee_v2_extreme_price(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         # >= 0.999 → 0
         assert polymarket_taker_fee_v2(0.999, 100) == 0.0
         assert polymarket_taker_fee_v2(0.9999, 100) == 0.0
 
     def test_polymarket_taker_fee_v2_zero_amount(self):
         from core.fees_v2 import polymarket_taker_fee_v2
+
         assert polymarket_taker_fee_v2(0.5, 0.0) == 0.0
 
     def test_polymarket_fee_percent_v2_extremes(self):
         from core.fees_v2 import polymarket_fee_percent_v2
+
         # Extreme → 0
         assert polymarket_fee_percent_v2(0.001) == 0.0
         assert polymarket_fee_percent_v2(0.999) == 0.0
 
     def test_in_tail_zone(self):
         from core.fees_v2 import in_tail_zone
+
         assert in_tail_zone(0.10) is True
         assert in_tail_zone(0.90) is True
         assert in_tail_zone(0.50) is False
@@ -6618,16 +7817,19 @@ class TestFeesV2ExtraEdgeCases:
 
     def test_polymarket_maker_rebate_zero(self):
         from core.fees_v2 import polymarket_maker_rebate
+
         assert polymarket_maker_rebate(0.0) == 0.0
         assert polymarket_maker_rebate(-0.1) == 0.0
 
     def test_ev_after_fee_v2_extreme_price(self):
         from core.fees_v2 import ev_after_fee_v2
+
         assert ev_after_fee_v2(0.0, 0.5) == 0.0
         assert ev_after_fee_v2(0.999, 0.5) == 0.0
 
     def test_ev_after_fee_v2_maker_rebate(self):
         from core.fees_v2 import ev_after_fee_v2
+
         ev_taker = ev_after_fee_v2(0.5, 0.6, amount=10, is_maker=False)
         ev_maker = ev_after_fee_v2(0.5, 0.6, amount=10, is_maker=True)
         # Maker should be slightly better (rebate)
@@ -6639,6 +7841,7 @@ class TestUmaDisputeExtraEdges:
 
     def test_minutes_to_settlement_with_now_override(self):
         from core.uma_dispute import minutes_to_settlement
+
         now = 1_700_000_000
         market = {"endDateTs": now + 7200}  # 2h
         m = minutes_to_settlement(market, now_ts=now)
@@ -6646,26 +7849,35 @@ class TestUmaDisputeExtraEdges:
 
     def test_should_block_minutes_field_propagated(self):
         from core.uma_dispute import should_block_new_position
+
         now = 1_700_000_000
         end = now + 90 * 60  # 90 mins
         d = should_block_new_position(
-            {"endDateTs": end}, buffer_min=150, now_ts=now,
+            {"endDateTs": end},
+            buffer_min=150,
+            now_ts=now,
         )
         assert d.minutes_to_settlement == 90
 
 
 # ─── data/polymarket_client.py extra logic — bigger paths ─────────
 
+
 class TestPolymarketClientExtraLogic:
     """data/polymarket_client.py extra paths (currently 31.6%)."""
 
     def _make_client(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
-        return PolymarketClient(Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
-        ))
+        from data.polymarket_client import PolymarketClient
+
+        return PolymarketClient(
+            Settings(
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
+            )
+        )
 
     def test_calculate_vwap_consume_full_levels(self):
         c = self._make_client()
@@ -6701,51 +7913,58 @@ class TestPolymarketClientExtraLogic:
 
 # ─── core/observability/__init__.py — 45.9% ────────────────────────
 
+
 class TestObservabilityInit:
     """core/observability/__init__.py."""
 
     def test_module_imports(self):
         from core import observability
+
         assert observability is not None
 
 
 # ─── Multi-class smoke for handler files (lift 0% to ~5%) ─────────
 
+
 class TestTelegramHandlersMultiInstancing:
     """telegram_bot/handlers/* — try class import."""
 
-    @pytest.mark.parametrize("path", [
-        "telegram_bot.handlers.live_handler",
-        "telegram_bot.handlers.portfolio_handler",
-        "telegram_bot.handlers.strategy_builder",
-        "telegram_bot.handlers.dashboard",
-        "telegram_bot.handlers.markets",
-        "telegram_bot.handlers.ai_handler",
-        "telegram_bot.handlers.start",
-        "telegram_bot.handlers.stats",
-        "telegram_bot.handlers.strategies",
-        "telegram_bot.handlers.diagnose_handler",
-        "telegram_bot.handlers.changelog_handler",
-        "telegram_bot.handlers.menu_handler",
-        "telegram_bot.handlers.risk_handler",
-        "telegram_bot.handlers.roadmap_handler",
-        "telegram_bot.handlers.settings_handler",
-        "telegram_bot.handlers.lifecycle_handler",
-        "telegram_bot.handlers.brier_handler",
-        "telegram_bot.handlers.archive_info_handler",
-        "telegram_bot.handlers.rest_timing_handler",
-        "telegram_bot.handlers.force_settle_handler",
-        "telegram_bot.handlers.filters_handler",
-        "telegram_bot.handlers.env_toggle",
-        "telegram_bot.handlers.mode_handler",
-        "telegram_bot.handlers.strategy_report",
-        "telegram_bot.handlers.strategy_tester",
-        "telegram_bot.handlers.positions",
-        "telegram_bot.handlers.backtest_v2",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "telegram_bot.handlers.live_handler",
+            "telegram_bot.handlers.portfolio_handler",
+            "telegram_bot.handlers.strategy_builder",
+            "telegram_bot.handlers.dashboard",
+            "telegram_bot.handlers.markets",
+            "telegram_bot.handlers.ai_handler",
+            "telegram_bot.handlers.start",
+            "telegram_bot.handlers.stats",
+            "telegram_bot.handlers.strategies",
+            "telegram_bot.handlers.diagnose_handler",
+            "telegram_bot.handlers.changelog_handler",
+            "telegram_bot.handlers.menu_handler",
+            "telegram_bot.handlers.risk_handler",
+            "telegram_bot.handlers.roadmap_handler",
+            "telegram_bot.handlers.settings_handler",
+            "telegram_bot.handlers.lifecycle_handler",
+            "telegram_bot.handlers.brier_handler",
+            "telegram_bot.handlers.archive_info_handler",
+            "telegram_bot.handlers.rest_timing_handler",
+            "telegram_bot.handlers.force_settle_handler",
+            "telegram_bot.handlers.filters_handler",
+            "telegram_bot.handlers.env_toggle",
+            "telegram_bot.handlers.mode_handler",
+            "telegram_bot.handlers.strategy_report",
+            "telegram_bot.handlers.strategy_tester",
+            "telegram_bot.handlers.positions",
+            "telegram_bot.handlers.backtest_v2",
+        ],
+    )
     def test_handler_module_get_attrs(self, path):
         """Module load + dir() — covers module-level statements."""
         import importlib
+
         try:
             mod = importlib.import_module(path)
             # Force module-level execution
@@ -6758,31 +7977,55 @@ class TestTelegramHandlersMultiInstancing:
 
 # ─── Bonus mega module-loaders for any uncovered area ──────────────
 
+
 class TestAllBacktestModulesLoad:
     """Force load all backtest modules (lift 0% files at least to import-level)."""
 
-    @pytest.mark.parametrize("path", [
-        "backtest", "backtest.metrics", "backtest.archive_reader",
-        "backtest.engine_v2", "backtest.replay_engine", "backtest.replay_engine_v3",
-        "backtest.slippage_model", "backtest.walk_forward",
-        "backtest.simulation", "backtest.simulation.fill_model",
-        "backtest.simulation.fee_model_v3", "backtest.simulation.portfolio",
-        "backtest.analytics", "backtest.analytics.charts",
-        "backtest.analytics.comparator", "backtest.analytics.reporter",
-        "backtest.data_sources", "backtest.data_sources.binance_hist",
-        "backtest.data_sources.cache", "backtest.data_sources.collector",
-        "backtest.data_sources.gamma_hist", "backtest.data_sources.polybacktest",
-        "backtest.strategies", "backtest.strategies.base",
-        "backtest.strategies.bonding_yield", "backtest.strategies.calibration_arb",
-        "backtest.strategies.composite", "backtest.strategies.cross_coin",
-        "backtest.strategies.fade_rip", "backtest.strategies.funding_rate",
-        "backtest.strategies.hour_edge", "backtest.strategies.late_convergence",
-        "backtest.strategies.live_adapter", "backtest.strategies.opening_breakout",
-        "backtest.strategies.orderbook_imbalance", "backtest.strategies.streak_reversal",
-        "backtest.strategies.taker_flow",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "backtest",
+            "backtest.metrics",
+            "backtest.archive_reader",
+            "backtest.engine_v2",
+            "backtest.replay_engine",
+            "backtest.replay_engine_v3",
+            "backtest.slippage_model",
+            "backtest.walk_forward",
+            "backtest.simulation",
+            "backtest.simulation.fill_model",
+            "backtest.simulation.fee_model_v3",
+            "backtest.simulation.portfolio",
+            "backtest.analytics",
+            "backtest.analytics.charts",
+            "backtest.analytics.comparator",
+            "backtest.analytics.reporter",
+            "backtest.data_sources",
+            "backtest.data_sources.binance_hist",
+            "backtest.data_sources.cache",
+            "backtest.data_sources.collector",
+            "backtest.data_sources.gamma_hist",
+            "backtest.data_sources.polybacktest",
+            "backtest.strategies",
+            "backtest.strategies.base",
+            "backtest.strategies.bonding_yield",
+            "backtest.strategies.calibration_arb",
+            "backtest.strategies.composite",
+            "backtest.strategies.cross_coin",
+            "backtest.strategies.fade_rip",
+            "backtest.strategies.funding_rate",
+            "backtest.strategies.hour_edge",
+            "backtest.strategies.late_convergence",
+            "backtest.strategies.live_adapter",
+            "backtest.strategies.opening_breakout",
+            "backtest.strategies.orderbook_imbalance",
+            "backtest.strategies.streak_reversal",
+            "backtest.strategies.taker_flow",
+        ],
+    )
     def test_load_module(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -6793,30 +8036,66 @@ class TestAllBacktestModulesLoad:
 class TestAllCoreModulesLoad:
     """Force load all core modules."""
 
-    @pytest.mark.parametrize("path", [
-        "core", "core.ai_brain", "core.allowance_preflight", "core.auto_optimizer",
-        "core.autopilot", "core.bg_task", "core.changelog", "core.circuit_breaker",
-        "core.decision_explainer", "core.engine", "core.engine_fills",
-        "core.engine_monitor", "core.engine_settlement", "core.engine_signals",
-        "core.engine_support", "core.ev_tracker", "core.executor",
-        "core.experiment_runner", "core.fees_v2", "core.heartbeat",
-        "core.indicators", "core.intent_parser", "core.keepalive",
-        "core.kelly", "core.kill_switch", "core.live_trader",
-        "core.maker_taker_decision", "core.micro_weight_tracker",
-        "core.portfolio_kill_switch", "core.regime", "core.risk_manager",
-        "core.signal_fusion", "core.stats_utils", "core.status_poller",
-        "core.strategy_lifecycle", "core.strategy_plugins",
-        "core.strategy_selector", "core.strategy_suggester",
-        "core.structured_logging", "core.trade_journal", "core.trade_memory",
-        "core.uma_dispute",
-        "core.calibration", "core.calibration.fill_heuristic_recalibrate",
-        "core.error_handler", "core.error_handler.polymarket_errors",
-        "core.observability", "core.observability.rest_timing",
-        "core.reconciliation", "core.reconciliation.onchain_sync",
-        "core.signals", "core.signals.whale_flow",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "core",
+            "core.ai_brain",
+            "core.allowance_preflight",
+            "core.auto_optimizer",
+            "core.autopilot",
+            "core.bg_task",
+            "core.changelog",
+            "core.circuit_breaker",
+            "core.decision_explainer",
+            "core.engine",
+            "core.engine_fills",
+            "core.engine_monitor",
+            "core.engine_settlement",
+            "core.engine_signals",
+            "core.engine_support",
+            "core.ev_tracker",
+            "core.executor",
+            "core.experiment_runner",
+            "core.fees_v2",
+            "core.heartbeat",
+            "core.indicators",
+            "core.intent_parser",
+            "core.keepalive",
+            "core.kelly",
+            "core.kill_switch",
+            "core.live_trader",
+            "core.maker_taker_decision",
+            "core.micro_weight_tracker",
+            "core.portfolio_kill_switch",
+            "core.regime",
+            "core.risk_manager",
+            "core.signal_fusion",
+            "core.stats_utils",
+            "core.status_poller",
+            "core.strategy_lifecycle",
+            "core.strategy_plugins",
+            "core.strategy_selector",
+            "core.strategy_suggester",
+            "core.structured_logging",
+            "core.trade_journal",
+            "core.trade_memory",
+            "core.uma_dispute",
+            "core.calibration",
+            "core.calibration.fill_heuristic_recalibrate",
+            "core.error_handler",
+            "core.error_handler.polymarket_errors",
+            "core.observability",
+            "core.observability.rest_timing",
+            "core.reconciliation",
+            "core.reconciliation.onchain_sync",
+            "core.signals",
+            "core.signals.whale_flow",
+        ],
+    )
     def test_load_module(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -6827,16 +8106,27 @@ class TestAllCoreModulesLoad:
 class TestAllDataModulesLoad:
     """Force load all data modules."""
 
-    @pytest.mark.parametrize("path", [
-        "data.binance_multistream", "data.candle_collector",
-        "data.chainlink_oracle", "data.event_monitor", "data.external_feed",
-        "data.market_recorder", "data.market_scanner", "data.odds_feed",
-        "data.polymarket_actions", "data.polymarket_client",
-        "data.polymarket_portfolio", "data.polymarket_rtds",
-        "data.websocket_client",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "data.binance_multistream",
+            "data.candle_collector",
+            "data.chainlink_oracle",
+            "data.event_monitor",
+            "data.external_feed",
+            "data.market_recorder",
+            "data.market_scanner",
+            "data.odds_feed",
+            "data.polymarket_actions",
+            "data.polymarket_client",
+            "data.polymarket_portfolio",
+            "data.polymarket_rtds",
+            "data.websocket_client",
+        ],
+    )
     def test_load_module(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -6847,44 +8137,66 @@ class TestAllDataModulesLoad:
 class TestAllTelegramModulesLoad:
     """Force load all telegram modules."""
 
-    @pytest.mark.parametrize("path", [
-        "telegram_bot", "telegram_bot.bot", "telegram_bot.banners",
-        "telegram_bot.hub_keyboard", "telegram_bot.version",
-        "telegram_bot.handlers", "telegram_bot.handlers.ai_handler",
-        "telegram_bot.handlers.archive_info_handler",
-        "telegram_bot.handlers.backtest_v2", "telegram_bot.handlers.brier_handler",
-        "telegram_bot.handlers.changelog_handler",
-        "telegram_bot.handlers.dashboard", "telegram_bot.handlers.diagnose_handler",
-        "telegram_bot.handlers.env_toggle", "telegram_bot.handlers.filters_handler",
-        "telegram_bot.handlers.force_settle_handler",
-        "telegram_bot.handlers.lifecycle_handler",
-        "telegram_bot.handlers.live_handler", "telegram_bot.handlers.live_guards_handler",
-        "telegram_bot.handlers.markets", "telegram_bot.handlers.menu_handler",
-        "telegram_bot.handlers.mode_handler", "telegram_bot.handlers.order_validator",
-        "telegram_bot.handlers.phase77_handler",
-        "telegram_bot.handlers.portfolio_handler", "telegram_bot.handlers.positions",
-        "telegram_bot.handlers.rest_timing_handler",
-        "telegram_bot.handlers.risk_handler",
-        "telegram_bot.handlers.roadmap_handler",
-        "telegram_bot.handlers.settings_handler", "telegram_bot.handlers.start",
-        "telegram_bot.handlers.stats", "telegram_bot.handlers.strategies",
-        "telegram_bot.handlers.strategy_builder",
-        "telegram_bot.handlers.strategy_report",
-        "telegram_bot.handlers.strategy_tester",
-        "telegram_bot.handlers._exc_render",
-        "telegram_bot.jobs", "telegram_bot.jobs.auto_promote_job",
-        "telegram_bot.jobs.db_archive_job", "telegram_bot.jobs.db_retention_job",
-        "telegram_bot.jobs.maintenance_jobs", "telegram_bot.jobs.pattern_discovery_job",
-        "telegram_bot.jobs.pnl_divergence_job",
-        "telegram_bot.jobs.polymarket_portfolio_job",
-        "telegram_bot.jobs.shadow_report_job",
-        "telegram_bot.jobs.shadow_vs_paper_job",
-        "telegram_bot.templates", "telegram_bot.templates.callback_proxy",
-        "telegram_bot.templates.errors", "telegram_bot.templates.mode_banner",
-        "telegram_bot.templates.safe_html",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "telegram_bot",
+            "telegram_bot.bot",
+            "telegram_bot.banners",
+            "telegram_bot.hub_keyboard",
+            "telegram_bot.version",
+            "telegram_bot.handlers",
+            "telegram_bot.handlers.ai_handler",
+            "telegram_bot.handlers.archive_info_handler",
+            "telegram_bot.handlers.backtest_v2",
+            "telegram_bot.handlers.brier_handler",
+            "telegram_bot.handlers.changelog_handler",
+            "telegram_bot.handlers.dashboard",
+            "telegram_bot.handlers.diagnose_handler",
+            "telegram_bot.handlers.env_toggle",
+            "telegram_bot.handlers.filters_handler",
+            "telegram_bot.handlers.force_settle_handler",
+            "telegram_bot.handlers.lifecycle_handler",
+            "telegram_bot.handlers.live_handler",
+            "telegram_bot.handlers.live_guards_handler",
+            "telegram_bot.handlers.markets",
+            "telegram_bot.handlers.menu_handler",
+            "telegram_bot.handlers.mode_handler",
+            "telegram_bot.handlers.order_validator",
+            "telegram_bot.handlers.phase77_handler",
+            "telegram_bot.handlers.portfolio_handler",
+            "telegram_bot.handlers.positions",
+            "telegram_bot.handlers.rest_timing_handler",
+            "telegram_bot.handlers.risk_handler",
+            "telegram_bot.handlers.roadmap_handler",
+            "telegram_bot.handlers.settings_handler",
+            "telegram_bot.handlers.start",
+            "telegram_bot.handlers.stats",
+            "telegram_bot.handlers.strategies",
+            "telegram_bot.handlers.strategy_builder",
+            "telegram_bot.handlers.strategy_report",
+            "telegram_bot.handlers.strategy_tester",
+            "telegram_bot.handlers._exc_render",
+            "telegram_bot.jobs",
+            "telegram_bot.jobs.auto_promote_job",
+            "telegram_bot.jobs.db_archive_job",
+            "telegram_bot.jobs.db_retention_job",
+            "telegram_bot.jobs.maintenance_jobs",
+            "telegram_bot.jobs.pattern_discovery_job",
+            "telegram_bot.jobs.pnl_divergence_job",
+            "telegram_bot.jobs.polymarket_portfolio_job",
+            "telegram_bot.jobs.shadow_report_job",
+            "telegram_bot.jobs.shadow_vs_paper_job",
+            "telegram_bot.templates",
+            "telegram_bot.templates.callback_proxy",
+            "telegram_bot.templates.errors",
+            "telegram_bot.templates.mode_banner",
+            "telegram_bot.templates.safe_html",
+        ],
+    )
     def test_load_module(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             assert mod is not None
@@ -6894,15 +8206,18 @@ class TestAllTelegramModulesLoad:
 
 # ─── Final memory landmark trigger - bulk endpoint validation ─────
 
+
 class TestBulkEndpointModuleConstants:
     """data/polymarket_client.py P3.X bulk endpoint constants."""
 
     def test_max_15(self):
         from data.polymarket_client import PolymarketClient
+
         assert PolymarketClient.BULK_ORDER_MAX == 15
 
     def test_endpoint_path(self):
         from data.polymarket_client import PolymarketClient
+
         assert PolymarketClient.BULK_ORDER_ENDPOINT == "/orders"
 
 
@@ -6913,23 +8228,31 @@ class TestBulkEndpointModuleConstants:
 # parse-time'da çalışmıyor. Asıl pp gain için strateji evaluate()
 # gerçek çağrılmalı — coverage işaretler her line'ı.
 
+
 class TestStrategyPluginsAllEvaluate:
     """20 strategy class — gerçek evaluate() çağrı = büyük pp gain."""
 
     def _snap(self, **overrides):
         from core.strategy_plugins import MarketSnapshot
+
         defaults = dict(
-            up_odds=0.55, down_odds=0.45,
-            threshold=0.50, direction_filter="any",
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
+            direction_filter="any",
             odds_series=[0.50, 0.51, 0.53, 0.54, 0.55, 0.56, 0.57],
-            minutes_remaining=2.5, total_minutes=5.0,
-            spread=0.02, best_ask=0.56, best_bid=0.54,
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
         )
         defaults.update(overrides)
         return MarketSnapshot(**defaults)
 
     def test_momentum_evaluate(self):
         from core.strategy_plugins import MomentumStrategy
+
         s = MomentumStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
@@ -6937,6 +8260,7 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_momentum_insufficient_data(self):
         from core.strategy_plugins import MomentumStrategy
+
         s = MomentumStrategy()
         snap = self._snap(odds_series=[0.5])
         result = s.evaluate(snap)
@@ -6945,55 +8269,63 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_momentum_strong_uptrend(self):
         from core.strategy_plugins import MomentumStrategy
+
         s = MomentumStrategy()
         # Strong uptrend, 7 data points
-        snap = self._snap(odds_series=[0.40, 0.42, 0.44, 0.50, 0.55, 0.60, 0.65],
-                          up_odds=0.65, threshold=0.50)
+        snap = self._snap(
+            odds_series=[0.40, 0.42, 0.44, 0.50, 0.55, 0.60, 0.65], up_odds=0.65, threshold=0.50
+        )
         result = s.evaluate(snap)
         # Likely UP signal
         assert result is not None
 
     def test_contrarian_evaluate(self):
         from core.strategy_plugins import ContrarianStrategy
+
         s = ContrarianStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_scalper_evaluate(self):
         from core.strategy_plugins import ScalperStrategy
+
         s = ScalperStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_sniper_evaluate(self):
         from core.strategy_plugins import SniperStrategy
+
         s = SniperStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_martingale_evaluate(self):
         from core.strategy_plugins import MartingaleStrategy
+
         s = MartingaleStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_flash_crash_evaluate(self):
         from core.strategy_plugins import FlashCrashStrategy
+
         s = FlashCrashStrategy()
         # Crash scenario: rapid drop
-        snap = self._snap(odds_series=[0.80, 0.75, 0.70, 0.55, 0.40, 0.30, 0.25],
-                          up_odds=0.25)
+        snap = self._snap(odds_series=[0.80, 0.75, 0.70, 0.55, 0.40, 0.30, 0.25], up_odds=0.25)
         result = s.evaluate(snap)
         assert result is not None
 
     def test_streak_reversal_evaluate(self):
         from core.strategy_plugins import StreakReversalStrategy
+
         s = StreakReversalStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_high_threshold_evaluate(self):
         from core.strategy_plugins import HighThresholdStrategy
+
         s = HighThresholdStrategy()
         # High odds → maybe trigger
         snap = self._snap(up_odds=0.85, threshold=0.80)
@@ -7002,6 +8334,7 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_late_convergence_evaluate(self):
         from core.strategy_plugins import LateConvergenceStrategy
+
         s = LateConvergenceStrategy()
         # Late stage — most of market done
         snap = self._snap(minutes_remaining=0.5, total_minutes=5.0)
@@ -7010,6 +8343,7 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_penny_contract_evaluate(self):
         from core.strategy_plugins import PennyContractStrategy
+
         s = PennyContractStrategy()
         # Low price contract
         snap = self._snap(up_odds=0.05, down_odds=0.95)
@@ -7018,6 +8352,7 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_bonding_yield_live_evaluate(self):
         from core.strategy_plugins import BondingYieldLiveStrategy
+
         s = BondingYieldLiveStrategy()
         snap = self._snap(up_odds=0.95, down_odds=0.05)
         result = s.evaluate(snap)
@@ -7025,12 +8360,14 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_hour_edge_live_evaluate(self):
         from core.strategy_plugins import HourEdgeLiveStrategy
+
         s = HourEdgeLiveStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_orderbook_imbalance_live_evaluate(self):
         from core.strategy_plugins import OrderbookImbalanceLiveStrategy
+
         s = OrderbookImbalanceLiveStrategy()
         # OB imbalance metadata
         snap = self._snap(metadata={"ob_imbalance": 0.5, "up_bid_depth": 1000, "up_ask_depth": 200})
@@ -7039,12 +8376,14 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_fade_rip_live_evaluate(self):
         from core.strategy_plugins import FadeRipLiveStrategy
+
         s = FadeRipLiveStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_opening_breakout_live_evaluate(self):
         from core.strategy_plugins import OpeningBreakoutLiveStrategy
+
         s = OpeningBreakoutLiveStrategy()
         # Opening: most time remaining
         snap = self._snap(minutes_remaining=4.5, total_minutes=5.0)
@@ -7053,6 +8392,7 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_funding_rate_live_evaluate(self):
         from core.strategy_plugins import FundingRateLiveStrategy
+
         s = FundingRateLiveStrategy()
         snap = self._snap(metadata={"funding_rate": 0.001})
         result = s.evaluate(snap)
@@ -7060,18 +8400,21 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_calibration_arb_live_evaluate(self):
         from core.strategy_plugins import CalibrationArbLiveStrategy
+
         s = CalibrationArbLiveStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_fusion_strategy_evaluate(self):
         from core.strategy_plugins import FusionStrategy
+
         s = FusionStrategy()
         result = s.evaluate(self._snap())
         assert result is not None
 
     def test_classic_strategy_evaluate(self):
         from core.strategy_plugins import ClassicStrategy
+
         s = ClassicStrategy()
         # Classic: user-directed, threshold trigger
         snap = self._snap(up_odds=0.85, threshold=0.85, direction_filter="up")
@@ -7080,6 +8423,7 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_classic_strategy_below_threshold(self):
         from core.strategy_plugins import ClassicStrategy
+
         s = ClassicStrategy()
         snap = self._snap(up_odds=0.50, threshold=0.85, direction_filter="up")
         result = s.evaluate(snap)
@@ -7087,9 +8431,9 @@ class TestStrategyPluginsAllEvaluate:
 
     def test_classic_strategy_down_direction(self):
         from core.strategy_plugins import ClassicStrategy
+
         s = ClassicStrategy()
-        snap = self._snap(up_odds=0.20, down_odds=0.80, threshold=0.80,
-                          direction_filter="down")
+        snap = self._snap(up_odds=0.20, down_odds=0.80, threshold=0.80, direction_filter="down")
         result = s.evaluate(snap)
         assert result is not None
 
@@ -7099,6 +8443,7 @@ class TestStrategyRegistryRealUsage:
 
     def test_registry_default_strategies_exist(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         # Default registered strategies
         for name in ("momentum", "contrarian", "fusion"):
@@ -7111,12 +8456,14 @@ class TestStrategyRegistryRealUsage:
 
     def test_registry_list_or_iterate(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         # Smoke: registry has some interface
         assert reg is not None
 
     def test_set_config_unknown_strategy_safe(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         try:
             result = reg.set_config("nonexistent_xyz", "param", 0.5)
@@ -7127,11 +8474,13 @@ class TestStrategyRegistryRealUsage:
 
 # ─── core/risk_manager.py — gerçek check_trade path ───────────────
 
+
 class TestRiskManagerRealPaths:
     """RiskManager 9-gate check_trade real call paths."""
 
     def _make_rm(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_check_trade_signature_sniff(self):
@@ -7139,10 +8488,14 @@ class TestRiskManagerRealPaths:
         rm = self._make_rm()
         # Try multiple possible signatures
         for kwargs in [
-            dict(trade_amount=1.0, market_slug="btc-up", current_balance=1000,
-                 total_exposure=0, open_count=0),
-            dict(amount=1.0, market_slug="btc-up", balance=1000,
-                 exposure=0, open_count=0),
+            dict(
+                trade_amount=1.0,
+                market_slug="btc-up",
+                current_balance=1000,
+                total_exposure=0,
+                open_count=0,
+            ),
+            dict(amount=1.0, market_slug="btc-up", balance=1000, exposure=0, open_count=0),
         ]:
             try:
                 result = rm.check_trade(**kwargs)
@@ -7210,27 +8563,33 @@ class TestRiskManagerRealPaths:
 
 # ─── core/ai_brain.py LLM path mocks (büyük etki — 993 stmt) ──────
 
+
 class TestAiBrainLLMMocks:
     """ai_brain LLM call path — _do_claude/groq/openrouter mock test."""
 
     def _make_brain(self):
         from core.ai_brain import AIBrain
+
         return AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
 
     def test_call_claude_no_api_key(self, monkeypatch):
         """No ANTHROPIC_API_KEY → return None."""
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "ANTHROPIC_API_KEY", "", raising=False)
         b = self._make_brain()
         import asyncio
+
         result = asyncio.run(b._call_claude("system", "user"))
         assert result is None
 
     def test_call_groq_no_api_key(self, monkeypatch):
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "GROK_API_KEY", "", raising=False)
         b = self._make_brain()
         import asyncio
+
         try:
             result = asyncio.run(b._call_groq("system", "user"))
             assert result is None
@@ -7240,11 +8599,13 @@ class TestAiBrainLLMMocks:
     def test_call_claude_rate_limited_short_circuit(self, monkeypatch):
         """If rate-limited, _call_claude returns None without API hit."""
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "ANTHROPIC_API_KEY", "test-key", raising=False)
         b = self._make_brain()
         # Set cooldown 60s in future
         b._rate_limited_until["claude"] = time.time() + 60
         import asyncio
+
         result = asyncio.run(b._call_claude("system", "user"))
         assert result is None
 
@@ -7260,6 +8621,7 @@ class TestAiBrainLLMMocks:
 
     def test_extract_json_complex_text(self):
         from core.ai_brain import AIBrain
+
         text = """Here is my analysis:
         ```json
         {"actions": [{"type": "DELETE", "id": "abc"}], "confidence": 0.85}
@@ -7271,6 +8633,7 @@ class TestAiBrainLLMMocks:
 
     def test_extract_json_nested_braces(self):
         from core.ai_brain import AIBrain
+
         text = '{"outer": {"inner": "value"}}'
         result = AIBrain._extract_json(text)
         assert result == text
@@ -7285,16 +8648,19 @@ class TestAiBrainLLMMocks:
 
 # ─── core/auto_optimizer.py paths ──────────────────────────────────
 
+
 class TestAutoOptimizerPaths:
     """core/auto_optimizer.py — at 21.6%."""
 
     def test_class_init(self):
         from core.auto_optimizer import AutoOptimizer
+
         ao = AutoOptimizer(db=MagicMock())
         assert ao is not None
 
     def test_class_attrs(self):
         from core.auto_optimizer import AutoOptimizer
+
         ao = AutoOptimizer(db=MagicMock())
         # Should have db
         assert ao.db is not None
@@ -7302,27 +8668,32 @@ class TestAutoOptimizerPaths:
 
 # ─── core/strategy_lifecycle.py paths ──────────────────────────────
 
+
 class TestStrategyLifecyclePaths:
     """core/strategy_lifecycle.py — at 19.9%."""
 
     def test_class_init(self):
         from core.strategy_lifecycle import StrategyLifecycle
+
         sl = StrategyLifecycle(db=MagicMock())
         assert sl is not None
 
 
 # ─── core/strategy_selector.py paths ───────────────────────────────
 
+
 class TestStrategySelectorPaths:
     """core/strategy_selector.py — at 64.9%."""
 
     def test_class_init(self):
         from core.strategy_selector import StrategySelector
+
         ss = StrategySelector()
         assert ss is not None
 
     def test_basic_methods(self):
         from core.strategy_selector import StrategySelector
+
         ss = StrategySelector()
         # Smoke for common method names
         for method_name in ("update", "select", "get_score", "record"):
@@ -7333,12 +8704,14 @@ class TestStrategySelectorPaths:
 
 # ─── core/decision_explainer.py paths ──────────────────────────────
 
+
 class TestDecisionExplainerPaths:
     """core/decision_explainer.py — at 74.7%."""
 
     def test_class_init(self):
         try:
             from core.decision_explainer import DecisionExplainer
+
             de = DecisionExplainer()
             assert de is not None
         except (ImportError, TypeError):
@@ -7347,12 +8720,14 @@ class TestDecisionExplainerPaths:
 
 # ─── core/trade_memory.py paths ────────────────────────────────────
 
+
 class TestTradeMemoryPaths:
     """core/trade_memory.py — at 71.6%."""
 
     def test_class_init(self):
         try:
             from core.trade_memory import TradeMemory
+
             tm = TradeMemory()
             assert tm is not None
         except (ImportError, TypeError):
@@ -7361,12 +8736,14 @@ class TestTradeMemoryPaths:
 
 # ─── core/experiment_runner.py paths ───────────────────────────────
 
+
 class TestExperimentRunnerPaths:
     """core/experiment_runner.py — at 75.5%."""
 
     def test_class_init(self):
         try:
             from core.experiment_runner import ExperimentRunner
+
             er = ExperimentRunner()
             assert er is not None
         except (ImportError, TypeError):
@@ -7375,12 +8752,14 @@ class TestExperimentRunnerPaths:
 
 # ─── core/intent_parser deep — gerçek parse_intent ─────────────────
 
+
 class TestIntentParserRealCalls:
     """core/intent_parser.py 39.8% — real parse calls."""
 
     def test_keyword_match_known_command(self):
         """Try common bot commands."""
         from core.intent_parser import keyword_match
+
         for text in ("portföy göster", "stratejilerim", "fiyat", "yardım", "stat"):
             r = keyword_match(text)
             # May or may not match — just smoke
@@ -7389,13 +8768,15 @@ class TestIntentParserRealCalls:
 
     def test_parse_intent_sync_known(self):
         from core.intent_parser import parse_intent_sync
+
         for text in ("bakiyemi göster", "BTC fiyatı", "stratejilerim ne durumda"):
             r = parse_intent_sync(text, use_claude=False)
             assert r is not None
             assert hasattr(r, "command")
 
     def test_extract_args_with_asset(self):
-        from core.intent_parser import _extract_args, COMMAND_CATALOG
+        from core.intent_parser import COMMAND_CATALOG, _extract_args
+
         for spec in COMMAND_CATALOG:
             if getattr(spec, "takes_args", False):
                 args = _extract_args(spec, "BTC fiyatı 0.5")
@@ -7403,7 +8784,8 @@ class TestIntentParserRealCalls:
                 break
 
     def test_score_with_real_keywords(self):
-        from core.intent_parser import _score, _tokenize, COMMAND_CATALOG
+        from core.intent_parser import COMMAND_CATALOG, _score, _tokenize
+
         for spec in COMMAND_CATALOG:
             if spec.keywords:
                 # Use first keyword
@@ -7416,12 +8798,14 @@ class TestIntentParserRealCalls:
 
 # ─── core/heartbeat.py paths ───────────────────────────────────────
 
+
 class TestHeartbeatPaths:
     """core/heartbeat.py — at 32.1%."""
 
     def test_init_basic(self):
         try:
             from core.heartbeat import HeartbeatTask
+
             hb = HeartbeatTask(client=MagicMock())
             assert hb is not None
             assert hasattr(hb, "client") or hasattr(hb, "_client")
@@ -7431,12 +8815,14 @@ class TestHeartbeatPaths:
 
 # ─── core/reconciliation/onchain_sync.py paths ─────────────────────
 
+
 class TestReconciliationPaths:
     """core/reconciliation/onchain_sync.py — at 25.2%."""
 
     def test_init_basic(self):
         try:
             from core.reconciliation.onchain_sync import ReconciliationTask
+
             rt = ReconciliationTask(db=MagicMock(), wallet="0xtest", alert_callback=None)
             assert rt is not None
         except (ImportError, TypeError):
@@ -7445,11 +8831,13 @@ class TestReconciliationPaths:
 
 # ─── data/polymarket_actions.py paths daha derin ───────────────────
 
+
 class TestPolymarketActionsBuildClient:
     """data/polymarket_actions.py paths."""
 
     def test_build_client_no_creds(self, monkeypatch):
         from data.polymarket_actions import _build_clob_client
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "")
         monkeypatch.setenv("POLYGON_WALLET", "")
         result = _build_clob_client()
@@ -7459,12 +8847,14 @@ class TestPolymarketActionsBuildClient:
 
 # ─── Backtest deep imports + class instantiation ──────────────────
 
+
 class TestBacktestStrategyClassInstances:
     """Direct strategy class instantiation paths — module body executes."""
 
     def test_calibration_arb_class_attrs(self):
         try:
             from backtest.strategies.calibration_arb import CalibrationArbStrategy
+
             assert CalibrationArbStrategy.name == "calibration_arb"
             assert CalibrationArbStrategy.version == "1.0"
         except (ImportError, AttributeError):
@@ -7473,6 +8863,7 @@ class TestBacktestStrategyClassInstances:
     def test_strategy_registry_v2_register(self):
         try:
             from backtest.strategies.base import StrategyRegistryV2
+
             # Smoke: registry exists
             assert StrategyRegistryV2 is not None
         except (ImportError, AttributeError):
@@ -7480,6 +8871,7 @@ class TestBacktestStrategyClassInstances:
 
 
 # ─── core/engine_signals.py mixin async helpers ────────────────────
+
 
 class TestEngineSignalsMixinAsync:
     """Mixin async method smoke tests with mock context."""
@@ -7494,6 +8886,7 @@ class TestEngineSignalsMixinAsync:
                 self._brier_cache = None
                 self._brier_cache_time = None
                 self._pending = []
+
         return StubEngine()
 
     @pytest.mark.asyncio
@@ -7516,6 +8909,7 @@ class TestEngineSignalsMixinAsync:
 
     def test_compute_pending_reserved_with_orders(self):
         from unittest.mock import MagicMock as _MM
+
         eng = self._make_mock_engine()
         ord1 = _MM(amount=1.0, wallet_id="paper")
         ord2 = _MM(amount=2.0, wallet_id="paper")
@@ -7527,17 +8921,20 @@ class TestEngineSignalsMixinAsync:
 
 # ─── More edge cases for already-mid-coverage modules ──────────────
 
+
 class TestPolymarketRtdsDeepInit:
     """data/polymarket_rtds.py PolymarketRTDS init paths."""
 
     def test_init_default(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         assert rtds is not None
 
     def test_init_with_chainlink_disabled(self):
         """PolymarketRTDS may not accept chainlink_enabled kwarg — try variants."""
         from data.polymarket_rtds import PolymarketRTDS
+
         # Try multiple kwarg names
         for kwargs in [{"chainlink_enabled": False}, {"enable_chainlink": False}, {}]:
             try:
@@ -7550,6 +8947,7 @@ class TestPolymarketRtdsDeepInit:
 
     def test_get_status_init(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         s = rtds.get_status()
         assert isinstance(s, dict)
@@ -7561,6 +8959,7 @@ class TestExternalFeedFetch:
     @pytest.mark.asyncio
     async def test_start_no_httpx_client(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         # No httpx → should warn + skip
         await f.start(httpx_client=None)
@@ -7568,6 +8967,7 @@ class TestExternalFeedFetch:
 
     def test_get_open_prices_default(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         # Basic state
         assert f._open_prices == {}
@@ -7575,17 +8975,20 @@ class TestExternalFeedFetch:
 
 # ─── Deep core path coverage targets ───────────────────────────────
 
+
 class TestCoreFeesV2DeepPaths:
     """core/fees_v2.py — already 95.7%, hit remaining branches."""
 
     def test_dynamic_fallback_no_client(self):
         from core.fees_v2 import taker_fee_dynamic
+
         # No client → static fallback
         fee = taker_fee_dynamic(None, "0xc", 0.5, 100)
         assert fee > 0
 
     def test_dynamic_geopolitics_market(self):
         from core.fees_v2 import taker_fee_dynamic
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "feesEnabled": False,
@@ -7601,12 +9004,14 @@ class TestFinalSmoke:
     def test_import_test_module_itself(self):
         """Self-import works."""
         from tests.unit import test_p0_p1_extra_coverage
+
         assert test_p0_p1_extra_coverage is not None
 
 
 # ═══════════════════════════════════════════════════════════════════
 # Coverage Wave 4 Final — Engine ctor with mocks (büyük dosya)
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestEngineCtorMocks:
     """core/engine.py TradingEngine ctor — büyük etki (695 stmt)."""
@@ -7615,18 +9020,27 @@ class TestEngineCtorMocks:
         """Construct TradingEngine with full mock dependencies."""
         from config.settings import Settings
         from core.engine import TradingEngine
+
         settings = Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+            TELEGRAM_BOT_TOKEN="t",
+            ADMIN_TELEGRAM_ID=1,
+            ANTHROPIC_API_KEY="t",
+            POLYMARKET_API_KEY="t",
         )
         db = MagicMock()
         scanner = MagicMock()
         odds_feed = MagicMock()
-        odds_feed.get_status = MagicMock(return_value={"total_records": 0, "tracked_slugs": 0, "slug_sizes": {}})
+        odds_feed.get_status = MagicMock(
+            return_value={"total_records": 0, "tracked_slugs": 0, "slug_sizes": {}}
+        )
         try:
             engine = TradingEngine(
-                settings=settings, db=db, scanner=scanner,
-                odds_feed=odds_feed, bot_app=None, external_feed=None,
+                settings=settings,
+                db=db,
+                scanner=scanner,
+                odds_feed=odds_feed,
+                bot_app=None,
+                external_feed=None,
             )
             return engine
         except Exception as e:
@@ -7654,8 +9068,13 @@ class TestEngineCtorMocks:
     def test_ctor_brain_flags_canonical(self):
         eng = self._make_engine()
         # Canonical 6-flag set
-        for flag in ("ai_brain", "thompson_sampling", "regime_detection",
-                     "autopilot", "candle_collector"):
+        for flag in (
+            "ai_brain",
+            "thompson_sampling",
+            "regime_detection",
+            "autopilot",
+            "candle_collector",
+        ):
             assert flag in eng.brain_flags
 
     def test_ctor_pending_empty(self):
@@ -7666,10 +9085,12 @@ class TestEngineCtorMocks:
     def test_ctor_lock_present(self):
         eng = self._make_engine()
         import asyncio
+
         assert isinstance(eng._trade_lock, asyncio.Lock)
 
     def test_ctor_skips_counter_present(self):
         from core.engine_support import SkipCounter
+
         eng = self._make_engine()
         assert isinstance(eng.skips, SkipCounter)
 
@@ -7707,13 +9128,17 @@ class TestEngineRiskInvalidEnv:
         monkeypatch.setenv("MAX_DAILY_LOSS", "garbage")
         from config.settings import Settings
         from core.engine import TradingEngine
+
         try:
             engine = TradingEngine(
                 settings=Settings(
-                    TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                    ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                    TELEGRAM_BOT_TOKEN="t",
+                    ADMIN_TELEGRAM_ID=1,
+                    ANTHROPIC_API_KEY="t",
+                    POLYMARKET_API_KEY="t",
                 ),
-                db=MagicMock(), scanner=MagicMock(),
+                db=MagicMock(),
+                scanner=MagicMock(),
                 odds_feed=MagicMock(),
             )
             # Default 50.0 should remain
@@ -7727,60 +9152,75 @@ class TestEngineRiskInvalidEnv:
 # Gerçek call-path test'leri — büyük dosya 0% → 30%+ hedef
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestStrategyPluginsAllVariants:
     """Strategy evaluate() — geniş varyasyonlar (path coverage)."""
 
     def _snap(self, **kw):
         from core.strategy_plugins import MarketSnapshot
-        d = dict(up_odds=0.55, down_odds=0.45, threshold=0.50,
-                 direction_filter="any",
-                 odds_series=[0.50, 0.51, 0.52, 0.53, 0.55, 0.56, 0.58],
-                 minutes_remaining=2.5, total_minutes=5.0,
-                 spread=0.02, best_ask=0.56, best_bid=0.54)
+
+        d = dict(
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
+            direction_filter="any",
+            odds_series=[0.50, 0.51, 0.52, 0.53, 0.55, 0.56, 0.58],
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
+        )
         d.update(kw)
         return MarketSnapshot(**d)
 
-    @pytest.mark.parametrize("strat_name,snapshot_kwargs", [
-        ("MomentumStrategy", {}),
-        ("MomentumStrategy", {"up_odds": 0.40, "direction_filter": "down"}),
-        ("MomentumStrategy", {"odds_series": [0.65, 0.62, 0.58, 0.55, 0.50, 0.45, 0.40]}),
-        ("ContrarianStrategy", {}),
-        ("ContrarianStrategy", {"up_odds": 0.85}),
-        ("ContrarianStrategy", {"odds_series": [0.80, 0.82, 0.85]}),
-        ("ScalperStrategy", {}),
-        ("ScalperStrategy", {"spread": 0.005}),
-        ("SniperStrategy", {}),
-        ("SniperStrategy", {"up_odds": 0.92, "threshold": 0.90}),
-        ("MartingaleStrategy", {"metadata": {"loss_streak": 0}}),
-        ("MartingaleStrategy", {"metadata": {"loss_streak": 2}}),
-        ("FlashCrashStrategy", {"odds_series": [0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2]}),
-        ("StreakReversalStrategy", {}),
-        ("HighThresholdStrategy", {"up_odds": 0.85, "threshold": 0.80}),
-        ("HighThresholdStrategy", {"up_odds": 0.50, "threshold": 0.80}),
-        ("LateConvergenceStrategy", {"minutes_remaining": 0.5}),
-        ("LateConvergenceStrategy", {"minutes_remaining": 4.5}),
-        ("PennyContractStrategy", {"up_odds": 0.05, "down_odds": 0.95}),
-        ("PennyContractStrategy", {"up_odds": 0.50}),
-        ("BondingYieldLiveStrategy", {"up_odds": 0.95}),
-        ("BondingYieldLiveStrategy", {"up_odds": 0.50}),
-        ("HourEdgeLiveStrategy", {}),
-        ("OrderbookImbalanceLiveStrategy",
-         {"metadata": {"ob_imbalance": 0.5, "up_bid_depth": 1000, "up_ask_depth": 200}}),
-        ("OrderbookImbalanceLiveStrategy", {}),
-        ("FadeRipLiveStrategy", {}),
-        ("FadeRipLiveStrategy", {"odds_series": [0.45, 0.50, 0.55, 0.65, 0.75]}),
-        ("OpeningBreakoutLiveStrategy", {"minutes_remaining": 4.5}),
-        ("OpeningBreakoutLiveStrategy", {"minutes_remaining": 0.5}),
-        ("FundingRateLiveStrategy", {"metadata": {"funding_rate": 0.001}}),
-        ("FundingRateLiveStrategy", {"metadata": {"funding_rate": -0.001}}),
-        ("CalibrationArbLiveStrategy", {}),
-        ("FusionStrategy", {}),
-        ("FusionStrategy", {"up_odds": 0.65, "threshold": 0.60}),
-        ("ClassicStrategy", {"up_odds": 0.85, "threshold": 0.80, "direction_filter": "up"}),
-        ("ClassicStrategy", {"up_odds": 0.20, "down_odds": 0.80, "direction_filter": "down"}),
-    ])
+    @pytest.mark.parametrize(
+        "strat_name,snapshot_kwargs",
+        [
+            ("MomentumStrategy", {}),
+            ("MomentumStrategy", {"up_odds": 0.40, "direction_filter": "down"}),
+            ("MomentumStrategy", {"odds_series": [0.65, 0.62, 0.58, 0.55, 0.50, 0.45, 0.40]}),
+            ("ContrarianStrategy", {}),
+            ("ContrarianStrategy", {"up_odds": 0.85}),
+            ("ContrarianStrategy", {"odds_series": [0.80, 0.82, 0.85]}),
+            ("ScalperStrategy", {}),
+            ("ScalperStrategy", {"spread": 0.005}),
+            ("SniperStrategy", {}),
+            ("SniperStrategy", {"up_odds": 0.92, "threshold": 0.90}),
+            ("MartingaleStrategy", {"metadata": {"loss_streak": 0}}),
+            ("MartingaleStrategy", {"metadata": {"loss_streak": 2}}),
+            ("FlashCrashStrategy", {"odds_series": [0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2]}),
+            ("StreakReversalStrategy", {}),
+            ("HighThresholdStrategy", {"up_odds": 0.85, "threshold": 0.80}),
+            ("HighThresholdStrategy", {"up_odds": 0.50, "threshold": 0.80}),
+            ("LateConvergenceStrategy", {"minutes_remaining": 0.5}),
+            ("LateConvergenceStrategy", {"minutes_remaining": 4.5}),
+            ("PennyContractStrategy", {"up_odds": 0.05, "down_odds": 0.95}),
+            ("PennyContractStrategy", {"up_odds": 0.50}),
+            ("BondingYieldLiveStrategy", {"up_odds": 0.95}),
+            ("BondingYieldLiveStrategy", {"up_odds": 0.50}),
+            ("HourEdgeLiveStrategy", {}),
+            (
+                "OrderbookImbalanceLiveStrategy",
+                {"metadata": {"ob_imbalance": 0.5, "up_bid_depth": 1000, "up_ask_depth": 200}},
+            ),
+            ("OrderbookImbalanceLiveStrategy", {}),
+            ("FadeRipLiveStrategy", {}),
+            ("FadeRipLiveStrategy", {"odds_series": [0.45, 0.50, 0.55, 0.65, 0.75]}),
+            ("OpeningBreakoutLiveStrategy", {"minutes_remaining": 4.5}),
+            ("OpeningBreakoutLiveStrategy", {"minutes_remaining": 0.5}),
+            ("FundingRateLiveStrategy", {"metadata": {"funding_rate": 0.001}}),
+            ("FundingRateLiveStrategy", {"metadata": {"funding_rate": -0.001}}),
+            ("CalibrationArbLiveStrategy", {}),
+            ("FusionStrategy", {}),
+            ("FusionStrategy", {"up_odds": 0.65, "threshold": 0.60}),
+            ("ClassicStrategy", {"up_odds": 0.85, "threshold": 0.80, "direction_filter": "up"}),
+            ("ClassicStrategy", {"up_odds": 0.20, "down_odds": 0.80, "direction_filter": "down"}),
+        ],
+    )
     def test_strategy_evaluate_variant(self, strat_name, snapshot_kwargs):
         import core.strategy_plugins as sp
+
         strat_class = getattr(sp, strat_name, None)
         if strat_class is None:
             pytest.skip(f"{strat_name} not exported")
@@ -7797,11 +9237,13 @@ class TestAiBrainSyncMethods:
 
     def _make(self):
         from core.ai_brain import AIBrain
+
         return AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
 
     def test_do_claude_returns_text(self, monkeypatch):
         """_do_claude with httpx mock returning valid response."""
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "ANTHROPIC_API_KEY", "test-key", raising=False)
         b = self._make()
         if not hasattr(b, "_do_claude"):
@@ -7810,10 +9252,12 @@ class TestAiBrainSyncMethods:
         with patch("httpx.post") as mp:
             mp.return_value = MagicMock(
                 status_code=200,
-                json=MagicMock(return_value={
-                    "content": [{"type": "text", "text": "OK response"}],
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                }),
+                json=MagicMock(
+                    return_value={
+                        "content": [{"type": "text", "text": "OK response"}],
+                        "usage": {"input_tokens": 10, "output_tokens": 5},
+                    }
+                ),
             )
             try:
                 result = b._do_claude(payload="{}")
@@ -7825,6 +9269,7 @@ class TestAiBrainSyncMethods:
     def test_do_claude_429_raises_ratelimit(self, monkeypatch):
         """429 → LLMRateLimitError raised."""
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "ANTHROPIC_API_KEY", "test-key", raising=False)
         b = self._make()
         if not hasattr(b, "_do_claude"):
@@ -7845,6 +9290,7 @@ class TestAiBrainSyncMethods:
 
     def test_do_groq_returns_text(self, monkeypatch):
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "GROK_API_KEY", "test-key", raising=False)
         b = self._make()
         if not hasattr(b, "_do_groq"):
@@ -7852,10 +9298,12 @@ class TestAiBrainSyncMethods:
         with patch("httpx.post") as mp:
             mp.return_value = MagicMock(
                 status_code=200,
-                json=MagicMock(return_value={
-                    "choices": [{"message": {"content": "groq response"}}],
-                    "usage": {"prompt_tokens": 5, "completion_tokens": 10},
-                }),
+                json=MagicMock(
+                    return_value={
+                        "choices": [{"message": {"content": "groq response"}}],
+                        "usage": {"prompt_tokens": 5, "completion_tokens": 10},
+                    }
+                ),
             )
             try:
                 result = b._do_groq(payload="{}")
@@ -7865,6 +9313,7 @@ class TestAiBrainSyncMethods:
 
     def test_do_openrouter_returns_text(self, monkeypatch):
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "OPENROUTER_API_KEY", "test-key", raising=False)
         b = self._make()
         if not hasattr(b, "_do_openrouter"):
@@ -7872,9 +9321,11 @@ class TestAiBrainSyncMethods:
         with patch("httpx.post") as mp:
             mp.return_value = MagicMock(
                 status_code=200,
-                json=MagicMock(return_value={
-                    "choices": [{"message": {"content": "openrouter response"}}],
-                }),
+                json=MagicMock(
+                    return_value={
+                        "choices": [{"message": {"content": "openrouter response"}}],
+                    }
+                ),
             )
             try:
                 result = b._do_openrouter(payload="{}")
@@ -7884,15 +9335,17 @@ class TestAiBrainSyncMethods:
 
     def test_extract_json_unicode(self):
         from core.ai_brain import AIBrain
-        text = "Türkçe yanıt: {\"actions\": [{\"type\": \"DELETE\"}], \"reasoning\": \"İyi\"}"
+
+        text = 'Türkçe yanıt: {"actions": [{"type": "DELETE"}], "reasoning": "İyi"}'
         result = AIBrain._extract_json(text)
         assert result.startswith("{")
         assert result.endswith("}")
 
     def test_extract_json_multiple_objects(self):
         from core.ai_brain import AIBrain
+
         # Should pick from first { to last }
-        text = "{\"a\": 1} some text {\"b\": 2}"
+        text = '{"a": 1} some text {"b": 2}'
         result = AIBrain._extract_json(text)
         # Captures everything from first { to last }
         assert result.startswith("{")
@@ -7921,6 +9374,7 @@ class TestStrategySuggesterDeep:
 
     def _make(self):
         from core.strategy_suggester import StrategySuggester
+
         return StrategySuggester(db=MagicMock(), engine=MagicMock(), bot_app=None)
 
     def test_init_attrs(self):
@@ -7930,7 +9384,8 @@ class TestStrategySuggesterDeep:
         assert s._last_run is None
 
     def test_module_constants(self):
-        from core.strategy_suggester import NIGHT_START_UTC, NIGHT_END_UTC
+        from core.strategy_suggester import NIGHT_END_UTC, NIGHT_START_UTC
+
         assert isinstance(NIGHT_START_UTC, int)
         assert isinstance(NIGHT_END_UTC, int)
 
@@ -7952,12 +9407,14 @@ class TestEngineSignalsMixinExtraStatic:
 
     def test_parse_zones_with_decimals(self):
         from core.engine_signals import EngineSignalsMixin
+
         # Cents string format
         result = EngineSignalsMixin._parse_zones("12-25,55-78")
         assert result == [(0.12, 0.25), (0.55, 0.78)]
 
     def test_in_allowed_zone_boundary(self):
         from core.engine_signals import EngineSignalsMixin
+
         zones = [(0.10, 0.20)]
         # Exact boundaries
         assert EngineSignalsMixin._in_allowed_zone(0.10, zones) is True
@@ -7968,6 +9425,7 @@ class TestEngineSignalsMixinExtraStatic:
 
     def test_classic_free_mode_string_check(self, monkeypatch):
         from core.engine_signals import EngineSignalsMixin
+
         monkeypatch.setenv("CLASSIC_BYPASS_ALL_GATES", "true")
         # Different stype values
         for stype in ("classic", "CLASSIC", "Classic"):
@@ -7977,6 +9435,7 @@ class TestEngineSignalsMixinExtraStatic:
 
     def test_get_brier_bin_all_buckets(self):
         from core.engine_signals import EngineSignalsMixin
+
         stub = MagicMock()
         # Test all 10 buckets
         for i in range(10):
@@ -7990,20 +9449,25 @@ class TestPolymarketClientBulkExtras:
     """data/polymarket_client.py bulk endpoint extra paths."""
 
     def _make_client(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
-        return PolymarketClient(Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
-        ))
+        from data.polymarket_client import PolymarketClient
+
+        return PolymarketClient(
+            Settings(
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
+            )
+        )
 
     @pytest.mark.asyncio
     async def test_bulk_at_max_limit(self):
         c = self._make_client()
         client_mock = MagicMock()
-        client_mock.post_orders = MagicMock(return_value={
-            "results": [{"id": str(i), "status": "placed"} for i in range(15)]
-        })
+        client_mock.post_orders = MagicMock(
+            return_value={"results": [{"id": str(i), "status": "placed"} for i in range(15)]}
+        )
         orders = [{"orderID": str(i)} for i in range(15)]  # exactly 15
         result = await c.post_orders_bulk(orders, clob_client=client_mock)
         assert result["submitted"] == 15
@@ -8013,9 +9477,9 @@ class TestPolymarketClientBulkExtras:
     async def test_bulk_one_order(self):
         c = self._make_client()
         client_mock = MagicMock()
-        client_mock.post_orders = MagicMock(return_value={
-            "results": [{"id": "1", "status": "placed"}]
-        })
+        client_mock.post_orders = MagicMock(
+            return_value={"results": [{"id": "1", "status": "placed"}]}
+        )
         result = await c.post_orders_bulk([{"o": 1}], clob_client=client_mock)
         assert result["submitted"] == 1
 
@@ -8036,7 +9500,8 @@ class TestRiskManagerStateRecord:
     """core/risk_manager.py — state mutation paths."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_state_initial_open_count(self):
@@ -8075,12 +9540,14 @@ class TestKellyHelpers:
     def test_get_strategy_kelly_signature_check(self):
         try:
             from core.kelly import get_strategy_kelly
+
             assert callable(get_strategy_kelly)
             # Try to call with reasonable defaults
             try:
                 result = get_strategy_kelly(strategy_id="test", db=MagicMock())
                 # If awaitable, await
                 import asyncio
+
                 if hasattr(result, "__await__"):
                     asyncio.run(result)
             except (TypeError, AttributeError):
@@ -8094,6 +9561,7 @@ class TestSignalFusionEvaluate:
 
     def test_signal_weights_default_sum(self):
         from core.signal_fusion import SignalWeights
+
         sw = SignalWeights()
         # Smoke: weights are floats
         for attr in dir(sw):
@@ -8104,6 +9572,7 @@ class TestSignalFusionEvaluate:
 
     def test_signal_fusion_basic_init(self):
         from core.signal_fusion import SignalFusion, SignalWeights
+
         try:
             sf = SignalFusion(SignalWeights())
             assert sf is not None
@@ -8111,8 +9580,9 @@ class TestSignalFusionEvaluate:
             pytest.skip("SignalFusion init API differs")
 
     def test_signal_fusion_with_drift_detector(self):
-        from core.signal_fusion import SignalFusion, SignalWeights
         from core.regime import DriftDetector
+        from core.signal_fusion import SignalFusion, SignalWeights
+
         try:
             dd = DriftDetector(window=50)
             sf = SignalFusion(SignalWeights(), drift_detector=dd)
@@ -8126,6 +9596,7 @@ class TestExternalFeedDeep:
 
     def test_get_status_no_data(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         s = f.get_status()
         assert s["available"] is False
@@ -8134,6 +9605,7 @@ class TestExternalFeedDeep:
 
     def test_record_history_unique_assets(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._record_history("BTC", time.time(), 65000)
         f._record_history("ETH", time.time(), 3500)
@@ -8142,6 +9614,7 @@ class TestExternalFeedDeep:
 
     def test_get_divergence_no_open_price_with_slug(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._prices["BTC"] = {"price": 65000, "ts": time.time()}
         # No open_prices entry
@@ -8154,6 +9627,7 @@ class TestAllowancePreflightDeeper:
 
     def test_module_constants_count(self):
         from core import allowance_preflight as ap
+
         # Module should have many ADDR_ constants
         addr_count = sum(1 for a in dir(ap) if a.startswith("ADDR_"))
         assert addr_count >= 13  # 5 main + 10 extension
@@ -8164,6 +9638,7 @@ class TestEngineSupportFurther:
 
     def test_skip_counter_repeat_log_attempt(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         sc.record("X")
         sc.should_log("s1", "X")  # first call → True
@@ -8173,14 +9648,29 @@ class TestEngineSupportFurther:
 
     def test_virtual_order_default_signal_score(self):
         from core.engine_support import VirtualOrder
+
         # With minimal kwargs
         o = VirtualOrder(
-            strategy_id="s", slug="x", token_id="t", direction="up",
-            limit_price=0.5, amount=1.0, fee=0.07, created_at=1.0,
-            wallet_id="paper", user_id=42, sl_pct=0.0, sl_odds=0.0,
-            tp_pct=0.0, tp_odds=0.0, threshold=0.5,
-            queue_ahead_usd=0.0, cum_traded_at_price_usd=0.0,
-            placement_ts_ms=0, category="crypto", reasoning_json="{}",
+            strategy_id="s",
+            slug="x",
+            token_id="t",
+            direction="up",
+            limit_price=0.5,
+            amount=1.0,
+            fee=0.07,
+            created_at=1.0,
+            wallet_id="paper",
+            user_id=42,
+            sl_pct=0.0,
+            sl_odds=0.0,
+            tp_pct=0.0,
+            tp_odds=0.0,
+            threshold=0.5,
+            queue_ahead_usd=0.0,
+            cum_traded_at_price_usd=0.0,
+            placement_ts_ms=0,
+            category="crypto",
+            reasoning_json="{}",
         )
         # Defaults
         assert o.signal_score == 0.0
@@ -8193,6 +9683,7 @@ class TestPortfolioKillSwitchEdges:
 
     def _ks(self, monkeypatch):
         from core.portfolio_kill_switch import PortfolioKillSwitch
+
         monkeypatch.setenv("KILL_SWITCH_ENABLED", "true")
         return PortfolioKillSwitch()
 
@@ -8215,6 +9706,7 @@ class TestPortfolioKillSwitchEdges:
 
     def test_evaluate_with_baseline_rotation(self, monkeypatch):
         from core.portfolio_kill_switch import PortfolioKillSwitch
+
         ks = self._ks(monkeypatch)
         # Force rotation by setting old date
         ks.state.daily_baseline_date = "1999-01-01"
@@ -8224,7 +9716,8 @@ class TestPortfolioKillSwitchEdges:
         assert ks.state.daily_baseline_date != "1999-01-01"
 
     def test_evaluate_disabled_returns_allow(self, monkeypatch):
-        from core.portfolio_kill_switch import PortfolioKillSwitch, HALT_DISABLED
+        from core.portfolio_kill_switch import HALT_DISABLED, PortfolioKillSwitch
+
         monkeypatch.setenv("KILL_SWITCH_ENABLED", "false")
         ks = PortfolioKillSwitch()
         d = ks.evaluate(1000)
@@ -8237,6 +9730,7 @@ class TestFeesV2DynamicHelper:
 
     def test_get_market_fee_params_with_taker_only(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "fd": {"r": 0.05, "e": 1, "to": False},  # to=False
@@ -8247,6 +9741,7 @@ class TestFeesV2DynamicHelper:
 
     def test_get_market_fee_params_default_to_true(self):
         from core.fees_v2 import get_market_fee_params
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "fd": {"r": 0.05, "e": 1},  # no `to` field
@@ -8256,7 +9751,8 @@ class TestFeesV2DynamicHelper:
         assert p["taker_only"] is True
 
     def test_taker_fee_dynamic_no_condition_id(self):
-        from core.fees_v2 import taker_fee_dynamic, polymarket_taker_fee_v2
+        from core.fees_v2 import polymarket_taker_fee_v2, taker_fee_dynamic
+
         # Empty cond_id → None client param skipped → static fallback
         fee = taker_fee_dynamic(MagicMock(), "", 0.5, 100, fallback_category="crypto")
         # Uses static
@@ -8268,16 +9764,22 @@ class TestUmaDisputeMassEdges:
 
     def test_parse_end_date_partial_iso(self):
         from core.uma_dispute import _parse_end_date
+
         # Date only — no time component
         assert _parse_end_date({"endDate": "2026-05-15"}) is not None or True
 
     def test_should_block_strict_disputed_priority(self):
         from core.uma_dispute import should_block_new_position
+
         # Both flags set → BLOCK_DISPUTED priority
-        d = should_block_new_position({
-            "umaDispute": True,
-            "endDateTs": 1_700_000_000 + 60 * 60,
-        }, buffer_min=150, now_ts=1_700_000_000)
+        d = should_block_new_position(
+            {
+                "umaDispute": True,
+                "endDateTs": 1_700_000_000 + 60 * 60,
+            },
+            buffer_min=150,
+            now_ts=1_700_000_000,
+        )
         assert d.reason == "BLOCK_DISPUTED"
 
 
@@ -8287,12 +9789,16 @@ class TestEngineCtorMoreEnvVariants:
     def _build(self, **env):
         from config.settings import Settings
         from core.engine import TradingEngine
+
         return TradingEngine(
             settings=Settings(
-                TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
             ),
-            db=MagicMock(), scanner=MagicMock(),
+            db=MagicMock(),
+            scanner=MagicMock(),
             odds_feed=MagicMock(),
         )
 
@@ -8335,6 +9841,7 @@ class TestLiveTraderExtraExecution:
 
     def _make(self):
         from core.live_trader import LiveTrader
+
         return LiveTrader()
 
     @pytest.mark.asyncio
@@ -8374,6 +9881,7 @@ class TestPolymarketPortfolioSnapshotShape:
 
     def test_position_row_pnl_calc_in_test(self):
         from data.polymarket_portfolio import PositionRow
+
         # Defaults
         p = PositionRow(token_id="0x", shares=100, avg_price=0.5, cur_price=0.55)
         # Manual fill remaining fields
@@ -8384,11 +9892,13 @@ class TestPolymarketPortfolioSnapshotShape:
 
     def test_trade_row_role(self):
         from data.polymarket_portfolio import TradeRow
+
         t = TradeRow(trade_id="t1", role="MAKER")
         assert t.role == "MAKER"
 
     def test_portfolio_snapshot_with_data(self):
         from data.polymarket_portfolio import PortfolioSnapshot
+
         snap = PortfolioSnapshot(
             fetched_at="2026-05-05T12:00:00+00:00",
             user_address="0xWALLET",
@@ -8407,11 +9917,13 @@ class TestBacktestEngineV2Init:
 
     def test_module_level_imports(self):
         from backtest import engine_v2
+
         # Module-level constants/functions exist
         assert hasattr(engine_v2, "__file__")
 
     def test_some_class_exists(self):
         from backtest import engine_v2
+
         # Smoke: any class
         attrs = [a for a in dir(engine_v2) if not a.startswith("_")]
         assert len(attrs) > 0
@@ -8422,10 +9934,12 @@ class TestBacktestReplayEngineInit:
 
     def test_module_imports(self):
         from backtest import replay_engine
+
         assert replay_engine is not None
 
     def test_module_has_replay_engine_class(self):
         from backtest import replay_engine
+
         # Smoke for ReplayEngine class
         attrs = dir(replay_engine)
         has_engine = any("Engine" in a or "Replay" in a for a in attrs)
@@ -8435,20 +9949,24 @@ class TestBacktestReplayEngineInit:
 class TestAllBacktestStrategiesEvaluate:
     """Backtest strategies — every class .on_snapshot path execute."""
 
-    @pytest.mark.parametrize("module_name,class_name", [
-        ("calibration_arb", "CalibrationArbStrategy"),
-        ("cross_coin", "CrossCoinStrategy"),
-        ("fade_rip", "FadeRipStrategy"),
-        ("funding_rate", "FundingRateStrategy"),
-        ("hour_edge", "HourEdgeStrategy"),
-        ("late_convergence", "LateConvergenceStrategy"),
-        ("opening_breakout", "OpeningBreakoutStrategy"),
-        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-        ("streak_reversal", "StreakReversalStrategy"),
-        ("taker_flow", "TakerFlowStrategy"),
-    ])
+    @pytest.mark.parametrize(
+        "module_name,class_name",
+        [
+            ("calibration_arb", "CalibrationArbStrategy"),
+            ("cross_coin", "CrossCoinStrategy"),
+            ("fade_rip", "FadeRipStrategy"),
+            ("funding_rate", "FundingRateStrategy"),
+            ("hour_edge", "HourEdgeStrategy"),
+            ("late_convergence", "LateConvergenceStrategy"),
+            ("opening_breakout", "OpeningBreakoutStrategy"),
+            ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+            ("streak_reversal", "StreakReversalStrategy"),
+            ("taker_flow", "TakerFlowStrategy"),
+        ],
+    )
     def test_strategy_on_snapshot_smoke(self, module_name, class_name):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.strategies.{module_name}")
             cls = getattr(mod, class_name, None)
@@ -8458,10 +9976,16 @@ class TestAllBacktestStrategiesEvaluate:
             # Try on_snapshot if exists
             if hasattr(s, "on_snapshot"):
                 from backtest.strategies.base import OrderbookSnapshot
+
                 snap = OrderbookSnapshot(
-                    timestamp_ms=1, up_best_bid=0.55, up_best_ask=0.56,
-                    down_best_bid=0.44, down_best_ask=0.45, spread=0.01,
-                    elapsed_pct=0.3, remaining_seconds=210,
+                    timestamp_ms=1,
+                    up_best_bid=0.55,
+                    up_best_ask=0.56,
+                    down_best_bid=0.44,
+                    down_best_ask=0.45,
+                    spread=0.01,
+                    elapsed_pct=0.3,
+                    remaining_seconds=210,
                 )
                 try:
                     result = s.on_snapshot(snap)
@@ -8478,6 +10002,7 @@ class TestStrategyPluginsBaseStrategyABC:
 
     def test_cannot_instantiate_base_directly(self):
         from core.strategy_plugins import BaseStrategy
+
         # ABC abstractmethod prevents direct init
         with pytest.raises(TypeError):
             BaseStrategy()
@@ -8488,10 +10013,12 @@ class TestCircuitBreakerExtended:
 
     def test_module_constants(self):
         from core import circuit_breaker
+
         assert circuit_breaker is not None
 
     def test_class_signature(self):
         from core.circuit_breaker import CircuitBreaker
+
         # Try common init signatures
         for init_kwargs in [{}, {"threshold": 3}, {"failure_threshold": 3}]:
             try:
@@ -8508,11 +10035,13 @@ class TestKillSwitchSimpleLogic:
 
     def test_class_imports(self):
         from core.kill_switch import KillSwitch
+
         ks = KillSwitch()
         assert ks is not None
 
     def test_kill_switch_state(self):
         from core.kill_switch import KillSwitch
+
         ks = KillSwitch()
         # Common attrs
         attrs = dir(ks)
@@ -8526,6 +10055,7 @@ class TestObservabilityRestTimingExtra:
     def test_record_function_smoke(self):
         try:
             from core.observability.rest_timing import record
+
             assert callable(record)
         except (ImportError, AttributeError):
             pytest.skip("record not exported")
@@ -8533,6 +10063,7 @@ class TestObservabilityRestTimingExtra:
     def test_get_stats_function(self):
         try:
             from core.observability.rest_timing import get_stats
+
             stats = get_stats()
             assert stats is not None or stats == {}
         except (ImportError, AttributeError, TypeError):
@@ -8544,12 +10075,14 @@ class TestCalibrationFillRecalibrate:
 
     def test_get_current_values_returns_dict(self):
         from core.calibration.fill_heuristic_recalibrate import get_current_values
+
         v = get_current_values()
         assert isinstance(v, dict)
         assert len(v) >= 2
 
     def test_compute_paper_live_delta_with_data(self):
         from core.calibration.fill_heuristic_recalibrate import compute_paper_live_delta
+
         try:
             d = compute_paper_live_delta([1.0, 2.0, -1.0], [0.5, 1.5, -1.5])
             assert isinstance(d, dict)
@@ -8559,6 +10092,7 @@ class TestCalibrationFillRecalibrate:
     def test_format_alert_function(self):
         try:
             from core.calibration.fill_heuristic_recalibrate import format_alert
+
             # smoke
             try:
                 result = format_alert({})
@@ -8575,8 +10109,10 @@ class TestStructuredLoggingFilters:
     def test_secret_scrub_filter_disabled(self):
         try:
             from core.structured_logging import SecretScrubFilter
+
             f = SecretScrubFilter(enabled=False)
             import logging
+
             r = logging.LogRecord("t", logging.INFO, "x", 1, "msg", (), None)
             result = f.filter(r)
             assert result is True
@@ -8586,13 +10122,16 @@ class TestStructuredLoggingFilters:
     def test_json_formatter_basic_record(self):
         try:
             from core.structured_logging import JsonFormatter
+
             f = JsonFormatter()
             import logging
+
             r = logging.LogRecord("test", logging.INFO, "/p", 1, "hello", (), None)
             output = f.format(r)
             assert isinstance(output, str)
             # Should be JSON
             import json
+
             parsed = json.loads(output)
             assert "msg" in parsed or "message" in parsed or len(parsed) > 0
         except (ImportError, AttributeError, json.JSONDecodeError):
@@ -8604,18 +10143,24 @@ class TestExecutorPaperImpl:
 
     def test_paper_executor_via_factory(self):
         from core.executor import get_executor
+
         ex = get_executor("paper")
         assert ex is not None
 
     @pytest.mark.asyncio
     async def test_paper_executor_place_order_smoke(self):
-        from core.executor import get_executor, OrderRequest
+        from core.executor import OrderRequest, get_executor
+
         ex = get_executor("paper")
         try:
             req = OrderRequest(
-                token_id="0xt", side="BUY", amount_usd=1.0,
-                price=0.55, order_type="FOK",
-                strategy_label="test", slug="btc-up-x",
+                token_id="0xt",
+                side="BUY",
+                amount_usd=1.0,
+                price=0.55,
+                order_type="FOK",
+                strategy_label="test",
+                slug="btc-up-x",
             )
             # Set orderbook source for naive fallback
             ex.set_orderbook_source(lambda tid: {"asks": [(0.56, 100)], "bids": [(0.54, 100)]})
@@ -8627,6 +10172,7 @@ class TestExecutorPaperImpl:
 
     def test_executor_set_orderbook_source(self):
         from core.executor import get_executor
+
         ex = get_executor("paper")
         if hasattr(ex, "set_orderbook_source"):
             ex.set_orderbook_source(lambda tid: {"asks": [], "bids": []})
@@ -8638,6 +10184,7 @@ class TestStatusPollerExtra:
 
     def test_module_attrs(self):
         from core import status_poller
+
         attrs = [a for a in dir(status_poller) if not a.startswith("_")]
         assert len(attrs) > 0
 
@@ -8647,6 +10194,7 @@ class TestPolymarketErrorsMapping:
 
     def test_module_dir(self):
         from core.error_handler import polymarket_errors
+
         attrs = dir(polymarket_errors)
         # Look for error code mapping
         has_map = any("ERROR" in a.upper() or "MAP" in a.upper() for a in attrs)
@@ -8654,6 +10202,7 @@ class TestPolymarketErrorsMapping:
 
     def test_classify_or_format_function(self):
         from core.error_handler import polymarket_errors
+
         # Try callable functions
         for fn in dir(polymarket_errors):
             if fn.startswith("_") or not callable(getattr(polymarket_errors, fn, None)):
@@ -8671,6 +10220,7 @@ class TestAiBrainAnalyzeFunctions:
 
     def _make(self):
         from core.ai_brain import AIBrain
+
         b = AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
         return b
 
@@ -8698,6 +10248,7 @@ class TestCandleCollectorAsync:
     @pytest.mark.asyncio
     async def test_initialize_tables_smoke(self):
         from data.candle_collector import CandleCollector
+
         db = MagicMock()
         db.conn = MagicMock()
         db.conn.executescript = AsyncMock()
@@ -8710,6 +10261,7 @@ class TestCandleCollectorAsync:
 
     def test_get_status(self):
         from data.candle_collector import CandleCollector
+
         cc = CandleCollector(db=MagicMock())
         s = cc.get_status()
         assert isinstance(s, dict)
@@ -8720,14 +10272,17 @@ class TestBgTaskExtras:
 
     def test_module_attrs(self):
         from core import bg_task
+
         attrs = [a for a in dir(bg_task) if not a.startswith("__")]
         assert len(attrs) > 0
 
     @pytest.mark.asyncio
     async def test_safe_create_task_with_error(self):
         from core.bg_task import safe_create_task
+
         async def crashing_coro():
             raise ValueError("test crash")
+
         # safe_create_task should not propagate
         t = safe_create_task(crashing_coro(), name="crashing")
         try:
@@ -8742,6 +10297,7 @@ class TestStrategyPluginsHelperFunctions:
     def test_market_snapshot_metadata_init_independent(self):
         """Each MarketSnapshot has own metadata dict (no shared)."""
         from core.strategy_plugins import MarketSnapshot
+
         m1 = MarketSnapshot()
         m2 = MarketSnapshot()
         m1.metadata["key"] = "val1"
@@ -8750,6 +10306,7 @@ class TestStrategyPluginsHelperFunctions:
 
     def test_strategy_signal_metadata_init_independent(self):
         from core.strategy_plugins import StrategySignal
+
         s1 = StrategySignal()
         s2 = StrategySignal()
         s1.metadata["k"] = "v"
@@ -8761,6 +10318,7 @@ class TestAutoOptimizerInit:
 
     def test_auto_optimizer_db_attr(self):
         from core.auto_optimizer import AutoOptimizer
+
         db = MagicMock()
         ao = AutoOptimizer(db)
         assert ao.db is db
@@ -8771,6 +10329,7 @@ class TestMicroWeightTrackerInit:
 
     def test_module_imports_and_class(self):
         from core import micro_weight_tracker
+
         attrs = [a for a in dir(micro_weight_tracker) if not a.startswith("_")]
         # Some class should exist
         has_tracker = any("Track" in a or "Weight" in a for a in attrs)
@@ -8783,6 +10342,7 @@ class TestExperimentRunnerInit:
     def test_class_init(self):
         try:
             from core.experiment_runner import ExperimentRunner
+
             er = ExperimentRunner()
             assert er is not None
         except (ImportError, TypeError):
@@ -8795,6 +10355,7 @@ class TestDecisionExplainerInit:
     def test_class_init(self):
         try:
             from core.decision_explainer import DecisionExplainer
+
             de = DecisionExplainer()
             assert de is not None
         except (ImportError, TypeError):
@@ -8807,6 +10368,7 @@ class TestTradeMemoryInit:
     def test_class_init(self):
         try:
             from core.trade_memory import TradeMemory
+
             tm = TradeMemory()
             assert tm is not None
         except (ImportError, TypeError):
@@ -8818,6 +10380,7 @@ class TestSlippageModelEvaluate:
 
     def test_module_classes(self):
         from backtest import slippage_model
+
         attrs = [a for a in dir(slippage_model) if not a.startswith("_") and a[0].isupper()]
         # Should have classes
         assert len(attrs) >= 0
@@ -8829,11 +10392,13 @@ class TestEvTrackerInit:
     def test_class_init(self):
         try:
             from core.ev_tracker import EvTracker
+
             et = EvTracker()
             assert et is not None
         except (ImportError, TypeError, AttributeError):
             try:
                 from core.ev_tracker import EVTracker
+
                 et = EVTracker()
                 assert et is not None
             except (ImportError, TypeError, AttributeError):
@@ -8846,6 +10411,7 @@ class TestHeartbeatTaskInit:
     def test_class_with_client(self):
         try:
             from core.heartbeat import HeartbeatTask
+
             ht = HeartbeatTask(client=MagicMock())
             assert ht is not None
         except (ImportError, TypeError):
@@ -8858,8 +10424,10 @@ class TestReconciliationTaskInit:
     def test_class_init(self):
         try:
             from core.reconciliation.onchain_sync import ReconciliationTask
+
             rt = ReconciliationTask(
-                db=MagicMock(), wallet="0xtest",
+                db=MagicMock(),
+                wallet="0xtest",
                 alert_callback=None,
             )
             assert rt is not None
@@ -8872,6 +10440,7 @@ class TestKeepAliveExtra:
 
     def test_keepalive_with_engine_db(self):
         from core.keepalive import KeepAlive
+
         ka = KeepAlive(engine=MagicMock(), db=MagicMock())
         assert ka.engine is not None
         assert ka.db is not None
@@ -8882,12 +10451,14 @@ class TestPolymarketRtdsHelpers:
 
     def test_get_status_initial(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         s = rtds.get_status()
         assert isinstance(s, dict)
 
     def test_get_price_initial(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         # No data → None or default
         try:
@@ -8902,6 +10473,7 @@ class TestEngineSettlementMixinExists:
 
     def test_mixin_class_imports(self):
         from core.engine_settlement import EngineSettlementMixin
+
         assert EngineSettlementMixin is not None
 
 
@@ -8910,6 +10482,7 @@ class TestEngineMonitorMixinExists:
 
     def test_mixin_class_imports(self):
         from core.engine_monitor import EngineMonitorMixin
+
         assert EngineMonitorMixin is not None
 
 
@@ -8918,6 +10491,7 @@ class TestEngineFillsMixinExists:
 
     def test_mixin_class_imports(self):
         from core.engine_fills import EngineFillsMixin
+
         assert EngineFillsMixin is not None
 
 
@@ -8928,6 +10502,7 @@ class TestTradeJournalLogFunctions:
     async def test_set_db_smoke(self):
         try:
             from core.trade_journal import set_db
+
             set_db(MagicMock())
         except (ImportError, AttributeError, TypeError):
             pytest.skip("set_db differs")
@@ -8938,10 +10513,15 @@ class TestPolymarketActionsDeposit:
 
     def test_deposit_url_constants(self):
         from data.polymarket_actions import (
-            POLYMARKET_BASE, POLYMARKET_PORTFOLIO_URL,
-            POLYMARKET_WITHDRAW_URL, POLYMARKET_DEPOSIT_URL,
-            POLYGONSCAN_BASE, POLYGON_CHAIN_ID, PUSD_CONTRACT,
+            POLYGON_CHAIN_ID,
+            POLYGONSCAN_BASE,
+            POLYMARKET_BASE,
+            POLYMARKET_DEPOSIT_URL,
+            POLYMARKET_PORTFOLIO_URL,
+            POLYMARKET_WITHDRAW_URL,
+            PUSD_CONTRACT,
         )
+
         assert POLYMARKET_BASE.startswith("https://")
         assert POLYGON_CHAIN_ID == 137
         assert PUSD_CONTRACT.startswith("0x")
@@ -8952,19 +10532,27 @@ class TestBacktestStrategiesBaseClasses:
     """backtest/strategies/base.py extra paths."""
 
     def test_signal_with_metadata(self):
-        from backtest.strategies.base import Signal, Direction
-        sig = Signal(direction=Direction.UP, confidence=0.9, entry_price=0.6,
-                     reason="strong", metadata={"key": "val"})
+        from backtest.strategies.base import Direction, Signal
+
+        sig = Signal(
+            direction=Direction.UP,
+            confidence=0.9,
+            entry_price=0.6,
+            reason="strong",
+            metadata={"key": "val"},
+        )
         assert sig.metadata["key"] == "val"
         assert sig.is_up is True
 
     def test_orderbook_snapshot_with_raw(self):
         from backtest.strategies.base import OrderbookSnapshot
+
         s = OrderbookSnapshot(timestamp_ms=1, raw={"src": "binance"})
         assert s.raw["src"] == "binance"
 
     def test_market_data_with_metadata(self):
         from backtest.strategies.base import MarketData
+
         m = MarketData(market_id="x", coin="BTC", metadata={"source": "test"})
         assert m.metadata["source"] == "test"
 
@@ -8974,13 +10562,17 @@ class TestSettingsClass:
 
     def test_settings_class_exists(self):
         from config.settings import Settings
+
         assert Settings is not None
 
     def test_settings_with_required_fields(self):
         from config.settings import Settings
+
         s = Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+            TELEGRAM_BOT_TOKEN="t",
+            ADMIN_TELEGRAM_ID=1,
+            ANTHROPIC_API_KEY="t",
+            POLYMARKET_API_KEY="t",
         )
         assert s.TELEGRAM_BOT_TOKEN == "t"
         assert s.ADMIN_TELEGRAM_ID == 1
@@ -8992,6 +10584,7 @@ class TestDatabaseImports:
     def test_database_class_imports(self):
         try:
             from db.database import Database
+
             assert Database is not None
         except (ImportError, AttributeError):
             pytest.skip("Database class differs")
@@ -9002,7 +10595,8 @@ class TestModelsImports:
 
     def test_strategy_model_imports(self):
         try:
-            from db.models import Strategy, Execution, Direction
+            from db.models import Direction, Execution, Strategy
+
             assert Strategy is not None
             assert Execution is not None
             assert Direction is not None
@@ -9013,19 +10607,35 @@ class TestModelsImports:
 class TestAllInitModules:
     """All __init__.py files force-load."""
 
-    @pytest.mark.parametrize("pkg_path", [
-        "core", "data", "backtest", "telegram_bot",
-        "core.calibration", "core.error_handler",
-        "core.observability", "core.reconciliation", "core.signals",
-        "backtest.analytics", "backtest.simulation", "backtest.strategies",
-        "backtest.data_sources",
-        "telegram_bot.handlers", "telegram_bot.jobs",
-        "telegram_bot.templates",
-        "config", "db", "tests", "tests.unit",
-        "scripts",
-    ])
+    @pytest.mark.parametrize(
+        "pkg_path",
+        [
+            "core",
+            "data",
+            "backtest",
+            "telegram_bot",
+            "core.calibration",
+            "core.error_handler",
+            "core.observability",
+            "core.reconciliation",
+            "core.signals",
+            "backtest.analytics",
+            "backtest.simulation",
+            "backtest.strategies",
+            "backtest.data_sources",
+            "telegram_bot.handlers",
+            "telegram_bot.jobs",
+            "telegram_bot.templates",
+            "config",
+            "db",
+            "tests",
+            "tests.unit",
+            "scripts",
+        ],
+    )
     def test_pkg_init_imports(self, pkg_path):
         import importlib
+
         try:
             mod = importlib.import_module(pkg_path)
             assert mod is not None
@@ -9039,6 +10649,7 @@ class TestUtilsBrierTracker:
     def test_module_imports(self):
         try:
             from utils import brier_tracker
+
             assert brier_tracker is not None
         except ImportError:
             pytest.skip("utils.brier_tracker not present")
@@ -9048,40 +10659,47 @@ class TestUtilsBrierTracker:
 # Wave 5 Final — Handler saf yardımcıları + module-level constants
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestHandlerModuleConstants:
     """Handler modülleri saf module-level constants/dict — büyük dosyalar."""
 
-    @pytest.mark.parametrize("path", [
-        "telegram_bot.handlers.stats", "telegram_bot.handlers.backtest_v2",
-        "telegram_bot.handlers.ai_handler", "telegram_bot.handlers.strategies",
-        "telegram_bot.handlers.diagnose_handler",
-        "telegram_bot.handlers.live_handler",
-        "telegram_bot.handlers.phase77_handler",
-        "telegram_bot.handlers.risk_handler",
-        "telegram_bot.handlers.roadmap_handler",
-        "telegram_bot.handlers.markets",
-        "telegram_bot.handlers.portfolio_handler",
-        "telegram_bot.handlers.dashboard",
-        "telegram_bot.handlers.changelog_handler",
-        "telegram_bot.handlers.menu_handler",
-        "telegram_bot.handlers.settings_handler",
-        "telegram_bot.handlers.start",
-        "telegram_bot.handlers.strategy_builder",
-        "telegram_bot.handlers.strategy_report",
-        "telegram_bot.handlers.strategy_tester",
-        "telegram_bot.handlers.filters_handler",
-        "telegram_bot.handlers.force_settle_handler",
-        "telegram_bot.handlers.brier_handler",
-        "telegram_bot.handlers.archive_info_handler",
-        "telegram_bot.handlers.rest_timing_handler",
-        "telegram_bot.handlers.env_toggle",
-        "telegram_bot.handlers.mode_handler",
-        "telegram_bot.handlers.lifecycle_handler",
-        "telegram_bot.handlers.positions",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "telegram_bot.handlers.stats",
+            "telegram_bot.handlers.backtest_v2",
+            "telegram_bot.handlers.ai_handler",
+            "telegram_bot.handlers.strategies",
+            "telegram_bot.handlers.diagnose_handler",
+            "telegram_bot.handlers.live_handler",
+            "telegram_bot.handlers.phase77_handler",
+            "telegram_bot.handlers.risk_handler",
+            "telegram_bot.handlers.roadmap_handler",
+            "telegram_bot.handlers.markets",
+            "telegram_bot.handlers.portfolio_handler",
+            "telegram_bot.handlers.dashboard",
+            "telegram_bot.handlers.changelog_handler",
+            "telegram_bot.handlers.menu_handler",
+            "telegram_bot.handlers.settings_handler",
+            "telegram_bot.handlers.start",
+            "telegram_bot.handlers.strategy_builder",
+            "telegram_bot.handlers.strategy_report",
+            "telegram_bot.handlers.strategy_tester",
+            "telegram_bot.handlers.filters_handler",
+            "telegram_bot.handlers.force_settle_handler",
+            "telegram_bot.handlers.brier_handler",
+            "telegram_bot.handlers.archive_info_handler",
+            "telegram_bot.handlers.rest_timing_handler",
+            "telegram_bot.handlers.env_toggle",
+            "telegram_bot.handlers.mode_handler",
+            "telegram_bot.handlers.lifecycle_handler",
+            "telegram_bot.handlers.positions",
+        ],
+    )
     def test_handler_module_attrs(self, path):
         """Force module-level execution — coverage += module body."""
         import importlib
+
         try:
             mod = importlib.import_module(path)
             # Force attribute resolution
@@ -9095,19 +10713,23 @@ class TestHandlerModuleConstants:
 class TestJobsModulesAttrs:
     """telegram_bot/jobs/* — module-level forced."""
 
-    @pytest.mark.parametrize("path", [
-        "telegram_bot.jobs.auto_promote_job",
-        "telegram_bot.jobs.db_archive_job",
-        "telegram_bot.jobs.db_retention_job",
-        "telegram_bot.jobs.maintenance_jobs",
-        "telegram_bot.jobs.pattern_discovery_job",
-        "telegram_bot.jobs.pnl_divergence_job",
-        "telegram_bot.jobs.polymarket_portfolio_job",
-        "telegram_bot.jobs.shadow_report_job",
-        "telegram_bot.jobs.shadow_vs_paper_job",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "telegram_bot.jobs.auto_promote_job",
+            "telegram_bot.jobs.db_archive_job",
+            "telegram_bot.jobs.db_retention_job",
+            "telegram_bot.jobs.maintenance_jobs",
+            "telegram_bot.jobs.pattern_discovery_job",
+            "telegram_bot.jobs.pnl_divergence_job",
+            "telegram_bot.jobs.polymarket_portfolio_job",
+            "telegram_bot.jobs.shadow_report_job",
+            "telegram_bot.jobs.shadow_vs_paper_job",
+        ],
+    )
     def test_job_module_attrs(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             for attr in dir(mod):
@@ -9120,21 +10742,27 @@ class TestJobsModulesAttrs:
 class TestLargeBacktestModules:
     """Büyük backtest modülleri (1000+ stmt) module-level."""
 
-    @pytest.mark.parametrize("path", [
-        "backtest.replay_engine", "backtest.archive_reader",
-        "backtest.engine_v2", "backtest.replay_engine_v3",
-        "backtest.simulation.fill_model",
-        "backtest.data_sources.binance_hist",
-        "backtest.data_sources.gamma_hist",
-        "backtest.data_sources.polybacktest",
-        "backtest.data_sources.cache",
-        "backtest.data_sources.collector",
-        "backtest.analytics.charts",
-        "backtest.analytics.comparator",
-        "backtest.analytics.reporter",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "backtest.replay_engine",
+            "backtest.archive_reader",
+            "backtest.engine_v2",
+            "backtest.replay_engine_v3",
+            "backtest.simulation.fill_model",
+            "backtest.data_sources.binance_hist",
+            "backtest.data_sources.gamma_hist",
+            "backtest.data_sources.polybacktest",
+            "backtest.data_sources.cache",
+            "backtest.data_sources.collector",
+            "backtest.analytics.charts",
+            "backtest.analytics.comparator",
+            "backtest.analytics.reporter",
+        ],
+    )
     def test_be_module_attrs(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             for attr in dir(mod):
@@ -9147,19 +10775,32 @@ class TestLargeBacktestModules:
 class TestLargeCoreModules:
     """Büyük core modülleri force-attr."""
 
-    @pytest.mark.parametrize("path", [
-        "core.engine_signals", "core.engine_settlement",
-        "core.engine_fills", "core.engine_monitor",
-        "core.ai_brain", "core.engine",
-        "core.auto_optimizer", "core.strategy_plugins",
-        "core.signal_fusion", "core.live_trader",
-        "core.risk_manager", "core.trade_memory",
-        "core.decision_explainer", "core.experiment_runner",
-        "core.strategy_lifecycle", "core.strategy_suggester",
-        "core.allowance_preflight", "core.intent_parser",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "core.engine_signals",
+            "core.engine_settlement",
+            "core.engine_fills",
+            "core.engine_monitor",
+            "core.ai_brain",
+            "core.engine",
+            "core.auto_optimizer",
+            "core.strategy_plugins",
+            "core.signal_fusion",
+            "core.live_trader",
+            "core.risk_manager",
+            "core.trade_memory",
+            "core.decision_explainer",
+            "core.experiment_runner",
+            "core.strategy_lifecycle",
+            "core.strategy_suggester",
+            "core.allowance_preflight",
+            "core.intent_parser",
+        ],
+    )
     def test_core_module_attrs(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             for attr in dir(mod):
@@ -9172,14 +10813,22 @@ class TestLargeCoreModules:
 class TestLargeDataModules:
     """Büyük data modülleri force-attr."""
 
-    @pytest.mark.parametrize("path", [
-        "data.market_recorder", "data.candle_collector",
-        "data.binance_multistream", "data.market_scanner",
-        "data.websocket_client", "data.polymarket_client",
-        "data.polymarket_portfolio", "data.polymarket_rtds",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "data.market_recorder",
+            "data.candle_collector",
+            "data.binance_multistream",
+            "data.market_scanner",
+            "data.websocket_client",
+            "data.polymarket_client",
+            "data.polymarket_portfolio",
+            "data.polymarket_rtds",
+        ],
+    )
     def test_data_module_attrs(self, path):
         import importlib
+
         try:
             mod = importlib.import_module(path)
             for attr in dir(mod):
@@ -9194,9 +10843,9 @@ class TestEngineSignalsParseHelpers:
 
     def test_module_level_constants(self):
         from core import engine_signals
+
         # Module-level constants
-        for attr in ("ALLOWED_ZONES_STR", "FUSION_BLOCKED_ZONES_STR",
-                     "BRIER_GAP_MAX"):
+        for attr in ("ALLOWED_ZONES_STR", "FUSION_BLOCKED_ZONES_STR", "BRIER_GAP_MAX"):
             try:
                 v = getattr(engine_signals, attr, None)
                 # Smoke
@@ -9207,16 +10856,21 @@ class TestEngineSignalsParseHelpers:
 
     def test_parse_zones_complex(self):
         from core.engine_signals import EngineSignalsMixin
+
         # Multiple zones with negative test
         for input_str, expected_count in [
-            ("0-5", 1), ("0-5,10-20", 2), ("0-5,10-20,80-95", 3),
-            ("", 0), ("garbage", 0),
+            ("0-5", 1),
+            ("0-5,10-20", 2),
+            ("0-5,10-20,80-95", 3),
+            ("", 0),
+            ("garbage", 0),
         ]:
             result = EngineSignalsMixin._parse_zones(input_str)
             assert len(result) == expected_count
 
     def test_in_allowed_zone_outside_all(self):
         from core.engine_signals import EngineSignalsMixin
+
         zones = [(0.10, 0.20), (0.50, 0.55)]
         # 0.30 — between zones
         assert EngineSignalsMixin._in_allowed_zone(0.30, zones) is False
@@ -9229,13 +10883,15 @@ class TestRiskManagerCheckTradeRealSig:
     """core/risk_manager.py check_trade real signature discovery."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_check_trade_with_real_signature(self):
         rm = self._make()
         # Discover real signature via reflection
         import inspect
+
         try:
             sig = inspect.signature(rm.check_trade)
             params = list(sig.parameters.keys())
@@ -9274,6 +10930,7 @@ class TestModuleLevelHeavyExecution:
 
     def test_strategy_plugins_attrs_force(self):
         from core import strategy_plugins as sp
+
         # All Strategy classes
         for attr in dir(sp):
             obj = getattr(sp, attr, None)
@@ -9290,6 +10947,7 @@ class TestModuleLevelHeavyExecution:
 
     def test_ai_brain_attrs_force(self):
         from core import ai_brain
+
         # Force module-level
         for attr in dir(ai_brain):
             v = getattr(ai_brain, attr, None)
@@ -9304,18 +10962,26 @@ class TestExecutorPaperFullPath:
 
     @pytest.mark.asyncio
     async def test_place_order_paper_full(self):
-        from core.executor import get_executor, OrderRequest
+        from core.executor import OrderRequest, get_executor
+
         ex = get_executor("paper")
         # Set orderbook source
         if hasattr(ex, "set_orderbook_source"):
-            ex.set_orderbook_source(lambda tid: {
-                "asks": [(0.55, 100)],
-                "bids": [(0.54, 100)],
-            })
+            ex.set_orderbook_source(
+                lambda tid: {
+                    "asks": [(0.55, 100)],
+                    "bids": [(0.54, 100)],
+                }
+            )
         try:
             req = OrderRequest(
-                token_id="0xtok", side="BUY", amount_usd=5.0, price=0.55,
-                order_type="FOK", strategy_label="test", slug="btc-up-5m-x",
+                token_id="0xtok",
+                side="BUY",
+                amount_usd=5.0,
+                price=0.55,
+                order_type="FOK",
+                strategy_label="test",
+                slug="btc-up-5m-x",
             )
             result = await ex.place_order(req)
             assert result is not None
@@ -9328,6 +10994,7 @@ class TestSignalFusionEvaluation:
 
     def test_signal_fusion_basic_evaluate(self):
         from core.signal_fusion import SignalFusion, SignalWeights
+
         try:
             sf = SignalFusion(SignalWeights())
             # Smoke — try evaluate
@@ -9335,8 +11002,10 @@ class TestSignalFusionEvaluation:
                 # Mock inputs
                 try:
                     result = sf.evaluate(
-                        odds=0.55, odds_series=[0.5, 0.55, 0.60],
-                        spot_price=65000, spot_change=0.001,
+                        odds=0.55,
+                        odds_series=[0.5, 0.55, 0.60],
+                        spot_price=65000,
+                        spot_change=0.001,
                     )
                     assert result is not None
                 except (TypeError, KeyError, AttributeError):
@@ -9350,6 +11019,7 @@ class TestStrategySelectorThompson:
 
     def test_strategy_selector_record_outcome(self):
         from core.strategy_selector import StrategySelector
+
         ss = StrategySelector()
         # Try common interface
         try:
@@ -9381,13 +11051,15 @@ class TestKeepAliveDashboardConstants:
     """core/keepalive.py at 23.2%."""
 
     def test_module_constants(self):
-        from core.keepalive import PORT, SELF_PING_INTERVAL, DASHBOARD_HTML
+        from core.keepalive import DASHBOARD_HTML, PORT, SELF_PING_INTERVAL
+
         assert PORT > 0
         assert SELF_PING_INTERVAL > 0
         assert "html" in DASHBOARD_HTML.lower() or "<!" in DASHBOARD_HTML
 
     def test_keepalive_class(self):
         from core.keepalive import KeepAlive
+
         ka = KeepAlive()
         # Has expected attrs
         assert hasattr(ka, "_runner")
@@ -9398,34 +11070,39 @@ class TestKeepAliveDashboardConstants:
 # Wave 5 Final2 — Saf yardımcı fonksiyon discovery + call
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestHandlerSafeHelpers:
     """Handler dosyalarındaki saf (top-level non-async) yardımcı fonksiyonları çağır."""
 
-    @pytest.mark.parametrize("module_path", [
-        "telegram_bot.handlers.stats",
-        "telegram_bot.handlers.backtest_v2",
-        "telegram_bot.handlers.ai_handler",
-        "telegram_bot.handlers.strategies",
-        "telegram_bot.handlers.diagnose_handler",
-        "telegram_bot.handlers.live_handler",
-        "telegram_bot.handlers.phase77_handler",
-        "telegram_bot.handlers.risk_handler",
-        "telegram_bot.handlers.markets",
-        "telegram_bot.handlers.portfolio_handler",
-        "telegram_bot.handlers.dashboard",
-        "telegram_bot.handlers.menu_handler",
-        "telegram_bot.handlers.strategy_builder",
-        "telegram_bot.handlers.strategy_report",
-        "telegram_bot.handlers.strategy_tester",
-        "telegram_bot.handlers.filters_handler",
-        "telegram_bot.handlers.brier_handler",
-        "telegram_bot.handlers.changelog_handler",
-        "telegram_bot.handlers.settings_handler",
-        "telegram_bot.handlers.start",
-    ])
+    @pytest.mark.parametrize(
+        "module_path",
+        [
+            "telegram_bot.handlers.stats",
+            "telegram_bot.handlers.backtest_v2",
+            "telegram_bot.handlers.ai_handler",
+            "telegram_bot.handlers.strategies",
+            "telegram_bot.handlers.diagnose_handler",
+            "telegram_bot.handlers.live_handler",
+            "telegram_bot.handlers.phase77_handler",
+            "telegram_bot.handlers.risk_handler",
+            "telegram_bot.handlers.markets",
+            "telegram_bot.handlers.portfolio_handler",
+            "telegram_bot.handlers.dashboard",
+            "telegram_bot.handlers.menu_handler",
+            "telegram_bot.handlers.strategy_builder",
+            "telegram_bot.handlers.strategy_report",
+            "telegram_bot.handlers.strategy_tester",
+            "telegram_bot.handlers.filters_handler",
+            "telegram_bot.handlers.brier_handler",
+            "telegram_bot.handlers.changelog_handler",
+            "telegram_bot.handlers.settings_handler",
+            "telegram_bot.handlers.start",
+        ],
+    )
     def test_call_keyboard_builders(self, module_path):
         """`_build_*_keyboard` ve benzeri saf fonksiyonları topla, call et."""
         import importlib
+
         try:
             mod = importlib.import_module(module_path)
         except ImportError:
@@ -9452,12 +11129,14 @@ class TestRecorderModuleLevelExec:
 
     def test_module_level_globals(self):
         from data import market_recorder
+
         # Module loads, has globals
         attrs = dir(market_recorder)
         assert len(attrs) > 5
 
     def test_class_lookup(self):
         from data import market_recorder
+
         # Look for MarketRecorder class
         cls = getattr(market_recorder, "MarketRecorder", None)
         if cls is not None:
@@ -9473,12 +11152,14 @@ class TestBinanceMultiStreamForceAttr:
 
     def test_class_attrs_after_init(self):
         from data.binance_multistream import BinanceMultiStream, _AssetState
+
         bms = BinanceMultiStream()
         # Internal state populated
         assert "BTC" in bms._states or len(bms._states) > 0
 
     def test_asset_state_independent_per_asset(self):
         from data.binance_multistream import BinanceMultiStream
+
         bms = BinanceMultiStream()
         # 4 assets default
         for asset in ("BTC", "ETH", "SOL", "XRP"):
@@ -9488,10 +11169,15 @@ class TestBinanceMultiStreamForceAttr:
 
     def test_asset_state_features_with_data(self):
         from data.binance_multistream import _AssetState
+
         s = _AssetState("BTC")
         # Apply complex orderbook
-        s.apply_depth({"bids": [["65000", "1.0"], ["64999", "0.5"], ["64998", "2.0"]],
-                       "asks": [["65010", "1.0"], ["65011", "0.5"]]})
+        s.apply_depth(
+            {
+                "bids": [["65000", "1.0"], ["64999", "0.5"], ["64998", "2.0"]],
+                "asks": [["65010", "1.0"], ["65011", "0.5"]],
+            }
+        )
         # Apply trade
         s.apply_trade({"T": 1700000000000, "p": "65005", "q": "0.1", "m": False})
         s.apply_trade({"T": 1700000000001, "p": "65003", "q": "0.05", "m": True})
@@ -9507,6 +11193,7 @@ class TestOddsFeedAtBoundary:
 
     def test_record_odds_boundary_low(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         # Just above threshold
         f.record_odds("x", 0.011)
@@ -9514,6 +11201,7 @@ class TestOddsFeedAtBoundary:
 
     def test_record_odds_boundary_high(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         # Just below 0.99
         f.record_odds("x", 0.989)
@@ -9521,6 +11209,7 @@ class TestOddsFeedAtBoundary:
 
     def test_record_odds_at_exactly_001(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         # Exactly 0.01 — boundary check
         f.record_odds("x", 0.01)
@@ -9529,6 +11218,7 @@ class TestOddsFeedAtBoundary:
 
     def test_get_last_clamps_negative(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         # Force-insert negative
         f._series["x"].append(-0.5)
@@ -9542,20 +11232,23 @@ class TestEngineSupportFinalBranches:
     """core/engine_support.py 92.2% → final."""
 
     def test_slug_end_with_4h_interval(self):
-        from core.engine_support import _slug_end, INTERVAL_SECS
+        from core.engine_support import INTERVAL_SECS, _slug_end
+
         # 4h = 14400s
         result = _slug_end("btc-up-4h-1700000000")
         assert result is not None
         assert result.timestamp() == 1700000000 + INTERVAL_SECS["4h"]
 
     def test_slug_end_with_24h_interval(self):
-        from core.engine_support import _slug_end, INTERVAL_SECS
+        from core.engine_support import INTERVAL_SECS, _slug_end
+
         result = _slug_end("btc-up-24h-1700000000")
         assert result.timestamp() == 1700000000 + INTERVAL_SECS["24h"]
 
     def test_slug_end_overflow_returns_none(self):
         """Massive epoch → OSError on Windows or OverflowError."""
         from core.engine_support import _slug_end
+
         # 99999999999 epoch may overflow
         try:
             result = _slug_end("btc-up-5m-99999999999999")
@@ -9565,9 +11258,12 @@ class TestEngineSupportFinalBranches:
 
     def test_skip_counter_summary_with_3_reasons(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
-        for _ in range(3): sc.record("A")
-        for _ in range(2): sc.record("B")
+        for _ in range(3):
+            sc.record("A")
+        for _ in range(2):
+            sc.record("B")
         sc.record("C")
         s = sc.summary()
         assert "A=3" in s
@@ -9580,22 +11276,43 @@ class TestPolymarketPortfolioHelpersExtra:
 
     def test_dataclass_position_row_fields(self):
         from data.polymarket_portfolio import PositionRow
+
         # All fields default-constructible
         p = PositionRow(token_id="0x")
-        for attr in ("market_slug", "outcome", "side", "shares",
-                     "avg_price", "cost_basis_usd", "cur_price",
-                     "cur_value_usd", "pnl_usd", "pnl_pct", "end_date"):
+        for attr in (
+            "market_slug",
+            "outcome",
+            "side",
+            "shares",
+            "avg_price",
+            "cost_basis_usd",
+            "cur_price",
+            "cur_value_usd",
+            "pnl_usd",
+            "pnl_pct",
+            "end_date",
+        ):
             assert hasattr(p, attr)
 
     def test_trade_row_all_fields(self):
         from data.polymarket_portfolio import TradeRow
+
         t = TradeRow(trade_id="t")
-        for attr in ("market_slug", "side", "role", "price",
-                     "shares", "fee_usd", "status", "matched_at"):
+        for attr in (
+            "market_slug",
+            "side",
+            "role",
+            "price",
+            "shares",
+            "fee_usd",
+            "status",
+            "matched_at",
+        ):
             assert hasattr(t, attr)
 
     def test_portfolio_snapshot_user_address_field(self):
         from data.polymarket_portfolio import PortfolioSnapshot
+
         snap = PortfolioSnapshot(fetched_at="2026-05-05", user_address="0xWALLET")
         assert snap.user_address == "0xWALLET"
         assert snap.fetch_errors == []
@@ -9609,7 +11326,8 @@ class TestPolymarketActionsExtra:
     # security reasons (Telegram chat-history leak risk).
 
     def test_deposit_info_polygonscan_url(self, monkeypatch):
-        from data.polymarket_actions import deposit_info, POLYGONSCAN_BASE
+        from data.polymarket_actions import POLYGONSCAN_BASE, deposit_info
+
         monkeypatch.setenv("POLYGON_WALLET", "0xWALLET")
         info = deposit_info()
         assert POLYGONSCAN_BASE in info["polygonscan"]
@@ -9620,9 +11338,12 @@ class TestUmaDisputeIntegrationFlow:
 
     def test_full_workflow_market_lifecycle(self):
         from core.uma_dispute import (
-            should_block_new_position, is_market_closed,
-            is_market_disputed, is_in_settlement_window,
+            is_in_settlement_window,
+            is_market_closed,
+            is_market_disputed,
+            should_block_new_position,
         )
+
         now = 1_700_000_000
         # Lifecycle: open → near-close → disputed → resolved
         # 1. Open market, far from end
@@ -9651,7 +11372,8 @@ class TestFeesV2IntegrationFlow:
 
     def test_dynamic_to_static_fallback_chain(self):
         """Dynamic fail → static crypto fallback returns same as direct call."""
-        from core.fees_v2 import taker_fee_dynamic, polymarket_taker_fee_v2
+        from core.fees_v2 import polymarket_taker_fee_v2, taker_fee_dynamic
+
         client_failing = MagicMock()
         client_failing.get_clob_market_info.side_effect = RuntimeError("network")
         # Direct static
@@ -9662,6 +11384,7 @@ class TestFeesV2IntegrationFlow:
 
     def test_geopolitics_zero_fee_forced(self):
         from core.fees_v2 import taker_fee_dynamic
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "feesEnabled": False,
@@ -9673,6 +11396,7 @@ class TestFeesV2IntegrationFlow:
     def test_dynamic_per_market_override(self):
         """Per-market rate=0.10 (different from crypto 0.072) → uses dynamic."""
         from core.fees_v2 import taker_fee_dynamic
+
         client = MagicMock()
         client.get_clob_market_info.return_value = {
             "feesEnabled": True,
@@ -9688,6 +11412,7 @@ class TestStrategyPluginsCustomConfigs:
 
     def test_registry_set_config_known_strategy(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         # Try common strategy types
         for strat_type in ("momentum", "fusion", "contrarian"):
@@ -9707,12 +11432,17 @@ class TestPolymarketClientGetMarketOddsMock:
     """data/polymarket_client.py get_market_odds path."""
 
     def _make_client(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
-        return PolymarketClient(Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
-        ))
+        from data.polymarket_client import PolymarketClient
+
+        return PolymarketClient(
+            Settings(
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
+            )
+        )
 
     @pytest.mark.asyncio
     async def test_get_market_odds_with_mocked_market(self):
@@ -9744,10 +11474,12 @@ class TestEngineWireImportsExtra:
 
     def test_run_preflight_callable(self):
         from core.allowance_preflight import run_preflight
+
         assert callable(run_preflight)
 
     def test_get_kill_switch_callable(self):
         from core.portfolio_kill_switch import get_kill_switch
+
         ks = get_kill_switch()
         assert ks is not None
         # Singleton-ish?
@@ -9756,10 +11488,12 @@ class TestEngineWireImportsExtra:
 
     def test_setup_structured_logging_callable(self):
         from core.structured_logging import setup_structured_logging
+
         assert callable(setup_structured_logging)
 
     def test_heartbeat_task_callable(self):
         from core.heartbeat import HeartbeatTask
+
         assert callable(HeartbeatTask)
 
 
@@ -9770,6 +11504,7 @@ class TestEngineP1WireSymbols:
         """engine.py imports lazily but module-level reachable."""
         # Import engine to force module-level execution
         from core import engine
+
         # The wire happens in start() — but symbols shouldn't be referenced
         # at module level; they are imported lazily inside start()
         assert engine is not None
@@ -9779,35 +11514,48 @@ class TestEngineP1WireSymbols:
 # Wave 6 — Real-call mass tests for high-impact modules
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestStrategyPluginsExhaustiveScenarios:
     """20 strategy × 5+ farklı scenario = ~100 evaluate path execution."""
 
     def _snap(self, **kw):
         from core.strategy_plugins import MarketSnapshot
-        d = dict(up_odds=0.55, down_odds=0.45, threshold=0.50,
-                 direction_filter="any",
-                 odds_series=[0.5]*10,
-                 minutes_remaining=2.5, total_minutes=5.0,
-                 spread=0.02, best_ask=0.56, best_bid=0.54,
-                 metadata={})
+
+        d = dict(
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
+            direction_filter="any",
+            odds_series=[0.5] * 10,
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
+            metadata={},
+        )
         d.update(kw)
         return MarketSnapshot(**d)
 
-    @pytest.mark.parametrize("scenario", [
-        # Format: (up_odds, down_odds, threshold, direction_filter, mins_rem, odds_series_pattern)
-        (0.85, 0.15, 0.80, "any", 2.5, "high_confidence"),
-        (0.85, 0.15, 0.80, "up", 2.5, "high_confidence"),
-        (0.15, 0.85, 0.80, "down", 2.5, "low_confidence"),
-        (0.50, 0.50, 0.55, "any", 2.5, "neutral"),
-        (0.92, 0.08, 0.90, "up", 1.0, "near_certain"),
-        (0.05, 0.95, 0.90, "down", 1.0, "near_certain"),
-        (0.45, 0.55, 0.60, "up", 4.5, "early"),
-        (0.55, 0.45, 0.50, "any", 0.3, "very_late"),
-        (0.30, 0.70, 0.65, "down", 2.5, "down_strong"),
-        (0.70, 0.30, 0.65, "up", 2.5, "up_strong"),
-    ])
+    @pytest.mark.parametrize(
+        "scenario",
+        [
+            # Format: (up_odds, down_odds, threshold, direction_filter, mins_rem, odds_series_pattern)
+            (0.85, 0.15, 0.80, "any", 2.5, "high_confidence"),
+            (0.85, 0.15, 0.80, "up", 2.5, "high_confidence"),
+            (0.15, 0.85, 0.80, "down", 2.5, "low_confidence"),
+            (0.50, 0.50, 0.55, "any", 2.5, "neutral"),
+            (0.92, 0.08, 0.90, "up", 1.0, "near_certain"),
+            (0.05, 0.95, 0.90, "down", 1.0, "near_certain"),
+            (0.45, 0.55, 0.60, "up", 4.5, "early"),
+            (0.55, 0.45, 0.50, "any", 0.3, "very_late"),
+            (0.30, 0.70, 0.65, "down", 2.5, "down_strong"),
+            (0.70, 0.30, 0.65, "up", 2.5, "up_strong"),
+        ],
+    )
     def test_momentum_scenarios(self, scenario):
         from core.strategy_plugins import MomentumStrategy
+
         up, dn, thr, dir_filter, mins, pattern = scenario
         # Build odds_series based on pattern
         if pattern == "high_confidence":
@@ -9816,21 +11564,34 @@ class TestStrategyPluginsExhaustiveScenarios:
             series = [0.5, 0.45, 0.35, 0.25, 0.20, 0.18, 0.15]
         else:
             series = [up] * 7
-        snap = self._snap(up_odds=up, down_odds=dn, threshold=thr,
-                          direction_filter=dir_filter, minutes_remaining=mins,
-                          odds_series=series)
+        snap = self._snap(
+            up_odds=up,
+            down_odds=dn,
+            threshold=thr,
+            direction_filter=dir_filter,
+            minutes_remaining=mins,
+            odds_series=series,
+        )
         s = MomentumStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("scenario", [
-        (0.85, 0.15), (0.15, 0.85), (0.55, 0.45),
-        (0.92, 0.08), (0.05, 0.95), (0.40, 0.60),
-    ])
+    @pytest.mark.parametrize(
+        "scenario",
+        [
+            (0.85, 0.15),
+            (0.15, 0.85),
+            (0.55, 0.45),
+            (0.92, 0.08),
+            (0.05, 0.95),
+            (0.40, 0.60),
+        ],
+    )
     def test_contrarian_scenarios(self, scenario):
         from core.strategy_plugins import ContrarianStrategy
+
         up, dn = scenario
-        snap = self._snap(up_odds=up, down_odds=dn, odds_series=[up]*8)
+        snap = self._snap(up_odds=up, down_odds=dn, odds_series=[up] * 8)
         s = ContrarianStrategy()
         result = s.evaluate(snap)
         assert result is not None
@@ -9838,6 +11599,7 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("threshold", [0.50, 0.60, 0.70, 0.80, 0.90])
     def test_high_threshold_thresholds(self, threshold):
         from core.strategy_plugins import HighThresholdStrategy
+
         snap = self._snap(up_odds=0.85, threshold=threshold)
         s = HighThresholdStrategy()
         result = s.evaluate(snap)
@@ -9846,17 +11608,26 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("up_price", [0.05, 0.10, 0.50, 0.90, 0.95])
     def test_penny_contract_prices(self, up_price):
         from core.strategy_plugins import PennyContractStrategy
-        snap = self._snap(up_odds=up_price, down_odds=1-up_price)
+
+        snap = self._snap(up_odds=up_price, down_odds=1 - up_price)
         s = PennyContractStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("up_price,thr", [
-        (0.95, 0.85), (0.92, 0.90), (0.91, 0.85),
-        (0.85, 0.85), (0.50, 0.85), (0.99, 0.95),
-    ])
+    @pytest.mark.parametrize(
+        "up_price,thr",
+        [
+            (0.95, 0.85),
+            (0.92, 0.90),
+            (0.91, 0.85),
+            (0.85, 0.85),
+            (0.50, 0.85),
+            (0.99, 0.95),
+        ],
+    )
     def test_bonding_yield_live_prices(self, up_price, thr):
         from core.strategy_plugins import BondingYieldLiveStrategy
+
         snap = self._snap(up_odds=up_price, threshold=thr)
         s = BondingYieldLiveStrategy()
         result = s.evaluate(snap)
@@ -9865,6 +11636,7 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("mins_rem", [4.5, 3.0, 2.0, 1.0, 0.5])
     def test_late_convergence_at_phases(self, mins_rem):
         from core.strategy_plugins import LateConvergenceStrategy
+
         snap = self._snap(minutes_remaining=mins_rem)
         s = LateConvergenceStrategy()
         result = s.evaluate(snap)
@@ -9873,25 +11645,32 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("mins_rem", [4.8, 4.5, 4.0, 3.0, 1.0])
     def test_opening_breakout_phases(self, mins_rem):
         from core.strategy_plugins import OpeningBreakoutLiveStrategy
+
         snap = self._snap(minutes_remaining=mins_rem)
         s = OpeningBreakoutLiveStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("ob_imb,bid_depth,ask_depth", [
-        (0.5, 1000, 200),
-        (-0.5, 200, 1000),
-        (0.0, 500, 500),
-        (0.8, 5000, 100),
-        (-0.8, 100, 5000),
-    ])
+    @pytest.mark.parametrize(
+        "ob_imb,bid_depth,ask_depth",
+        [
+            (0.5, 1000, 200),
+            (-0.5, 200, 1000),
+            (0.0, 500, 500),
+            (0.8, 5000, 100),
+            (-0.8, 100, 5000),
+        ],
+    )
     def test_orderbook_imbalance_depths(self, ob_imb, bid_depth, ask_depth):
         from core.strategy_plugins import OrderbookImbalanceLiveStrategy
-        snap = self._snap(metadata={
-            "ob_imbalance": ob_imb,
-            "up_bid_depth": bid_depth,
-            "up_ask_depth": ask_depth,
-        })
+
+        snap = self._snap(
+            metadata={
+                "ob_imbalance": ob_imb,
+                "up_bid_depth": bid_depth,
+                "up_ask_depth": ask_depth,
+            }
+        )
         s = OrderbookImbalanceLiveStrategy()
         result = s.evaluate(snap)
         assert result is not None
@@ -9899,32 +11678,41 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("rate", [0.001, -0.001, 0.0, 0.01, -0.01])
     def test_funding_rate_variants(self, rate):
         from core.strategy_plugins import FundingRateLiveStrategy
+
         snap = self._snap(metadata={"funding_rate": rate})
         s = FundingRateLiveStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("series_pattern", [
-        [0.50, 0.55, 0.65, 0.75, 0.80],  # rip
-        [0.50, 0.45, 0.35, 0.25, 0.20],  # crash
-        [0.50, 0.51, 0.50, 0.49, 0.50],  # stable
-        [0.30, 0.50, 0.30, 0.50, 0.30],  # whipsaw
-    ])
+    @pytest.mark.parametrize(
+        "series_pattern",
+        [
+            [0.50, 0.55, 0.65, 0.75, 0.80],  # rip
+            [0.50, 0.45, 0.35, 0.25, 0.20],  # crash
+            [0.50, 0.51, 0.50, 0.49, 0.50],  # stable
+            [0.30, 0.50, 0.30, 0.50, 0.30],  # whipsaw
+        ],
+    )
     def test_fade_rip_patterns(self, series_pattern):
         from core.strategy_plugins import FadeRipLiveStrategy
+
         snap = self._snap(odds_series=series_pattern)
         s = FadeRipLiveStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("pattern", [
-        [0.5]*5 + [0.55, 0.60, 0.65],  # building up
-        [0.5]*5 + [0.45, 0.40, 0.35],  # building down
-        [0.5]*8,  # flat
-        [0.55, 0.55, 0.55, 0.55, 0.55],  # uptrend stable
-    ])
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            [0.5] * 5 + [0.55, 0.60, 0.65],  # building up
+            [0.5] * 5 + [0.45, 0.40, 0.35],  # building down
+            [0.5] * 8,  # flat
+            [0.55, 0.55, 0.55, 0.55, 0.55],  # uptrend stable
+        ],
+    )
     def test_streak_reversal_patterns(self, pattern):
         from core.strategy_plugins import StreakReversalStrategy
+
         snap = self._snap(odds_series=pattern)
         s = StreakReversalStrategy()
         result = s.evaluate(snap)
@@ -9933,18 +11721,23 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("loss_streak", [0, 1, 2, 3, 5])
     def test_martingale_streak(self, loss_streak):
         from core.strategy_plugins import MartingaleStrategy
+
         snap = self._snap(metadata={"loss_streak": loss_streak})
         s = MartingaleStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("series", [
-        [0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2],  # crash
-        [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],  # flat
-        [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],  # rally
-    ])
+    @pytest.mark.parametrize(
+        "series",
+        [
+            [0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2],  # crash
+            [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],  # flat
+            [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],  # rally
+        ],
+    )
     def test_flash_crash_patterns(self, series):
         from core.strategy_plugins import FlashCrashStrategy
+
         snap = self._snap(odds_series=series)
         s = FlashCrashStrategy()
         result = s.evaluate(snap)
@@ -9953,45 +11746,65 @@ class TestStrategyPluginsExhaustiveScenarios:
     @pytest.mark.parametrize("spread", [0.005, 0.01, 0.02, 0.05, 0.10])
     def test_scalper_spread_variants(self, spread):
         from core.strategy_plugins import ScalperStrategy
+
         snap = self._snap(spread=spread)
         s = ScalperStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("up_thr", [
-        (0.50, 0.50), (0.60, 0.55), (0.85, 0.80),
-        (0.92, 0.90), (0.30, 0.50),
-    ])
+    @pytest.mark.parametrize(
+        "up_thr",
+        [
+            (0.50, 0.50),
+            (0.60, 0.55),
+            (0.85, 0.80),
+            (0.92, 0.90),
+            (0.30, 0.50),
+        ],
+    )
     def test_sniper_variants(self, up_thr):
         from core.strategy_plugins import SniperStrategy
+
         up, thr = up_thr
         snap = self._snap(up_odds=up, threshold=thr)
         s = SniperStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("scenario", [
-        ({"up_odds": 0.85, "threshold": 0.80, "direction_filter": "up"}),
-        ({"up_odds": 0.20, "down_odds": 0.80, "threshold": 0.80, "direction_filter": "down"}),
-        ({"up_odds": 0.50, "threshold": 0.85, "direction_filter": "any"}),
-        ({"up_odds": 0.99, "threshold": 0.99, "direction_filter": "up"}),
-        ({"up_odds": 0.01, "down_odds": 0.99, "threshold": 0.99, "direction_filter": "down"}),
-    ])
+    @pytest.mark.parametrize(
+        "scenario",
+        [
+            ({"up_odds": 0.85, "threshold": 0.80, "direction_filter": "up"}),
+            ({"up_odds": 0.20, "down_odds": 0.80, "threshold": 0.80, "direction_filter": "down"}),
+            ({"up_odds": 0.50, "threshold": 0.85, "direction_filter": "any"}),
+            ({"up_odds": 0.99, "threshold": 0.99, "direction_filter": "up"}),
+            ({"up_odds": 0.01, "down_odds": 0.99, "threshold": 0.99, "direction_filter": "down"}),
+        ],
+    )
     def test_classic_strategy_variants(self, scenario):
         from core.strategy_plugins import ClassicStrategy
+
         snap = self._snap(**scenario)
         s = ClassicStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("up,thr,dir_filter", [
-        (0.55, 0.50, "any"), (0.60, 0.55, "up"), (0.40, 0.50, "down"),
-        (0.75, 0.70, "any"), (0.30, 0.40, "any"),
-    ])
+    @pytest.mark.parametrize(
+        "up,thr,dir_filter",
+        [
+            (0.55, 0.50, "any"),
+            (0.60, 0.55, "up"),
+            (0.40, 0.50, "down"),
+            (0.75, 0.70, "any"),
+            (0.30, 0.40, "any"),
+        ],
+    )
     def test_fusion_scenarios(self, up, thr, dir_filter):
         from core.strategy_plugins import FusionStrategy
-        snap = self._snap(up_odds=up, threshold=thr, direction_filter=dir_filter,
-                          odds_series=[up]*10)
+
+        snap = self._snap(
+            up_odds=up, threshold=thr, direction_filter=dir_filter, odds_series=[up] * 10
+        )
         s = FusionStrategy()
         result = s.evaluate(snap)
         assert result is not None
@@ -10014,6 +11827,7 @@ class TestHandlerRealCallables:
 
     def test_call_top_level_helpers_in_handlers(self):
         import importlib
+
         # Discover and call all non-async, non-private functions
         modules_to_scan = [
             "telegram_bot.handlers.stats",
@@ -10043,6 +11857,7 @@ class TestHandlerRealCallables:
                     continue
                 # Avoid async funcs and class types
                 import inspect
+
                 if inspect.isclass(obj):
                     continue
                 if inspect.iscoroutinefunction(obj):
@@ -10063,6 +11878,7 @@ class TestModeBannerSafeRender:
     def test_mode_banner_function(self):
         try:
             from telegram_bot.templates.mode_banner import get_mode_banner
+
             for mode in ("paper", "real", "PAPER", "REAL", "shadow"):
                 try:
                     result = get_mode_banner(mode)
@@ -10078,18 +11894,21 @@ class TestSafeHtmlRealEscape:
 
     def test_esc_special_chars(self):
         from telegram_bot.templates.safe_html import esc
+
         assert esc("&") == "&amp;"
         assert esc("<") == "&lt;"
         assert esc(">") == "&gt;"
 
     def test_esc_code_with_backticks(self):
         from telegram_bot.templates.safe_html import esc_code
+
         result = esc_code("`code`")
         # Backticks may be escaped or stripped
         assert result is not None
 
     def test_esc_long_string(self):
         from telegram_bot.templates.safe_html import esc
+
         long = "x" * 1000
         result = esc(long)
         assert len(result) >= 1000
@@ -10100,6 +11919,7 @@ class TestExcRenderFunction:
 
     def test_render_function_exists(self):
         from telegram_bot.handlers import _exc_render
+
         attrs = [a for a in dir(_exc_render) if not a.startswith("_")]
         assert len(attrs) > 0
 
@@ -10110,6 +11930,7 @@ class TestErrorTemplateRenders:
     def test_error_render_functions(self):
         try:
             from telegram_bot.templates import errors
+
             for attr in dir(errors):
                 if attr.startswith("_"):
                     continue
@@ -10128,10 +11949,15 @@ class TestEngineSignalsClassMethodChain:
 
     def test_mixin_attrs_present(self):
         from core.engine_signals import EngineSignalsMixin
+
         # Class-level attrs (constants)
-        for attr in ("ALLOWED_ZONES_STR", "FUSION_BLOCKED_ZONES_STR",
-                     "BRIER_GAP_MAX", "_ALLOWED_ZONES",
-                     "_FUSION_BLOCKED_ZONES"):
+        for attr in (
+            "ALLOWED_ZONES_STR",
+            "FUSION_BLOCKED_ZONES_STR",
+            "BRIER_GAP_MAX",
+            "_ALLOWED_ZONES",
+            "_FUSION_BLOCKED_ZONES",
+        ):
             assert hasattr(EngineSignalsMixin, attr) or True
 
 
@@ -10140,10 +11966,12 @@ class TestEngineMonitorSignals:
 
     def test_mixin_class(self):
         from core.engine_monitor import EngineMonitorMixin
+
         assert EngineMonitorMixin is not None
 
     def test_mixin_has_methods(self):
         from core.engine_monitor import EngineMonitorMixin
+
         # Inspect class methods
         methods = [m for m in dir(EngineMonitorMixin) if not m.startswith("__")]
         assert len(methods) >= 0
@@ -10154,6 +11982,7 @@ class TestEngineFillsMethods:
 
     def test_mixin_class_methods_count(self):
         from core.engine_fills import EngineFillsMixin
+
         methods = [m for m in dir(EngineFillsMixin) if not m.startswith("__")]
         assert len(methods) > 0
 
@@ -10163,6 +11992,7 @@ class TestEngineSettlementMethods:
 
     def test_mixin_class_methods_count(self):
         from core.engine_settlement import EngineSettlementMixin
+
         methods = [m for m in dir(EngineSettlementMixin) if not m.startswith("__")]
         assert len(methods) > 0
 
@@ -10172,12 +12002,14 @@ class TestSafeHtmlEscCorners:
 
     def test_esc_with_quotes(self):
         from telegram_bot.templates.safe_html import esc
+
         result = esc('"hello"')
         # Smoke
         assert result is not None
 
     def test_esc_with_unicode(self):
         from telegram_bot.templates.safe_html import esc
+
         result = esc("Türkçe içerik © 2026")
         assert "Türkçe" in result or "T" in result
 
@@ -10188,12 +12020,16 @@ class TestEngineCtorAdditionalEnv:
     def _build(self):
         from config.settings import Settings
         from core.engine import TradingEngine
+
         return TradingEngine(
             settings=Settings(
-                TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
             ),
-            db=MagicMock(), scanner=MagicMock(),
+            db=MagicMock(),
+            scanner=MagicMock(),
             odds_feed=MagicMock(),
         )
 
@@ -10284,6 +12120,7 @@ class TestStrategyRegistryDefault:
 
     def test_registry_can_iterate(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         # Try to access internal dict
         if hasattr(reg, "_strategies"):
@@ -10293,6 +12130,7 @@ class TestStrategyRegistryDefault:
 
     def test_registry_get_with_dotted_name(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         result = reg.get("nonexistent.dotted.name")
         assert result is None
@@ -10302,7 +12140,8 @@ class TestRiskManagerExtraSafeMethods:
     """risk_manager.py — non-DB methods."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_state_init_zero_pnl(self):
@@ -10330,28 +12169,40 @@ class TestFusionStrategyEdgeCases:
 
     def test_fusion_with_long_series(self):
         from core.strategy_plugins import FusionStrategy, MarketSnapshot
+
         s = FusionStrategy()
         # Long stable series
         snap = MarketSnapshot(
-            up_odds=0.55, down_odds=0.45, threshold=0.50,
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
             direction_filter="any",
             odds_series=[0.50 + i * 0.005 for i in range(20)],
-            minutes_remaining=2.5, total_minutes=5.0,
-            spread=0.02, best_ask=0.56, best_bid=0.54,
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
         )
         result = s.evaluate(snap)
         assert result is not None
 
     def test_fusion_with_volatile_series(self):
         from core.strategy_plugins import FusionStrategy, MarketSnapshot
+
         s = FusionStrategy()
         # Volatile zigzag
         snap = MarketSnapshot(
-            up_odds=0.55, down_odds=0.45, threshold=0.50,
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
             direction_filter="any",
             odds_series=[0.5, 0.7, 0.3, 0.7, 0.3, 0.7, 0.3, 0.6],
-            minutes_remaining=2.5, total_minutes=5.0,
-            spread=0.02, best_ask=0.56, best_bid=0.54,
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
         )
         result = s.evaluate(snap)
         assert result is not None
@@ -10362,11 +12213,13 @@ class TestPolymarketRtdsExtra:
 
     def test_init_default(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         assert rtds is not None
 
     def test_get_status_after_init(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         s = rtds.get_status()
         assert isinstance(s, dict)
@@ -10386,11 +12239,13 @@ class TestExtraLowCovBumps:
             return await t
 
         import asyncio
+
         result = asyncio.run(runner())
         assert result == "OK"
 
     def test_engine_support_int_secs(self):
         from core.engine_support import INTERVAL_SECS, MAX_MBE
+
         # All keys present
         for k in ("5m", "15m", "1h", "4h", "24h"):
             assert k in INTERVAL_SECS
@@ -10398,6 +12253,7 @@ class TestExtraLowCovBumps:
 
     def test_kelly_module_helpers(self):
         from core import kelly
+
         # Force module-level constants (if any)
         attrs = [a for a in dir(kelly) if not a.startswith("_")]
         assert len(attrs) >= 1
@@ -10407,26 +12263,34 @@ class TestPolymarketClientAllExtras:
     """polymarket_client.py — call paths beyond instance creation."""
 
     def _make(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
-        return PolymarketClient(Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
-        ))
+        from data.polymarket_client import PolymarketClient
+
+        return PolymarketClient(
+            Settings(
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
+            )
+        )
 
     def test_safe_float_extreme(self):
         from data.polymarket_client import safe_float
+
         assert safe_float(2.0) is None  # > 1 → default
         assert safe_float(0.001) == 0.001  # in range
         assert safe_float(0.999) == 0.999  # in range
 
     def test_safe_float_negative(self):
         from data.polymarket_client import safe_float
+
         assert safe_float(-0.1) is None
         assert safe_float(-0.1, default=0.5) == 0.5
 
     def test_safe_float_invalid_with_default(self):
         from data.polymarket_client import safe_float
+
         assert safe_float("not_a_num", default=0.5) == 0.5
 
     def test_calculate_vwap_partial_at_2nd_level(self):
@@ -10451,6 +12315,7 @@ class TestLiveTraderToggleSequence:
 
     def test_toggle_pattern(self):
         from core.live_trader import LiveTrader
+
         t = LiveTrader()
         # Initial: not paused
         assert t._paused is False
@@ -10465,6 +12330,7 @@ class TestLiveTraderToggleSequence:
 
     def test_is_enabled_three_factor(self):
         from core.live_trader import LiveTrader
+
         t = LiveTrader()
         # Initial: disabled
         assert t.is_enabled() is False
@@ -10493,12 +12359,14 @@ class TestLiveTraderToggleSequence:
 
 @pytest.mark.skip(
     reason="P1-01-c1 (2026-05-09): same as TestCandleBuilder — P0-08-E3 "
-    "API drift, refactor needed.")
+    "API drift, refactor needed."
+)
 class TestCandleBuilderEdgeFlow:
     """CandleBuilder — additional edge flow."""
 
     def test_concurrent_slug_building(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         # Build 3 different slugs concurrently
         for slug, prices in [
@@ -10518,6 +12386,7 @@ class TestCandleBuilderEdgeFlow:
 
     def test_double_flush_returns_none_second(self):
         from data.candle_collector import CandleBuilder
+
         b = CandleBuilder()
         b.tick("x", 0.5)
         first = b.flush("x")
@@ -10533,6 +12402,7 @@ class TestUmaDisputeAllVariants:
     @pytest.mark.parametrize("buffer_min", [0, 30, 60, 120, 150, 240, 360])
     def test_buffer_variations(self, buffer_min):
         from core.uma_dispute import is_in_settlement_window
+
         now = 1_700_000_000
         end = now + 90 * 60  # 90 mins
         market = {"endDateTs": end}
@@ -10540,13 +12410,24 @@ class TestUmaDisputeAllVariants:
         # 90 < buffer → True
         assert result == (90 < buffer_min)
 
-    @pytest.mark.parametrize("status", [
-        "open", "active", "trading", "live",
-        "disputed", "challenged", "in_dispute",
-        "resolved", "settled", "closed",
-    ])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "open",
+            "active",
+            "trading",
+            "live",
+            "disputed",
+            "challenged",
+            "in_dispute",
+            "resolved",
+            "settled",
+            "closed",
+        ],
+    )
     def test_market_status_classification(self, status):
-        from core.uma_dispute import is_market_disputed, is_market_closed
+        from core.uma_dispute import is_market_closed, is_market_disputed
+
         market = {"resolutionStatus": status}
         is_dispute = is_market_disputed(market)
         is_closed = is_market_closed(market)
@@ -10558,36 +12439,49 @@ class TestUmaDisputeAllVariants:
 
     def test_block_decision_exhaustive(self):
         from core.uma_dispute import should_block_new_position
+
         # Combined cases
         now = 1_700_000_000
         # Closed + not in window → CLOSED priority
-        d1 = should_block_new_position(
-            {"closed": True, "endDateTs": now + 24*3600}, now_ts=now)
+        d1 = should_block_new_position({"closed": True, "endDateTs": now + 24 * 3600}, now_ts=now)
         assert d1.reason == "BLOCK_CLOSED"
         # Disputed + far future → DISPUTED
         d2 = should_block_new_position(
-            {"umaDispute": True, "endDateTs": now + 24*3600}, now_ts=now)
+            {"umaDispute": True, "endDateTs": now + 24 * 3600}, now_ts=now
+        )
         assert d2.reason == "BLOCK_DISPUTED"
         # Just settlement window
-        d3 = should_block_new_position(
-            {"endDateTs": now + 60*60}, buffer_min=150, now_ts=now)
+        d3 = should_block_new_position({"endDateTs": now + 60 * 60}, buffer_min=150, now_ts=now)
         assert d3.reason == "BLOCK_SETTLEMENT_WINDOW"
         # All clear
         d4 = should_block_new_position(
-            {"endDateTs": now + 24*3600, "active": True}, buffer_min=150, now_ts=now)
+            {"endDateTs": now + 24 * 3600, "active": True}, buffer_min=150, now_ts=now
+        )
         assert d4.reason == "ALLOW"
 
 
 class TestFeesV2AllCategories:
     """fees_v2 — every CATEGORY_FEES entry hit."""
 
-    @pytest.mark.parametrize("category", [
-        "crypto", "sports", "politics", "finance",
-        "economics", "culture", "weather", "tech",
-        "mentions", "other", "geopolitics",
-    ])
+    @pytest.mark.parametrize(
+        "category",
+        [
+            "crypto",
+            "sports",
+            "politics",
+            "finance",
+            "economics",
+            "culture",
+            "weather",
+            "tech",
+            "mentions",
+            "other",
+            "geopolitics",
+        ],
+    )
     def test_fee_per_category(self, category):
-        from core.fees_v2 import polymarket_taker_fee_v2, CATEGORY_FEES
+        from core.fees_v2 import CATEGORY_FEES, polymarket_taker_fee_v2
+
         params = CATEGORY_FEES[category]
         fee = polymarket_taker_fee_v2(0.5, 100, category=category)
         # Geopolitics 0%, others positive
@@ -10596,11 +12490,18 @@ class TestFeesV2AllCategories:
         else:
             assert fee > 0
 
-    @pytest.mark.parametrize("category", [
-        "crypto", "sports", "politics", "finance",
-    ])
+    @pytest.mark.parametrize(
+        "category",
+        [
+            "crypto",
+            "sports",
+            "politics",
+            "finance",
+        ],
+    )
     def test_maker_rebate_per_category(self, category):
-        from core.fees_v2 import polymarket_taker_fee_v2, polymarket_maker_rebate
+        from core.fees_v2 import polymarket_maker_rebate, polymarket_taker_fee_v2
+
         fee = polymarket_taker_fee_v2(0.5, 100, category=category)
         rebate = polymarket_maker_rebate(fee, category=category)
         # Crypto 20%, others 25%
@@ -10616,6 +12517,7 @@ class TestFeesV2AllCategories:
         Amount-based fee is asymmetric because shares = amount/price varies.
         """
         from core.fees_v2 import polymarket_taker_fee_v2
+
         # Lock notional → shares vary → asymmetric (just verify both > 0)
         fee_at = polymarket_taker_fee_v2(price, 100, category="crypto")
         fee_mirror = polymarket_taker_fee_v2(1 - price, 100, category="crypto")
@@ -10627,16 +12529,20 @@ class TestFeesV2AllCategories:
 class TestEvAfterFeeAllPaths:
     """ev_after_fee_v2 — all paths."""
 
-    @pytest.mark.parametrize("price,wp,is_maker", [
-        (0.50, 0.50, False),
-        (0.50, 0.50, True),
-        (0.40, 0.60, False),
-        (0.40, 0.60, True),
-        (0.10, 0.50, False),
-        (0.90, 0.50, False),
-    ])
+    @pytest.mark.parametrize(
+        "price,wp,is_maker",
+        [
+            (0.50, 0.50, False),
+            (0.50, 0.50, True),
+            (0.40, 0.60, False),
+            (0.40, 0.60, True),
+            (0.10, 0.50, False),
+            (0.90, 0.50, False),
+        ],
+    )
     def test_ev_paths(self, price, wp, is_maker):
         from core.fees_v2 import ev_after_fee_v2
+
         ev = ev_after_fee_v2(price, wp, amount=10, is_maker=is_maker)
         assert isinstance(ev, float)
 
@@ -10648,13 +12554,17 @@ class TestEngineIntegrationStartShortCircuit:
     async def test_start_already_running(self):
         from config.settings import Settings
         from core.engine import TradingEngine
+
         try:
             eng = TradingEngine(
                 settings=Settings(
-                    TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                    ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                    TELEGRAM_BOT_TOKEN="t",
+                    ADMIN_TELEGRAM_ID=1,
+                    ANTHROPIC_API_KEY="t",
+                    POLYMARKET_API_KEY="t",
                 ),
-                db=MagicMock(), scanner=MagicMock(),
+                db=MagicMock(),
+                scanner=MagicMock(),
                 odds_feed=MagicMock(),
             )
             eng._running = True
@@ -10669,51 +12579,70 @@ class TestEngineIntegrationStartShortCircuit:
 # Wave 6 Final — Backtest strategies FULL LIFECYCLE
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestBacktestStrategiesLifecycle:
     """Each backtest strategy: on_market_open → on_snapshot×N → on_market_close."""
 
     def _make_market(self):
         from backtest.strategies.base import MarketData
+
         return MarketData(
             market_id="btc-up-5m-1700000000",
-            coin="BTC", market_type="5m",
-            duration_seconds=300, hour_utc=15,
+            coin="BTC",
+            market_type="5m",
+            duration_seconds=300,
+            hour_utc=15,
         )
 
     def _make_snap(self, elapsed=0.3, **kw):
         from backtest.strategies.base import OrderbookSnapshot
+
         defaults = dict(
-            timestamp_ms=1700000000000, up_best_bid=0.55, up_best_ask=0.56,
-            down_best_bid=0.44, down_best_ask=0.45, spread=0.01,
-            elapsed_pct=elapsed, remaining_seconds=300 * (1 - elapsed),
+            timestamp_ms=1700000000000,
+            up_best_bid=0.55,
+            up_best_ask=0.56,
+            down_best_bid=0.44,
+            down_best_ask=0.45,
+            spread=0.01,
+            elapsed_pct=elapsed,
+            remaining_seconds=300 * (1 - elapsed),
             elapsed_seconds=300 * elapsed,
-            binance_price=65000.0, binance_price_change=0.001,
-            up_bid_depth=500, up_ask_depth=500,
-            down_bid_depth=500, down_ask_depth=500,
-            taker_buy_volume=1000, taker_sell_volume=900,
+            binance_price=65000.0,
+            binance_price_change=0.001,
+            up_bid_depth=500,
+            up_ask_depth=500,
+            down_bid_depth=500,
+            down_ask_depth=500,
+            taker_buy_volume=1000,
+            taker_sell_volume=900,
         )
         defaults.update(kw)
         return OrderbookSnapshot(**defaults)
 
     def _make_resolution(self):
-        from backtest.strategies.base import Resolution, Direction
+        from backtest.strategies.base import Direction, Resolution
+
         return Resolution(winner=Direction.UP, final_up_price=1.0, final_down_price=0.0)
 
-    @pytest.mark.parametrize("strat_module,strat_class", [
-        ("calibration_arb", "CalibrationArbStrategy"),
-        ("cross_coin", "CrossCoinStrategy"),
-        ("fade_rip", "FadeRipStrategy"),
-        ("funding_rate", "FundingRateStrategy"),
-        ("hour_edge", "HourEdgeStrategy"),
-        ("late_convergence", "LateConvergenceStrategy"),
-        ("opening_breakout", "OpeningBreakoutStrategy"),
-        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-        ("streak_reversal", "StreakReversalStrategy"),
-        ("taker_flow", "TakerFlowStrategy"),
-    ])
+    @pytest.mark.parametrize(
+        "strat_module,strat_class",
+        [
+            ("calibration_arb", "CalibrationArbStrategy"),
+            ("cross_coin", "CrossCoinStrategy"),
+            ("fade_rip", "FadeRipStrategy"),
+            ("funding_rate", "FundingRateStrategy"),
+            ("hour_edge", "HourEdgeStrategy"),
+            ("late_convergence", "LateConvergenceStrategy"),
+            ("opening_breakout", "OpeningBreakoutStrategy"),
+            ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+            ("streak_reversal", "StreakReversalStrategy"),
+            ("taker_flow", "TakerFlowStrategy"),
+        ],
+    )
     def test_strategy_full_lifecycle(self, strat_module, strat_class):
         """Full run: on_market_open → 10 snapshots → on_market_close."""
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.strategies.{strat_module}")
             cls = getattr(mod, strat_class, None)
@@ -10748,27 +12677,47 @@ class TestBacktestStrategiesEvaluateLifecycleVariations:
 
     def _make_snap(self, **overrides):
         from backtest.strategies.base import OrderbookSnapshot
-        d = dict(timestamp_ms=1, up_best_bid=0.55, up_best_ask=0.56,
-                 down_best_bid=0.44, down_best_ask=0.45, spread=0.01,
-                 elapsed_pct=0.3, remaining_seconds=210,
-                 binance_price=65000.0, binance_price_change=0.0,
-                 up_bid_depth=500, up_ask_depth=500,
-                 down_bid_depth=500, down_ask_depth=500,
-                 taker_buy_volume=1000, taker_sell_volume=900)
+
+        d = dict(
+            timestamp_ms=1,
+            up_best_bid=0.55,
+            up_best_ask=0.56,
+            down_best_bid=0.44,
+            down_best_ask=0.45,
+            spread=0.01,
+            elapsed_pct=0.3,
+            remaining_seconds=210,
+            binance_price=65000.0,
+            binance_price_change=0.0,
+            up_bid_depth=500,
+            up_ask_depth=500,
+            down_bid_depth=500,
+            down_ask_depth=500,
+            taker_buy_volume=1000,
+            taker_sell_volume=900,
+        )
         d.update(overrides)
         return OrderbookSnapshot(**d)
 
-    @pytest.mark.parametrize("scenario", [
-        "early_strong_up", "early_strong_down", "mid_neutral",
-        "late_close_to_settle", "wide_spread", "thin_depth",
-    ])
+    @pytest.mark.parametrize(
+        "scenario",
+        [
+            "early_strong_up",
+            "early_strong_down",
+            "mid_neutral",
+            "late_close_to_settle",
+            "wide_spread",
+            "thin_depth",
+        ],
+    )
     def test_calibration_arb_scenarios(self, scenario):
         try:
             from backtest.strategies.calibration_arb import CalibrationArbStrategy
+
             s = CalibrationArbStrategy()
-            from backtest.strategies.base import MarketData, Resolution, Direction
-            market = MarketData(market_id="x", coin="BTC", market_type="5m",
-                                duration_seconds=300)
+            from backtest.strategies.base import Direction, MarketData, Resolution
+
+            market = MarketData(market_id="x", coin="BTC", market_type="5m", duration_seconds=300)
             try:
                 s.on_market_open(market)
             except Exception:
@@ -10779,7 +12728,9 @@ class TestBacktestStrategiesEvaluateLifecycleVariations:
                 "early_strong_down": dict(elapsed_pct=0.15, up_best_bid=0.35, up_best_ask=0.36),
                 "mid_neutral": dict(elapsed_pct=0.50, up_best_bid=0.50, up_best_ask=0.51),
                 "late_close_to_settle": dict(elapsed_pct=0.85, up_best_bid=0.90, up_best_ask=0.91),
-                "wide_spread": dict(elapsed_pct=0.30, up_best_bid=0.40, up_best_ask=0.60, spread=0.20),
+                "wide_spread": dict(
+                    elapsed_pct=0.30, up_best_bid=0.40, up_best_ask=0.60, spread=0.20
+                ),
                 "thin_depth": dict(elapsed_pct=0.30, up_bid_depth=10, up_ask_depth=10),
             }
             snap = self._make_snap(**scen_map[scenario])
@@ -10793,11 +12744,13 @@ class TestBacktestStrategiesEvaluateLifecycleVariations:
     @pytest.mark.parametrize("hour", [0, 6, 12, 18, 23])
     def test_hour_edge_hours(self, hour):
         try:
-            from backtest.strategies.hour_edge import HourEdgeStrategy
             from backtest.strategies.base import MarketData
+            from backtest.strategies.hour_edge import HourEdgeStrategy
+
             s = HourEdgeStrategy()
-            market = MarketData(market_id="x", coin="BTC", market_type="5m",
-                                duration_seconds=300, hour_utc=hour)
+            market = MarketData(
+                market_id="x", coin="BTC", market_type="5m", duration_seconds=300, hour_utc=hour
+            )
             try:
                 s.on_market_open(market)
                 s.on_snapshot(self._make_snap())
@@ -10812,13 +12765,19 @@ class TestExecutorPaperFullPathExtended:
 
     @pytest.mark.asyncio
     async def test_place_order_no_orderbook_source(self):
-        from core.executor import get_executor, OrderRequest
+        from core.executor import OrderRequest, get_executor
+
         ex = get_executor("paper")
         # No orderbook source set → fallback path
         try:
             req = OrderRequest(
-                token_id="0xtok", side="BUY", amount_usd=1.0, price=0.5,
-                order_type="FOK", strategy_label="x", slug="btc-up-x",
+                token_id="0xtok",
+                side="BUY",
+                amount_usd=1.0,
+                price=0.5,
+                order_type="FOK",
+                strategy_label="x",
+                slug="btc-up-x",
             )
             result = await ex.place_order(req)
             # Returns OrderResult or None
@@ -10827,17 +12786,25 @@ class TestExecutorPaperFullPathExtended:
 
     @pytest.mark.asyncio
     async def test_place_order_with_thin_book(self):
-        from core.executor import get_executor, OrderRequest
+        from core.executor import OrderRequest, get_executor
+
         ex = get_executor("paper")
         if hasattr(ex, "set_orderbook_source"):
-            ex.set_orderbook_source(lambda tid: {
-                "asks": [(0.55, 1)],  # very thin
-                "bids": [(0.54, 1)],
-            })
+            ex.set_orderbook_source(
+                lambda tid: {
+                    "asks": [(0.55, 1)],  # very thin
+                    "bids": [(0.54, 1)],
+                }
+            )
         try:
             req = OrderRequest(
-                token_id="0xt", side="BUY", amount_usd=100.0, price=0.55,
-                order_type="FOK", strategy_label="x", slug="btc-up-x",
+                token_id="0xt",
+                side="BUY",
+                amount_usd=100.0,
+                price=0.55,
+                order_type="FOK",
+                strategy_label="x",
+                slug="btc-up-x",
             )
             result = await ex.place_order(req)
         except (TypeError, AttributeError):
@@ -10848,15 +12815,16 @@ class TestStrategyPluginsRegistryRegister:
     """StrategyRegistry register/get loop."""
 
     def test_register_custom_strategy(self):
-        from core.strategy_plugins import StrategyRegistry, BaseStrategy, StrategySignal
+        from core.strategy_plugins import BaseStrategy, StrategyRegistry, StrategySignal
 
         class CustomStrategy(BaseStrategy):
             name = "custom_test"
             description = "test"
 
             def evaluate(self, snapshot):
-                return StrategySignal(should_trade=False, direction=None,
-                                       confidence=0.0, reason="custom test")
+                return StrategySignal(
+                    should_trade=False, direction=None, confidence=0.0, reason="custom test"
+                )
 
         reg = StrategyRegistry()
         try:
@@ -10874,6 +12842,7 @@ class TestPolymarketRtdsFlow:
 
     def test_init_with_engine_param(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         # Try with engine kwarg (if exists)
         try:
             rtds = PolymarketRTDS(engine=MagicMock())
@@ -10885,6 +12854,7 @@ class TestPolymarketRtdsFlow:
 
     def test_get_price_for_each_asset(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         for asset in ("BTC", "ETH", "SOL", "XRP"):
             try:
@@ -10901,6 +12871,7 @@ class TestExternalFeedAllPaths:
     @pytest.mark.asyncio
     async def test_start_with_httpx_failing_ping(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         client = MagicMock()
         # Raise on ping
@@ -10912,6 +12883,7 @@ class TestExternalFeedAllPaths:
     @pytest.mark.asyncio
     async def test_start_with_httpx_success(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         client = MagicMock()
         # Mock 200 ping
@@ -10923,6 +12895,7 @@ class TestExternalFeedAllPaths:
 
     def test_record_history_full_buffer(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         # Fill exactly to capacity (12)
         for i in range(12):
@@ -10931,6 +12904,7 @@ class TestExternalFeedAllPaths:
 
     def test_get_spot_momentum_short_lookback(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         now = time.time()
         # Limited recent
@@ -10950,6 +12924,7 @@ class TestPolymarketPortfolioAllPaths:
     @pytest.mark.asyncio
     async def test_fetch_balance_allowance_no_creds(self):
         from data.polymarket_portfolio import fetch_balance_allowance
+
         client = MagicMock()
         client.get_balance_allowance.side_effect = ImportError("no V2")
         bal, allow, err = await fetch_balance_allowance(client)
@@ -10959,6 +12934,7 @@ class TestPolymarketPortfolioAllPaths:
     @pytest.mark.asyncio
     async def test_fetch_recent_trades_zero_size(self):
         from data.polymarket_portfolio import fetch_recent_trades
+
         client = MagicMock()
         client.get_trades.return_value = [
             {"id": "t1", "size": 0, "price": 0.5, "fee_rate_bps": 0},
@@ -10973,6 +12949,7 @@ class TestAiBrainExtraStateFunctions:
 
     def _make(self):
         from core.ai_brain import AIBrain
+
         return AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
 
     def test_rate_limit_inactive_when_zero(self):
@@ -10983,6 +12960,7 @@ class TestAiBrainExtraStateFunctions:
 
     def test_extract_json_already_dict_string(self):
         from core.ai_brain import AIBrain
+
         # Input already JSON
         text = '{"clean": "json"}'
         result = AIBrain._extract_json(text)
@@ -10991,20 +12969,32 @@ class TestAiBrainExtraStateFunctions:
     def test_get_status_keys_complete(self):
         b = self._make()
         s = b.get_status()
-        assert set(s.keys()) >= {"active", "spent", "budget", "remaining",
-                                  "cycle", "last_run", "providers"}
+        assert set(s.keys()) >= {
+            "active",
+            "spent",
+            "budget",
+            "remaining",
+            "cycle",
+            "last_run",
+            "providers",
+        }
 
 
 class TestPolymarketClientGetMethodsCoverage:
     """polymarket_client.py async fetch paths."""
 
     def _make(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
-        return PolymarketClient(Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
-        ))
+        from data.polymarket_client import PolymarketClient
+
+        return PolymarketClient(
+            Settings(
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
+            )
+        )
 
     @pytest.mark.asyncio
     async def test_close_smoke(self):
@@ -11020,10 +13010,12 @@ class TestPolymarketClientGetMethodsCoverage:
         # Mock httpx client
         c._client = AsyncMock()
         resp = MagicMock(status_code=200)
-        resp.json = MagicMock(return_value={
-            "asks": [["0.55", "100"]],
-            "bids": [["0.54", "100"]],
-        })
+        resp.json = MagicMock(
+            return_value={
+                "asks": [["0.55", "100"]],
+                "bids": [["0.54", "100"]],
+            }
+        )
         c._client.get = AsyncMock(return_value=resp)
         try:
             result = await c.get_orderbook("0xtok")
@@ -11036,7 +13028,8 @@ class TestRiskManagerCheckAssetEdgeCases:
     """check_asset_limit edge cases."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_check_asset_limit_zero_amount(self):
@@ -11070,6 +13063,7 @@ class TestPortfolioKillSwitchAllPaths:
 
     def _make(self, monkeypatch):
         from core.portfolio_kill_switch import PortfolioKillSwitch
+
         monkeypatch.setenv("KILL_SWITCH_ENABLED", "true")
         return PortfolioKillSwitch()
 
@@ -11112,6 +13106,7 @@ class TestEngineSupportFullSweep:
 
     def test_skip_counter_summary_5plus_reasons_top_4_only(self):
         from core.engine_support import SkipCounter
+
         sc = SkipCounter()
         for reason, count in [("A", 5), ("B", 4), ("C", 3), ("D", 2), ("E", 1)]:
             for _ in range(count):
@@ -11125,7 +13120,8 @@ class TestEngineSupportFullSweep:
         assert "15skip" in s
 
     def test_slug_helpers_all_intervals(self):
-        from core.engine_support import _slug_end, _slug_start, INTERVAL_SECS
+        from core.engine_support import INTERVAL_SECS, _slug_end, _slug_start
+
         for tf in ("5m", "15m", "1h", "4h", "24h"):
             slug = f"btc-up-{tf}-1700000000"
             end = _slug_end(slug)
@@ -11140,6 +13136,7 @@ class TestUmaDisputeEdgeCascade:
 
     def test_should_block_ignore_minor_keys(self):
         from core.uma_dispute import should_block_new_position
+
         # Many irrelevant keys — should ignore
         market = {
             "name": "Test market",
@@ -11149,13 +13146,13 @@ class TestUmaDisputeEdgeCascade:
             "closed": False,
             "resolutionStatus": "open",
         }
-        d = should_block_new_position(market, buffer_min=150,
-                                       now_ts=1_700_000_000)
+        d = should_block_new_position(market, buffer_min=150, now_ts=1_700_000_000)
         # Far future + open → ALLOW
         assert d.block is False
 
     def test_should_block_default_buffer_via_env(self, monkeypatch):
         from core.uma_dispute import should_block_new_position
+
         # Use module default
         monkeypatch.setenv("UMA_SETTLEMENT_BUFFER_MIN", "60")
         now = 1_700_000_000
@@ -11171,6 +13168,7 @@ class TestFinalCoverageBumps:
     def test_strategy_plugins_module_load_force(self):
         """Force module-level statements."""
         from core import strategy_plugins
+
         # Module loaded; iterate Strategy classes
         for attr in dir(strategy_plugins):
             obj = getattr(strategy_plugins, attr, None)
@@ -11185,6 +13183,7 @@ class TestFinalCoverageBumps:
 
     def test_ai_brain_module_load_constants(self):
         from core import ai_brain
+
         # Constants accessed
         assert ai_brain.MAX_ACTIONS > 0
         assert ai_brain.MAX_SCALE_HUMAN > 0
@@ -11192,6 +13191,7 @@ class TestFinalCoverageBumps:
 
     def test_engine_module_imports_complete(self):
         from core import engine
+
         # TradingEngine class
         assert engine.TradingEngine is not None
         # logger
@@ -11199,12 +13199,14 @@ class TestFinalCoverageBumps:
 
     def test_live_trader_module_constants(self):
         from core import live_trader
+
         # LIVE_STRATEGIES whitelist
         assert isinstance(live_trader.LIVE_STRATEGIES, set)
         assert len(live_trader.LIVE_STRATEGIES) >= 3
 
     def test_data_polymarket_client_constants(self):
         from data import polymarket_client
+
         assert polymarket_client.PolymarketClient.GAMMA_BASE.startswith("https://")
         assert polymarket_client.PolymarketClient.CLOB_BASE.startswith("https://")
         # SLUG_PREFIXES has 4 coins
@@ -11212,11 +13214,13 @@ class TestFinalCoverageBumps:
 
     def test_data_external_feed_constants(self):
         from data import external_feed
+
         # Module-level constants
         assert hasattr(external_feed, "BINANCE_BASE") or True
 
     def test_data_chainlink_constants(self):
         from data import chainlink_oracle
+
         assert chainlink_oracle.DEFAULT_RPC.startswith("https://")
         assert chainlink_oracle.LATEST_ANSWER_SELECTOR.startswith("0x")
         assert chainlink_oracle.POLL_INTERVAL_S > 0
@@ -11225,11 +13229,13 @@ class TestFinalCoverageBumps:
 
     def test_core_uma_dispute_constants(self):
         from core import uma_dispute
+
         # Default buffer
         assert uma_dispute.DEFAULT_SETTLEMENT_BUFFER_MIN > 0
 
     def test_engine_support_constants_full(self):
         from core import engine_support
+
         assert engine_support.WS_STALE_THRESHOLD == 60.0
         assert engine_support.WIDE_SPREAD > 0
 
@@ -11237,27 +13243,52 @@ class TestFinalCoverageBumps:
 class TestCoreModuleGlobalsLoaded:
     """Ensure all core modules load globals."""
 
-    @pytest.mark.parametrize("path", [
-        "core.engine_support", "core.fees_v2", "core.uma_dispute",
-        "core.maker_taker_decision", "core.live_trader",
-        "core.engine", "core.engine_signals", "core.risk_manager",
-        "core.signal_fusion", "core.strategy_plugins",
-        "core.ai_brain", "core.kelly", "core.regime",
-        "core.indicators", "core.kill_switch",
-        "core.portfolio_kill_switch", "core.allowance_preflight",
-        "core.executor", "core.heartbeat", "core.bg_task",
-        "core.ev_tracker", "core.micro_weight_tracker",
-        "core.trade_journal", "core.trade_memory",
-        "core.decision_explainer", "core.experiment_runner",
-        "core.auto_optimizer", "core.strategy_lifecycle",
-        "core.strategy_selector", "core.strategy_suggester",
-        "core.intent_parser", "core.keepalive",
-        "core.changelog", "core.circuit_breaker",
-        "core.autopilot", "core.status_poller",
-        "core.structured_logging", "core.stats_utils",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "core.engine_support",
+            "core.fees_v2",
+            "core.uma_dispute",
+            "core.maker_taker_decision",
+            "core.live_trader",
+            "core.engine",
+            "core.engine_signals",
+            "core.risk_manager",
+            "core.signal_fusion",
+            "core.strategy_plugins",
+            "core.ai_brain",
+            "core.kelly",
+            "core.regime",
+            "core.indicators",
+            "core.kill_switch",
+            "core.portfolio_kill_switch",
+            "core.allowance_preflight",
+            "core.executor",
+            "core.heartbeat",
+            "core.bg_task",
+            "core.ev_tracker",
+            "core.micro_weight_tracker",
+            "core.trade_journal",
+            "core.trade_memory",
+            "core.decision_explainer",
+            "core.experiment_runner",
+            "core.auto_optimizer",
+            "core.strategy_lifecycle",
+            "core.strategy_selector",
+            "core.strategy_suggester",
+            "core.intent_parser",
+            "core.keepalive",
+            "core.changelog",
+            "core.circuit_breaker",
+            "core.autopilot",
+            "core.status_poller",
+            "core.structured_logging",
+            "core.stats_utils",
+        ],
+    )
     def test_module_loads_full(self, path):
         import importlib
+
         mod = importlib.import_module(path)
         # Touch all top-level
         for attr in dir(mod):
@@ -11272,12 +13303,14 @@ class TestCoreModuleGlobalsLoaded:
 # Wave 7 — Engine.start() execution + ai_brain real flow + handler deep
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestEngineStartFlowMocked:
     """core/engine.py start() — full flow mock'lı, P1 wire'lar trigger."""
 
     def _make_engine(self):
         from config.settings import Settings
         from core.engine import TradingEngine
+
         # Minimum-viable mock dependencies
         db = MagicMock()
         db.conn = MagicMock()
@@ -11289,16 +13322,23 @@ class TestEngineStartFlowMocked:
         db.set_setting = AsyncMock()
         scanner = MagicMock()
         odds_feed = MagicMock()
-        odds_feed.get_status = MagicMock(return_value={"total_records": 0, "tracked_slugs": 0, "slug_sizes": {}})
+        odds_feed.get_status = MagicMock(
+            return_value={"total_records": 0, "tracked_slugs": 0, "slug_sizes": {}}
+        )
         odds_feed.load_from_db = AsyncMock()
         try:
             return TradingEngine(
                 settings=Settings(
-                    TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                    ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                    TELEGRAM_BOT_TOKEN="t",
+                    ADMIN_TELEGRAM_ID=1,
+                    ANTHROPIC_API_KEY="t",
+                    POLYMARKET_API_KEY="t",
                 ),
-                db=db, scanner=scanner, odds_feed=odds_feed,
-                bot_app=None, external_feed=None,
+                db=db,
+                scanner=scanner,
+                odds_feed=odds_feed,
+                bot_app=None,
+                external_feed=None,
             )
         except Exception:
             return None
@@ -11340,8 +13380,13 @@ class TestEngineStartFlowMocked:
         if eng is None:
             pytest.skip("engine ctor failed")
         # All canonical 5 flags
-        for flag in ("ai_brain", "thompson_sampling", "regime_detection",
-                     "autopilot", "candle_collector"):
+        for flag in (
+            "ai_brain",
+            "thompson_sampling",
+            "regime_detection",
+            "autopilot",
+            "candle_collector",
+        ):
             assert flag in eng.brain_flags
 
     def test_engine_skips_counter_summary(self):
@@ -11372,7 +13417,7 @@ class TestEngineStartFlowMocked:
         eng = self._make_engine()
         if eng is None:
             pytest.skip()
-        eng._cooldowns["s1:asset"] = datetime.now(timezone.utc)
+        eng._cooldowns["s1:asset"] = datetime.now(UTC)
         assert "s1:asset" in eng._cooldowns
 
 
@@ -11397,6 +13442,7 @@ class TestEngineSignalsMixinFullFlow:
                 self._last_trade_slug = {}
                 self._last_check_ts = 0.0
                 from core.engine_support import SkipCounter
+
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
                 self.scanner.get_current_market = MagicMock(return_value=None)
@@ -11454,6 +13500,7 @@ class TestEngineSignalsMixinFullFlow:
         """No market in scanner → returns None."""
         eng = self._make_stub()
         from unittest.mock import MagicMock
+
         s = MagicMock()
         s.id = "abc12345"
         s.asset.value = "BTC"
@@ -11501,6 +13548,7 @@ class TestAiBrainCycleFlow:
 
     def _make(self):
         from core.ai_brain import AIBrain
+
         b = AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
         b.db.conn = MagicMock()
         b.db.conn.execute_fetchall = AsyncMock(return_value=[(0,)])
@@ -11512,6 +13560,7 @@ class TestAiBrainCycleFlow:
     @pytest.mark.asyncio
     async def test_run_brain_cycle_budget_exhausted(self, monkeypatch):
         from core import ai_brain as mod
+
         b = self._make()
         # Force budget exhausted
         b._spent = mod.MAX_BUDGET + 1
@@ -11632,11 +13681,16 @@ class TestAiBrainCycleFlow:
     async def test_create_smoke(self):
         b = self._make()
         try:
-            result = await b._create({
-                "type": "CREATE", "strategy_type": "fusion",
-                "asset": "BTC", "direction": "any",
-                "odds_threshold": 0.5, "reason": "test",
-            })
+            result = await b._create(
+                {
+                    "type": "CREATE",
+                    "strategy_type": "fusion",
+                    "asset": "BTC",
+                    "direction": "any",
+                    "odds_threshold": 0.5,
+                    "reason": "test",
+                }
+            )
             assert isinstance(result, str)
         except Exception:
             pass
@@ -11668,6 +13722,7 @@ class TestAiBrainCycleFlow:
     @pytest.mark.asyncio
     async def test_call_openrouter_no_api_key(self, monkeypatch):
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "OPENROUTER_API_KEY", "", raising=False)
         b = self._make()
         try:
@@ -11679,6 +13734,7 @@ class TestAiBrainCycleFlow:
     @pytest.mark.asyncio
     async def test_call_openrouter_with_key(self, monkeypatch):
         from core import ai_brain as mod
+
         monkeypatch.setattr(mod, "OPENROUTER_API_KEY", "key", raising=False)
         b = self._make()
         try:
@@ -11693,6 +13749,7 @@ class TestStrategySuggesterDeep2:
 
     def _make(self):
         from core.strategy_suggester import StrategySuggester
+
         s = StrategySuggester(db=MagicMock(), engine=MagicMock(), bot_app=None)
         s.db.conn = MagicMock()
         s.db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -11711,8 +13768,7 @@ class TestStrategySuggesterDeep2:
     @pytest.mark.asyncio
     async def test_mini_backtest_smoke(self):
         s = self._make()
-        strat = {"asset": "BTC", "direction": "up", "threshold": 0.6,
-                 "strategy_type": "fusion"}
+        strat = {"asset": "BTC", "direction": "up", "threshold": 0.6, "strategy_type": "fusion"}
         try:
             result = await s._mini_backtest(strat)
         except Exception:
@@ -11730,9 +13786,7 @@ class TestStrategySuggesterDeep2:
     async def test_create_strategy_smoke(self):
         s = self._make()
         try:
-            await s._create_strategy(
-                {"asset": "BTC"}, "test", {"trades": 30, "wr": 0.6}
-            )
+            await s._create_strategy({"asset": "BTC"}, "test", {"trades": 30, "wr": 0.6})
         except Exception:
             pass
 
@@ -11750,6 +13804,7 @@ class TestAutoOptimizerExtraPaths:
 
     def _make(self):
         from core.auto_optimizer import AutoOptimizer
+
         ao = AutoOptimizer(db=MagicMock())
         ao.db.conn = MagicMock()
         ao.db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -11779,6 +13834,7 @@ class TestStrategyLifecycleFlow:
 
     def _make(self):
         from core.strategy_lifecycle import StrategyLifecycle
+
         sl = StrategyLifecycle(db=MagicMock())
         sl.db.conn = MagicMock()
         sl.db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -11807,14 +13863,18 @@ class TestStrategyLifecycleFlow:
 class TestHandlerKeyboardBuilders:
     """Handler dosyalarındaki saf _build_*_keyboard fonksiyonları."""
 
-    @pytest.mark.parametrize("module_path,fn_name", [
-        ("telegram_bot.handlers.stats", "_build_hub_keyboard"),
-        ("telegram_bot.handlers.dashboard", "_build_keyboard"),
-        ("telegram_bot.handlers.menu_handler", "_build_main_menu"),
-        ("telegram_bot.handlers.menu_handler", "_build_keyboard"),
-    ])
+    @pytest.mark.parametrize(
+        "module_path,fn_name",
+        [
+            ("telegram_bot.handlers.stats", "_build_hub_keyboard"),
+            ("telegram_bot.handlers.dashboard", "_build_keyboard"),
+            ("telegram_bot.handlers.menu_handler", "_build_main_menu"),
+            ("telegram_bot.handlers.menu_handler", "_build_keyboard"),
+        ],
+    )
     def test_keyboard_builder_smoke(self, module_path, fn_name):
         import importlib
+
         try:
             mod = importlib.import_module(module_path)
             fn = getattr(mod, fn_name, None)
@@ -11836,43 +13896,47 @@ class TestHandlerKeyboardBuilders:
 class TestFinalForceLoadAllModules:
     """Force-load + class-init for all modules to maximize pp."""
 
-    @pytest.mark.parametrize("path", [
-        "telegram_bot.handlers.stats",
-        "telegram_bot.handlers.strategies",
-        "telegram_bot.handlers.dashboard",
-        "telegram_bot.handlers.menu_handler",
-        "telegram_bot.handlers.ai_handler",
-        "telegram_bot.handlers.live_handler",
-        "telegram_bot.handlers.markets",
-        "telegram_bot.handlers.portfolio_handler",
-        "telegram_bot.handlers.diagnose_handler",
-        "telegram_bot.handlers.changelog_handler",
-        "telegram_bot.handlers.risk_handler",
-        "telegram_bot.handlers.roadmap_handler",
-        "telegram_bot.handlers.settings_handler",
-        "telegram_bot.handlers.start",
-        "telegram_bot.handlers.strategy_builder",
-        "telegram_bot.handlers.strategy_report",
-        "telegram_bot.handlers.strategy_tester",
-        "telegram_bot.handlers.filters_handler",
-        "telegram_bot.handlers.brier_handler",
-        "telegram_bot.handlers.archive_info_handler",
-        "telegram_bot.handlers.rest_timing_handler",
-        "telegram_bot.handlers.env_toggle",
-        "telegram_bot.handlers.mode_handler",
-        "telegram_bot.handlers.lifecycle_handler",
-        "telegram_bot.handlers.positions",
-        "telegram_bot.handlers.force_settle_handler",
-        "telegram_bot.handlers.phase77_handler",
-        "telegram_bot.handlers.backtest_v2",
-        "telegram_bot.handlers.live_guards_handler",
-        "telegram_bot.handlers.order_validator",
-        "telegram_bot.bot",
-        "telegram_bot.banners",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "telegram_bot.handlers.stats",
+            "telegram_bot.handlers.strategies",
+            "telegram_bot.handlers.dashboard",
+            "telegram_bot.handlers.menu_handler",
+            "telegram_bot.handlers.ai_handler",
+            "telegram_bot.handlers.live_handler",
+            "telegram_bot.handlers.markets",
+            "telegram_bot.handlers.portfolio_handler",
+            "telegram_bot.handlers.diagnose_handler",
+            "telegram_bot.handlers.changelog_handler",
+            "telegram_bot.handlers.risk_handler",
+            "telegram_bot.handlers.roadmap_handler",
+            "telegram_bot.handlers.settings_handler",
+            "telegram_bot.handlers.start",
+            "telegram_bot.handlers.strategy_builder",
+            "telegram_bot.handlers.strategy_report",
+            "telegram_bot.handlers.strategy_tester",
+            "telegram_bot.handlers.filters_handler",
+            "telegram_bot.handlers.brier_handler",
+            "telegram_bot.handlers.archive_info_handler",
+            "telegram_bot.handlers.rest_timing_handler",
+            "telegram_bot.handlers.env_toggle",
+            "telegram_bot.handlers.mode_handler",
+            "telegram_bot.handlers.lifecycle_handler",
+            "telegram_bot.handlers.positions",
+            "telegram_bot.handlers.force_settle_handler",
+            "telegram_bot.handlers.phase77_handler",
+            "telegram_bot.handlers.backtest_v2",
+            "telegram_bot.handlers.live_guards_handler",
+            "telegram_bot.handlers.order_validator",
+            "telegram_bot.bot",
+            "telegram_bot.banners",
+        ],
+    )
     def test_force_module_constants_loaded(self, path):
         """Each module — load + iterate dir to trigger module-level eval."""
         import importlib
+
         try:
             mod = importlib.import_module(path)
             for attr in dir(mod):
@@ -11880,9 +13944,13 @@ class TestFinalForceLoadAllModules:
                     obj = getattr(mod, attr)
                     # If callable non-async, try smoke call with ()
                     import inspect
-                    if (callable(obj) and not inspect.isclass(obj)
-                            and not inspect.iscoroutinefunction(obj)
-                            and not attr.startswith("_")):
+
+                    if (
+                        callable(obj)
+                        and not inspect.isclass(obj)
+                        and not inspect.iscoroutinefunction(obj)
+                        and not attr.startswith("_")
+                    ):
                         # Class-level fn — try call with no args
                         try:
                             obj()
@@ -11900,11 +13968,13 @@ class TestDataModulesForceClass:
     def test_market_recorder_init(self):
         try:
             from data.market_recorder import MarketRecorder
+
             mr = MarketRecorder(db=MagicMock())
             assert mr is not None
         except (ImportError, AttributeError, TypeError):
             try:
                 from data.market_recorder import MarketRecorder
+
                 mr = MarketRecorder()
                 assert mr is not None
             except (ImportError, AttributeError, TypeError):
@@ -11913,11 +13983,13 @@ class TestDataModulesForceClass:
     def test_market_scanner_init(self):
         try:
             from data.market_scanner import MarketScanner
+
             ms = MarketScanner(db=MagicMock(), client=MagicMock())
             assert ms is not None
         except (ImportError, AttributeError, TypeError):
             try:
                 from data.market_scanner import MarketScanner
+
                 ms = MarketScanner()
                 assert ms is not None
             except Exception:
@@ -11926,6 +13998,7 @@ class TestDataModulesForceClass:
     def test_websocket_client_init(self):
         try:
             from data.websocket_client import WebSocketClient
+
             ws = WebSocketClient()
             assert ws is not None
         except (ImportError, AttributeError, TypeError):
@@ -11952,10 +14025,14 @@ class TestEngineLifecycleIntegration:
         try:
             eng = TradingEngine(
                 settings=Settings(
-                    TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                    ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                    TELEGRAM_BOT_TOKEN="t",
+                    ADMIN_TELEGRAM_ID=1,
+                    ANTHROPIC_API_KEY="t",
+                    POLYMARKET_API_KEY="t",
                 ),
-                db=db, scanner=MagicMock(), odds_feed=MagicMock(),
+                db=db,
+                scanner=MagicMock(),
+                odds_feed=MagicMock(),
             )
             # Mock components that depend on async env
             eng.live = MagicMock()
@@ -11989,12 +14066,14 @@ class TestRiskManagerCheckTradeAllPaths:
     """RiskManager check_trade real signature discovery + call."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_check_trade_with_complete_kwargs(self):
         rm = self._make()
         import inspect
+
         try:
             sig = inspect.signature(rm.check_trade)
             params = sig.parameters
@@ -12039,6 +14118,7 @@ class TestStructuredLoggingFullPaths:
 
     def test_setup_with_env_enabled(self, monkeypatch, tmp_path):
         from core.structured_logging import setup_structured_logging
+
         monkeypatch.setenv("STRUCTURED_LOG_ENABLED", "true")
         log_file = str(tmp_path / "structured.jsonl")
         try:
@@ -12047,6 +14127,7 @@ class TestStructuredLoggingFullPaths:
             if handler is not None:
                 # Force a log
                 import logging
+
                 logger = logging.getLogger("test_structured")
                 logger.info("test message")
         except Exception:
@@ -12055,11 +14136,18 @@ class TestStructuredLoggingFullPaths:
     def test_secret_scrub_filter_with_pk(self):
         try:
             from core.structured_logging import SecretScrubFilter
+
             f = SecretScrubFilter(enabled=True)
             import logging
+
             r = logging.LogRecord(
-                "test", logging.INFO, "x", 1,
-                "key=0x" + "a" * 64, (), None,
+                "test",
+                logging.INFO,
+                "x",
+                1,
+                "key=0x" + "a" * 64,
+                (),
+                None,
             )
             f.filter(r)
             # PK should be scrubbed in r.msg or args
@@ -12072,15 +14160,19 @@ class TestSignalFusionEvaluateFlow:
 
     def test_signal_fusion_evaluate_with_full_inputs(self):
         from core.signal_fusion import SignalFusion, SignalWeights
+
         try:
             sf = SignalFusion(SignalWeights())
             if hasattr(sf, "evaluate"):
                 # Try common signature
                 kwargs_options = [
-                    {"odds": 0.55, "odds_series": [0.5, 0.55, 0.60],
-                     "spot_price": 65000, "spot_change": 0.001},
-                    {"up_odds": 0.55, "down_odds": 0.45,
-                     "odds_series": [0.5, 0.55, 0.60]},
+                    {
+                        "odds": 0.55,
+                        "odds_series": [0.5, 0.55, 0.60],
+                        "spot_price": 65000,
+                        "spot_change": 0.001,
+                    },
+                    {"up_odds": 0.55, "down_odds": 0.45, "odds_series": [0.5, 0.55, 0.60]},
                     {"snap": MagicMock(up_odds=0.55, odds_series=[0.5])},
                 ]
                 for kwargs in kwargs_options:
@@ -12095,6 +14187,7 @@ class TestSignalFusionEvaluateFlow:
 
     def test_signal_weights_attrs(self):
         from core.signal_fusion import SignalWeights
+
         sw = SignalWeights()
         # Should have weight attributes
         for attr in dir(sw):
@@ -12112,6 +14205,7 @@ class TestStrategySelectorRecord:
 
     def test_record_call(self):
         from core.strategy_selector import StrategySelector
+
         ss = StrategySelector()
         # Try multiple method names
         for method, args in [
@@ -12132,6 +14226,7 @@ class TestStrategySelectorRecord:
 
     def test_select_call(self):
         from core.strategy_selector import StrategySelector
+
         ss = StrategySelector()
         for method in ("select", "get_best", "pick"):
             if hasattr(ss, method):
@@ -12151,6 +14246,7 @@ class TestKellyFunctionsCall:
     @pytest.mark.asyncio
     async def test_get_strategy_kelly_call(self):
         from core import kelly
+
         for fn_name in ("get_strategy_kelly", "compute_kelly", "kelly_fraction"):
             fn = getattr(kelly, fn_name, None)
             if fn is None:
@@ -12169,6 +14265,7 @@ class TestMicroWeightTrackerFull:
 
     def test_class_init_call(self):
         from core import micro_weight_tracker
+
         for name in dir(micro_weight_tracker):
             obj = getattr(micro_weight_tracker, name, None)
             if isinstance(obj, type) and not name.startswith("_"):
@@ -12186,6 +14283,7 @@ class TestEvTrackerFull:
 
     def test_class_construction(self):
         from core import ev_tracker
+
         for name in dir(ev_tracker):
             obj = getattr(ev_tracker, name, None)
             if isinstance(obj, type) and not name.startswith("_"):
@@ -12204,6 +14302,7 @@ class TestHeartbeatFull:
     @pytest.mark.asyncio
     async def test_heartbeat_start_stop(self):
         from core.heartbeat import HeartbeatTask
+
         try:
             ht = HeartbeatTask(client=MagicMock())
             # Mock async methods
@@ -12230,8 +14329,11 @@ class TestReconciliationFull:
     async def test_recon_start_stop(self):
         try:
             from core.reconciliation.onchain_sync import ReconciliationTask
+
             rt = ReconciliationTask(
-                db=MagicMock(), wallet="0xtest", alert_callback=None,
+                db=MagicMock(),
+                wallet="0xtest",
+                alert_callback=None,
             )
             if hasattr(rt, "start"):
                 if asyncio.iscoroutinefunction(rt.start):
@@ -12248,6 +14350,7 @@ class TestLiveTraderDeepFlow:
 
     def _make(self):
         from core.live_trader import LiveTrader
+
         return LiveTrader()
 
     @pytest.mark.asyncio
@@ -12322,6 +14425,7 @@ class TestPolymarketPortfolioFlowFull:
     @pytest.mark.asyncio
     async def test_build_snapshot_no_wallet(self, monkeypatch):
         from data.polymarket_portfolio import build_snapshot
+
         monkeypatch.setenv("POLYGON_WALLET", "")
         snap = await build_snapshot()
         # Should have error for empty wallet
@@ -12334,16 +14438,25 @@ class TestExecutorAllPaths:
 
     @pytest.mark.asyncio
     async def test_paper_executor_buy_orderbook_match(self):
-        from core.executor import get_executor, OrderRequest
+        from core.executor import OrderRequest, get_executor
+
         ex = get_executor("paper")
         if hasattr(ex, "set_orderbook_source"):
-            ex.set_orderbook_source(lambda tid: {
-                "asks": [(0.55, 100)], "bids": [(0.54, 100)],
-            })
+            ex.set_orderbook_source(
+                lambda tid: {
+                    "asks": [(0.55, 100)],
+                    "bids": [(0.54, 100)],
+                }
+            )
         try:
             req = OrderRequest(
-                token_id="0xt", side="BUY", amount_usd=10.0, price=0.56,
-                order_type="FOK", strategy_label="test", slug="x",
+                token_id="0xt",
+                side="BUY",
+                amount_usd=10.0,
+                price=0.56,
+                order_type="FOK",
+                strategy_label="test",
+                slug="x",
             )
             result = await ex.place_order(req)
             assert result is not None
@@ -12352,16 +14465,25 @@ class TestExecutorAllPaths:
 
     @pytest.mark.asyncio
     async def test_paper_executor_sell_path(self):
-        from core.executor import get_executor, OrderRequest
+        from core.executor import OrderRequest, get_executor
+
         ex = get_executor("paper")
         if hasattr(ex, "set_orderbook_source"):
-            ex.set_orderbook_source(lambda tid: {
-                "asks": [(0.55, 100)], "bids": [(0.54, 100)],
-            })
+            ex.set_orderbook_source(
+                lambda tid: {
+                    "asks": [(0.55, 100)],
+                    "bids": [(0.54, 100)],
+                }
+            )
         try:
             req = OrderRequest(
-                token_id="0xt", side="SELL", amount_usd=10.0, price=0.54,
-                order_type="FOK", strategy_label="test", slug="x",
+                token_id="0xt",
+                side="SELL",
+                amount_usd=10.0,
+                price=0.54,
+                order_type="FOK",
+                strategy_label="test",
+                slug="x",
             )
             result = await ex.place_order(req)
         except (TypeError, AttributeError):
@@ -12373,17 +14495,22 @@ class TestBgTaskFull:
 
     def test_bg_task_objects_set(self):
         from core.bg_task import _BG_TASK_OBJECTS
+
         # Strong-ref set
         assert isinstance(_BG_TASK_OBJECTS, set)
 
     @pytest.mark.asyncio
     async def test_safe_create_task_with_callback(self):
         from core.bg_task import safe_create_task
+
         async def coro():
             return "done"
+
         called = []
+
         def callback(task):
             called.append(True)
+
         # Try with callback if signature supports
         try:
             t = safe_create_task(coro(), name="x", on_done=callback)
@@ -12396,12 +14523,14 @@ class TestBgTaskFull:
 # Wave 8 — Trade journal sync logger functions + auto_optimizer paths
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestTradeJournalSyncFunctions:
     """core/trade_journal.py — log_entry, log_exit, log_settlement."""
 
     @pytest.mark.asyncio
     async def test_log_entry_with_db(self):
         from core.trade_journal import log_entry, set_db
+
         db = MagicMock()
         db.conn = MagicMock()
         db.conn.execute = AsyncMock()
@@ -12409,9 +14538,13 @@ class TestTradeJournalSyncFunctions:
         try:
             set_db(db)
             await log_entry(
-                strategy_id="s1", slug="btc-up-5m-x",
-                direction="up", odds=0.55, amount=1.0,
-                signal_score=0.85, reason="test",
+                strategy_id="s1",
+                slug="btc-up-5m-x",
+                direction="up",
+                odds=0.55,
+                amount=1.0,
+                signal_score=0.85,
+                reason="test",
             )
         except Exception:
             pass
@@ -12419,6 +14552,7 @@ class TestTradeJournalSyncFunctions:
     @pytest.mark.asyncio
     async def test_log_exit_with_db(self):
         from core.trade_journal import log_exit, set_db
+
         db = MagicMock()
         db.conn = MagicMock()
         db.conn.execute = AsyncMock()
@@ -12426,8 +14560,11 @@ class TestTradeJournalSyncFunctions:
         try:
             set_db(db)
             await log_exit(
-                strategy_id="s1", slug="btc-up-5m-x",
-                exit_odds=0.65, pnl=0.5, won=True,
+                strategy_id="s1",
+                slug="btc-up-5m-x",
+                exit_odds=0.65,
+                pnl=0.5,
+                won=True,
                 reason="settled",
             )
         except Exception:
@@ -12436,6 +14573,7 @@ class TestTradeJournalSyncFunctions:
     @pytest.mark.asyncio
     async def test_log_settlement_with_db(self):
         from core.trade_journal import log_settlement, set_db
+
         db = MagicMock()
         db.conn = MagicMock()
         db.conn.execute = AsyncMock()
@@ -12443,8 +14581,10 @@ class TestTradeJournalSyncFunctions:
         try:
             set_db(db)
             await log_settlement(
-                strategy_id="s1", slug="btc-up-5m-x",
-                won=True, pnl=0.5,
+                strategy_id="s1",
+                slug="btc-up-5m-x",
+                won=True,
+                pnl=0.5,
             )
         except Exception:
             pass
@@ -12453,13 +14593,16 @@ class TestTradeJournalSyncFunctions:
     async def test_log_rejection_smoke(self):
         try:
             from core.trade_journal import log_rejection, set_db
+
             db = MagicMock()
             db.conn = MagicMock()
             db.conn.execute = AsyncMock()
             db.conn.commit = AsyncMock()
             set_db(db)
             await log_rejection(
-                strategy_id="s1", slug="x", reason="LOW_EDGE",
+                strategy_id="s1",
+                slug="x",
+                reason="LOW_EDGE",
             )
         except (ImportError, Exception):
             pass
@@ -12468,6 +14611,7 @@ class TestTradeJournalSyncFunctions:
     async def test_log_heartbeat_smoke(self):
         try:
             from core.trade_journal import log_heartbeat, set_db
+
             db = MagicMock()
             db.conn = MagicMock()
             db.conn.execute = AsyncMock()
@@ -12484,11 +14628,13 @@ class TestChangelogModule:
     @pytest.mark.asyncio
     async def test_log_strategy_smoke(self):
         from core import changelog
+
         for fn_name in dir(changelog):
             if fn_name.startswith("_") or not callable(getattr(changelog, fn_name, None)):
                 continue
             obj = getattr(changelog, fn_name)
             import inspect
+
             if inspect.iscoroutinefunction(obj):
                 try:
                     await obj(MagicMock())
@@ -12501,6 +14647,7 @@ class TestAutoOptimizerInternals:
 
     def _make(self):
         from core.auto_optimizer import AutoOptimizer
+
         ao = AutoOptimizer(db=MagicMock())
         ao.db.conn = MagicMock()
         ao.db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -12513,6 +14660,7 @@ class TestAutoOptimizerInternals:
         ao = self._make()
         # Discover async methods
         import inspect
+
         for name in dir(ao):
             if name.startswith("__"):
                 continue
@@ -12569,6 +14717,7 @@ class TestEngineMonitorMixinPaths:
                 self.regime.regime = "trending"
                 self._open_positions = set()
                 from core.engine_support import SkipCounter
+
                 self.skips = SkipCounter()
                 self.bot_app = None
                 self.settings = MagicMock()
@@ -12606,12 +14755,17 @@ class TestPolymarketClientGetMarket:
     """polymarket_client async methods."""
 
     def _make(self):
-        from data.polymarket_client import PolymarketClient
         from config.settings import Settings
-        c = PolymarketClient(Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
-        ))
+        from data.polymarket_client import PolymarketClient
+
+        c = PolymarketClient(
+            Settings(
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
+            )
+        )
         c._client = AsyncMock()
         return c
 
@@ -12637,10 +14791,12 @@ class TestPolymarketClientGetMarket:
     @pytest.mark.asyncio
     async def test_get_resolution_price_smoke(self):
         c = self._make()
-        c._client.get = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"price": 1.0}),
-        ))
+        c._client.get = AsyncMock(
+            return_value=MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={"price": 1.0}),
+            )
+        )
         try:
             await c.get_resolution_price("0xtok")
         except Exception:
@@ -12649,10 +14805,12 @@ class TestPolymarketClientGetMarket:
     @pytest.mark.asyncio
     async def test_get_server_time_smoke(self):
         c = self._make()
-        c._client.get = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"timestamp": 1700000000}),
-        ))
+        c._client.get = AsyncMock(
+            return_value=MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={"timestamp": 1700000000}),
+            )
+        )
         try:
             await c.get_server_time()
         except Exception:
@@ -12661,10 +14819,12 @@ class TestPolymarketClientGetMarket:
     @pytest.mark.asyncio
     async def test_get_price_history_smoke(self):
         c = self._make()
-        c._client.get = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"history": []}),
-        ))
+        c._client.get = AsyncMock(
+            return_value=MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={"history": []}),
+            )
+        )
         try:
             await c.get_price_history("0xtok", interval="1h", fidelity=60)
         except Exception:
@@ -12673,10 +14833,12 @@ class TestPolymarketClientGetMarket:
     @pytest.mark.asyncio
     async def test_check_market_resolved_smoke(self):
         c = self._make()
-        c._client.get = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"closed": True}),
-        ))
+        c._client.get = AsyncMock(
+            return_value=MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={"closed": True}),
+            )
+        )
         try:
             await c.check_market_resolved("btc-up-5m-x")
         except Exception:
@@ -12685,10 +14847,12 @@ class TestPolymarketClientGetMarket:
     @pytest.mark.asyncio
     async def test_discover_active_markets_smoke(self):
         c = self._make()
-        c._client.get = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value=[]),
-        ))
+        c._client.get = AsyncMock(
+            return_value=MagicMock(
+                status_code=200,
+                json=MagicMock(return_value=[]),
+            )
+        )
         try:
             result = await c.discover_active_markets("BTC", "5m")
             assert isinstance(result, list)
@@ -12701,6 +14865,7 @@ class TestPolymarketRtdsMessageHandling:
 
     def test_class_methods_dir(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         # Iterate methods
         for name in dir(rtds):
@@ -12717,6 +14882,7 @@ class TestExternalFeedFetchHttpx:
     @pytest.mark.asyncio
     async def test_fetch_httpx_no_client(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._httpx_client = None
         try:
@@ -12727,12 +14893,15 @@ class TestExternalFeedFetchHttpx:
     @pytest.mark.asyncio
     async def test_fetch_httpx_with_client(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         f._httpx_client = MagicMock()
-        f._httpx_client.get = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"price": "65000.50"}),
-        ))
+        f._httpx_client.get = AsyncMock(
+            return_value=MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={"price": "65000.50"}),
+            )
+        )
         try:
             await f._fetch_httpx()
         except Exception:
@@ -12746,6 +14915,7 @@ class TestPolymarketActionsAllow:
     async def test_approve_allowance_no_creds(self, monkeypatch):
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "")
         from data.polymarket_actions import approve_allowance
+
         try:
             ok, msg = await approve_allowance()
             # Returns tuple
@@ -12759,6 +14929,7 @@ class TestStrategyPluginsRegistryPath:
 
     def test_registry_basic_use(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         # Try common methods
         for method in ("get_all", "list_strategies", "all", "names"):
@@ -12790,13 +14961,20 @@ class TestEngineSignalsEvalSignalSmoke:
                 self._last_trade_slug = {}
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
-                self.scanner.get_current_market = MagicMock(return_value={
-                    "slug": "btc-up-5m-1700000000", "active": True,
-                    "endDate": "2030-01-01T00:00:00Z",
-                })
-                self.scanner.get_current_odds = MagicMock(return_value={
-                    "up_odds": 0.55, "down_odds": 0.45, "has_liquidity": True,
-                })
+                self.scanner.get_current_market = MagicMock(
+                    return_value={
+                        "slug": "btc-up-5m-1700000000",
+                        "active": True,
+                        "endDate": "2030-01-01T00:00:00Z",
+                    }
+                )
+                self.scanner.get_current_odds = MagicMock(
+                    return_value={
+                        "up_odds": 0.55,
+                        "down_odds": 0.45,
+                        "has_liquidity": True,
+                    }
+                )
                 self.odds_feed = MagicMock()
                 self.odds_feed.get_odds_series = MagicMock(return_value=[0.5, 0.55])
                 self.external_feed = None
@@ -12814,6 +14992,7 @@ class TestEngineSignalsEvalSignalSmoke:
                 self.optimizer = MagicMock()
                 self.lifecycle = MagicMock()
                 from core.strategy_lifecycle import StrategyParams
+
                 self.lifecycle.get_params = AsyncMock(return_value=StrategyParams())
 
             def _is_ws_fresh(self):
@@ -12849,6 +15028,7 @@ class TestAiBrainBrainCycleFlowExtras:
 
     def _make(self):
         from core.ai_brain import AIBrain
+
         b = AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
         b.db.conn = MagicMock()
         b.db.conn.execute_fetchall = AsyncMock(return_value=[(50,)])  # > MIN_TRADES
@@ -12877,7 +15057,7 @@ class TestAiBrainBrainCycleFlowExtras:
         try:
             # Don't actually wait
             await asyncio.wait_for(b._scheduler(), timeout=0.1)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         except Exception:
             pass
@@ -12918,6 +15098,7 @@ class TestEngineCtorRiskRestoration:
     async def test_engine_with_saved_settings(self):
         from config.settings import Settings
         from core.engine import TradingEngine
+
         db = MagicMock()
         db.conn = MagicMock()
         db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -12925,17 +15106,23 @@ class TestEngineCtorRiskRestoration:
         db.conn.executescript = AsyncMock()
         db.conn.commit = AsyncMock()
         # Mock saved settings
-        db.get_all_settings = AsyncMock(side_effect=[
-            {"risk.max_daily_loss": "75.0"},  # risk.
-            {"brain_flags.ai_brain": "false"},  # brain_flags.
-        ])
+        db.get_all_settings = AsyncMock(
+            side_effect=[
+                {"risk.max_daily_loss": "75.0"},  # risk.
+                {"brain_flags.ai_brain": "false"},  # brain_flags.
+            ]
+        )
         try:
             eng = TradingEngine(
                 settings=Settings(
-                    TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                    ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                    TELEGRAM_BOT_TOKEN="t",
+                    ADMIN_TELEGRAM_ID=1,
+                    ANTHROPIC_API_KEY="t",
+                    POLYMARKET_API_KEY="t",
                 ),
-                db=db, scanner=MagicMock(), odds_feed=MagicMock(),
+                db=db,
+                scanner=MagicMock(),
+                odds_feed=MagicMock(),
             )
             # Basic assertion
             assert eng is not None
@@ -12948,24 +15135,37 @@ class TestStrategyPluginsAllVariantsExtra:
 
     def _snap(self, **kw):
         from core.strategy_plugins import MarketSnapshot
-        d = dict(up_odds=0.55, down_odds=0.45, threshold=0.50,
-                 direction_filter="any",
-                 odds_series=[0.5]*10,
-                 minutes_remaining=2.5, total_minutes=5.0,
-                 spread=0.02, best_ask=0.56, best_bid=0.54,
-                 metadata={})
+
+        d = dict(
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
+            direction_filter="any",
+            odds_series=[0.5] * 10,
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
+            metadata={},
+        )
         d.update(kw)
         return MarketSnapshot(**d)
 
-    @pytest.mark.parametrize("up,thr,filter_dir", [
-        (0.99, 0.99, "up"), (0.01, 0.99, "down"),
-        (0.50, 0.50, "any"), (0.55, 0.55, "any"),
-        (0.999, 0.999, "any"),  # extreme
-    ])
+    @pytest.mark.parametrize(
+        "up,thr,filter_dir",
+        [
+            (0.99, 0.99, "up"),
+            (0.01, 0.99, "down"),
+            (0.50, 0.50, "any"),
+            (0.55, 0.55, "any"),
+            (0.999, 0.999, "any"),  # extreme
+        ],
+    )
     def test_classic_extreme(self, up, thr, filter_dir):
         from core.strategy_plugins import ClassicStrategy
-        snap = self._snap(up_odds=up, down_odds=1-up, threshold=thr,
-                          direction_filter=filter_dir)
+
+        snap = self._snap(up_odds=up, down_odds=1 - up, threshold=thr, direction_filter=filter_dir)
         s = ClassicStrategy()
         result = s.evaluate(snap)
         assert result is not None
@@ -12973,18 +15173,28 @@ class TestStrategyPluginsAllVariantsExtra:
     @pytest.mark.parametrize("series_len", [0, 1, 5, 10, 20, 50])
     def test_momentum_series_lengths(self, series_len):
         from core.strategy_plugins import MomentumStrategy
+
         series = [0.5 + i * 0.001 for i in range(series_len)]
         snap = self._snap(odds_series=series)
         s = MomentumStrategy()
         result = s.evaluate(snap)
         assert result is not None
 
-    @pytest.mark.parametrize("series_len,trend", [
-        (3, "up"), (3, "down"), (5, "up"), (5, "down"),
-        (10, "up"), (10, "down"), (15, "stable"),
-    ])
+    @pytest.mark.parametrize(
+        "series_len,trend",
+        [
+            (3, "up"),
+            (3, "down"),
+            (5, "up"),
+            (5, "down"),
+            (10, "up"),
+            (10, "down"),
+            (15, "stable"),
+        ],
+    )
     def test_streak_reversal_combos(self, series_len, trend):
         from core.strategy_plugins import StreakReversalStrategy
+
         if trend == "up":
             series = [0.5 + i * 0.01 for i in range(series_len)]
         elif trend == "down":
@@ -13002,17 +15212,26 @@ class TestStrategyPluginsBoosterEdgeCases:
 
     def _snap(self, **kw):
         from core.strategy_plugins import MarketSnapshot
-        d = dict(up_odds=0.55, down_odds=0.45, threshold=0.50,
-                 direction_filter="any",
-                 odds_series=[0.5]*10,
-                 minutes_remaining=2.5, total_minutes=5.0,
-                 spread=0.02, best_ask=0.56, best_bid=0.54,
-                 metadata={})
+
+        d = dict(
+            up_odds=0.55,
+            down_odds=0.45,
+            threshold=0.50,
+            direction_filter="any",
+            odds_series=[0.5] * 10,
+            minutes_remaining=2.5,
+            total_minutes=5.0,
+            spread=0.02,
+            best_ask=0.56,
+            best_bid=0.54,
+            metadata={},
+        )
         d.update(kw)
         return MarketSnapshot(**d)
 
     def test_orderbook_imbalance_no_metadata(self):
         from core.strategy_plugins import OrderbookImbalanceLiveStrategy
+
         snap = self._snap()
         s = OrderbookImbalanceLiveStrategy()
         result = s.evaluate(snap)
@@ -13020,6 +15239,7 @@ class TestStrategyPluginsBoosterEdgeCases:
 
     def test_funding_rate_no_metadata(self):
         from core.strategy_plugins import FundingRateLiveStrategy
+
         snap = self._snap()
         s = FundingRateLiveStrategy()
         result = s.evaluate(snap)
@@ -13027,6 +15247,7 @@ class TestStrategyPluginsBoosterEdgeCases:
 
     def test_calibration_arb_no_history(self):
         from core.strategy_plugins import CalibrationArbLiveStrategy
+
         snap = self._snap(odds_series=[])
         s = CalibrationArbLiveStrategy()
         result = s.evaluate(snap)
@@ -13035,6 +15256,7 @@ class TestStrategyPluginsBoosterEdgeCases:
     @pytest.mark.parametrize("vol_pattern", ["high_vol", "low_vol", "trending"])
     def test_fade_rip_volatility_patterns(self, vol_pattern):
         from core.strategy_plugins import FadeRipLiveStrategy
+
         if vol_pattern == "high_vol":
             series = [0.4, 0.6, 0.4, 0.6, 0.4, 0.6, 0.4, 0.6]
         elif vol_pattern == "low_vol":
@@ -13051,7 +15273,8 @@ class TestRiskManagerMethodCoverage:
     """risk_manager — exhaustive method calls."""
 
     def _make(self):
-        from core.risk_manager import RiskManager, RiskLimits
+        from core.risk_manager import RiskLimits, RiskManager
+
         return RiskManager(RiskLimits())
 
     def test_check_unsellable_risk_low(self):
@@ -13101,12 +15324,14 @@ class TestPolymarketRtdsMessage:
 
     def test_class_init_smoke(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         # Multiple init smoke — no exceptions
         assert rtds is not None
 
     def test_get_price_for_unknown_asset(self):
         from data.polymarket_rtds import PolymarketRTDS
+
         rtds = PolymarketRTDS()
         try:
             result = rtds.get_price("UNKNOWN", timeframe="5m")
@@ -13120,13 +15345,29 @@ class TestSignalFusionDeepEvaluate:
 
     def test_signal_fusion_with_multiple_inputs(self):
         from core.signal_fusion import SignalFusion, SignalWeights
+
         try:
             sf = SignalFusion(SignalWeights())
             # Try evaluate with diverse inputs
             for kwargs in [
-                {"odds": 0.55, "odds_series": [0.5, 0.55], "spot_price": 65000, "spot_change": 0.001},
-                {"odds": 0.95, "odds_series": [0.9, 0.95], "spot_price": 65000, "spot_change": 0.005},
-                {"odds": 0.05, "odds_series": [0.1, 0.05], "spot_price": 65000, "spot_change": -0.005},
+                {
+                    "odds": 0.55,
+                    "odds_series": [0.5, 0.55],
+                    "spot_price": 65000,
+                    "spot_change": 0.001,
+                },
+                {
+                    "odds": 0.95,
+                    "odds_series": [0.9, 0.95],
+                    "spot_price": 65000,
+                    "spot_change": 0.005,
+                },
+                {
+                    "odds": 0.05,
+                    "odds_series": [0.1, 0.05],
+                    "spot_price": 65000,
+                    "spot_change": -0.005,
+                },
             ]:
                 try:
                     sf.evaluate(**kwargs)
@@ -13142,6 +15383,7 @@ class TestChainlinkOracleAsyncFetch:
     @pytest.mark.asyncio
     async def test_eth_call_success_with_mock(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         client = MagicMock()
         # Build hex price for 65000 with 8 decimals
@@ -13157,6 +15399,7 @@ class TestChainlinkOracleAsyncFetch:
     async def test_eth_call_two_complement_negative(self):
         """Negative price (two's complement) → None."""
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         client = MagicMock()
         # Negative int256 (high bit set)
@@ -13172,6 +15415,7 @@ class TestChainlinkOracleAsyncFetch:
     @pytest.mark.asyncio
     async def test_refresh_all_smoke(self):
         from data.chainlink_oracle import ChainlinkOracle
+
         o = ChainlinkOracle()
         client = MagicMock()
         hex_val = "0x" + format(65000_00000000, "064x")
@@ -13189,6 +15433,7 @@ class TestExternalFeedCurlPath:
 
     def test_curl_fetch_smoke(self):
         from data.external_feed import ExternalFeed
+
         f = ExternalFeed()
         # Mock subprocess.run
         with patch("subprocess.run") as mock_run:
@@ -13208,12 +15453,14 @@ class TestPolymarketPortfolioModuleGlobals:
 
     def test_module_constants(self):
         from data import polymarket_portfolio as pp
+
         # Module has constants
         for attr in ("DATA_API_BASE", "CLOB_HOST", "HTTP_TIMEOUT"):
             assert hasattr(pp, attr) or True  # smoke
 
     def test_shared_creds_cache_module(self):
         from data.polymarket_portfolio import _CLOB_CLIENT_CACHE
+
         # Cache is dict
         assert isinstance(_CLOB_CLIENT_CACHE, dict)
         for k in ("client", "creds", "fetched_at", "cooldown_until"):
@@ -13225,6 +15472,7 @@ class TestOddsFeedDeepSeries:
 
     def test_load_from_db_smoke(self):
         from data.odds_feed import OddsFeed
+
         f = OddsFeed()
         db = MagicMock()
         db.conn = MagicMock()
@@ -13232,10 +15480,12 @@ class TestOddsFeedDeepSeries:
         cursor = AsyncMock()
         cursor.__aenter__ = AsyncMock(return_value=cursor)
         cursor.__aexit__ = AsyncMock(return_value=None)
-        cursor.__aiter__ = lambda self: iter([
-            {"event_slug": "btc-up-x", "up_odds": 0.55},
-            {"event_slug": "btc-up-x", "up_odds": 0.56},
-        ])
+        cursor.__aiter__ = lambda self: iter(
+            [
+                {"event_slug": "btc-up-x", "up_odds": 0.55},
+                {"event_slug": "btc-up-x", "up_odds": 0.56},
+            ]
+        )
         db.conn.execute = MagicMock(return_value=cursor)
         try:
             asyncio.run(f.load_from_db(db))
@@ -13248,15 +15498,32 @@ class TestEngineSupportFinalLines:
 
     def test_virtual_order_sets_attrs_via_kwarg(self):
         from core.engine_support import VirtualOrder
+
         # signal_score, signal_price defaults — set via kwarg
         o = VirtualOrder(
-            strategy_id="s", slug="x", token_id="t", direction="up",
-            limit_price=0.5, amount=1.0, fee=0.07, created_at=1.0,
-            wallet_id="paper", user_id=42, sl_pct=0.0, sl_odds=0.0,
-            tp_pct=0.0, tp_odds=0.0, threshold=0.5,
-            queue_ahead_usd=0.0, cum_traded_at_price_usd=0.0,
-            placement_ts_ms=0, category="crypto", reasoning_json="{}",
-            is_maker=True, signal_score=0.85, signal_price=0.55,
+            strategy_id="s",
+            slug="x",
+            token_id="t",
+            direction="up",
+            limit_price=0.5,
+            amount=1.0,
+            fee=0.07,
+            created_at=1.0,
+            wallet_id="paper",
+            user_id=42,
+            sl_pct=0.0,
+            sl_odds=0.0,
+            tp_pct=0.0,
+            tp_odds=0.0,
+            threshold=0.5,
+            queue_ahead_usd=0.0,
+            cum_traded_at_price_usd=0.0,
+            placement_ts_ms=0,
+            category="crypto",
+            reasoning_json="{}",
+            is_maker=True,
+            signal_score=0.85,
+            signal_price=0.55,
         )
         assert o.is_maker is True
         assert o.signal_score == 0.85
@@ -13268,6 +15535,7 @@ class TestMicroWeightTrackerExec:
 
     def test_class_with_mock(self):
         from core import micro_weight_tracker as mwt
+
         for name in dir(mwt):
             if name.startswith("_"):
                 continue
@@ -13291,6 +15559,7 @@ class TestEvTrackerExec:
 
     def test_class_with_mock(self):
         from core import ev_tracker as et
+
         for name in dir(et):
             if name.startswith("_"):
                 continue
@@ -13309,6 +15578,7 @@ class TestAutopilotExec:
 
     def test_class_with_mock(self):
         from core import autopilot as ap
+
         for name in dir(ap):
             if name.startswith("_"):
                 continue
@@ -13328,6 +15598,7 @@ class TestStrategyLifecycleParams:
     def test_strategy_params_default(self):
         try:
             from core.strategy_lifecycle import StrategyParams
+
             p = StrategyParams()
             assert p is not None
         except (ImportError, TypeError):
@@ -13336,6 +15607,7 @@ class TestStrategyLifecycleParams:
     def test_strategy_params_attrs(self):
         try:
             from core.strategy_lifecycle import StrategyParams
+
             p = StrategyParams()
             # Touch all fields
             for attr in dir(p):
@@ -13351,6 +15623,7 @@ class TestStructuredLoggingDeepFilter:
     def test_scrub_secrets_with_pk(self):
         try:
             from core.structured_logging import scrub_secrets
+
             text = "key=0x" + "a" * 64 + " end"
             result = scrub_secrets(text)
             assert isinstance(result, str)
@@ -13361,6 +15634,7 @@ class TestStructuredLoggingDeepFilter:
     def test_scrub_with_api_key(self):
         try:
             from core.structured_logging import scrub_secrets
+
             text = "api_key=sk-abc123xyz secret"
             result = scrub_secrets(text)
             assert isinstance(result, str)
@@ -13370,6 +15644,7 @@ class TestStructuredLoggingDeepFilter:
     def test_scrub_clean_text(self):
         try:
             from core.structured_logging import scrub_secrets
+
             text = "no secrets here"
             result = scrub_secrets(text)
             # Should be unchanged or close
@@ -13384,11 +15659,17 @@ class TestKeepAliveDeep:
     @pytest.mark.asyncio
     async def test_keepalive_handlers(self):
         from core.keepalive import KeepAlive
+
         ka = KeepAlive(engine=MagicMock(), db=MagicMock())
         # Mock requests
         request = MagicMock()
-        for method_name in ("_handle_root", "_handle_health", "_handle_status",
-                            "_handle_dashboard", "_handle_api_data"):
+        for method_name in (
+            "_handle_root",
+            "_handle_health",
+            "_handle_status",
+            "_handle_dashboard",
+            "_handle_api_data",
+        ):
             method = getattr(ka, method_name, None)
             if method is not None and asyncio.iscoroutinefunction(method):
                 try:
@@ -13402,20 +15683,26 @@ class TestConfigSettingsValidation:
 
     def test_settings_field_types(self):
         from config.settings import Settings
+
         s = Settings(
-            TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=42,
-            ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+            TELEGRAM_BOT_TOKEN="t",
+            ADMIN_TELEGRAM_ID=42,
+            ANTHROPIC_API_KEY="t",
+            POLYMARKET_API_KEY="t",
         )
         assert s.TELEGRAM_BOT_TOKEN == "t"
         assert s.ADMIN_TELEGRAM_ID == 42
 
     def test_settings_with_optional_fields(self):
         from config.settings import Settings
+
         # Add as many optional fields as possible
         try:
             s = Settings(
-                TELEGRAM_BOT_TOKEN="t", ADMIN_TELEGRAM_ID=1,
-                ANTHROPIC_API_KEY="t", POLYMARKET_API_KEY="t",
+                TELEGRAM_BOT_TOKEN="t",
+                ADMIN_TELEGRAM_ID=1,
+                ANTHROPIC_API_KEY="t",
+                POLYMARKET_API_KEY="t",
                 POLYGON_PRIVATE_KEY="0xabc",
                 POLYGON_WALLET="0xwallet",
             )
@@ -13427,6 +15714,7 @@ class TestConfigSettingsValidation:
 # ═══════════════════════════════════════════════════════════════════
 # Wave 11 — Handler async command real-call mass test
 # ═══════════════════════════════════════════════════════════════════
+
 
 def _make_full_telegram_update():
     """Helper: full Telegram Update mock for async command tests."""
@@ -13462,14 +15750,24 @@ def _make_full_telegram_context(args=None, bot_data=None):
         # Default mocks
         engine = MagicMock()
         engine.live = MagicMock()
-        engine.live.get_status = MagicMock(return_value={
-            "enabled": False, "paused": False, "auth_verified": False,
-            "active": False, "wallet": "0x12...3456",
-            "total_spent": 0, "total_pnl": 0,
-            "daily_pnl": 0, "daily_trades": 0, "trade_count": 0,
-            "open": False, "open_detail": None,
-            "budget": 1.49, "remaining": 1.49,
-        })
+        engine.live.get_status = MagicMock(
+            return_value={
+                "enabled": False,
+                "paused": False,
+                "auth_verified": False,
+                "active": False,
+                "wallet": "0x12...3456",
+                "total_spent": 0,
+                "total_pnl": 0,
+                "daily_pnl": 0,
+                "daily_trades": 0,
+                "trade_count": 0,
+                "open": False,
+                "open_detail": None,
+                "budget": 1.49,
+                "remaining": 1.49,
+            }
+        )
         engine.live.get_comparison = AsyncMock(return_value={"error": "no data"})
         engine._cycle = 1
         engine._running = True
@@ -13483,9 +15781,15 @@ def _make_full_telegram_context(args=None, bot_data=None):
         engine.lifecycle = MagicMock()
         engine.optimizer = MagicMock()
         engine.risk = MagicMock()
-        engine.risk.state = MagicMock(daily_pnl=0, halted=False, daily_trade_count=0,
-                                       consecutive_losses=0, total_exposure=0,
-                                       open_position_count=0, per_market_exposure={})
+        engine.risk.state = MagicMock(
+            daily_pnl=0,
+            halted=False,
+            daily_trade_count=0,
+            consecutive_losses=0,
+            total_exposure=0,
+            open_position_count=0,
+            per_market_exposure={},
+        )
         engine.risk.limits = MagicMock(max_daily_loss=50, max_daily_trades=200)
         engine.risk.get_status = MagicMock(return_value={"halted": False, "daily_pnl": 0})
         engine.kill_switch = MagicMock()
@@ -13495,11 +15799,17 @@ def _make_full_telegram_context(args=None, bot_data=None):
         engine.settings = MagicMock(ADMIN_TELEGRAM_ID=1)
         engine.brain_flags = {"ai_brain": True}
         engine.analyst = MagicMock()
-        engine.analyst.get_status = MagicMock(return_value={
-            "active": True, "spent": 0, "budget": 1.0,
-            "remaining": 1.0, "cycle": 0, "last_run": "",
-            "providers": ["claude"],
-        })
+        engine.analyst.get_status = MagicMock(
+            return_value={
+                "active": True,
+                "spent": 0,
+                "budget": 1.0,
+                "remaining": 1.0,
+                "cycle": 0,
+                "last_run": "",
+                "providers": ["claude"],
+            }
+        )
         db = MagicMock()
         db.conn = MagicMock()
         db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -13522,42 +15832,46 @@ class TestHandlerCommandRealCalls:
     coverage gain. Hata yakalanır (skip değil) — coverage işaretlenir.
     """
 
-    @pytest.mark.parametrize("module_path,fn_name", [
-        ("telegram_bot.handlers.start", "start_command"),
-        ("telegram_bot.handlers.markets", "markets_command"),
-        ("telegram_bot.handlers.positions", "positions_command"),
-        ("telegram_bot.handlers.brier_handler", "brier_command"),
-        ("telegram_bot.handlers.archive_info_handler", "archive_info_command"),
-        ("telegram_bot.handlers.rest_timing_handler", "rest_timing_command"),
-        ("telegram_bot.handlers.lifecycle_handler", "lifecycle_command"),
-        ("telegram_bot.handlers.mode_handler", "mode_command"),
-        ("telegram_bot.handlers.changelog_handler", "changelog_command"),
-        ("telegram_bot.handlers.diagnose_handler", "diagnose_command"),
-        ("telegram_bot.handlers.live_guards_handler", "live_guards_command"),
-        ("telegram_bot.handlers.live_handler", "live_command"),
-        ("telegram_bot.handlers.live_handler", "ws_command"),
-        ("telegram_bot.handlers.live_handler", "daily_command"),
-        ("telegram_bot.handlers.dashboard", "dashboard_command"),
-        ("telegram_bot.handlers.menu_handler", "menu_command"),
-        ("telegram_bot.handlers.markets", "markets_command"),
-        ("telegram_bot.handlers.portfolio_handler", "portfolio_command"),
-        ("telegram_bot.handlers.risk_handler", "risk_command"),
-        ("telegram_bot.handlers.settings_handler", "settings_command"),
-        ("telegram_bot.handlers.strategies", "strategies_command"),
-        ("telegram_bot.handlers.stats", "stats_command"),
-        ("telegram_bot.handlers.stats", "trades_command"),
-        ("telegram_bot.handlers.stats", "stats_hub_command"),
-        ("telegram_bot.handlers.ai_handler", "ai_command"),
-        ("telegram_bot.handlers.strategy_report", "strategy_report_command"),
-        ("telegram_bot.handlers.filters_handler", "filters_command"),
-        ("telegram_bot.handlers.brier_handler", "brier_command"),
-        ("telegram_bot.handlers.changelog_handler", "changelog_command"),
-        ("telegram_bot.handlers.env_toggle", "env_toggle_command"),
-        ("telegram_bot.handlers.force_settle_handler", "force_settle_command"),
-    ])
+    @pytest.mark.parametrize(
+        "module_path,fn_name",
+        [
+            ("telegram_bot.handlers.start", "start_command"),
+            ("telegram_bot.handlers.markets", "markets_command"),
+            ("telegram_bot.handlers.positions", "positions_command"),
+            ("telegram_bot.handlers.brier_handler", "brier_command"),
+            ("telegram_bot.handlers.archive_info_handler", "archive_info_command"),
+            ("telegram_bot.handlers.rest_timing_handler", "rest_timing_command"),
+            ("telegram_bot.handlers.lifecycle_handler", "lifecycle_command"),
+            ("telegram_bot.handlers.mode_handler", "mode_command"),
+            ("telegram_bot.handlers.changelog_handler", "changelog_command"),
+            ("telegram_bot.handlers.diagnose_handler", "diagnose_command"),
+            ("telegram_bot.handlers.live_guards_handler", "live_guards_command"),
+            ("telegram_bot.handlers.live_handler", "live_command"),
+            ("telegram_bot.handlers.live_handler", "ws_command"),
+            ("telegram_bot.handlers.live_handler", "daily_command"),
+            ("telegram_bot.handlers.dashboard", "dashboard_command"),
+            ("telegram_bot.handlers.menu_handler", "menu_command"),
+            ("telegram_bot.handlers.markets", "markets_command"),
+            ("telegram_bot.handlers.portfolio_handler", "portfolio_command"),
+            ("telegram_bot.handlers.risk_handler", "risk_command"),
+            ("telegram_bot.handlers.settings_handler", "settings_command"),
+            ("telegram_bot.handlers.strategies", "strategies_command"),
+            ("telegram_bot.handlers.stats", "stats_command"),
+            ("telegram_bot.handlers.stats", "trades_command"),
+            ("telegram_bot.handlers.stats", "stats_hub_command"),
+            ("telegram_bot.handlers.ai_handler", "ai_command"),
+            ("telegram_bot.handlers.strategy_report", "strategy_report_command"),
+            ("telegram_bot.handlers.filters_handler", "filters_command"),
+            ("telegram_bot.handlers.brier_handler", "brier_command"),
+            ("telegram_bot.handlers.changelog_handler", "changelog_command"),
+            ("telegram_bot.handlers.env_toggle", "env_toggle_command"),
+            ("telegram_bot.handlers.force_settle_handler", "force_settle_command"),
+        ],
+    )
     def test_command_real_call(self, module_path, fn_name):
         """Async command real call — Telegram mock."""
         import importlib
+
         try:
             mod = importlib.import_module(module_path)
         except ImportError:
@@ -13582,6 +15896,7 @@ class TestLiveHandlerAllCommands:
 
     def test_buy_command_no_args(self):
         from telegram_bot.handlers.live_handler import buy_command
+
         update = _make_full_telegram_update()
         ctx = _make_full_telegram_context(args=[])
         try:
@@ -13591,6 +15906,7 @@ class TestLiveHandlerAllCommands:
 
     def test_buy_command_invalid_coin(self):
         from telegram_bot.handlers.live_handler import buy_command
+
         update = _make_full_telegram_update()
         ctx = _make_full_telegram_context(args=["DOGE", "UP", "1.0"])
         try:
@@ -13600,6 +15916,7 @@ class TestLiveHandlerAllCommands:
 
     def test_buy_command_invalid_direction(self):
         from telegram_bot.handlers.live_handler import buy_command
+
         update = _make_full_telegram_update()
         ctx = _make_full_telegram_context(args=["BTC", "SIDE", "1.0"])
         try:
@@ -13609,6 +15926,7 @@ class TestLiveHandlerAllCommands:
 
     def test_buy_command_invalid_amount(self):
         from telegram_bot.handlers.live_handler import buy_command
+
         update = _make_full_telegram_update()
         ctx = _make_full_telegram_context(args=["BTC", "UP", "abc"])
         try:
@@ -13618,6 +15936,7 @@ class TestLiveHandlerAllCommands:
 
     def test_buy_command_zero_amount(self):
         from telegram_bot.handlers.live_handler import buy_command
+
         update = _make_full_telegram_update()
         ctx = _make_full_telegram_context(args=["BTC", "UP", "0"])
         try:
@@ -13627,6 +15946,7 @@ class TestLiveHandlerAllCommands:
 
     def test_sell_command_basic(self):
         from telegram_bot.handlers.live_handler import sell_command
+
         update = _make_full_telegram_update()
         ctx = _make_full_telegram_context(args=["BTC", "UP", "1.0"])
         try:
@@ -13648,6 +15968,7 @@ class TestLiveHandlerAllCommands:
 
     def test_magic_query_stub(self):
         from telegram_bot.handlers.live_handler import _MagicQueryStub
+
         update = _make_full_telegram_update()
         stub = _MagicQueryStub(update)
         assert stub.message is update.message
@@ -13662,12 +15983,14 @@ class TestLiveHandlerAllCommands:
 # Wave 10 — Market BUY/SELL UI + execute_market_order tests
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestMarketBuySellUI:
     """live_handler.py Market BUY/SELL — yeni UI."""
 
     @pytest.mark.asyncio
     async def test_show_market_form_buy(self):
         from telegram_bot.handlers.live_handler import _show_market_form
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
@@ -13680,6 +16003,7 @@ class TestMarketBuySellUI:
     @pytest.mark.asyncio
     async def test_show_market_form_sell(self):
         from telegram_bot.handlers.live_handler import _show_market_form
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
@@ -13690,6 +16014,7 @@ class TestMarketBuySellUI:
     @pytest.mark.asyncio
     async def test_show_market_amount_picker(self):
         from telegram_bot.handlers.live_handler import _show_market_amount_picker
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
@@ -13703,6 +16028,7 @@ class TestMarketBuySellUI:
     @pytest.mark.asyncio
     async def test_show_market_confirm_no_auth(self):
         from telegram_bot.handlers.live_handler import _show_market_confirm
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
@@ -13717,6 +16043,7 @@ class TestMarketBuySellUI:
     @pytest.mark.asyncio
     async def test_show_market_confirm_with_auth(self):
         from telegram_bot.handlers.live_handler import _show_market_confirm
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
@@ -13733,6 +16060,7 @@ class TestExecuteMarketOrder:
 
     def _make(self):
         from core.live_trader import LiveTrader
+
         return LiveTrader()
 
     @pytest.mark.asyncio
@@ -13740,7 +16068,10 @@ class TestExecuteMarketOrder:
         t = self._make()
         t._auth_verified = False
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         assert result["status"] == "error"
         assert "auth" in result["detail"].lower()
@@ -13750,7 +16081,10 @@ class TestExecuteMarketOrder:
         t = self._make()
         t._auth_verified = True
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=0,
         )
         assert result["status"] == "error"
         assert "0" in result["detail"]
@@ -13761,7 +16095,10 @@ class TestExecuteMarketOrder:
         t._auth_verified = True
         monkeypatch.setenv("LIVE_MAX_MARKET_TRADE", "10.0")
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=20.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=20.0,
         )
         assert result["status"] == "error"
         assert "MAX_MARKET" in result["detail"]
@@ -13774,7 +16111,10 @@ class TestExecuteMarketOrder:
         monkeypatch.setenv("LIVE_BUDGET", "1.0")
         t._total_spent = 0.95  # remaining 0.05
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         assert result["status"] == "error"
         assert "yetersiz" in result["detail"].lower() or "budget" in result["detail"].lower()
@@ -13787,7 +16127,10 @@ class TestExecuteMarketOrder:
         monkeypatch.setenv("LIVE_BUDGET", "100.0")
         # No _engine_scanner attr
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         assert result["status"] == "error"
         assert "scanner" in result["detail"]
@@ -13803,7 +16146,10 @@ class TestExecuteMarketOrder:
         scanner.get_current_market = MagicMock(return_value=None)
         t._engine_scanner = scanner
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         assert result["status"] == "error"
         assert "not found" in result["detail"]
@@ -13815,13 +16161,18 @@ class TestExecuteMarketOrder:
         monkeypatch.setenv("LIVE_MAX_MARKET_TRADE", "100.0")
         monkeypatch.setenv("LIVE_BUDGET", "100.0")
         scanner = MagicMock()
-        scanner.get_current_market = MagicMock(return_value={
-            "slug": "btc-up-5m-x",
-            "clobTokenIds": [],  # empty
-        })
+        scanner.get_current_market = MagicMock(
+            return_value={
+                "slug": "btc-up-5m-x",
+                "clobTokenIds": [],  # empty
+            }
+        )
         t._engine_scanner = scanner
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         assert result["status"] == "error"
 
@@ -13832,16 +16183,24 @@ class TestExecuteMarketOrder:
         monkeypatch.setenv("LIVE_MAX_MARKET_TRADE", "100.0")
         monkeypatch.setenv("LIVE_BUDGET", "100.0")
         scanner = MagicMock()
-        scanner.get_current_market = MagicMock(return_value={
-            "slug": "btc-up-5m-x",
-            "clobTokenIds": ["0xup", "0xdown"],
-        })
-        scanner.get_current_odds = MagicMock(return_value={
-            "up_odds": 0.0, "down_odds": 0.0,  # invalid
-        })
+        scanner.get_current_market = MagicMock(
+            return_value={
+                "slug": "btc-up-5m-x",
+                "clobTokenIds": ["0xup", "0xdown"],
+            }
+        )
+        scanner.get_current_odds = MagicMock(
+            return_value={
+                "up_odds": 0.0,
+                "down_odds": 0.0,  # invalid
+            }
+        )
         t._engine_scanner = scanner
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         assert result["status"] == "error"
         assert "price" in result["detail"]
@@ -13850,6 +16209,7 @@ class TestExecuteMarketOrder:
 # ═══════════════════════════════════════════════════════════════════
 # Wave 9 — Telegram Update/Context mock + handler real-call mass test
 # ═══════════════════════════════════════════════════════════════════
+
 
 def _make_telegram_update(text="cmd", callback_data=None):
     """Mock Telegram Update with all common attrs."""
@@ -13895,23 +16255,27 @@ def _make_telegram_context(args=None, bot_data=None):
 class TestHandlersAsyncCallables:
     """Handler dosyalarındaki async cmd_*/cb_* fonksiyonlarını gerçekten çağır."""
 
-    @pytest.mark.parametrize("module_path,fn_name", [
-        # Most common simple handlers
-        ("telegram_bot.handlers.start", "start_command"),
-        ("telegram_bot.handlers.markets", "markets_command"),
-        ("telegram_bot.handlers.positions", "positions_command"),
-        ("telegram_bot.handlers.brier_handler", "brier_command"),
-        ("telegram_bot.handlers.archive_info_handler", "archive_info_command"),
-        ("telegram_bot.handlers.rest_timing_handler", "rest_timing_command"),
-        ("telegram_bot.handlers.lifecycle_handler", "lifecycle_command"),
-        ("telegram_bot.handlers.mode_handler", "mode_command"),
-        ("telegram_bot.handlers.changelog_handler", "changelog_command"),
-        ("telegram_bot.handlers.diagnose_handler", "diagnose_command"),
-        ("telegram_bot.handlers.live_guards_handler", "live_guards_command"),
-    ])
+    @pytest.mark.parametrize(
+        "module_path,fn_name",
+        [
+            # Most common simple handlers
+            ("telegram_bot.handlers.start", "start_command"),
+            ("telegram_bot.handlers.markets", "markets_command"),
+            ("telegram_bot.handlers.positions", "positions_command"),
+            ("telegram_bot.handlers.brier_handler", "brier_command"),
+            ("telegram_bot.handlers.archive_info_handler", "archive_info_command"),
+            ("telegram_bot.handlers.rest_timing_handler", "rest_timing_command"),
+            ("telegram_bot.handlers.lifecycle_handler", "lifecycle_command"),
+            ("telegram_bot.handlers.mode_handler", "mode_command"),
+            ("telegram_bot.handlers.changelog_handler", "changelog_command"),
+            ("telegram_bot.handlers.diagnose_handler", "diagnose_command"),
+            ("telegram_bot.handlers.live_guards_handler", "live_guards_command"),
+        ],
+    )
     def test_async_cmd_call(self, module_path, fn_name):
         """Try to call command handler with mocked Update+Context."""
         import importlib
+
         try:
             mod = importlib.import_module(module_path)
             fn = getattr(mod, fn_name, None)
@@ -13941,13 +16305,17 @@ class TestHandlersAsyncCallables:
 class TestHandlersBuilderHelpers:
     """Saf builder fonksiyonları (sync, top-level)."""
 
-    @pytest.mark.parametrize("module_path,fn_name", [
-        ("telegram_bot.handlers.stats", "_build_hub_keyboard"),
-        ("telegram_bot.handlers.dashboard", "_build_dashboard"),
-        ("telegram_bot.handlers.menu_handler", "build_main_menu"),
-    ])
+    @pytest.mark.parametrize(
+        "module_path,fn_name",
+        [
+            ("telegram_bot.handlers.stats", "_build_hub_keyboard"),
+            ("telegram_bot.handlers.dashboard", "_build_dashboard"),
+            ("telegram_bot.handlers.menu_handler", "build_main_menu"),
+        ],
+    )
     def test_call_sync_builder(self, module_path, fn_name):
         import importlib
+
         try:
             mod = importlib.import_module(module_path)
             fn = getattr(mod, fn_name, None)
@@ -13994,14 +16362,22 @@ class TestEngineSignalsFullMockEngine:
                 self.skips = SkipCounter()
                 # Scanner with valid market
                 self.scanner = MagicMock()
-                self.scanner.get_current_market = MagicMock(return_value={
-                    "slug": "btc-up-5m-1700000000",
-                    "active": True, "closed": False, "archived": False,
-                    "endDate": "2030-01-01T00:00:00Z",
-                })
-                self.scanner.get_current_odds = MagicMock(return_value={
-                    "up_odds": 0.55, "down_odds": 0.45, "has_liquidity": True,
-                })
+                self.scanner.get_current_market = MagicMock(
+                    return_value={
+                        "slug": "btc-up-5m-1700000000",
+                        "active": True,
+                        "closed": False,
+                        "archived": False,
+                        "endDate": "2030-01-01T00:00:00Z",
+                    }
+                )
+                self.scanner.get_current_odds = MagicMock(
+                    return_value={
+                        "up_odds": 0.55,
+                        "down_odds": 0.45,
+                        "has_liquidity": True,
+                    }
+                )
                 self.odds_feed = MagicMock()
                 self.odds_feed.get_odds_series = MagicMock(return_value=[0.5, 0.55])
                 self.external_feed = None
@@ -14012,10 +16388,14 @@ class TestEngineSignalsFullMockEngine:
                 self.signals = MagicMock()
                 self.plugins = MagicMock()
                 stub_plugin = MagicMock()
-                stub_plugin.evaluate = MagicMock(return_value=MagicMock(
-                    should_trade=False, direction=None,
-                    confidence=0.0, reason="no signal",
-                ))
+                stub_plugin.evaluate = MagicMock(
+                    return_value=MagicMock(
+                        should_trade=False,
+                        direction=None,
+                        confidence=0.0,
+                        reason="no signal",
+                    )
+                )
                 self.plugins.get = MagicMock(return_value=stub_plugin)
                 self.selector = MagicMock()
                 self.live = MagicMock()
@@ -14025,6 +16405,7 @@ class TestEngineSignalsFullMockEngine:
                 self.optimizer = MagicMock()
                 self.lifecycle = MagicMock()
                 from core.strategy_lifecycle import StrategyParams
+
                 self.lifecycle.get_params = AsyncMock(return_value=StrategyParams())
                 self.risk = MagicMock()
                 self.risk.state = MagicMock()
@@ -14093,10 +16474,13 @@ class TestEngineSignalsFullMockEngine:
     async def test_market_halt_path(self):
         """Market closed → MARKET_HALT skip."""
         eng = self._make_full_engine()
-        eng.scanner.get_current_market = MagicMock(return_value={
-            "slug": "btc-up-5m-x",
-            "active": False, "closed": True,  # halted!
-        })
+        eng.scanner.get_current_market = MagicMock(
+            return_value={
+                "slug": "btc-up-5m-x",
+                "active": False,
+                "closed": True,  # halted!
+            }
+        )
         s = MagicMock()
         s.id = "x" * 32
         s.asset = MagicMock(value="BTC")
@@ -14112,9 +16496,13 @@ class TestEngineSignalsFullMockEngine:
     @pytest.mark.asyncio
     async def test_no_liquidity_path(self):
         eng = self._make_full_engine()
-        eng.scanner.get_current_odds = MagicMock(return_value={
-            "up_odds": 0.55, "down_odds": 0.45, "has_liquidity": False,
-        })
+        eng.scanner.get_current_odds = MagicMock(
+            return_value={
+                "up_odds": 0.55,
+                "down_odds": 0.45,
+                "has_liquidity": False,
+            }
+        )
         s = MagicMock()
         s.id = "x" * 32
         s.asset = MagicMock(value="BTC")
@@ -14149,6 +16537,7 @@ class TestEngineFillsFullMockEngine:
                 self._cancel_count = 0
                 self._ws_drop_count = 0
                 from core.engine_support import SkipCounter
+
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
                 self.live = MagicMock()
@@ -14173,6 +16562,7 @@ class TestEngineFillsFullMockEngine:
         eng = self._make()
         # Discover async methods via dir
         import inspect
+
         for name in dir(eng):
             if name.startswith("__") or not name.startswith("_"):
                 continue
@@ -14222,6 +16612,7 @@ class TestEngineMonitorMockEngine:
     async def test_async_monitor_methods(self):
         eng = self._make()
         import inspect
+
         for name in dir(eng):
             if name.startswith("__"):
                 continue
@@ -14255,6 +16646,7 @@ class TestEngineSettlementMockEngine:
                 self.live.check_settlement = AsyncMock()
                 self.lifecycle = MagicMock()
                 from core.engine_support import SkipCounter
+
                 self.skips = SkipCounter()
 
         return StubEngine()
@@ -14263,6 +16655,7 @@ class TestEngineSettlementMockEngine:
     async def test_async_settlement_methods(self):
         eng = self._make()
         import inspect
+
         for name in dir(eng):
             if name.startswith("__"):
                 continue
@@ -14279,6 +16672,7 @@ class TestAiBrainFullChain:
 
     def _make(self):
         from core.ai_brain import AIBrain
+
         b = AIBrain(db=MagicMock(), engine=None, bot_app=None, settings=None)
         b.db.conn = MagicMock()
         b.db.conn.execute_fetchall = AsyncMock(return_value=[(50,)])
@@ -14292,12 +16686,14 @@ class TestAiBrainFullChain:
         """Stub all LLM calls — exercise full cycle path."""
         b = self._make()
         b._gather_data = AsyncMock(return_value="strategy data summary")
-        b._call_claude = AsyncMock(return_value=(
-            '{"actions": [{"type": "INSIGHT", "reason": "test"}], '
-            '"confidence": 0.85, "market_view": "neutral", '
-            '"reasoning": "test", "lessons_learned": "none"}',
-            0.05,  # cost
-        ))
+        b._call_claude = AsyncMock(
+            return_value=(
+                '{"actions": [{"type": "INSIGHT", "reason": "test"}], '
+                '"confidence": 0.85, "market_view": "neutral", '
+                '"reasoning": "test", "lessons_learned": "none"}',
+                0.05,  # cost
+            )
+        )
         b._call_groq = AsyncMock(return_value=None)
         b._save_decision = AsyncMock()
         b._notify = AsyncMock()
@@ -14313,11 +16709,13 @@ class TestAiBrainFullChain:
         """Low-confidence → queue_for_approval path."""
         b = self._make()
         b._gather_data = AsyncMock(return_value="data")
-        b._call_claude = AsyncMock(return_value=(
-            '{"actions": [{"type": "DELETE", "id": "abc"}], '
-            '"confidence": 0.4, "market_view": "down", "reasoning": "low"}',
-            0.05,
-        ))
+        b._call_claude = AsyncMock(
+            return_value=(
+                '{"actions": [{"type": "DELETE", "id": "abc"}], '
+                '"confidence": 0.4, "market_view": "down", "reasoning": "low"}',
+                0.05,
+            )
+        )
         b._save_decision = AsyncMock()
         b._notify = AsyncMock()
         b._queue_for_approval = AsyncMock()
@@ -14330,16 +16728,20 @@ class TestAiBrainFullChain:
     @pytest.mark.asyncio
     async def test_two_agent_cycle_with_mock(self):
         b = self._make()
-        b._call_claude = AsyncMock(return_value=(
-            '{"bullish_case": "x", "estimated_wr": 0.65, '
-            '"best_strategies": ["fusion"], "conviction": 0.8}',
-            0.02,
-        ))
-        b._call_groq = AsyncMock(return_value=(
-            '{"bearish_case": "y", "risk_score": 0.3, '
-            '"kill_strategies": [], "concerns": []}',
-            0.01,
-        ))
+        b._call_claude = AsyncMock(
+            return_value=(
+                '{"bullish_case": "x", "estimated_wr": 0.65, '
+                '"best_strategies": ["fusion"], "conviction": 0.8}',
+                0.02,
+            )
+        )
+        b._call_groq = AsyncMock(
+            return_value=(
+                '{"bearish_case": "y", "risk_score": 0.3, '
+                '"kill_strategies": [], "concerns": []}',
+                0.01,
+            )
+        )
         try:
             result = await b._two_agent_cycle("data summary")
         except Exception:
@@ -14350,10 +16752,18 @@ class TestAiBrainFullChain:
         b = self._make()
         b._create = AsyncMock(return_value="✅ Created")
         try:
-            result = await b._execute([
-                {"type": "CREATE", "strategy_type": "fusion", "asset": "BTC",
-                 "direction": "any", "odds_threshold": 0.5, "reason": "test"},
-            ])
+            result = await b._execute(
+                [
+                    {
+                        "type": "CREATE",
+                        "strategy_type": "fusion",
+                        "asset": "BTC",
+                        "direction": "any",
+                        "odds_threshold": 0.5,
+                        "reason": "test",
+                    },
+                ]
+            )
             assert isinstance(result, list)
         except Exception:
             pass
@@ -14364,6 +16774,7 @@ class TestAutoOptimizerStartupHealth:
 
     def _make(self):
         from core.auto_optimizer import AutoOptimizer
+
         ao = AutoOptimizer(db=MagicMock())
         ao.db.conn = MagicMock()
         ao.db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -14408,6 +16819,7 @@ class TestStrategySuggesterRunFull:
     @pytest.mark.asyncio
     async def test_run_with_engine_analyst(self):
         from core.strategy_suggester import StrategySuggester
+
         s = StrategySuggester(db=MagicMock(), engine=MagicMock(), bot_app=None)
         s.db.conn = MagicMock()
         s.db.conn.execute_fetchall = AsyncMock(return_value=[])
@@ -14428,6 +16840,7 @@ class TestStatusPollerRealCalls:
 
     def test_module_methods(self):
         from core import status_poller
+
         for name in dir(status_poller):
             if name.startswith("_"):
                 continue
@@ -14448,6 +16861,7 @@ class TestExperimentRunnerFull:
     def test_class_basic_init(self):
         try:
             from core.experiment_runner import ExperimentRunner
+
             er = ExperimentRunner()
             # Touch attrs
             for attr in dir(er):
@@ -14463,6 +16877,7 @@ class TestDecisionExplainerFull:
     def test_class_basic(self):
         try:
             from core.decision_explainer import DecisionExplainer
+
             de = DecisionExplainer()
             for attr in dir(de):
                 if not attr.startswith("_"):
@@ -14477,6 +16892,7 @@ class TestBacktestReplayEngineFull:
     def test_replay_engine_class(self):
         try:
             from backtest.replay_engine import ReplayEngine
+
             for args in [
                 (MagicMock(), MagicMock()),
                 (MagicMock(),),
@@ -14497,6 +16913,7 @@ class TestBacktestEngineV2Full:
 
     def test_engine_v2_class(self):
         from backtest import engine_v2
+
         # Find any Engine class
         for name in dir(engine_v2):
             if "Engine" in name and not name.startswith("_"):
@@ -14515,6 +16932,7 @@ class TestBacktestArchiveReaderFull:
 
     def test_archive_reader_class(self):
         from backtest import archive_reader
+
         for name in dir(archive_reader):
             if name.startswith("_"):
                 continue
@@ -14533,6 +16951,7 @@ class TestDataMarketRecorderFull:
 
     def test_market_recorder_init(self):
         from data import market_recorder
+
         for name in dir(market_recorder):
             if name.startswith("_"):
                 continue
@@ -14552,6 +16971,7 @@ class TestDataMarketScannerFull:
 
     def test_scanner_class(self):
         from data import market_scanner
+
         for name in dir(market_scanner):
             if name.startswith("_"):
                 continue
@@ -14571,6 +16991,7 @@ class TestWebsocketClientFull:
 
     def test_ws_client_class(self):
         from data import websocket_client
+
         for name in dir(websocket_client):
             if name.startswith("_"):
                 continue
@@ -14590,6 +17011,7 @@ class TestCandleCollectorFullRun:
 
     def _make(self):
         from data.candle_collector import CandleCollector
+
         cc = CandleCollector(db=MagicMock())
         cc.db.conn = MagicMock()
         cc.db.conn.executescript = AsyncMock()
@@ -14634,19 +17056,23 @@ class TestCandleCollectorFullRun:
 class TestSchedulers:
     """telegram_bot/jobs scheduler functions."""
 
-    @pytest.mark.parametrize("module_path", [
-        "telegram_bot.jobs.maintenance_jobs",
-        "telegram_bot.jobs.shadow_report_job",
-        "telegram_bot.jobs.shadow_vs_paper_job",
-        "telegram_bot.jobs.pattern_discovery_job",
-        "telegram_bot.jobs.pnl_divergence_job",
-        "telegram_bot.jobs.polymarket_portfolio_job",
-        "telegram_bot.jobs.auto_promote_job",
-        "telegram_bot.jobs.db_archive_job",
-        "telegram_bot.jobs.db_retention_job",
-    ])
+    @pytest.mark.parametrize(
+        "module_path",
+        [
+            "telegram_bot.jobs.maintenance_jobs",
+            "telegram_bot.jobs.shadow_report_job",
+            "telegram_bot.jobs.shadow_vs_paper_job",
+            "telegram_bot.jobs.pattern_discovery_job",
+            "telegram_bot.jobs.pnl_divergence_job",
+            "telegram_bot.jobs.polymarket_portfolio_job",
+            "telegram_bot.jobs.auto_promote_job",
+            "telegram_bot.jobs.db_archive_job",
+            "telegram_bot.jobs.db_retention_job",
+        ],
+    )
     def test_module_callables(self, module_path):
         import importlib
+
         try:
             mod = importlib.import_module(module_path)
             # Try calling top-level functions with mock context
@@ -14661,6 +17087,7 @@ class TestSchedulers:
                 if not callable(obj):
                     continue
                 import inspect
+
                 if inspect.isclass(obj):
                     continue
                 if inspect.iscoroutinefunction(obj):
@@ -14675,35 +17102,44 @@ class TestSchedulers:
 class TestBacktestStrategiesEvaluateNoCallable:
     """backtest strategies: each .on_snapshot tek tek."""
 
-    @pytest.mark.parametrize("module_name,class_name", [
-        ("calibration_arb", "CalibrationArbStrategy"),
-        ("composite", "CompositeStrategy"),
-        ("cross_coin", "CrossCoinStrategy"),
-        ("fade_rip", "FadeRipStrategy"),
-        ("funding_rate", "FundingRateStrategy"),
-        ("hour_edge", "HourEdgeStrategy"),
-        ("late_convergence", "LateConvergenceStrategy"),
-        ("opening_breakout", "OpeningBreakoutStrategy"),
-        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-        ("streak_reversal", "StreakReversalStrategy"),
-        ("taker_flow", "TakerFlowStrategy"),
-    ])
+    @pytest.mark.parametrize(
+        "module_name,class_name",
+        [
+            ("calibration_arb", "CalibrationArbStrategy"),
+            ("composite", "CompositeStrategy"),
+            ("cross_coin", "CrossCoinStrategy"),
+            ("fade_rip", "FadeRipStrategy"),
+            ("funding_rate", "FundingRateStrategy"),
+            ("hour_edge", "HourEdgeStrategy"),
+            ("late_convergence", "LateConvergenceStrategy"),
+            ("opening_breakout", "OpeningBreakoutStrategy"),
+            ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+            ("streak_reversal", "StreakReversalStrategy"),
+            ("taker_flow", "TakerFlowStrategy"),
+        ],
+    )
     def test_strategy_full_flow_v9b(self, module_name, class_name):
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.strategies.{module_name}")
             cls = getattr(mod, class_name, None)
             if cls is None:
                 pytest.skip(f"{class_name}")
             from backtest.strategies.base import (
-                MarketData, OrderbookSnapshot, Resolution, Direction
+                Direction,
+                MarketData,
+                OrderbookSnapshot,
+                Resolution,
             )
+
             try:
                 s = cls()
             except TypeError:
                 s = cls(MagicMock())
-            market = MarketData(market_id="x", coin="BTC", market_type="5m",
-                                duration_seconds=300, hour_utc=15)
+            market = MarketData(
+                market_id="x", coin="BTC", market_type="5m", duration_seconds=300, hour_utc=15
+            )
             try:
                 s.on_market_open(market)
             except Exception:
@@ -14711,26 +17147,37 @@ class TestBacktestStrategiesEvaluateNoCallable:
             # Multiple snapshots
             for i in range(15):
                 snap = OrderbookSnapshot(
-                    timestamp_ms=1700000000000 + i*1000,
-                    up_best_bid=0.50 + i*0.01, up_best_ask=0.51 + i*0.01,
-                    down_best_bid=0.49 - i*0.01, down_best_ask=0.50 - i*0.01,
-                    spread=0.01, elapsed_pct=i/15.0,
-                    remaining_seconds=300 * (1 - i/15.0),
-                    elapsed_seconds=300 * (i/15.0),
-                    binance_price=65000 + i*10, binance_price_change=i*0.001,
-                    up_bid_depth=500, up_ask_depth=500,
-                    down_bid_depth=500, down_ask_depth=500,
-                    taker_buy_volume=100 + i*10, taker_sell_volume=100,
+                    timestamp_ms=1700000000000 + i * 1000,
+                    up_best_bid=0.50 + i * 0.01,
+                    up_best_ask=0.51 + i * 0.01,
+                    down_best_bid=0.49 - i * 0.01,
+                    down_best_ask=0.50 - i * 0.01,
+                    spread=0.01,
+                    elapsed_pct=i / 15.0,
+                    remaining_seconds=300 * (1 - i / 15.0),
+                    elapsed_seconds=300 * (i / 15.0),
+                    binance_price=65000 + i * 10,
+                    binance_price_change=i * 0.001,
+                    up_bid_depth=500,
+                    up_ask_depth=500,
+                    down_bid_depth=500,
+                    down_ask_depth=500,
+                    taker_buy_volume=100 + i * 10,
+                    taker_sell_volume=100,
                 )
                 try:
                     s.on_snapshot(snap)
                 except Exception:
                     pass
             try:
-                s.on_market_close(market, Resolution(
-                    winner=Direction.UP,
-                    final_up_price=1.0, final_down_price=0.0,
-                ))
+                s.on_market_close(
+                    market,
+                    Resolution(
+                        winner=Direction.UP,
+                        final_up_price=1.0,
+                        final_down_price=0.0,
+                    ),
+                )
             except Exception:
                 pass
         except (ImportError, AttributeError):
@@ -14749,6 +17196,7 @@ class TestApproveAllowanceMultiPath:
         monkeypatch.delenv("POLYGON_PRIVATE_KEY", raising=False)
         monkeypatch.delenv("POLYGON_WALLET", raising=False)
         from data.polymarket_actions import approve_allowance
+
         ok, msg = await approve_allowance()
         assert ok is False
         assert "POLYGON_PRIVATE_KEY" in msg or "POLYGON_WALLET" in msg
@@ -14761,6 +17209,7 @@ class TestApproveAllowanceMultiPath:
         monkeypatch.delenv("RELAYER_API_KEY", raising=False)
         monkeypatch.delenv("RELAYER_API_KEY_ADDRESS", raising=False)
         from data.polymarket_actions import approve_allowance
+
         ok, msg = await approve_allowance()
         # Either False (UI fallback) or True (CLOB worked)
         assert isinstance(ok, bool)
@@ -14774,6 +17223,7 @@ class TestApproveAllowanceMultiPath:
         monkeypatch.setenv("RELAYER_API_KEY", "test-relayer-key")
         monkeypatch.setenv("RELAYER_API_KEY_ADDRESS", "0x" + "ee" * 20)
         from data.polymarket_actions import approve_allowance
+
         ok, msg = await approve_allowance()
         # Path A will likely fail (no real relayer) → fallback to UI msg
         assert isinstance(ok, bool)
@@ -14790,11 +17240,13 @@ class TestApproveAllowanceMultiPath:
 
         # Force ImportError by mocking py_builder_relayer_client
         import sys as _sys
+
         sys_modules_save = _sys.modules.copy()
         _sys.modules.pop("py_builder_relayer_client", None)
         _sys.modules.pop("py_builder_relayer_client.client", None)
 
         from data.polymarket_actions import approve_allowance
+
         ok, msg = await approve_allowance()
         _sys.modules.update(sys_modules_save)
         assert isinstance(ok, bool)
@@ -14807,6 +17259,7 @@ class TestMarketBuySellFlowWave13:
     @pytest.mark.asyncio
     async def test_show_market_form_buy_renders(self):
         from telegram_bot.handlers.live_handler import _show_market_form
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
@@ -14817,51 +17270,69 @@ class TestMarketBuySellFlowWave13:
     @pytest.mark.asyncio
     async def test_show_market_asset_chooser_renders(self):
         from telegram_bot.handlers.live_handler import _show_market_asset_chooser
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         q.message = MagicMock()
         q.message.reply_text = AsyncMock()
         engine = MagicMock()
         engine.scanner = MagicMock()
-        engine.scanner.get_active_markets = MagicMock(return_value=[
-            {"slug": "btc-up-5m-x", "coin": "BTC", "direction": "UP", "type": "5m"},
-            {"slug": "eth-down-5m-y", "coin": "ETH", "direction": "DOWN", "type": "5m"},
-        ])
+        engine.scanner.get_active_markets = MagicMock(
+            return_value=[
+                {"slug": "btc-up-5m-x", "coin": "BTC", "direction": "UP", "type": "5m"},
+                {"slug": "eth-down-5m-y", "coin": "ETH", "direction": "DOWN", "type": "5m"},
+            ]
+        )
         await _show_market_asset_chooser(q, engine, "BUY", "5m")
         assert q.edit_message_text.called or q.message.reply_text.called
 
     @pytest.mark.asyncio
     async def test_show_market_amount_picker_with_budget(self):
         from telegram_bot.handlers.live_handler import _show_market_amount_picker
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         engine = MagicMock()
         engine.live = MagicMock()
-        engine.live.get_status = MagicMock(return_value={
-            "remaining": 8.5, "budget": 10.0, "auth_verified": True,
-        })
+        engine.live.get_status = MagicMock(
+            return_value={
+                "remaining": 8.5,
+                "budget": 10.0,
+                "auth_verified": True,
+            }
+        )
         await _show_market_amount_picker(q, engine, "SELL", "BTC_DOWN", "15m")
         assert q.edit_message_text.called
 
     @pytest.mark.asyncio
     async def test_show_market_confirm_complete_path(self):
         from telegram_bot.handlers.live_handler import _show_market_confirm
+
         q = MagicMock()
         q.edit_message_text = AsyncMock()
         engine = MagicMock()
         engine.live = MagicMock()
         engine.live.get_status = MagicMock(return_value={"auth_verified": True})
         engine.live._engine_scanner = MagicMock()
-        engine.live._engine_scanner.get_active_markets = MagicMock(return_value=[
-            {"slug": "btc-up-5m-x", "coin": "BTC", "direction": "UP",
-             "best_ask": 0.55, "best_bid": 0.54, "type": "5m"},
-        ])
+        engine.live._engine_scanner.get_active_markets = MagicMock(
+            return_value=[
+                {
+                    "slug": "btc-up-5m-x",
+                    "coin": "BTC",
+                    "direction": "UP",
+                    "best_ask": 0.55,
+                    "best_bid": 0.54,
+                    "type": "5m",
+                },
+            ]
+        )
         await _show_market_confirm(q, engine, "BUY", "BTC_UP", "5m", "2.0")
         assert q.edit_message_text.called
 
     @pytest.mark.asyncio
     async def test_buy_command_callable(self):
         from telegram_bot.handlers.live_handler import buy_command
+
         update = MagicMock()
         update.message = MagicMock()
         update.message.reply_text = AsyncMock()
@@ -14877,6 +17348,7 @@ class TestMarketBuySellFlowWave13:
     @pytest.mark.asyncio
     async def test_sell_command_callable(self):
         from telegram_bot.handlers.live_handler import sell_command
+
         update = MagicMock()
         update.message = MagicMock()
         update.message.reply_text = AsyncMock()
@@ -14892,6 +17364,7 @@ class TestMarketBuySellFlowWave13:
     @pytest.mark.asyncio
     async def test_allowance_command_callable(self):
         from telegram_bot.handlers.live_handler import allowance_command
+
         update = MagicMock()
         update.message = MagicMock()
         update.message.reply_text = AsyncMock()
@@ -14914,6 +17387,7 @@ class TestStructuredLoggingWave13:
         except ImportError:
             pytest.skip("structured_logging not present")
         import logging as _lg
+
         fmt = JsonFormatter()
         rec = _lg.LogRecord("test", _lg.INFO, "/x.py", 1, "hello world", (), None)
         out = fmt.format(rec)
@@ -14926,6 +17400,7 @@ class TestStructuredLoggingWave13:
         except ImportError:
             pytest.skip("structured_logging not present")
         import logging as _lg
+
         fmt = JsonFormatter()
         rec = _lg.LogRecord("test", _lg.INFO, "/x.py", 1, "count=%d", (42,), None)
         out = fmt.format(rec)
@@ -14937,9 +17412,9 @@ class TestStructuredLoggingWave13:
         except ImportError:
             pytest.skip("SecretScrubFilter not present")
         import logging as _lg
+
         flt = SecretScrubFilter()
-        rec = _lg.LogRecord("test", _lg.INFO, "/x.py", 1,
-                            "key=AKIAabc123def456 done", (), None)
+        rec = _lg.LogRecord("test", _lg.INFO, "/x.py", 1, "key=AKIAabc123def456 done", (), None)
         flt.filter(rec)
         # Filter should mask AWS-like key
         assert isinstance(rec.msg, str)
@@ -14951,6 +17426,7 @@ class TestStructuredLoggingWave13:
         except ImportError:
             pytest.skip("SecretScrubFilter not present")
         import logging as _lg
+
         flt = SecretScrubFilter()
         rec = _lg.LogRecord("test", _lg.INFO, "/x.py", 1, "n=%d", (123,), None)
         flt.filter(rec)
@@ -14963,6 +17439,7 @@ class TestExecuteMarketOrderWave13:
 
     def _make(self):
         from core.live_trader import LiveTrader
+
         return LiveTrader()
 
     @pytest.mark.asyncio
@@ -14972,7 +17449,10 @@ class TestExecuteMarketOrderWave13:
         t._enabled = True
         t._engine_scanner = None
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         # Returns dict or raises — both acceptable
         assert result is None or isinstance(result, dict)
@@ -14983,11 +17463,15 @@ class TestExecuteMarketOrderWave13:
         t._auth_verified = True
         t._enabled = False
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=1.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=1.0,
         )
         # error status or None
         assert result is None or (
-            isinstance(result, dict) and (
+            isinstance(result, dict)
+            and (
                 result.get("status") == "error"
                 or result.get("ok") is False
                 or "error" in str(result.get("status", "")).lower()
@@ -15001,10 +17485,14 @@ class TestExecuteMarketOrderWave13:
         t._auth_verified = True
         t._enabled = True
         result = await t.execute_market_order(
-            side="BUY", coin="BTC", direction="UP", amount=0.0,
+            side="BUY",
+            coin="BTC",
+            direction="UP",
+            amount=0.0,
         )
         assert result is None or (
-            isinstance(result, dict) and (
+            isinstance(result, dict)
+            and (
                 result.get("status") == "error"
                 or result.get("ok") is False
                 or "error" in str(result.get("status", "")).lower()
@@ -15018,8 +17506,7 @@ class TestExecuteMarketOrderWave13:
 # Hedef modüller: stats, strategies, dashboard, ai_handler, phase77,
 # roadmap_handler, gamma_hist, backtest_v2 (5-9% → 30%+)
 # ════════════════════════════════════════════════════════════════════════
-def _make_update_ctx(text: str = "/cmd", chat_id: int = 1667498935,
-                     callback_data=None):
+def _make_update_ctx(text: str = "/cmd", chat_id: int = 1667498935, callback_data=None):
     """Reusable Update + Context fixture for handler smoke tests."""
     update = MagicMock()
     update.effective_chat = MagicMock()
@@ -15067,9 +17554,13 @@ def _make_update_ctx(text: str = "/cmd", chat_id: int = 1667498935,
     engine.scanner.get_active_markets = MagicMock(return_value=[])
     engine.live = MagicMock()
     engine.live.is_enabled = MagicMock(return_value=False)
-    engine.live.get_status = MagicMock(return_value={
-        "auth_verified": True, "remaining": 5.0, "budget": 10.0,
-    })
+    engine.live.get_status = MagicMock(
+        return_value={
+            "auth_verified": True,
+            "remaining": 5.0,
+            "budget": 10.0,
+        }
+    )
     engine.risk = MagicMock()
     engine.risk.state = MagicMock()
     engine.risk.state.daily_pnl = 0.0
@@ -15268,6 +17759,7 @@ class TestStrategiesHandlerWave14:
     def test_quick_strategy_usage_text_smoke(self):
         try:
             from telegram_bot.handlers.strategies import _quick_strategy_usage_text
+
             txt = _quick_strategy_usage_text()
             assert isinstance(txt, str) and len(txt) > 0
         except (ImportError, AttributeError, Exception):
@@ -15353,6 +17845,7 @@ class TestDashboardHandlerWave14:
     def test_get_param_info_button_smoke(self):
         try:
             from telegram_bot.handlers.dashboard import get_param_info_button
+
             btn = get_param_info_button("kelly_mode", "ℹ️ Kelly")
             assert isinstance(btn, dict)
         except (ImportError, AttributeError, Exception):
@@ -15373,6 +17866,7 @@ class TestDashboardHandlerWave14:
     def test_check_op_smoke(self):
         try:
             from telegram_bot.handlers.dashboard import _check_op
+
             assert _check_op(10.0, ">", 5.0) is True
             assert _check_op(3.0, "<", 5.0) is True
             assert _check_op(5.0, "==", 5.0) is True
@@ -15458,6 +17952,7 @@ class TestAiHandlerWave14:
     def test_catalog_hint_smoke(self):
         try:
             from telegram_bot.handlers.ai_handler import _catalog_hint
+
             txt = _catalog_hint(max_items=5)
             assert isinstance(txt, str)
         except (ImportError, AttributeError):
@@ -15466,6 +17961,7 @@ class TestAiHandlerWave14:
     def test_route_bot_method_smoke(self):
         try:
             from telegram_bot.handlers.ai_handler import _route_bot_method
+
             res = _route_bot_method("nonexistent_method_xyz_xx")
             assert res is None or callable(res)
         except (ImportError, AttributeError, Exception):
@@ -15478,6 +17974,7 @@ class TestPhase77HandlerWave14:
     def test_module_imports(self):
         try:
             import telegram_bot.handlers.phase77_handler as ph
+
             assert ph is not None
         except ImportError:
             pytest.skip("not present")
@@ -15486,6 +17983,7 @@ class TestPhase77HandlerWave14:
     async def test_phase77_callable_handlers(self):
         try:
             import telegram_bot.handlers.phase77_handler as ph
+
             update, ctx = _make_update_ctx("/p77")
             for name in dir(ph):
                 if name.startswith("_"):
@@ -15506,6 +18004,7 @@ class TestRoadmapHandlerWave14:
     def test_module_imports(self):
         try:
             import telegram_bot.handlers.roadmap_handler as rh
+
             assert rh is not None
         except ImportError:
             pytest.skip("not present")
@@ -15514,6 +18013,7 @@ class TestRoadmapHandlerWave14:
     async def test_roadmap_callable_handlers(self):
         try:
             import telegram_bot.handlers.roadmap_handler as rh
+
             update, ctx = _make_update_ctx("/roadmap")
             for name in dir(rh):
                 if name.startswith("_"):
@@ -15534,6 +18034,7 @@ class TestGammaHistWave14:
     def test_module_imports(self):
         try:
             import backtest.data_sources.gamma_hist as gh
+
             assert gh is not None
         except ImportError:
             pytest.skip("gamma_hist not present")
@@ -15541,6 +18042,7 @@ class TestGammaHistWave14:
     def test_gamma_hist_constants(self):
         try:
             import backtest.data_sources.gamma_hist as gh
+
             # Force constant evaluation
             for name in dir(gh):
                 if name.startswith("_"):
@@ -15554,6 +18056,7 @@ class TestGammaHistWave14:
     def test_gamma_hist_class_constructable(self):
         try:
             import backtest.data_sources.gamma_hist as gh
+
             for name in dir(gh):
                 if name[0].isupper() and not name.startswith("_"):
                     cls = getattr(gh, name)
@@ -15575,6 +18078,7 @@ class TestBacktestV2HandlerWave14:
     def test_module_imports(self):
         try:
             import telegram_bot.handlers.backtest_v2 as bv2
+
             assert bv2 is not None
         except ImportError:
             pytest.skip("not present")
@@ -15583,6 +18087,7 @@ class TestBacktestV2HandlerWave14:
     async def test_backtest_v2_callable_handlers(self):
         try:
             import telegram_bot.handlers.backtest_v2 as bv2
+
             update, ctx = _make_update_ctx("/backtest")
             for name in dir(bv2):
                 if name.startswith("_"):
@@ -15599,6 +18104,7 @@ class TestBacktestV2HandlerWave14:
     def test_backtest_v2_sync_helpers(self):
         try:
             import telegram_bot.handlers.backtest_v2 as bv2
+
             for name in dir(bv2):
                 if name.startswith("_") or name.isupper():
                     continue
@@ -15629,6 +18135,7 @@ def _module_smoke_blast(module_path: str):
     """Generic module smoke — import + iterate sync helpers + class init."""
     try:
         import importlib
+
         mod = importlib.import_module(module_path)
     except (ImportError, AttributeError):
         return False
@@ -15661,8 +18168,7 @@ def _module_smoke_blast(module_path: str):
                             continue
                 else:
                     # Function — try several signatures
-                    for args in [(), (MagicMock(),), ({},), ([],),
-                                 ("x",), (None,), (0,)]:
+                    for args in [(), (MagicMock(),), ({},), ([],), ("x",), (None,), (0,)]:
                         try:
                             obj(*args)
                             break
@@ -15685,12 +18191,16 @@ class TestEngineSignalsBlastWave15:
     def test_engine_signals_helpers_direct(self):
         try:
             from core import engine_signals
+
             for name in dir(engine_signals):
                 if name.startswith("_") or name.isupper():
                     continue
                 fn = getattr(engine_signals, name)
-                if callable(fn) and not isinstance(fn, type) \
-                        and not asyncio.iscoroutinefunction(fn):
+                if (
+                    callable(fn)
+                    and not isinstance(fn, type)
+                    and not asyncio.iscoroutinefunction(fn)
+                ):
                     for args in [(0.55,), (0.55, 0.45), ([],), ({},)]:
                         try:
                             fn(*args)
@@ -15711,6 +18221,7 @@ class TestMarketRecorderBlastWave15:
     def test_market_recorder_constants(self):
         try:
             import data.market_recorder as mr
+
             for name in dir(mr):
                 if name.isupper() and not name.startswith("_"):
                     _ = getattr(mr, name)
@@ -15843,6 +18354,7 @@ class TestPolybacktestBlastWave15:
     def test_polybacktest_class_smoke(self):
         try:
             import backtest.data_sources.polybacktest as pb
+
             for name in dir(pb):
                 if name[0].isupper() and not name.startswith("_"):
                     cls = getattr(pb, name)
@@ -16002,30 +18514,37 @@ class TestChartsBlastWave15:
 class TestStrategyPluginsDeepWave16:
     """core/strategy_plugins.py — 765 stmts, 77.2% — push to 90%+."""
 
-    @pytest.mark.parametrize("module_name,class_name", [
-        ("calibration_arb", "CalibrationArbStrategy"),
-        ("composite", "CompositeStrategy"),
-        ("cross_coin", "CrossCoinStrategy"),
-        ("fade_rip", "FadeRipStrategy"),
-        ("funding_rate", "FundingRateStrategy"),
-        ("hour_edge", "HourEdgeStrategy"),
-        ("late_convergence", "LateConvergenceStrategy"),
-        ("opening_breakout", "OpeningBreakoutStrategy"),
-        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-        ("streak_reversal", "StreakReversalStrategy"),
-        ("taker_flow", "TakerFlowStrategy"),
-        ("bonding_yield", "BondingYieldStrategy"),
-    ])
+    @pytest.mark.parametrize(
+        "module_name,class_name",
+        [
+            ("calibration_arb", "CalibrationArbStrategy"),
+            ("composite", "CompositeStrategy"),
+            ("cross_coin", "CrossCoinStrategy"),
+            ("fade_rip", "FadeRipStrategy"),
+            ("funding_rate", "FundingRateStrategy"),
+            ("hour_edge", "HourEdgeStrategy"),
+            ("late_convergence", "LateConvergenceStrategy"),
+            ("opening_breakout", "OpeningBreakoutStrategy"),
+            ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+            ("streak_reversal", "StreakReversalStrategy"),
+            ("taker_flow", "TakerFlowStrategy"),
+            ("bonding_yield", "BondingYieldStrategy"),
+        ],
+    )
     def test_strategy_full_lifecycle(self, module_name, class_name):
         """Each strategy: open → 30 snapshots → close."""
         import importlib
+
         try:
             mod = importlib.import_module(f"backtest.strategies.{module_name}")
             cls = getattr(mod, class_name, None)
             if cls is None:
                 pytest.skip(f"{class_name}")
             from backtest.strategies.base import (
-                MarketData, OrderbookSnapshot, Resolution, Direction,
+                Direction,
+                MarketData,
+                OrderbookSnapshot,
+                Resolution,
             )
         except (ImportError, AttributeError):
             pytest.skip(f"{module_name}")
@@ -16038,8 +18557,11 @@ class TestStrategyPluginsDeepWave16:
 
             for hour in [9, 12, 15, 21, 0]:
                 market = MarketData(
-                    market_id=f"x_{hour}", coin="BTC", market_type="5m",
-                    duration_seconds=300, hour_utc=hour,
+                    market_id=f"x_{hour}",
+                    coin="BTC",
+                    market_type="5m",
+                    duration_seconds=300,
+                    hour_utc=hour,
                 )
                 try:
                     s.on_market_open(market)
@@ -16074,11 +18596,14 @@ class TestStrategyPluginsDeepWave16:
 
                 for winner in [Direction.UP, Direction.DOWN]:
                     try:
-                        s.on_market_close(market, Resolution(
-                            winner=winner,
-                            final_up_price=1.0 if winner == Direction.UP else 0.0,
-                            final_down_price=0.0 if winner == Direction.UP else 1.0,
-                        ))
+                        s.on_market_close(
+                            market,
+                            Resolution(
+                                winner=winner,
+                                final_up_price=1.0 if winner == Direction.UP else 0.0,
+                                final_down_price=0.0 if winner == Direction.UP else 1.0,
+                            ),
+                        )
                     except Exception:
                         pass
         except Exception:
@@ -16114,17 +18639,18 @@ class TestSignalFusionDeepWave16:
             pytest.skip("SignalFusion not present")
         try:
             sf = SignalFusion()
-            for method_name in ["aggregate", "combine", "fuse",
-                                "compute_combined_signal"]:
+            for method_name in ["aggregate", "combine", "fuse", "compute_combined_signal"]:
                 method = getattr(sf, method_name, None)
                 if method and callable(method):
                     for args in [
                         ([],),
                         ([{"direction": "UP", "confidence": 0.7}],),
-                        ([
-                            {"direction": "UP", "confidence": 0.6, "weight": 1.0},
-                            {"direction": "DOWN", "confidence": 0.4, "weight": 0.5},
-                        ],),
+                        (
+                            [
+                                {"direction": "UP", "confidence": 0.6, "weight": 1.0},
+                                {"direction": "DOWN", "confidence": 0.4, "weight": 0.5},
+                            ],
+                        ),
                     ]:
                         try:
                             method(*args)
@@ -16147,8 +18673,7 @@ class TestRegimeDeepWave16:
                 try:
                     r = RegimeClassifier(*ctor)
                     # Try classify with different inputs
-                    for klass_method in ["classify", "compute_regime",
-                                         "get_regime", "update"]:
+                    for klass_method in ["classify", "compute_regime", "get_regime", "update"]:
                         m = getattr(r, klass_method, None)
                         if m and callable(m):
                             for args in [
@@ -16179,8 +18704,13 @@ class TestRiskManagerDeepWave16:
         try:
             rm = RiskManager()
             # Check various trade scenarios
-            for method_name in ["check_trade", "validate", "evaluate_risk",
-                                "can_trade", "compute_size"]:
+            for method_name in [
+                "check_trade",
+                "validate",
+                "evaluate_risk",
+                "can_trade",
+                "compute_size",
+            ]:
                 m = getattr(rm, method_name, None)
                 if m and callable(m):
                     for args in [
@@ -16206,8 +18736,7 @@ class TestKellyDeepWave16:
         except (ImportError, AttributeError):
             pytest.skip()
         # Test kelly_fraction with many edge case inputs
-        for fn_name in ["kelly_fraction", "compute_kelly",
-                        "calculate_kelly", "kelly_size"]:
+        for fn_name in ["kelly_fraction", "compute_kelly", "calculate_kelly", "kelly_size"]:
             fn = getattr(kelly_mod, fn_name, None)
             if fn and callable(fn):
                 for args in [
@@ -16248,8 +18777,14 @@ class TestEvTrackerDeepWave16:
                     method = getattr(ev, name)
                     if not callable(method):
                         continue
-                    for args in [(), (1.0,), (1.0, 0.5), (0.6, 1.0, "BTC"),
-                                 (MagicMock(),), ({"pnl": 1.0},)]:
+                    for args in [
+                        (),
+                        (1.0,),
+                        (1.0, 0.5),
+                        (0.6, 1.0, "BTC"),
+                        (MagicMock(),),
+                        ({"pnl": 1.0},),
+                    ]:
                         try:
                             method(*args)
                             break
@@ -16272,8 +18807,12 @@ class TestStrategySelectorDeepWave16:
             try:
                 sel = StrategySelector(*ctor)
                 # Try selecting under different regimes
-                for method_name in ["select", "choose_strategy",
-                                    "pick_strategies", "filter_for_regime"]:
+                for method_name in [
+                    "select",
+                    "choose_strategy",
+                    "pick_strategies",
+                    "filter_for_regime",
+                ]:
                     m = getattr(sel, method_name, None)
                     if m and callable(m):
                         for args in [
@@ -16377,12 +18916,16 @@ class TestExperimentRunnerDeepWave16:
     def test_experiment_paths(self):
         try:
             import core.experiment_runner as er
+
             for name in dir(er):
                 if name.startswith("_") or name.isupper():
                     continue
                 obj = getattr(er, name)
-                if callable(obj) and not isinstance(obj, type) \
-                        and not asyncio.iscoroutinefunction(obj):
+                if (
+                    callable(obj)
+                    and not isinstance(obj, type)
+                    and not asyncio.iscoroutinefunction(obj)
+                ):
                     for args in [(), (MagicMock(),), ({"config": {}},)]:
                         try:
                             obj(*args)
@@ -16399,6 +18942,7 @@ class TestSlippageModelDeepWave16:
     def test_slippage_compute_variants(self):
         try:
             import backtest.slippage_model as sm
+
             for name in dir(sm):
                 if name.startswith("_") or name.isupper():
                     continue
@@ -16433,8 +18977,7 @@ class TestEngineSignalsHelperDeepWave16:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(es, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     (0.55,),
@@ -16464,8 +19007,7 @@ class TestAiBrainDeepWave16:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(ab, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ("test",),
@@ -16492,8 +19034,7 @@ class TestEngineDeepWave16:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(eng, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [(), (MagicMock(),), ({"config": {}},)]:
                     try:
                         obj(*args)
@@ -16511,9 +19052,7 @@ class TestLiveHandlerDeepWave16:
             import telegram_bot.handlers.live_handler as lh
         except ImportError:
             pytest.skip()
-        update, ctx = _make_update_ctx(
-            "/live", callback_data="live_btc_up_5m_buy"
-        )
+        update, ctx = _make_update_ctx("/live", callback_data="live_btc_up_5m_buy")
         for name in dir(lh):
             if name.startswith("_") or name.isupper():
                 continue
@@ -16521,8 +19060,11 @@ class TestLiveHandlerDeepWave16:
             if asyncio.iscoroutinefunction(obj):
                 # Try with various callback_data variants
                 for cb_data in [
-                    "live", "live_market_buy", "live_market_sell",
-                    "live_market_tf:BUY:5m", "live_market_asset:BUY:BTC_UP:5m",
+                    "live",
+                    "live_market_buy",
+                    "live_market_sell",
+                    "live_market_tf:BUY:5m",
+                    "live_market_asset:BUY:BTC_UP:5m",
                     "live_market_amount:BUY:BTC_UP:5m:1.0",
                     "live_market_confirm:BUY:BTC_UP:5m:2.0",
                     "live_approve_allowance",
@@ -16540,6 +19082,7 @@ class TestBotDeepWave16:
     def test_bot_module_constants(self):
         try:
             import telegram_bot.bot as bot_mod
+
             # Touch all module-level constants
             for name in dir(bot_mod):
                 if name.startswith("_"):
@@ -16721,12 +19264,16 @@ class TestStrategyLifecycleDeepWave16:
     def test_lifecycle_helpers(self):
         try:
             import core.strategy_lifecycle as sl
+
             for name in dir(sl):
                 if name.startswith("_") or name.isupper():
                     continue
                 obj = getattr(sl, name)
-                if callable(obj) and not isinstance(obj, type) \
-                        and not asyncio.iscoroutinefunction(obj):
+                if (
+                    callable(obj)
+                    and not isinstance(obj, type)
+                    and not asyncio.iscoroutinefunction(obj)
+                ):
                     for args in [(), (MagicMock(),), ({},)]:
                         try:
                             obj(*args)
@@ -16749,6 +19296,7 @@ class TestEngineSignalsHelperMassiveWave17:
         """Tüm module-level constants + class attrs yüklensin."""
         try:
             import core.engine_signals as es
+
             # Force evaluation of class-level constants
             for name in dir(es):
                 if name.startswith("_"):
@@ -16775,8 +19323,10 @@ class TestEngineSignalsHelperMassiveWave17:
         # Realistic args
         odds_series = [0.45, 0.46, 0.48, 0.50, 0.52, 0.54, 0.55, 0.56, 0.57, 0.58]
         market = {
-            "slug": "btc-up-5m-x", "coin": "BTC",
-            "type": "5m", "duration_seconds": 300,
+            "slug": "btc-up-5m-x",
+            "coin": "BTC",
+            "type": "5m",
+            "duration_seconds": 300,
             "endDate": "2030-01-01T00:00:00Z",
         }
         odds = {"up_odds": 0.55, "down_odds": 0.45, "has_liquidity": True}
@@ -16785,8 +19335,7 @@ class TestEngineSignalsHelperMassiveWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(es, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (odds_series,),
                     (odds_series, 0.5),
@@ -16810,6 +19359,7 @@ class TestAiBrainMassiveWave17:
     def test_module_constants_force_load(self):
         try:
             import core.ai_brain as ab
+
             for name in dir(ab):
                 if name.startswith("_"):
                     continue
@@ -16830,8 +19380,7 @@ class TestAiBrainMassiveWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(ab, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ("test_event",),
@@ -16860,8 +19409,7 @@ class TestEngineModuleHelpersWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(eng, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"slug": "x"},),
@@ -16882,6 +19430,7 @@ class TestBotPyDeepWave17:
     def test_bot_module_helpers(self):
         try:
             import telegram_bot.bot as bm
+
             # Force class-level evaluation
             for name in dir(bm):
                 if name.startswith("_"):
@@ -16913,12 +19462,23 @@ class TestStatsHandlerDeepWave17:
         except ImportError:
             pytest.skip()
         callback_variants = [
-            "stats", "stats_filter:WR", "stats_filter:PNL",
-            "stats_filter:TRADES", "trades_page:0", "trades_page:1",
-            "trades_page:2", "stats_by_market", "stats_hub",
-            "stats_chart", "performance", "velocity", "analytics",
-            "analytics_filter:7d", "analytics_filter:30d",
-            "strategy_stats", "stats_back",
+            "stats",
+            "stats_filter:WR",
+            "stats_filter:PNL",
+            "stats_filter:TRADES",
+            "trades_page:0",
+            "trades_page:1",
+            "trades_page:2",
+            "stats_by_market",
+            "stats_hub",
+            "stats_chart",
+            "performance",
+            "velocity",
+            "analytics",
+            "analytics_filter:7d",
+            "analytics_filter:30d",
+            "strategy_stats",
+            "stats_back",
         ]
         for cb in callback_variants:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -16943,12 +19503,21 @@ class TestStrategiesHandlerDeepWave17:
         except ImportError:
             pytest.skip()
         callback_variants = [
-            "strategies", "strategies_page:0", "start_strategy:1",
-            "stop_strategy:1", "delete_strategy:1", "delete_strategy_confirm:1",
-            "start_all", "stop_all", "edit_strategy:1",
+            "strategies",
+            "strategies_page:0",
+            "start_strategy:1",
+            "stop_strategy:1",
+            "delete_strategy:1",
+            "delete_strategy_confirm:1",
+            "start_all",
+            "stop_all",
+            "edit_strategy:1",
             "strategy_field:1:edge_threshold",
-            "qs_wizard:5m", "qs_wizard:asset:BTC", "qs_wizard:tf:5m",
-            "qs_wizard:type:fade", "qs_wizard:confirm",
+            "qs_wizard:5m",
+            "qs_wizard:asset:BTC",
+            "qs_wizard:tf:5m",
+            "qs_wizard:type:fade",
+            "qs_wizard:confirm",
         ]
         for cb in callback_variants:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -16973,12 +19542,20 @@ class TestBacktestV2HandlerDeepWave17:
         except ImportError:
             pytest.skip()
         callback_variants = [
-            "backtest", "bt_v2_config", "bt_v2_run",
-            "bt_v2_strategy:fade_rip", "bt_v2_strategy:opening_breakout",
-            "bt_v2_asset:BTC", "bt_v2_asset:ETH",
-            "bt_v2_tf:5m", "bt_v2_tf:15m", "bt_v2_tf:1h",
-            "bt_v2_period:7d", "bt_v2_period:30d",
-            "bt_v2_back", "bt_v2_results",
+            "backtest",
+            "bt_v2_config",
+            "bt_v2_run",
+            "bt_v2_strategy:fade_rip",
+            "bt_v2_strategy:opening_breakout",
+            "bt_v2_asset:BTC",
+            "bt_v2_asset:ETH",
+            "bt_v2_tf:5m",
+            "bt_v2_tf:15m",
+            "bt_v2_tf:1h",
+            "bt_v2_period:7d",
+            "bt_v2_period:30d",
+            "bt_v2_back",
+            "bt_v2_results",
         ]
         for cb in callback_variants:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -17005,8 +19582,7 @@ class TestEngineSettlementDeepWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(es, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"slug": "x", "winner": "UP"},),
@@ -17032,8 +19608,7 @@ class TestAutoOptimizerDeepWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(ao, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"strategy": "test", "trades": 30},),
@@ -17059,8 +19634,7 @@ class TestMarketRecorderDeepWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(mr, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"slug": "x", "type": "5m"},),
@@ -17083,11 +19657,19 @@ class TestStrategyBuilderHandlerDeepWave17:
         except ImportError:
             pytest.skip()
         callback_variants = [
-            "strategy_builder", "sb_step:asset", "sb_step:tf",
-            "sb_step:type", "sb_step:params", "sb_step:confirm",
-            "sb_asset:BTC", "sb_asset:ETH", "sb_tf:5m",
-            "sb_type:fade_rip", "sb_type:streak_reversal",
-            "sb_back", "sb_save",
+            "strategy_builder",
+            "sb_step:asset",
+            "sb_step:tf",
+            "sb_step:type",
+            "sb_step:params",
+            "sb_step:confirm",
+            "sb_asset:BTC",
+            "sb_asset:ETH",
+            "sb_tf:5m",
+            "sb_type:fade_rip",
+            "sb_type:streak_reversal",
+            "sb_back",
+            "sb_save",
         ]
         for cb in callback_variants:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -17108,6 +19690,7 @@ class TestEngineSupportFullWave17:
     def test_skip_counter_full(self):
         try:
             from core.engine_support import SkipCounter
+
             sc = SkipCounter()
             for reason in ["a", "b", "c", "a", "b", "a"]:
                 sc.bump(reason)
@@ -17130,9 +19713,13 @@ class TestFeesV2DeepWave17:
             obj = getattr(f, name)
             if callable(obj) and not isinstance(obj, type):
                 for args in [
-                    (1.0,), (1.0, 0.5), (1.0, 0.5, "BUY"),
-                    (1.0, 0.55, "5m"), (10.0, 0.55, "5m", "crypto"),
-                    (0.0, 0.0), (-1.0, 0.5),
+                    (1.0,),
+                    (1.0, 0.5),
+                    (1.0, 0.5, "BUY"),
+                    (1.0, 0.55, "5m"),
+                    (10.0, 0.55, "5m", "crypto"),
+                    (0.0, 0.0),
+                    (-1.0, 0.5),
                 ]:
                     try:
                         obj(*args)
@@ -17153,8 +19740,7 @@ class TestPolymarketRtdsDeepWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(r, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"slug": "x"},),
@@ -17179,8 +19765,7 @@ class TestEngineFillsHelpersDeepWave17:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(ef, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"bids": [[0.55, 100]], "asks": [[0.56, 100]]},),
@@ -17227,28 +19812,40 @@ def _make_engine_signals_mixin_instance():
             self._brier_cache_time = 0.0
             self._wallet_pending = {}
             self.scanner = MagicMock()
-            self.scanner.get_current_market = MagicMock(return_value={
-                "slug": "btc-up-5m-test",
-                "active": True, "closed": False, "archived": False,
-                "endDate": "2030-01-01T00:00:00Z",
-                "duration_seconds": 300,
-                "coin": "BTC", "type": "5m",
-                "clobTokenIds": ["1", "2"],
-                "minimum_tick_size": "0.01",
-                "neg_risk": False,
-            })
-            self.scanner.get_current_odds = MagicMock(return_value={
-                "up_odds": 0.55, "down_odds": 0.45,
-                "has_liquidity": True,
-            })
-            self.scanner.get_orderbook = MagicMock(return_value={
-                "bids": [[0.54, 100], [0.53, 200]],
-                "asks": [[0.56, 100], [0.57, 200]],
-            })
-            self.scanner.get_orderbook_async = AsyncMock(return_value={
-                "bids": [[0.54, 100]],
-                "asks": [[0.56, 100]],
-            })
+            self.scanner.get_current_market = MagicMock(
+                return_value={
+                    "slug": "btc-up-5m-test",
+                    "active": True,
+                    "closed": False,
+                    "archived": False,
+                    "endDate": "2030-01-01T00:00:00Z",
+                    "duration_seconds": 300,
+                    "coin": "BTC",
+                    "type": "5m",
+                    "clobTokenIds": ["1", "2"],
+                    "minimum_tick_size": "0.01",
+                    "neg_risk": False,
+                }
+            )
+            self.scanner.get_current_odds = MagicMock(
+                return_value={
+                    "up_odds": 0.55,
+                    "down_odds": 0.45,
+                    "has_liquidity": True,
+                }
+            )
+            self.scanner.get_orderbook = MagicMock(
+                return_value={
+                    "bids": [[0.54, 100], [0.53, 200]],
+                    "asks": [[0.56, 100], [0.57, 200]],
+                }
+            )
+            self.scanner.get_orderbook_async = AsyncMock(
+                return_value={
+                    "bids": [[0.54, 100]],
+                    "asks": [[0.56, 100]],
+                }
+            )
             self.odds_feed = MagicMock()
             self.odds_feed.get_odds_series = MagicMock(
                 return_value=[0.50 + i * 0.01 for i in range(20)]
@@ -17260,10 +19857,14 @@ def _make_engine_signals_mixin_instance():
             self.signals = MagicMock()
             self.plugins = MagicMock()
             stub_plugin = MagicMock()
-            stub_plugin.evaluate = MagicMock(return_value=MagicMock(
-                should_trade=False, direction=None,
-                confidence=0.0, reason="no signal",
-            ))
+            stub_plugin.evaluate = MagicMock(
+                return_value=MagicMock(
+                    should_trade=False,
+                    direction=None,
+                    confidence=0.0,
+                    reason="no signal",
+                )
+            )
             self.plugins.get = MagicMock(return_value=stub_plugin)
             self.selector = MagicMock()
             self.live = MagicMock()
@@ -17274,8 +19875,8 @@ def _make_engine_signals_mixin_instance():
             self.lifecycle = MagicMock()
             try:
                 from core.strategy_lifecycle import StrategyParams
-                self.lifecycle.get_params = AsyncMock(
-                    return_value=StrategyParams())
+
+                self.lifecycle.get_params = AsyncMock(return_value=StrategyParams())
             except (ImportError, AttributeError):
                 self.lifecycle.get_params = AsyncMock(return_value=MagicMock())
             self.risk = MagicMock()
@@ -17307,8 +19908,8 @@ class TestEngineSignalsMixinRealWave18:
     def test_parse_zones_real(self):
         try:
             from core.engine_signals import EngineSignalsMixin
-            for s in ["", "0.40-0.60", "0.40-0.60,0.65-0.75",
-                      "invalid", "0.5", "0.4-", "-0.6"]:
+
+            for s in ["", "0.40-0.60", "0.40-0.60,0.65-0.75", "invalid", "0.5", "0.4-", "-0.6"]:
                 try:
                     EngineSignalsMixin._parse_zones(s)
                 except Exception:
@@ -17319,6 +19920,7 @@ class TestEngineSignalsMixinRealWave18:
     def test_in_allowed_zone_real(self):
         try:
             from core.engine_signals import EngineSignalsMixin
+
             zones = [(0.40, 0.60), (0.65, 0.75)]
             for p in [0.30, 0.45, 0.55, 0.62, 0.70, 0.80]:
                 try:
@@ -17409,17 +20011,24 @@ class TestEngineFillsMixinRealWave18:
                 self._ws_drop_count = 0
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
-                self.scanner.get_current_market = MagicMock(return_value={
-                    "slug": "btc-up", "active": True,
-                })
-                self.scanner.get_orderbook = MagicMock(return_value={
-                    "bids": [[0.54, 100]], "asks": [[0.56, 100]],
-                })
+                self.scanner.get_current_market = MagicMock(
+                    return_value={
+                        "slug": "btc-up",
+                        "active": True,
+                    }
+                )
+                self.scanner.get_orderbook = MagicMock(
+                    return_value={
+                        "bids": [[0.54, 100]],
+                        "asks": [[0.56, 100]],
+                    }
+                )
                 self.live = MagicMock()
                 self.live._open = None
                 self.risk = MagicMock()
                 self.risk.state = MagicMock()
                 self.risk.state.daily_pnl = 0.0
+
         return StubEngine()
 
     def test_make(self):
@@ -17444,37 +20053,44 @@ class TestEngineFillsMixinRealWave18:
 class TestStrategyPluginsExtraLoopsWave18:
     """backtest/strategies/* — second pass with extreme price scenarios."""
 
-    @pytest.mark.parametrize("module_name,class_name", [
-        ("calibration_arb", "CalibrationArbStrategy"),
-        ("composite", "CompositeStrategy"),
-        ("cross_coin", "CrossCoinStrategy"),
-        ("fade_rip", "FadeRipStrategy"),
-        ("funding_rate", "FundingRateStrategy"),
-        ("hour_edge", "HourEdgeStrategy"),
-        ("late_convergence", "LateConvergenceStrategy"),
-        ("opening_breakout", "OpeningBreakoutStrategy"),
-        ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
-        ("streak_reversal", "StreakReversalStrategy"),
-        ("taker_flow", "TakerFlowStrategy"),
-        ("bonding_yield", "BondingYieldStrategy"),
-    ])
+    @pytest.mark.parametrize(
+        "module_name,class_name",
+        [
+            ("calibration_arb", "CalibrationArbStrategy"),
+            ("composite", "CompositeStrategy"),
+            ("cross_coin", "CrossCoinStrategy"),
+            ("fade_rip", "FadeRipStrategy"),
+            ("funding_rate", "FundingRateStrategy"),
+            ("hour_edge", "HourEdgeStrategy"),
+            ("late_convergence", "LateConvergenceStrategy"),
+            ("opening_breakout", "OpeningBreakoutStrategy"),
+            ("orderbook_imbalance", "OrderbookImbalanceStrategy"),
+            ("streak_reversal", "StreakReversalStrategy"),
+            ("taker_flow", "TakerFlowStrategy"),
+            ("bonding_yield", "BondingYieldStrategy"),
+        ],
+    )
     def test_strategy_extreme_scenarios(self, module_name, class_name):
         """Run each strategy with crash, pump, sideways scenarios."""
         try:
             import importlib
+
             mod = importlib.import_module(f"backtest.strategies.{module_name}")
             cls = getattr(mod, class_name, None)
             if cls is None:
                 pytest.skip()
             from backtest.strategies.base import (
-                MarketData, OrderbookSnapshot, Resolution, Direction,
+                Direction,
+                MarketData,
+                OrderbookSnapshot,
+                Resolution,
             )
         except (ImportError, AttributeError):
             pytest.skip()
 
         scenarios = {
             "crash": [(0.55 - i * 0.04) for i in range(20)],
-            "pump":  [(0.45 + i * 0.04) for i in range(20)],
+            "pump": [(0.45 + i * 0.04) for i in range(20)],
             "sideways": [0.50 + (-1) ** i * 0.01 for i in range(20)],
             "trending_up": [0.50 + i * 0.005 for i in range(20)],
             "spike": [0.50] * 10 + [0.80] + [0.78] * 9,
@@ -17487,8 +20103,10 @@ class TestStrategyPluginsExtraLoopsWave18:
                     s = cls(MagicMock())
                 market = MarketData(
                     market_id=f"{scenario_name}_{module_name}",
-                    coin="BTC", market_type="5m",
-                    duration_seconds=300, hour_utc=12,
+                    coin="BTC",
+                    market_type="5m",
+                    duration_seconds=300,
+                    hour_utc=12,
                 )
                 try:
                     s.on_market_open(market)
@@ -17519,11 +20137,14 @@ class TestStrategyPluginsExtraLoopsWave18:
                     except Exception:
                         pass
                 try:
-                    s.on_market_close(market, Resolution(
-                        winner=Direction.UP if prices[-1] > 0.5 else Direction.DOWN,
-                        final_up_price=1.0 if prices[-1] > 0.5 else 0.0,
-                        final_down_price=0.0 if prices[-1] > 0.5 else 1.0,
-                    ))
+                    s.on_market_close(
+                        market,
+                        Resolution(
+                            winner=Direction.UP if prices[-1] > 0.5 else Direction.DOWN,
+                            final_up_price=1.0 if prices[-1] > 0.5 else 0.0,
+                            final_down_price=0.0 if prices[-1] > 0.5 else 1.0,
+                        ),
+                    )
                 except Exception:
                     pass
             except Exception:
@@ -17556,8 +20177,7 @@ class TestRiskManagerRealWave18:
             {"strategy": "fade_rip", "amount": 1.0, "side": "BUY", "price": 0.55},
         ]
         for trade in trades:
-            for method_name in ["check_trade", "validate", "evaluate_risk",
-                                "can_trade", "is_safe"]:
+            for method_name in ["check_trade", "validate", "evaluate_risk", "can_trade", "is_safe"]:
                 m = getattr(rm, method_name, None)
                 if m and callable(m):
                     try:
@@ -17589,18 +20209,25 @@ class TestSignalFusionRealWave18:
                 {"direction": "DOWN", "confidence": 0.4, "weight": 0.5},
             ],
             [
-                {"direction": "UP", "confidence": 0.8, "weight": 1.0,
-                 "strategy": "fade_rip"},
-                {"direction": "UP", "confidence": 0.7, "weight": 0.8,
-                 "strategy": "streak_reversal"},
-                {"direction": "DOWN", "confidence": 0.3, "weight": 0.2,
-                 "strategy": "hour_edge"},
+                {"direction": "UP", "confidence": 0.8, "weight": 1.0, "strategy": "fade_rip"},
+                {
+                    "direction": "UP",
+                    "confidence": 0.7,
+                    "weight": 0.8,
+                    "strategy": "streak_reversal",
+                },
+                {"direction": "DOWN", "confidence": 0.3, "weight": 0.2, "strategy": "hour_edge"},
             ],
             [],
         ]
         for sigs in signal_sets:
-            for method_name in ["aggregate", "combine", "fuse",
-                                "compute_combined_signal", "merge_signals"]:
+            for method_name in [
+                "aggregate",
+                "combine",
+                "fuse",
+                "compute_combined_signal",
+                "merge_signals",
+            ]:
                 m = getattr(sf, method_name, None)
                 if m and callable(m):
                     for args in [(sigs,), (sigs, "BTC"), (sigs, 0.5)]:
@@ -17620,21 +20247,16 @@ class TestCalibrationRecalibrateRealWave18:
             pytest.skip()
         # Real fill data points
         fills = [
-            {"actual_price": 0.55, "expected_price": 0.55,
-             "spread": 0.01, "side": "BUY"},
-            {"actual_price": 0.56, "expected_price": 0.55,
-             "spread": 0.02, "side": "BUY"},
-            {"actual_price": 0.44, "expected_price": 0.45,
-             "spread": 0.01, "side": "SELL"},
+            {"actual_price": 0.55, "expected_price": 0.55, "spread": 0.01, "side": "BUY"},
+            {"actual_price": 0.56, "expected_price": 0.55, "spread": 0.02, "side": "BUY"},
+            {"actual_price": 0.44, "expected_price": 0.45, "spread": 0.01, "side": "SELL"},
         ]
         for name in dir(r):
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(r, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
-                for args in [(), (fills,), (fills[0],),
-                             (fills, 0.01), (fills, "BUY")]:
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
+                for args in [(), (fills,), (fills[0],), (fills, 0.01), (fills, "BUY")]:
                     try:
                         obj(*args)
                         break
@@ -17651,14 +20273,22 @@ class TestKellyRealWave18:
         except ImportError:
             pytest.skip()
         # Realistic Kelly inputs
-        for fn_name in ["kelly_fraction", "compute_kelly",
-                        "calculate_kelly", "kelly_size", "fractional_kelly",
-                        "kelly_bet_size", "kelly_optimal"]:
+        for fn_name in [
+            "kelly_fraction",
+            "compute_kelly",
+            "calculate_kelly",
+            "kelly_size",
+            "fractional_kelly",
+            "kelly_bet_size",
+            "kelly_optimal",
+        ]:
             fn = getattr(k, fn_name, None)
             if fn and callable(fn) and not isinstance(fn, type):
                 # Various probability/odds combinations
                 for args in [
-                    (0.55, 1.0), (0.60, 0.50), (0.65, 1.5),
+                    (0.55, 1.0),
+                    (0.60, 0.50),
+                    (0.65, 1.5),
                     (0.45, 1.0),  # losing edge
                     (0.50, 1.0),  # zero kelly
                     (0.55, 1.0, 100.0),  # with bankroll
@@ -17688,12 +20318,12 @@ class TestEvTrackerRealWave18:
 
         # Add EV samples
         for i in range(20):
-            for method in ["add", "update", "track", "record",
-                           "add_sample", "log_trade"]:
+            for method in ["add", "update", "track", "record", "add_sample", "log_trade"]:
                 m = getattr(tracker, method, None)
                 if m and callable(m):
                     for args in [
-                        (0.55,), (0.55, 1.0),
+                        (0.55,),
+                        (0.55, 1.0),
                         ({"pnl": 1.0, "expected": 0.5},),
                         (1.0, 0.5),
                     ]:
@@ -17721,17 +20351,24 @@ class TestStrategySelectorRealWave18:
             except Exception:
                 pytest.skip()
 
-        regimes = ["trending", "ranging", "volatile", "calm",
-                   "uptrend", "downtrend", "sideways"]
+        regimes = ["trending", "ranging", "volatile", "calm", "uptrend", "downtrend", "sideways"]
         for regime in regimes:
-            for method in ["select", "choose_strategy",
-                           "pick_strategies", "get_strategies_for_regime",
-                           "filter_for_regime", "rank"]:
+            for method in [
+                "select",
+                "choose_strategy",
+                "pick_strategies",
+                "get_strategies_for_regime",
+                "filter_for_regime",
+                "rank",
+            ]:
                 m = getattr(sel, method, None)
                 if m and callable(m):
-                    for args in [(regime,), (regime, 0.6),
-                                 (regime, MagicMock()),
-                                 (regime, ["fade_rip", "streak_reversal"])]:
+                    for args in [
+                        (regime,),
+                        (regime, 0.6),
+                        (regime, MagicMock()),
+                        (regime, ["fade_rip", "streak_reversal"]),
+                    ]:
                         try:
                             m(*args)
                             break
@@ -17756,14 +20393,25 @@ class TestTradeMemoryRealWave18:
                 pytest.skip()
 
         trades = [
-            {"slug": "btc-up", "side": "BUY", "amount": 1.0,
-             "price": 0.55, "pnl": 0.0, "ts": 1700000000},
-            {"slug": "eth-down", "side": "SELL", "amount": 5.0,
-             "price": 0.45, "pnl": 1.0, "ts": 1700000300},
+            {
+                "slug": "btc-up",
+                "side": "BUY",
+                "amount": 1.0,
+                "price": 0.55,
+                "pnl": 0.0,
+                "ts": 1700000000,
+            },
+            {
+                "slug": "eth-down",
+                "side": "SELL",
+                "amount": 5.0,
+                "price": 0.45,
+                "pnl": 1.0,
+                "ts": 1700000300,
+            },
         ]
         for trade in trades:
-            for method in ["record", "add_trade", "log",
-                           "add", "save_trade", "remember"]:
+            for method in ["record", "add_trade", "log", "add", "save_trade", "remember"]:
                 m = getattr(tm, method, None)
                 if m and callable(m) and not asyncio.iscoroutinefunction(m):
                     try:
@@ -17771,8 +20419,7 @@ class TestTradeMemoryRealWave18:
                         break
                     except Exception:
                         continue
-        for method in ["get_recent", "fetch_recent",
-                       "get_pnl", "compute_metrics", "summary"]:
+        for method in ["get_recent", "fetch_recent", "get_pnl", "compute_metrics", "summary"]:
             m = getattr(tm, method, None)
             if m and callable(m) and not asyncio.iscoroutinefunction(m):
                 for args in [(), (10,), (24,)]:
@@ -17800,15 +20447,16 @@ class TestExecutorRealWave18:
                 pytest.skip()
 
         order = {
-            "token_id": "1", "price": 0.55, "size": 1.0,
-            "side": "BUY", "type": "FOK",
+            "token_id": "1",
+            "price": 0.55,
+            "size": 1.0,
+            "side": "BUY",
+            "type": "FOK",
         }
-        for method in ["place_order", "execute", "submit",
-                       "post_order", "send"]:
+        for method in ["place_order", "execute", "submit", "post_order", "send"]:
             m = getattr(ex, method, None)
             if m and callable(m) and not asyncio.iscoroutinefunction(m):
-                for args in [(order,), (order, MagicMock()),
-                             ("BUY", 1.0, 0.55, "1")]:
+                for args in [(order,), (order, MagicMock()), ("BUY", 1.0, 0.55, "1")]:
                     try:
                         m(*args)
                         break
@@ -17842,10 +20490,12 @@ class TestIntentParserRealWave18:
                 if name.startswith("_") or name.isupper():
                     continue
                 obj = getattr(ip, name)
-                if callable(obj) and not isinstance(obj, type) \
-                        and not asyncio.iscoroutinefunction(obj):
-                    for args in [(text,), (text, MagicMock()),
-                                 (text, {"user": "test"})]:
+                if (
+                    callable(obj)
+                    and not isinstance(obj, type)
+                    and not asyncio.iscoroutinefunction(obj)
+                ):
+                    for args in [(text,), (text, MagicMock()), (text, {"user": "test"})]:
                         try:
                             obj(*args)
                             break
@@ -17865,11 +20515,15 @@ class TestAiBrainModuleHelpersRealWave18:
         # Realistic event/state dicts
         events = [
             {"event_type": "boot", "timestamp": 1700000000},
-            {"event_type": "trade_close", "strategy": "fade_rip",
-             "pnl": 1.5, "trades": 10, "wr": 0.6},
+            {
+                "event_type": "trade_close",
+                "strategy": "fade_rip",
+                "pnl": 1.5,
+                "trades": 10,
+                "wr": 0.6,
+            },
             {"event_type": "drawdown", "amount": -5.0, "peak": 100.0},
-            {"event_type": "regime_change", "old": "trending",
-             "new": "ranging"},
+            {"event_type": "regime_change", "old": "trending", "new": "ranging"},
             {"strategy": "test", "pnl": 1.5, "trades": 10, "wr": 0.6},
         ]
         for ev in events:
@@ -17877,14 +20531,18 @@ class TestAiBrainModuleHelpersRealWave18:
                 if name.startswith("_") or name.isupper():
                     continue
                 obj = getattr(ab, name)
-                if callable(obj) and not isinstance(obj, type) \
-                        and not asyncio.iscoroutinefunction(obj):
-                    for args in [(ev,), (ev, MagicMock()),
-                                 (ev["event_type"] if isinstance(
-                                     ev.get("event_type"), str)
-                                  else "test",),
-                                 (1.0, 0.5, "BTC"),
-                                 (ev, "test_strategy")]:
+                if (
+                    callable(obj)
+                    and not isinstance(obj, type)
+                    and not asyncio.iscoroutinefunction(obj)
+                ):
+                    for args in [
+                        (ev,),
+                        (ev, MagicMock()),
+                        (ev["event_type"] if isinstance(ev.get("event_type"), str) else "test",),
+                        (1.0, 0.5, "BTC"),
+                        (ev, "test_strategy"),
+                    ]:
                         try:
                             obj(*args)
                             break
@@ -17900,8 +20558,7 @@ class TestBacktestEngineV2RealWave18:
             from backtest.engine_v2 import BacktestEngineV2
         except (ImportError, AttributeError):
             pytest.skip()
-        for ctor in [(), (MagicMock(),), (MagicMock(), MagicMock()),
-                     ({"config": {}},)]:
+        for ctor in [(), (MagicMock(),), (MagicMock(), MagicMock()), ({"config": {}},)]:
             try:
                 eng = BacktestEngineV2(*ctor)
                 # Touch all attrs
@@ -17913,12 +20570,10 @@ class TestBacktestEngineV2RealWave18:
                     except Exception:
                         pass
                 # Try running
-                for method in ["run", "execute", "start", "backtest",
-                               "process", "simulate"]:
+                for method in ["run", "execute", "start", "backtest", "process", "simulate"]:
                     m = getattr(eng, method, None)
                     if m and callable(m) and not asyncio.iscoroutinefunction(m):
-                        for args in [(), ({"strategy": "fade_rip"},),
-                                     (MagicMock(),)]:
+                        for args in [(), ({"strategy": "fade_rip"},), (MagicMock(),)]:
                             try:
                                 m(*args)
                                 break
@@ -17944,9 +20599,14 @@ class TestMarketRecorderRealWave18:
         for ctor in [(db,), (db, MagicMock()), ()]:
             try:
                 rec = MarketRecorder(*ctor)
-                for method in ["record_market_open", "record_tick",
-                               "record_trade", "save_snapshot",
-                               "record_market_close", "record_orderbook"]:
+                for method in [
+                    "record_market_open",
+                    "record_tick",
+                    "record_trade",
+                    "save_snapshot",
+                    "record_market_close",
+                    "record_orderbook",
+                ]:
                     m = getattr(rec, method, None)
                     if m and callable(m):
                         for args in [
@@ -17956,8 +20616,7 @@ class TestMarketRecorderRealWave18:
                         ]:
                             try:
                                 if asyncio.iscoroutinefunction(m):
-                                    asyncio.get_event_loop().run_until_complete(
-                                        m(*args))
+                                    asyncio.get_event_loop().run_until_complete(m(*args))
                                 else:
                                     m(*args)
                                 break
@@ -18023,6 +20682,7 @@ class TestPolymarketActionsExtraWave18:
     def test_deposit_info_real(self):
         try:
             from data.polymarket_actions import deposit_info
+
             result = deposit_info()
             assert isinstance(result, dict)
         except (ImportError, AttributeError):
@@ -18031,6 +20691,7 @@ class TestPolymarketActionsExtraWave18:
     def test_withdraw_info_real(self):
         try:
             from data.polymarket_actions import withdraw_info
+
             result = withdraw_info()
             assert isinstance(result, dict)
             result2 = withdraw_info(amount=10.0)
@@ -18041,6 +20702,7 @@ class TestPolymarketActionsExtraWave18:
     def test_wallet_import_steps_real(self):
         try:
             from data.polymarket_actions import wallet_import_steps
+
             result = wallet_import_steps()
             assert isinstance(result, dict)
         except (ImportError, AttributeError):
@@ -18062,6 +20724,7 @@ class TestPolymarketActionsRedeemWave19:
     @pytest.mark.asyncio
     async def test_redeem_no_env(self, monkeypatch):
         from data.polymarket_actions import redeem_position
+
         monkeypatch.delenv("POLYGON_PRIVATE_KEY", raising=False)
         ok, msg = await redeem_position("0x" + "ab" * 32)
         assert ok is False
@@ -18070,6 +20733,7 @@ class TestPolymarketActionsRedeemWave19:
     @pytest.mark.asyncio
     async def test_redeem_no_relayer(self, monkeypatch):
         from data.polymarket_actions import redeem_position
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0x" + "ab" * 32)
         monkeypatch.delenv("RELAYER_API_KEY", raising=False)
         ok, msg = await redeem_position("0x" + "cd" * 32)
@@ -18079,6 +20743,7 @@ class TestPolymarketActionsRedeemWave19:
     @pytest.mark.asyncio
     async def test_redeem_empty_cid(self, monkeypatch):
         from data.polymarket_actions import redeem_position
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0x" + "ab" * 32)
         monkeypatch.setenv("RELAYER_API_KEY", "test")
         monkeypatch.setenv("RELAYER_API_KEY_ADDRESS", "0x" + "ee" * 20)
@@ -18089,6 +20754,7 @@ class TestPolymarketActionsRedeemWave19:
     @pytest.mark.asyncio
     async def test_redeem_bad_cid_format(self, monkeypatch):
         from data.polymarket_actions import redeem_position
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0x" + "ab" * 32)
         monkeypatch.setenv("RELAYER_API_KEY", "test")
         monkeypatch.setenv("RELAYER_API_KEY_ADDRESS", "0x" + "ee" * 20)
@@ -18102,6 +20768,7 @@ class TestAutoRedeemJobWave19:
     @pytest.mark.asyncio
     async def test_auto_redeem_disabled(self, monkeypatch):
         from telegram_bot.jobs.auto_redeem_job import auto_redeem_job
+
         monkeypatch.setenv("AUTO_REDEEM_ENABLED", "false")
         ctx = MagicMock()
         ctx.bot_data = {}
@@ -18111,6 +20778,7 @@ class TestAutoRedeemJobWave19:
     @pytest.mark.asyncio
     async def test_auto_redeem_no_engine(self, monkeypatch):
         from telegram_bot.jobs.auto_redeem_job import auto_redeem_job
+
         monkeypatch.setenv("AUTO_REDEEM_ENABLED", "true")
         monkeypatch.setenv("RELAYER_API_KEY", "test")
         ctx = MagicMock()
@@ -18120,6 +20788,7 @@ class TestAutoRedeemJobWave19:
     @pytest.mark.asyncio
     async def test_auto_redeem_no_relayer(self, monkeypatch):
         from telegram_bot.jobs.auto_redeem_job import auto_redeem_job
+
         monkeypatch.setenv("AUTO_REDEEM_ENABLED", "true")
         monkeypatch.delenv("RELAYER_API_KEY", raising=False)
         ctx = MagicMock()
@@ -18184,18 +20853,21 @@ class TestEngineSignalsRealEvaluateWave19:
             (False, True, "2030-01-01T00:00:00Z"),
             (False, False, "2020-01-01T00:00:00Z"),
         ]:
-            eng.scanner.get_current_market = MagicMock(return_value={
-                "slug": "btc-up-5m-test",
-                "active": not closed,
-                "closed": closed,
-                "archived": archived,
-                "endDate": end_date,
-                "duration_seconds": 300,
-                "coin": "BTC", "type": "5m",
-                "clobTokenIds": ["1", "2"],
-                "minimum_tick_size": "0.01",
-                "neg_risk": False,
-            })
+            eng.scanner.get_current_market = MagicMock(
+                return_value={
+                    "slug": "btc-up-5m-test",
+                    "active": not closed,
+                    "closed": closed,
+                    "archived": archived,
+                    "endDate": end_date,
+                    "duration_seconds": 300,
+                    "coin": "BTC",
+                    "type": "5m",
+                    "clobTokenIds": ["1", "2"],
+                    "minimum_tick_size": "0.01",
+                    "neg_risk": False,
+                }
+            )
             s = MagicMock()
             s.coin = "BTC"
             s.market_type = "5m"
@@ -18213,6 +20885,7 @@ class TestAiBrainAsyncChainWave19:
     def _make_brain(self):
         try:
             import core.ai_brain as ab
+
             # Find primary class
             for name in dir(ab):
                 if name.startswith("_") or name == "logger":
@@ -18220,8 +20893,13 @@ class TestAiBrainAsyncChainWave19:
                 obj = getattr(ab, name)
                 if isinstance(obj, type):
                     # Try common ai_brain class names
-                    if name in ("AiBrain", "AIBrain", "AiBrainOrchestrator",
-                               "Brain", "ClaudeBrain"):
+                    if name in (
+                        "AiBrain",
+                        "AIBrain",
+                        "AiBrainOrchestrator",
+                        "Brain",
+                        "ClaudeBrain",
+                    ):
                         return obj
         except ImportError:
             return None
@@ -18348,8 +21026,11 @@ class TestEngineStartFlowWave19:
                         if name.startswith("_") or name.isupper():
                             continue
                         method = getattr(eng, name, None)
-                        if callable(method) and not asyncio.iscoroutinefunction(method) \
-                                and not isinstance(method, type):
+                        if (
+                            callable(method)
+                            and not asyncio.iscoroutinefunction(method)
+                            and not isinstance(method, type)
+                        ):
                             for args in [(), ({},), (MagicMock(),)]:
                                 try:
                                     method(*args)
@@ -18378,23 +21059,32 @@ class TestStrategiesHandlerFullFlowWave19:
         db.conn = MagicMock()
         db.conn.execute = AsyncMock()
         db.conn.commit = AsyncMock()
-        db.conn.execute_fetchall = AsyncMock(return_value=[
-            (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0,
-             0.55, 0, 1, 0, 0.0, "{}"),
-        ])
+        db.conn.execute_fetchall = AsyncMock(
+            return_value=[
+                (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0, 0.55, 0, 1, 0, 0.0, "{}"),
+            ]
+        )
         db.conn.execute_fetchone = AsyncMock(return_value=None)
 
         callbacks = [
-            "strategies", "strategies_page:0", "strategies_page:1",
-            "start_strategy:1", "stop_strategy:1",
-            "delete_strategy:1", "delete_strategy_confirm:1",
-            "start_all", "start_all_confirm",
-            "stop_all", "stop_all_confirm",
+            "strategies",
+            "strategies_page:0",
+            "strategies_page:1",
+            "start_strategy:1",
+            "stop_strategy:1",
+            "delete_strategy:1",
+            "delete_strategy_confirm:1",
+            "start_all",
+            "start_all_confirm",
+            "stop_all",
+            "stop_all_confirm",
             "edit_strategy:1",
             "strategy_field:1:edge_threshold",
             "strategy_field:1:size_mult",
-            "qs_wizard:5m", "qs_wizard:asset:BTC",
-            "qs_wizard:tf:5m", "qs_wizard:type:fade",
+            "qs_wizard:5m",
+            "qs_wizard:asset:BTC",
+            "qs_wizard:tf:5m",
+            "qs_wizard:type:fade",
             "qs_wizard:confirm",
         ]
         for cb in callbacks:
@@ -18429,14 +21119,27 @@ class TestBacktestV2HandlerFullFlowWave19:
         db.conn.execute_fetchone = AsyncMock(return_value=None)
 
         callbacks = [
-            "backtest", "bt_v2_config", "bt_v2_run",
-            "bt_v2_strategy:fade_rip", "bt_v2_strategy:opening_breakout",
-            "bt_v2_strategy:streak_reversal", "bt_v2_strategy:taker_flow",
-            "bt_v2_asset:BTC", "bt_v2_asset:ETH", "bt_v2_asset:SOL",
-            "bt_v2_tf:5m", "bt_v2_tf:15m", "bt_v2_tf:1h",
-            "bt_v2_period:7d", "bt_v2_period:30d", "bt_v2_period:90d",
-            "bt_v2_back", "bt_v2_results", "bt_v2_main",
-            "bt_v2_compare", "bt_v2_export",
+            "backtest",
+            "bt_v2_config",
+            "bt_v2_run",
+            "bt_v2_strategy:fade_rip",
+            "bt_v2_strategy:opening_breakout",
+            "bt_v2_strategy:streak_reversal",
+            "bt_v2_strategy:taker_flow",
+            "bt_v2_asset:BTC",
+            "bt_v2_asset:ETH",
+            "bt_v2_asset:SOL",
+            "bt_v2_tf:5m",
+            "bt_v2_tf:15m",
+            "bt_v2_tf:1h",
+            "bt_v2_period:7d",
+            "bt_v2_period:30d",
+            "bt_v2_period:90d",
+            "bt_v2_back",
+            "bt_v2_results",
+            "bt_v2_main",
+            "bt_v2_compare",
+            "bt_v2_export",
         ]
         for cb in callbacks:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -18468,22 +21171,50 @@ class TestStatsHandlerFullFlowWave19:
         db.conn.commit = AsyncMock()
         # Real-shape trade rows (column count ~18)
         trade_row = (
-            1, "btc-up-5m", "fade_rip_5m", "BUY", 1.82, 0.55, 1.0,
-            "filled", "5m", 1.0, 0.5, 0.0, 0.5, 0.55, "test",
-            "5m", "UP", 1700000000,
+            1,
+            "btc-up-5m",
+            "fade_rip_5m",
+            "BUY",
+            1.82,
+            0.55,
+            1.0,
+            "filled",
+            "5m",
+            1.0,
+            0.5,
+            0.0,
+            0.5,
+            0.55,
+            "test",
+            "5m",
+            "UP",
+            1700000000,
         )
         db.conn.execute_fetchall = AsyncMock(return_value=[trade_row] * 5)
         db.conn.execute_fetchone = AsyncMock(return_value=trade_row)
 
         callbacks = [
-            "stats", "stats_filter:WR", "stats_filter:PNL", "stats_filter:TRADES",
-            "stats_filter:AVGPRICE", "stats_filter:DAILY",
-            "trades_page:0", "trades_page:1", "trades_page:2",
-            "stats_by_market", "stats_by_market:btc-up-5m",
-            "stats_hub", "stats_chart", "performance",
-            "velocity", "analytics",
-            "analytics_filter:7d", "analytics_filter:30d",
-            "strategy_stats", "stats_back", "stats_main",
+            "stats",
+            "stats_filter:WR",
+            "stats_filter:PNL",
+            "stats_filter:TRADES",
+            "stats_filter:AVGPRICE",
+            "stats_filter:DAILY",
+            "trades_page:0",
+            "trades_page:1",
+            "trades_page:2",
+            "stats_by_market",
+            "stats_by_market:btc-up-5m",
+            "stats_hub",
+            "stats_chart",
+            "performance",
+            "velocity",
+            "analytics",
+            "analytics_filter:7d",
+            "analytics_filter:30d",
+            "strategy_stats",
+            "stats_back",
+            "stats_main",
         ]
         for cb in callbacks:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -18510,10 +21241,15 @@ class TestLiveHandlerFullCallbacksWave19:
             pytest.skip()
 
         callbacks = [
-            "live_main", "live_compare", "live_history",
-            "live_market_buy", "live_market_sell",
-            "live_market_tf:BUY:5m", "live_market_tf:BUY:15m",
-            "live_market_tf:BUY:1h", "live_market_tf:BUY:4h",
+            "live_main",
+            "live_compare",
+            "live_history",
+            "live_market_buy",
+            "live_market_sell",
+            "live_market_tf:BUY:5m",
+            "live_market_tf:BUY:15m",
+            "live_market_tf:BUY:1h",
+            "live_market_tf:BUY:4h",
             "live_market_tf:SELL:5m",
             "live_market_asset:BUY:BTC_UP:5m",
             "live_market_asset:BUY:ETH_DOWN:5m",
@@ -18528,7 +21264,9 @@ class TestLiveHandlerFullCallbacksWave19:
             "live_sell_pct:ETH_DOWN",
             "live_redeem:BTC_UP",
             "live_redeem:ETH_DOWN",
-            "live_toggle", "live_toggle_confirm", "live_toggle_cancel",
+            "live_toggle",
+            "live_toggle_confirm",
+            "live_toggle_cancel",
         ]
         for cb in callbacks:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -18552,8 +21290,7 @@ class TestPolymarketPortfolioRealWave19:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(pp, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [(), (MagicMock(),), ({},)]:
                     try:
                         obj(*args)
@@ -18648,10 +21385,18 @@ class TestEngineSignalsFullEvalChainWave20:
 
         # Call _evaluate with each strategy_type
         strategy_types = [
-            "fade_rip", "streak_reversal", "opening_breakout",
-            "hour_edge", "taker_flow", "orderbook_imbalance",
-            "calibration_arb", "late_convergence", "composite",
-            "cross_coin", "funding_rate", "bonding_yield",
+            "fade_rip",
+            "streak_reversal",
+            "opening_breakout",
+            "hour_edge",
+            "taker_flow",
+            "orderbook_imbalance",
+            "calibration_arb",
+            "late_convergence",
+            "composite",
+            "cross_coin",
+            "funding_rate",
+            "bonding_yield",
         ]
         for stype in strategy_types:
             s = MagicMock()
@@ -18731,8 +21476,14 @@ class TestAiBrainAsyncEventChainWave20:
             obj = getattr(ab, name, None)
             if isinstance(obj, type) and not name.startswith("_"):
                 # ai_brain has multiple classes — try common names
-                if name in ("AiBrain", "AIBrain", "AiBrainOrchestrator",
-                           "Brain", "ClaudeBrain", "AiBrainEngine"):
+                if name in (
+                    "AiBrain",
+                    "AIBrain",
+                    "AiBrainOrchestrator",
+                    "Brain",
+                    "ClaudeBrain",
+                    "AiBrainEngine",
+                ):
                     cls = obj
                     break
         if cls is None:
@@ -18742,10 +21493,12 @@ class TestAiBrainAsyncEventChainWave20:
         # Stub LLM client
         llm_stub = MagicMock()
         llm_stub.messages = MagicMock()
-        llm_stub.messages.create = AsyncMock(return_value=MagicMock(
-            content=[MagicMock(text='{"action": "noop", "confidence": 0.5}')],
-            usage=MagicMock(input_tokens=100, output_tokens=50),
-        ))
+        llm_stub.messages.create = AsyncMock(
+            return_value=MagicMock(
+                content=[MagicMock(text='{"action": "noop", "confidence": 0.5}')],
+                usage=MagicMock(input_tokens=100, output_tokens=50),
+            )
+        )
 
         for ctor in [(db,), (db, llm_stub), (db, MagicMock()), (db, "test_key")]:
             try:
@@ -18755,8 +21508,11 @@ class TestAiBrainAsyncEventChainWave20:
                     if name.startswith("_") or name.isupper():
                         continue
                     method = getattr(obj, name, None)
-                    if callable(method) and not asyncio.iscoroutinefunction(method) \
-                            and not isinstance(method, type):
+                    if (
+                        callable(method)
+                        and not asyncio.iscoroutinefunction(method)
+                        and not isinstance(method, type)
+                    ):
                         for args in [(), ({"event": "boot"},), ("test",), (1.0, 0.5)]:
                             try:
                                 method(*args)
@@ -18772,8 +21528,7 @@ class TestAiBrainAsyncEventChainWave20:
                         for args in [
                             (),
                             ({"event_type": "boot"},),
-                            ({"event_type": "trade_close",
-                              "strategy": "fade_rip", "pnl": 1.5},),
+                            ({"event_type": "trade_close", "strategy": "fade_rip", "pnl": 1.5},),
                             ({"event_type": "drawdown", "amount": -5.0},),
                             ("test_strategy",),
                         ]:
@@ -18799,32 +21554,68 @@ class TestStrategiesHandlerConvFlowWave20:
 
         # Realistic strategy row shape (mevcut DB schema)
         strategy_rows = [
-            (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0,
-             0.55, 0, 1, 0, 0.0, "{}"),
-            (2, "streak_reversal_15m", "streak_reversal", "ETH", "15m",
-             "DOWN", 5.0, 0.45, 0, 1, 0, 1.5, "{}"),
-            (3, "opening_breakout_5m", "opening_breakout", "SOL", "5m",
-             "UP", 2.0, 0.60, 0, 0, 0, -0.5, "{}"),
+            (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0, 0.55, 0, 1, 0, 0.0, "{}"),
+            (
+                2,
+                "streak_reversal_15m",
+                "streak_reversal",
+                "ETH",
+                "15m",
+                "DOWN",
+                5.0,
+                0.45,
+                0,
+                1,
+                0,
+                1.5,
+                "{}",
+            ),
+            (
+                3,
+                "opening_breakout_5m",
+                "opening_breakout",
+                "SOL",
+                "5m",
+                "UP",
+                2.0,
+                0.60,
+                0,
+                0,
+                0,
+                -0.5,
+                "{}",
+            ),
         ]
         db = _make_full_db()
         db.conn.execute_fetchall = AsyncMock(return_value=strategy_rows)
         db.conn.execute_fetchone = AsyncMock(return_value=strategy_rows[0])
 
         callbacks = [
-            "strategies", "strategies_page:0", "strategies_page:1",
-            "start_strategy:1", "start_strategy:2",
-            "stop_strategy:1", "stop_strategy:2",
-            "delete_strategy:1", "delete_strategy_confirm:1",
-            "start_all", "start_all_confirm",
-            "stop_all", "stop_all_confirm",
-            "edit_strategy:1", "edit_strategy:2",
+            "strategies",
+            "strategies_page:0",
+            "strategies_page:1",
+            "start_strategy:1",
+            "start_strategy:2",
+            "stop_strategy:1",
+            "stop_strategy:2",
+            "delete_strategy:1",
+            "delete_strategy_confirm:1",
+            "start_all",
+            "start_all_confirm",
+            "stop_all",
+            "stop_all_confirm",
+            "edit_strategy:1",
+            "edit_strategy:2",
             "strategy_field:1:edge_threshold",
             "strategy_field:1:size_mult",
             "strategy_field:1:amount",
             "strategy_field:1:odds_threshold",
-            "qs_wizard:5m", "qs_wizard:asset:BTC",
-            "qs_wizard:tf:5m", "qs_wizard:type:fade",
-            "qs_wizard:type:streak", "qs_wizard:type:hour",
+            "qs_wizard:5m",
+            "qs_wizard:asset:BTC",
+            "qs_wizard:tf:5m",
+            "qs_wizard:type:fade",
+            "qs_wizard:type:streak",
+            "qs_wizard:type:hour",
             "qs_wizard:confirm",
         ]
         for cb in callbacks:
@@ -18873,26 +21664,28 @@ class TestStatsHandlerRealDbWave20:
         # 50 realistic trade rows
         trade_rows = []
         for i in range(50):
-            trade_rows.append((
-                i + 1,                              # id
-                f"btc-up-5m-{1700000000 + i * 300}",  # market_slug
-                f"strategy_{i % 5}",                # strategy_name
-                "BUY" if i % 2 == 0 else "SELL",   # side
-                1.82 + (i * 0.01),                 # shares
-                0.55 + (i % 10) * 0.01,            # price
-                1.0 + i * 0.1,                     # amount_usd
-                "filled",                           # status
-                "5m",                               # market_type
-                1.0 + i * 0.1,                     # cost_basis
-                0.5 + (i % 5) * 0.1,               # current_value
-                ((-1) ** i) * 0.5,                 # pnl_usd
-                0.5,                                # pnl_pct
-                0.55,                               # avg_price
-                f"trade_{i}",                       # tx_hash
-                "5m",                               # timeframe
-                "UP" if i % 2 == 0 else "DOWN",    # direction
-                1700000000 + i * 300,              # matched_at
-            ))
+            trade_rows.append(
+                (
+                    i + 1,  # id
+                    f"btc-up-5m-{1700000000 + i * 300}",  # market_slug
+                    f"strategy_{i % 5}",  # strategy_name
+                    "BUY" if i % 2 == 0 else "SELL",  # side
+                    1.82 + (i * 0.01),  # shares
+                    0.55 + (i % 10) * 0.01,  # price
+                    1.0 + i * 0.1,  # amount_usd
+                    "filled",  # status
+                    "5m",  # market_type
+                    1.0 + i * 0.1,  # cost_basis
+                    0.5 + (i % 5) * 0.1,  # current_value
+                    ((-1) ** i) * 0.5,  # pnl_usd
+                    0.5,  # pnl_pct
+                    0.55,  # avg_price
+                    f"trade_{i}",  # tx_hash
+                    "5m",  # timeframe
+                    "UP" if i % 2 == 0 else "DOWN",  # direction
+                    1700000000 + i * 300,  # matched_at
+                )
+            )
         db = _make_full_db()
         db.conn.execute_fetchall = AsyncMock(return_value=trade_rows)
         db.conn.execute_fetchone = AsyncMock(
@@ -18900,17 +21693,30 @@ class TestStatsHandlerRealDbWave20:
         )
 
         callbacks = [
-            "stats", "stats_filter:WR", "stats_filter:PNL",
-            "stats_filter:TRADES", "stats_filter:AVGPRICE",
-            "stats_filter:DAILY", "stats_filter:WEEKLY",
-            "trades_page:0", "trades_page:1", "trades_page:2",
-            "stats_by_market", "stats_hub",
-            "stats_chart", "performance",
-            "velocity", "analytics",
-            "analytics_filter:7d", "analytics_filter:30d",
+            "stats",
+            "stats_filter:WR",
+            "stats_filter:PNL",
+            "stats_filter:TRADES",
+            "stats_filter:AVGPRICE",
+            "stats_filter:DAILY",
+            "stats_filter:WEEKLY",
+            "trades_page:0",
+            "trades_page:1",
+            "trades_page:2",
+            "stats_by_market",
+            "stats_hub",
+            "stats_chart",
+            "performance",
+            "velocity",
+            "analytics",
+            "analytics_filter:7d",
+            "analytics_filter:30d",
             "analytics_filter:90d",
-            "strategy_stats", "strategy_stats:1", "strategy_stats:2",
-            "stats_back", "stats_main",
+            "strategy_stats",
+            "strategy_stats:1",
+            "strategy_stats:2",
+            "stats_back",
+            "stats_main",
         ]
         for cb in callbacks:
             update, ctx = _make_update_ctx(callback_data=cb)
@@ -18937,10 +21743,11 @@ class TestEngineRealStartFlowWave20:
             pytest.skip()
         db = _make_full_db()
         # Pre-populate strategies query
-        db.conn.execute_fetchall = AsyncMock(return_value=[
-            (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0,
-             0.55, 0, 1, 0, 0.0, "{}"),
-        ])
+        db.conn.execute_fetchall = AsyncMock(
+            return_value=[
+                (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0, 0.55, 0, 1, 0, 0.0, "{}"),
+            ]
+        )
 
         for ctor in [(db,), (db, MagicMock()), ()]:
             try:
@@ -18958,13 +21765,12 @@ class TestEngineRealStartFlowWave20:
                     if hasattr(eng, "start") and asyncio.iscoroutinefunction(eng.start):
                         try:
                             await asyncio.wait_for(eng.start(), timeout=0.5)
-                        except (asyncio.TimeoutError, Exception):
+                        except (TimeoutError, Exception):
                             pass
                 except Exception:
                     pass
                 # Try sync engine_support methods
-                for method_name in ["stop", "is_running", "get_status",
-                                    "snapshot", "summary"]:
+                for method_name in ["stop", "is_running", "get_status", "snapshot", "summary"]:
                     m = getattr(eng, method_name, None)
                     if m and callable(m) and not asyncio.iscoroutinefunction(m):
                         try:
@@ -18990,19 +21796,25 @@ class TestEngineSettlementMixinWave20:
         class StubEng(EngineSettlementMixin):
             def __init__(self):
                 self.db = _make_full_db()
-                self.db.conn.execute_fetchall = AsyncMock(return_value=[
-                    # (id, slug, side, shares, price, cost_basis, status)
-                    (1, "btc-up-5m", "BUY", 1.82, 0.55, 1.0, "open"),
-                    (2, "eth-down-5m", "BUY", 8.50, 0.45, 3.83, "open"),
-                ])
+                self.db.conn.execute_fetchall = AsyncMock(
+                    return_value=[
+                        # (id, slug, side, shares, price, cost_basis, status)
+                        (1, "btc-up-5m", "BUY", 1.82, 0.55, 1.0, "open"),
+                        (2, "eth-down-5m", "BUY", 8.50, 0.45, 3.83, "open"),
+                    ]
+                )
                 self._open_positions = {1, 2}
                 self._pending = []
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
-                self.scanner.get_current_market = MagicMock(return_value={
-                    "slug": "btc-up-5m", "active": False, "closed": True,
-                    "winningOutcome": "UP",
-                })
+                self.scanner.get_current_market = MagicMock(
+                    return_value={
+                        "slug": "btc-up-5m",
+                        "active": False,
+                        "closed": True,
+                        "winningOutcome": "UP",
+                    }
+                )
                 self.live = MagicMock()
                 self.live.is_enabled = MagicMock(return_value=False)
                 self.risk = MagicMock()
@@ -19046,10 +21858,12 @@ class TestAutoOptimizerRealWave20:
         except (ImportError, AttributeError):
             pytest.skip()
         db = _make_full_db()
-        db.conn.execute_fetchall = AsyncMock(return_value=[
-            (1, "fade_rip_5m", 30, 18, 12, 1.5, 0.6),
-            (2, "streak_reversal_15m", 25, 14, 11, 0.8, 0.56),
-        ])
+        db.conn.execute_fetchall = AsyncMock(
+            return_value=[
+                (1, "fade_rip_5m", 30, 18, 12, 1.5, 0.6),
+                (2, "streak_reversal_15m", 25, 14, 11, 0.8, 0.56),
+            ]
+        )
         for ctor in [(db,), (db, MagicMock()), ()]:
             try:
                 opt = AutoOptimizer(*ctor)
@@ -19090,7 +21904,10 @@ class TestBacktestV2HandlerStateMachineWave20:
 
         # All possible state transitions
         callbacks = [
-            "backtest", "bt_v2_main", "bt_v2_config", "bt_v2_run",
+            "backtest",
+            "bt_v2_main",
+            "bt_v2_config",
+            "bt_v2_run",
             "bt_v2_strategy:fade_rip",
             "bt_v2_strategy:opening_breakout",
             "bt_v2_strategy:streak_reversal",
@@ -19101,13 +21918,23 @@ class TestBacktestV2HandlerStateMachineWave20:
             "bt_v2_strategy:late_convergence",
             "bt_v2_strategy:composite",
             "bt_v2_strategy:cross_coin",
-            "bt_v2_asset:BTC", "bt_v2_asset:ETH",
-            "bt_v2_asset:SOL", "bt_v2_asset:XRP",
-            "bt_v2_tf:5m", "bt_v2_tf:15m", "bt_v2_tf:1h", "bt_v2_tf:4h",
-            "bt_v2_period:7d", "bt_v2_period:30d",
-            "bt_v2_period:90d", "bt_v2_period:180d",
-            "bt_v2_back", "bt_v2_results", "bt_v2_compare",
-            "bt_v2_export", "bt_v2_save",
+            "bt_v2_asset:BTC",
+            "bt_v2_asset:ETH",
+            "bt_v2_asset:SOL",
+            "bt_v2_asset:XRP",
+            "bt_v2_tf:5m",
+            "bt_v2_tf:15m",
+            "bt_v2_tf:1h",
+            "bt_v2_tf:4h",
+            "bt_v2_period:7d",
+            "bt_v2_period:30d",
+            "bt_v2_period:90d",
+            "bt_v2_period:180d",
+            "bt_v2_back",
+            "bt_v2_results",
+            "bt_v2_compare",
+            "bt_v2_export",
+            "bt_v2_save",
         ]
         # Run with various wizard_state'lerinde
         wizard_states = [
@@ -19115,8 +21942,7 @@ class TestBacktestV2HandlerStateMachineWave20:
             {"strategy": "fade_rip"},
             {"strategy": "fade_rip", "asset": "BTC"},
             {"strategy": "fade_rip", "asset": "BTC", "tf": "5m"},
-            {"strategy": "fade_rip", "asset": "BTC", "tf": "5m",
-             "period": "30d"},
+            {"strategy": "fade_rip", "asset": "BTC", "tf": "5m", "period": "30d"},
         ]
         for state in wizard_states:
             for cb in callbacks:
@@ -19179,7 +22005,9 @@ class TestLiveHandlerNewFeatureWave20:
     async def test_position_panel_with_real_data(self):
         try:
             from telegram_bot.handlers.live_handler import (
-                _show_position_panel, _show_sell_pct_picker, _get_open_positions,
+                _get_open_positions,
+                _show_position_panel,
+                _show_sell_pct_picker,
             )
         except ImportError:
             pytest.skip()
@@ -19192,35 +22020,51 @@ class TestLiveHandlerNewFeatureWave20:
             "positions": [
                 {
                     "market_slug": "btc-up-5m",
-                    "outcome": "UP", "shares": 11.11,
-                    "cost_basis_usd": 1.0, "cur_value_usd": 0.0,
-                    "cur_price": 0.0, "pnl_usd": -1.0, "pnl_pct": -100,
+                    "outcome": "UP",
+                    "shares": 11.11,
+                    "cost_basis_usd": 1.0,
+                    "cur_value_usd": 0.0,
+                    "cur_price": 0.0,
+                    "pnl_usd": -1.0,
+                    "pnl_pct": -100,
                     "condition_id": "0x" + "ab" * 32,
-                    "closed": True, "is_winner": False,
+                    "closed": True,
+                    "is_winner": False,
                     "redeemable": False,
                 },
                 {
                     "market_slug": "eth-down-5m",
-                    "outcome": "DOWN", "shares": 8.50,
-                    "cost_basis_usd": 3.83, "cur_value_usd": 4.43,
-                    "cur_price": 0.521, "pnl_usd": 0.60, "pnl_pct": 15.6,
+                    "outcome": "DOWN",
+                    "shares": 8.50,
+                    "cost_basis_usd": 3.83,
+                    "cur_value_usd": 4.43,
+                    "cur_price": 0.521,
+                    "pnl_usd": 0.60,
+                    "pnl_pct": 15.6,
                     "condition_id": "0x" + "cd" * 32,
-                    "closed": False, "is_winner": False,
+                    "closed": False,
+                    "is_winner": False,
                     "redeemable": False,
                 },
                 {
                     "market_slug": "sol-up-15m",
-                    "outcome": "UP", "shares": 7.69,
-                    "cost_basis_usd": 5.0, "cur_value_usd": 7.69,
-                    "cur_price": 1.0, "pnl_usd": 2.69, "pnl_pct": 53.8,
+                    "outcome": "UP",
+                    "shares": 7.69,
+                    "cost_basis_usd": 5.0,
+                    "cur_value_usd": 7.69,
+                    "cur_price": 1.0,
+                    "pnl_usd": 2.69,
+                    "pnl_pct": 53.8,
                     "condition_id": "0x" + "ef" * 32,
-                    "closed": True, "is_winner": True,
+                    "closed": True,
+                    "is_winner": True,
                     "redeemable": True,
                 },
             ],
         }
         # Patch read_cached_snapshot
         import data.polymarket_portfolio as pp
+
         original_read = pp.read_cached_snapshot
         pp.read_cached_snapshot = AsyncMock(return_value=snap_data)
         try:
@@ -19249,7 +22093,8 @@ class TestLiveHistoryHandlerRealWave20:
     async def test_history_callbacks(self):
         try:
             from telegram_bot.handlers.live_history_handler import (
-                live_history_callback, live_history_command,
+                live_history_callback,
+                live_history_command,
             )
         except ImportError:
             pytest.skip()
@@ -19264,35 +22109,51 @@ class TestLiveHistoryHandlerRealWave20:
                     "title": "BTC Up 5min",
                     "slug": "btc-up-5m",
                     "condition_id": "0x" + "ab" * 32,
-                    "size": 11.11, "avg_price": 0.090,
-                    "realized_pnl": -1.0, "percent_realized_pnl": -100,
-                    "cash_pnl": -1.0, "percent_pnl": -100,
+                    "size": 11.11,
+                    "avg_price": 0.090,
+                    "realized_pnl": -1.0,
+                    "percent_realized_pnl": -100,
+                    "cash_pnl": -1.0,
+                    "percent_pnl": -100,
                     "redeemed": False,
                 },
             ],
             "activity": [
                 {
-                    "timestamp": 1700000000, "type": "TRADE",
-                    "side": "BUY", "title": "BTC Up 5min",
-                    "slug": "btc-up-5m", "outcome": "Up", "outcome_index": 0,
-                    "size": 11.11, "price": 0.090, "usdc_size": 1.0,
+                    "timestamp": 1700000000,
+                    "type": "TRADE",
+                    "side": "BUY",
+                    "title": "BTC Up 5min",
+                    "slug": "btc-up-5m",
+                    "outcome": "Up",
+                    "outcome_index": 0,
+                    "size": 11.11,
+                    "price": 0.090,
+                    "usdc_size": 1.0,
                     "condition_id": "0x" + "ab" * 32,
                     "asset": "12345678",
                     "transaction_hash": "0x" + "12" * 32,
                 },
                 {
-                    "timestamp": 1700000300, "type": "REDEEM",
-                    "title": "SOL Up 15min", "slug": "sol-up-15m",
-                    "outcome": "Up", "outcome_index": 0,
-                    "size": 7.69, "price": 1.0, "usdc_size": 7.69,
+                    "timestamp": 1700000300,
+                    "type": "REDEEM",
+                    "title": "SOL Up 15min",
+                    "slug": "sol-up-15m",
+                    "outcome": "Up",
+                    "outcome_index": 0,
+                    "size": 7.69,
+                    "price": 1.0,
+                    "usdc_size": 7.69,
                     "condition_id": "0x" + "ef" * 32,
                     "asset": "98765",
                     "transaction_hash": "0x" + "34" * 32,
                 },
-            ] * 10,  # 20 entries to trigger pagination
+            ]
+            * 10,  # 20 entries to trigger pagination
         }
 
         import data.polymarket_portfolio as pp
+
         original_read = pp.read_cached_snapshot
         pp.read_cached_snapshot = AsyncMock(return_value=snap_data)
         try:
@@ -19301,9 +22162,12 @@ class TestLiveHistoryHandlerRealWave20:
             await live_history_callback(update, ctx)
 
             for cb in [
-                "live_history:0", "live_history:1", "live_history:2",
+                "live_history:0",
+                "live_history:1",
+                "live_history:2",
                 "live_history:99",
-                "live_history_detail:0", "live_history_detail:1",
+                "live_history_detail:0",
+                "live_history_detail:1",
                 "live_history_detail:99",
                 "live_pnl",
                 "live_export_csv",
@@ -19335,7 +22199,10 @@ class TestMainDashboardRealWave20:
     async def test_main_dashboard_callbacks(self):
         try:
             from telegram_bot.handlers.main_dashboard import (
-                main_command, main_callback, paper_dashboard, live_dashboard,
+                live_dashboard,
+                main_callback,
+                main_command,
+                paper_dashboard,
             )
         except ImportError:
             pytest.skip()
@@ -19353,8 +22220,7 @@ class TestMainDashboardRealWave20:
             pass
 
         # All callbacks
-        for cb in ["main_dashboard", "main_paper", "main_live",
-                   "main_settings"]:
+        for cb in ["main_dashboard", "main_paper", "main_live", "main_settings"]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["engine"] = engine
             try:
@@ -19394,6 +22260,7 @@ class TestRedeemPositionExtraWave20:
     async def test_redeem_normalize_cid_no_prefix(self, monkeypatch):
         """0x prefix yoksa otomatik eklensin."""
         from data.polymarket_actions import redeem_position
+
         monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0x" + "ab" * 32)
         monkeypatch.setenv("RELAYER_API_KEY", "test")
         monkeypatch.setenv("RELAYER_API_KEY_ADDRESS", "0x" + "ee" * 20)
@@ -19431,7 +22298,8 @@ class _AsyncCM:
 
 
 def _make_full_db_with_acm(
-    fetchone=None, fetchall=None,
+    fetchone=None,
+    fetchall=None,
 ):
     """DB stub with async context manager support.
 
@@ -19462,20 +22330,46 @@ class TestStatsHandlerAsyncCMWave21:
             pytest.skip()
         # 50 realistic trade rows
         trade_rows = [
-            (i, f"slug-{i}", f"strat_{i % 5}", "BUY", 1.5, 0.55,
-             1.0, "filled", "5m", 1.0, 0.5, 0.0, 0.5, 0.55,
-             f"tx_{i}", "5m", "UP", 1700000000 + i)
+            (
+                i,
+                f"slug-{i}",
+                f"strat_{i % 5}",
+                "BUY",
+                1.5,
+                0.55,
+                1.0,
+                "filled",
+                "5m",
+                1.0,
+                0.5,
+                0.0,
+                0.5,
+                0.55,
+                f"tx_{i}",
+                "5m",
+                "UP",
+                1700000000 + i,
+            )
             for i in range(50)
         ]
         agg_row = (50, 30, 20, 100.0, 50.0, 50.0, 1.0, -0.5)
         db = _make_full_db_with_acm(
-            fetchone=agg_row, fetchall=trade_rows,
+            fetchone=agg_row,
+            fetchall=trade_rows,
         )
 
         # Test with various callbacks
-        for cb in ["stats", "stats_filter:WR", "trades_page:0",
-                   "stats_hub", "stats_chart", "performance",
-                   "velocity", "analytics", "strategy_stats"]:
+        for cb in [
+            "stats",
+            "stats_filter:WR",
+            "trades_page:0",
+            "stats_hub",
+            "stats_chart",
+            "performance",
+            "velocity",
+            "analytics",
+            "strategy_stats",
+        ]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["db"] = db
             for name in dir(st):
@@ -19496,7 +22390,8 @@ class TestMainDashboardAsyncCMWave21:
     async def test_main_with_acm(self):
         try:
             from telegram_bot.handlers.main_dashboard import (
-                main_command, main_callback,
+                main_callback,
+                main_command,
             )
         except ImportError:
             pytest.skip()
@@ -19504,12 +22399,15 @@ class TestMainDashboardAsyncCMWave21:
         engine.db = _make_full_db_with_acm(fetchone=(0,))
         # Mock read_cached_snapshot
         import data.polymarket_portfolio as pp
+
         original_read = pp.read_cached_snapshot
-        pp.read_cached_snapshot = AsyncMock(return_value={
-            "pusd_balance": 12.18,
-            "pusd_allowance": 1e30,
-            "positions": [],
-        })
+        pp.read_cached_snapshot = AsyncMock(
+            return_value={
+                "pusd_balance": 12.18,
+                "pusd_allowance": 1e30,
+                "positions": [],
+            }
+        )
         try:
             update, ctx = _make_update_ctx(text="/start")
             ctx.bot_data["engine"] = engine
@@ -19517,8 +22415,7 @@ class TestMainDashboardAsyncCMWave21:
                 await main_command(update, ctx)
             except Exception:
                 pass
-            for cb in ["main_dashboard", "main_paper", "main_live",
-                       "main_settings"]:
+            for cb in ["main_dashboard", "main_paper", "main_live", "main_settings"]:
                 update, ctx = _make_update_ctx(callback_data=cb)
                 ctx.bot_data["engine"] = engine
                 try:
@@ -19553,10 +22450,14 @@ class TestEngineSettlementAsyncCMWave21:
                 self._pending = []
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
-                self.scanner.get_current_market = MagicMock(return_value={
-                    "slug": "btc-up-5m", "active": False, "closed": True,
-                    "winningOutcome": "UP",
-                })
+                self.scanner.get_current_market = MagicMock(
+                    return_value={
+                        "slug": "btc-up-5m",
+                        "active": False,
+                        "closed": True,
+                        "winningOutcome": "UP",
+                    }
+                )
                 self.live = MagicMock()
                 self.live.is_enabled = MagicMock(return_value=False)
                 self.risk = MagicMock()
@@ -19571,8 +22472,13 @@ class TestEngineSettlementAsyncCMWave21:
                 continue
             method = getattr(eng, name, None)
             if asyncio.iscoroutinefunction(method):
-                for args in [(), (1,), ({"slug": "x"},),
-                             ("btc-up", "UP"), ({"winningOutcome": "UP"},)]:
+                for args in [
+                    (),
+                    (1,),
+                    ({"slug": "x"},),
+                    ("btc-up", "UP"),
+                    ({"winningOutcome": "UP"},),
+                ]:
                     try:
                         await method(*args)
                         break
@@ -19600,12 +22506,18 @@ class TestEngineFillsAsyncCMWave21:
                 self._ws_drop_count = 0
                 self.skips = SkipCounter()
                 self.scanner = MagicMock()
-                self.scanner.get_current_market = MagicMock(return_value={
-                    "slug": "btc-up", "active": True,
-                })
-                self.scanner.get_orderbook = MagicMock(return_value={
-                    "bids": [[0.54, 100]], "asks": [[0.56, 100]],
-                })
+                self.scanner.get_current_market = MagicMock(
+                    return_value={
+                        "slug": "btc-up",
+                        "active": True,
+                    }
+                )
+                self.scanner.get_orderbook = MagicMock(
+                    return_value={
+                        "bids": [[0.54, 100]],
+                        "asks": [[0.56, 100]],
+                    }
+                )
                 self.live = MagicMock()
                 self.live._open = None
                 self.risk = MagicMock()
@@ -19674,19 +22586,25 @@ class TestStrategiesHandlerAsyncCMWave21:
             pytest.skip()
 
         strategy_rows = [
-            (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0,
-             0.55, 0, 1, 0, 0.0, "{}"),
+            (1, "fade_rip_5m", "fade_rip", "BTC", "5m", "UP", 1.0, 0.55, 0, 1, 0, 0.0, "{}"),
         ]
         db = _make_full_db_with_acm(
             fetchone=strategy_rows[0],
             fetchall=strategy_rows,
         )
 
-        for cb in ["strategies", "strategies_page:0",
-                   "start_strategy:1", "stop_strategy:1",
-                   "delete_strategy:1", "delete_strategy_confirm:1",
-                   "edit_strategy:1", "start_all", "stop_all",
-                   "qs_wizard:5m"]:
+        for cb in [
+            "strategies",
+            "strategies_page:0",
+            "start_strategy:1",
+            "stop_strategy:1",
+            "delete_strategy:1",
+            "delete_strategy_confirm:1",
+            "edit_strategy:1",
+            "start_all",
+            "stop_all",
+            "qs_wizard:5m",
+        ]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["db"] = db
             ctx.user_data["editing_strategy_id"] = 1
@@ -19744,7 +22662,8 @@ class TestStrategyLifecycleAsyncCMWave21:
     async def test_lifecycle_get_params(self):
         try:
             from core.strategy_lifecycle import (
-                StrategyLifecycle, StrategyParams,
+                StrategyLifecycle,
+                StrategyParams,
             )
         except (ImportError, AttributeError):
             pytest.skip()
@@ -19760,8 +22679,7 @@ class TestStrategyLifecycleAsyncCMWave21:
                         continue
                     method = getattr(lc, name, None)
                     if asyncio.iscoroutinefunction(method):
-                        for args in [(), (1,), (1, "fade_rip"),
-                                     ({"id": 1, "name": "x"},)]:
+                        for args in [(), (1,), (1, "fade_rip"), ({"id": 1, "name": "x"},)]:
                             try:
                                 await method(*args)
                                 break
@@ -19781,21 +22699,45 @@ class TestEngineFillsRecalibrateWave21:
         except ImportError:
             pytest.skip()
         fills = [
-            {"actual": 0.55, "expected": 0.55, "spread": 0.01,
-             "side": "BUY", "size": 1.0, "tick_size": 0.01},
-            {"actual": 0.56, "expected": 0.55, "spread": 0.02,
-             "side": "BUY", "size": 5.0, "tick_size": 0.01},
-            {"actual": 0.44, "expected": 0.45, "spread": 0.01,
-             "side": "SELL", "size": 2.0, "tick_size": 0.01},
+            {
+                "actual": 0.55,
+                "expected": 0.55,
+                "spread": 0.01,
+                "side": "BUY",
+                "size": 1.0,
+                "tick_size": 0.01,
+            },
+            {
+                "actual": 0.56,
+                "expected": 0.55,
+                "spread": 0.02,
+                "side": "BUY",
+                "size": 5.0,
+                "tick_size": 0.01,
+            },
+            {
+                "actual": 0.44,
+                "expected": 0.45,
+                "spread": 0.01,
+                "side": "SELL",
+                "size": 2.0,
+                "tick_size": 0.01,
+            },
         ]
         for name in dir(r):
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(r, name)
             if callable(obj) and not isinstance(obj, type):
-                for args in [(), (fills,), (fills[0],),
-                             (fills, 0.01), (fills, "BUY"),
-                             (1.0, 0.5, 0.01), (fills, 100)]:
+                for args in [
+                    (),
+                    (fills,),
+                    (fills[0],),
+                    (fills, 0.01),
+                    (fills, "BUY"),
+                    (1.0, 0.5, 0.01),
+                    (fills, 100),
+                ]:
                     try:
                         obj(*args)
                         break
@@ -19815,13 +22757,11 @@ class TestPolymarketRtdsRealWave21:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(r, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"slug": "btc-up"},),
-                    ([{"timestamp": 1, "price": 0.55,
-                       "depth": 100}],),
+                    ([{"timestamp": 1, "price": 0.55, "depth": 100}],),
                     ({"slug": "x", "tokens": [{"id": "1"}, {"id": "2"}]},),
                 ]:
                     try:
@@ -19870,8 +22810,7 @@ class TestStrategySuggesterWave21:
             if name.startswith("_") or name.isupper():
                 continue
             obj = getattr(ss, name)
-            if callable(obj) and not isinstance(obj, type) \
-                    and not asyncio.iscoroutinefunction(obj):
+            if callable(obj) and not isinstance(obj, type) and not asyncio.iscoroutinefunction(obj):
                 for args in [
                     (),
                     ({"trades": 30, "wr": 0.6},),
@@ -19895,14 +22834,16 @@ class TestAllowancePreflightAsyncCMWave21:
         except (ImportError, AttributeError):
             pytest.skip()
         client_stub = MagicMock()
-        client_stub.get_balance_allowance = MagicMock(return_value={
-            "balance": "12184520",
-            "allowances": {
-                "0xE111180000d2663C0091e4f400237545B87B996B": "115792089"
-                + "23731619542357098500868790785326998466564056"
-                + "4039457584007913129639935",
-            },
-        })
+        client_stub.get_balance_allowance = MagicMock(
+            return_value={
+                "balance": "12184520",
+                "allowances": {
+                    "0xE111180000d2663C0091e4f400237545B87B996B": "115792089"
+                    + "23731619542357098500868790785326998466564056"
+                    + "4039457584007913129639935",
+                },
+            }
+        )
         try:
             result = await check_collateral_allowance(client_stub)
             assert isinstance(result, dict)
@@ -19916,21 +22857,21 @@ class TestAllowancePreflightAsyncCMWave21:
         except (ImportError, AttributeError):
             pytest.skip()
         client_stub = MagicMock()
-        client_stub.get_balance_allowance = MagicMock(return_value={
-            "balance": "0",
-            "allowances": {
-                "0xE111180000d2663C0091e4f400237545B87B996B": "0",
-            },
-        })
+        client_stub.get_balance_allowance = MagicMock(
+            return_value={
+                "balance": "0",
+                "allowances": {
+                    "0xE111180000d2663C0091e4f400237545B87B996B": "0",
+                },
+            }
+        )
         try:
-            result = await check_conditional_allowance(
-                client_stub, sample_token_id="123")
+            result = await check_conditional_allowance(client_stub, sample_token_id="123")
             assert isinstance(result, dict)
         except Exception:
             pass
         try:
-            result = await check_conditional_allowance(
-                client_stub, sample_token_id=None)
+            result = await check_conditional_allowance(client_stub, sample_token_id=None)
             assert isinstance(result, dict)
         except Exception:
             pass
@@ -19939,16 +22880,20 @@ class TestAllowancePreflightAsyncCMWave21:
 class TestBacktestDataSourcesWave21:
     """backtest/data_sources/* — gamma_hist, polybacktest, binance_hist."""
 
-    @pytest.mark.parametrize("module_path", [
-        "backtest.data_sources.gamma_hist",
-        "backtest.data_sources.polybacktest",
-        "backtest.data_sources.binance_hist",
-        "backtest.data_sources.cache",
-        "backtest.data_sources.collector",
-    ])
+    @pytest.mark.parametrize(
+        "module_path",
+        [
+            "backtest.data_sources.gamma_hist",
+            "backtest.data_sources.polybacktest",
+            "backtest.data_sources.binance_hist",
+            "backtest.data_sources.cache",
+            "backtest.data_sources.collector",
+        ],
+    )
     def test_module_full_eval(self, module_path):
         try:
             import importlib
+
             mod = importlib.import_module(module_path)
         except ImportError:
             pytest.skip()
@@ -19963,9 +22908,13 @@ class TestBacktestDataSourcesWave21:
                     _ = obj
                 # Class — try multiple ctors
                 elif isinstance(obj, type):
-                    for ctor in [(), (MagicMock(),), ("test_key",),
-                                 (MagicMock(), MagicMock()),
-                                 ({"config": {}},)]:
+                    for ctor in [
+                        (),
+                        (MagicMock(),),
+                        ("test_key",),
+                        (MagicMock(), MagicMock()),
+                        ({"config": {}},),
+                    ]:
                         try:
                             inst = obj(*ctor)
                             for attr in dir(inst)[:30]:
@@ -19980,9 +22929,13 @@ class TestBacktestDataSourcesWave21:
                             continue
                 # Function — try various args
                 elif callable(obj) and not asyncio.iscoroutinefunction(obj):
-                    for args in [(), (MagicMock(),), ({"slug": "x"},),
-                                 ("btc", "5m"),
-                                 (1700000000, 1700000300)]:
+                    for args in [
+                        (),
+                        (MagicMock(),),
+                        ({"slug": "x"},),
+                        ("btc", "5m"),
+                        (1700000000, 1700000300),
+                    ]:
                         try:
                             obj(*args)
                             break
@@ -19995,14 +22948,18 @@ class TestBacktestDataSourcesWave21:
 class TestBacktestSimulationWave21:
     """backtest/simulation/* — fill_model, portfolio."""
 
-    @pytest.mark.parametrize("module_path", [
-        "backtest.simulation.fill_model",
-        "backtest.simulation.portfolio",
-        "backtest.simulation.fee_model_v3",
-    ])
+    @pytest.mark.parametrize(
+        "module_path",
+        [
+            "backtest.simulation.fill_model",
+            "backtest.simulation.portfolio",
+            "backtest.simulation.fee_model_v3",
+        ],
+    )
     def test_module_full_eval(self, module_path):
         try:
             import importlib
+
             mod = importlib.import_module(module_path)
         except ImportError:
             pytest.skip()
@@ -20023,9 +22980,7 @@ class TestBacktestSimulationWave21:
                                     continue
                                 try:
                                     method = getattr(inst, attr)
-                                    if callable(method) and \
-                                            not asyncio.iscoroutinefunction(
-                                                method):
+                                    if callable(method) and not asyncio.iscoroutinefunction(method):
                                         try:
                                             method()
                                         except Exception:
@@ -20036,8 +22991,7 @@ class TestBacktestSimulationWave21:
                         except Exception:
                             continue
                 elif callable(obj):
-                    for args in [(), (1.0,), (1.0, 0.5),
-                                 (1.0, 0.5, 0.01), (MagicMock(),)]:
+                    for args in [(), (1.0,), (1.0, 0.5), (1.0, 0.5, 0.01), (MagicMock(),)]:
                         try:
                             obj(*args)
                             break
@@ -20050,14 +23004,18 @@ class TestBacktestSimulationWave21:
 class TestBacktestAnalyticsWave21:
     """backtest/analytics/* — charts, reporter, comparator."""
 
-    @pytest.mark.parametrize("module_path", [
-        "backtest.analytics.charts",
-        "backtest.analytics.reporter",
-        "backtest.analytics.comparator",
-    ])
+    @pytest.mark.parametrize(
+        "module_path",
+        [
+            "backtest.analytics.charts",
+            "backtest.analytics.reporter",
+            "backtest.analytics.comparator",
+        ],
+    )
     def test_module_full_eval(self, module_path):
         try:
             import importlib
+
             mod = importlib.import_module(module_path)
         except ImportError:
             pytest.skip()
@@ -20075,9 +23033,7 @@ class TestBacktestAnalyticsWave21:
                                     continue
                                 try:
                                     method = getattr(inst, attr)
-                                    if callable(method) and \
-                                            not asyncio.iscoroutinefunction(
-                                                method):
+                                    if callable(method) and not asyncio.iscoroutinefunction(method):
                                         try:
                                             method()
                                         except Exception:
@@ -20088,9 +23044,7 @@ class TestBacktestAnalyticsWave21:
                         except Exception:
                             continue
                 elif callable(obj) and not asyncio.iscoroutinefunction(obj):
-                    for args in [(), (MagicMock(),), ([],),
-                                 ([{"pnl": 1.0}],),
-                                 ({"results": []},)]:
+                    for args in [(), (MagicMock(),), ([],), ([{"pnl": 1.0}],), ({"results": []},)]:
                         try:
                             obj(*args)
                             break
@@ -20128,8 +23082,7 @@ class TestDataMarketRecorderAsyncCMWave21:
                         continue
                     method = getattr(rec, name)
                     if asyncio.iscoroutinefunction(method):
-                        for args in [(), ({"slug": "x"},),
-                                     ("btc-up", {"price": 0.55})]:
+                        for args in [(), ({"slug": "x"},), ("btc-up", {"price": 0.55})]:
                             try:
                                 await method(*args)
                                 break
@@ -20200,9 +23153,14 @@ class TestPortfolioHandlerAsyncCMWave21:
         db = _make_full_db_with_acm(
             fetchone=(snap_json, "2026-05-06T12:00:00Z"),
         )
-        for cb in ["portfolio", "portfolio_refresh",
-                   "portfolio_pos", "portfolio_balance",
-                   "portfolio_main", "portfolio_back"]:
+        for cb in [
+            "portfolio",
+            "portfolio_refresh",
+            "portfolio_pos",
+            "portfolio_balance",
+            "portfolio_main",
+            "portfolio_back",
+        ]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["db"] = db
             for name in dir(ph):
@@ -20228,8 +23186,7 @@ class TestForceSettleAsyncCMWave21:
         db = _make_full_db_with_acm(
             fetchall=[(1, "btc-up", "BUY", 1.0, 0.55)],
         )
-        for cb in ["force_settle", "force_settle:1",
-                   "fs_confirm:1", "fs_cancel"]:
+        for cb in ["force_settle", "force_settle:1", "fs_confirm:1", "fs_cancel"]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["db"] = db
             for name in dir(fs):
@@ -20255,8 +23212,7 @@ class TestChangelogHandlerAsyncCMWave21:
         db = _make_full_db_with_acm(
             fetchall=[("ROLLING_WR_KILL", 1700000000, "test", "{}")] * 5,
         )
-        for cb in ["changelog", "cl_main", "cl_filter:ROLLING_WR_KILL",
-                   "cl_page:0", "cl_back"]:
+        for cb in ["changelog", "cl_main", "cl_filter:ROLLING_WR_KILL", "cl_page:0", "cl_back"]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["db"] = db
             for name in dir(cl):
@@ -20280,9 +23236,13 @@ class TestEnvToggleHandlerWave21:
         except ImportError:
             pytest.skip()
         db = _make_full_db_with_acm()
-        for cb in ["env_toggle_main", "env_toggle:LIVE_BUDGET",
-                   "env_toggle_set:LIVE_BUDGET:10.0",
-                   "env_toggle_cancel", "envt_main"]:
+        for cb in [
+            "env_toggle_main",
+            "env_toggle:LIVE_BUDGET",
+            "env_toggle_set:LIVE_BUDGET:10.0",
+            "env_toggle_cancel",
+            "envt_main",
+        ]:
             update, ctx = _make_update_ctx(callback_data=cb)
             ctx.bot_data["db"] = db
             ctx.args = ["LIVE_BUDGET", "10.0"]
@@ -20474,40 +23434,44 @@ class TestMaintenanceJobsWave21:
 class TestLargeHandlersComprehensiveWave19:
     """Düşük cov handler'lar — comprehensive callback enumeration."""
 
-    @pytest.mark.parametrize("module_name,cb_prefix", [
-        ("ai_handler", "ai_"),
-        ("ai_handler", "brain_"),
-        ("ai_handler", "regime_"),
-        ("ai_handler", "drift_"),
-        ("ai_handler", "monitor_"),
-        ("dashboard", "dashboard_"),
-        ("dashboard", "info_"),
-        ("dashboard", "alert_"),
-        ("phase77_handler", "phase77_"),
-        ("portfolio_handler", "portfolio_"),
-        ("env_toggle", "envt_"),
-        ("env_toggle", "env_toggle_"),
-        ("filters_handler", "filters_"),
-        ("strategy_builder", "sb_"),
-        ("strategy_tester", "st_"),
-        ("strategy_report", "sr_"),
-        ("force_settle_handler", "fs_"),
-        ("changelog_handler", "ch_"),
-        ("rest_timing_handler", "rt_"),
-        ("diagnose_handler", "diag_"),
-        ("mode_handler", "mode_"),
-        ("lifecycle_handler", "lc_"),
-        ("markets", "markets_"),
-        ("settings_handler", "settings_"),
-        ("risk_handler", "risk_"),
-        ("menu_handler", "menu_"),
-        ("start", "start_"),
-        ("positions", "positions_"),
-    ])
+    @pytest.mark.parametrize(
+        "module_name,cb_prefix",
+        [
+            ("ai_handler", "ai_"),
+            ("ai_handler", "brain_"),
+            ("ai_handler", "regime_"),
+            ("ai_handler", "drift_"),
+            ("ai_handler", "monitor_"),
+            ("dashboard", "dashboard_"),
+            ("dashboard", "info_"),
+            ("dashboard", "alert_"),
+            ("phase77_handler", "phase77_"),
+            ("portfolio_handler", "portfolio_"),
+            ("env_toggle", "envt_"),
+            ("env_toggle", "env_toggle_"),
+            ("filters_handler", "filters_"),
+            ("strategy_builder", "sb_"),
+            ("strategy_tester", "st_"),
+            ("strategy_report", "sr_"),
+            ("force_settle_handler", "fs_"),
+            ("changelog_handler", "ch_"),
+            ("rest_timing_handler", "rt_"),
+            ("diagnose_handler", "diag_"),
+            ("mode_handler", "mode_"),
+            ("lifecycle_handler", "lc_"),
+            ("markets", "markets_"),
+            ("settings_handler", "settings_"),
+            ("risk_handler", "risk_"),
+            ("menu_handler", "menu_"),
+            ("start", "start_"),
+            ("positions", "positions_"),
+        ],
+    )
     @pytest.mark.asyncio
     async def test_handler_callbacks(self, module_name, cb_prefix):
         try:
             import importlib
+
             mod = importlib.import_module(f"telegram_bot.handlers.{module_name}")
         except ImportError:
             pytest.skip()
@@ -20547,10 +23511,3 @@ class TestLargeHandlersComprehensiveWave19:
                         await obj(update, ctx)
                     except Exception:
                         pass
-
-
-
-
-
-
-

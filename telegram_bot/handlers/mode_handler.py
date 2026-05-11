@@ -13,16 +13,18 @@ UI:
     "Paper'a geç" / "Real'e geç"  → toggle
     "🔍 Detay /live" / "💼 /portfolio" → quick navigation
 """
+
 from __future__ import annotations
 
 import logging
 import os
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from telegram_bot.templates.mode_banner import (
-    get_current_mode, format_mode_status_text,
+    format_mode_status_text,
+    get_current_mode,
 )
 
 logger = logging.getLogger("polypaper.handlers.mode")
@@ -47,14 +49,16 @@ def _build_keyboard() -> InlineKeyboardMarkup:
             "📋 PAPER Mode'a geç (simülasyon)",
             callback_data="mode_set_paper",
         )
-    return InlineKeyboardMarkup([
-        [toggle_btn],
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("🔍 /live detay", callback_data="mode_nav_live"),
-            InlineKeyboardButton("💼 /portfolio", callback_data="mode_nav_portfolio"),
-        ],
-        [InlineKeyboardButton("🔄 Yenile", callback_data="mode_refresh")],
-    ])
+            [toggle_btn],
+            [
+                InlineKeyboardButton("🔍 /live detay", callback_data="mode_nav_live"),
+                InlineKeyboardButton("💼 /portfolio", callback_data="mode_nav_portfolio"),
+            ],
+            [InlineKeyboardButton("🔄 Yenile", callback_data="mode_refresh")],
+        ]
+    )
 
 
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -65,7 +69,9 @@ async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     text = format_mode_status_text()
     await update.message.reply_text(
-        text, parse_mode="HTML", reply_markup=_build_keyboard(),
+        text,
+        parse_mode="HTML",
+        reply_markup=_build_keyboard(),
         disable_web_page_preview=True,
     )
 
@@ -93,7 +99,9 @@ async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         text = format_mode_status_text()
         try:
             await q.edit_message_text(
-                text, parse_mode="HTML", reply_markup=_build_keyboard(),
+                text,
+                parse_mode="HTML",
+                reply_markup=_build_keyboard(),
                 disable_web_page_preview=True,
             )
         except Exception as _e:  # noqa: BLE001
@@ -115,7 +123,7 @@ async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             try:
                 # Engine live state flag (reads LIVE_ENABLED via _start path).
                 # Direct set on internal flag (idempotent — toggle for parity).
-                engine.live._enabled = (target == "real")
+                engine.live._enabled = target == "real"
                 engine.live._paused = False
             except (AttributeError, TypeError) as _se:
                 logger.warning(f"engine.live state set: {_se}")
@@ -132,7 +140,9 @@ async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         text = format_mode_status_text()
         try:
             await q.edit_message_text(
-                text, parse_mode="HTML", reply_markup=_build_keyboard(),
+                text,
+                parse_mode="HTML",
+                reply_markup=_build_keyboard(),
                 disable_web_page_preview=True,
             )
         except Exception as _e:  # noqa: BLE001

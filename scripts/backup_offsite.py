@@ -19,6 +19,7 @@ writing to it.
 Retention: keeps the last BACKUP_KEEP snapshots (default 14) in the
 destination, deletes older ones.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logging.basicConfig(
@@ -44,8 +45,7 @@ def snapshot(src: Path, dest: Path) -> None:
     with sqlite3.connect(str(src)) as src_conn:
         with sqlite3.connect(str(dest)) as dst_conn:
             src_conn.backup(dst_conn)
-    log.info("Snapshot: %s → %s (%.1f MB)",
-             src, dest, dest.stat().st_size / 1024 / 1024)
+    log.info("Snapshot: %s → %s (%.1f MB)", src, dest, dest.stat().st_size / 1024 / 1024)
 
 
 def upload_local(snap: Path, target_dir: Path) -> Path:
@@ -76,8 +76,7 @@ def upload_s3(snap: Path, bucket: str, prefix: str = "polypaper-backups") -> Non
 
 def retain_local(target_dir: Path, keep: int) -> None:
     """Keep last N .db files in target_dir, delete older."""
-    files = sorted(target_dir.glob("polypaper-*.db"),
-                   key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(target_dir.glob("polypaper-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in files[keep:]:
         try:
             old.unlink()
@@ -88,19 +87,29 @@ def retain_local(target_dir: Path, keep: int) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Off-site backup for polypaper.db")
-    parser.add_argument("--src", default=os.getenv("BACKUP_SRC", "data_store/polypaper.db"),
-                        help="Source DB path")
-    parser.add_argument("--mode", default=os.getenv("BACKUP_MODE", "local"),
-                        choices=["local", "rclone", "s3"])
-    parser.add_argument("--dir", default=os.getenv("BACKUP_DIR", "backups"),
-                        help="Local target dir (mode=local)")
-    parser.add_argument("--remote", default=os.getenv("BACKUP_RCLONE_REMOTE", ""),
-                        help="rclone remote (mode=rclone)")
-    parser.add_argument("--bucket", default=os.getenv("BACKUP_S3_BUCKET", ""),
-                        help="S3 bucket (mode=s3)")
-    parser.add_argument("--keep", type=int,
-                        default=int(os.getenv("BACKUP_KEEP", "14")),
-                        help="How many snapshots to retain locally")
+    parser.add_argument(
+        "--src", default=os.getenv("BACKUP_SRC", "data_store/polypaper.db"), help="Source DB path"
+    )
+    parser.add_argument(
+        "--mode", default=os.getenv("BACKUP_MODE", "local"), choices=["local", "rclone", "s3"]
+    )
+    parser.add_argument(
+        "--dir", default=os.getenv("BACKUP_DIR", "backups"), help="Local target dir (mode=local)"
+    )
+    parser.add_argument(
+        "--remote",
+        default=os.getenv("BACKUP_RCLONE_REMOTE", ""),
+        help="rclone remote (mode=rclone)",
+    )
+    parser.add_argument(
+        "--bucket", default=os.getenv("BACKUP_S3_BUCKET", ""), help="S3 bucket (mode=s3)"
+    )
+    parser.add_argument(
+        "--keep",
+        type=int,
+        default=int(os.getenv("BACKUP_KEEP", "14")),
+        help="How many snapshots to retain locally",
+    )
     args = parser.parse_args()
 
     src = Path(args.src)
@@ -108,7 +117,7 @@ def main() -> int:
         log.error("Source DB not found: %s", src)
         return 1
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     tmp_dir = Path("backups/_staging")
     tmp_dir.mkdir(parents=True, exist_ok=True)
     snap = tmp_dir / f"polypaper-{ts}.db"

@@ -18,8 +18,8 @@ ENV:
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional, Dict, List
+from datetime import UTC, datetime
+from typing import Dict, List, Optional
 
 import aiosqlite
 
@@ -32,6 +32,7 @@ MAX_PARAMS = int(os.getenv("EXPERIMENT_MAX_PARAMS", "5"))
 @dataclass
 class ExperimentResult:
     """Result of an experiment run."""
+
     params_changed: Dict[str, tuple] = field(default_factory=dict)  # param → (old, new)
     baseline_wr: float = 0.0
     experiment_wr: float = 0.0
@@ -39,8 +40,8 @@ class ExperimentResult:
     experiment_pnl: float = 0.0
     baseline_trades: int = 0
     experiment_trades: int = 0
-    improvement: float = 0.0     # % change in PnL
-    recommendation: str = ""     # "apply", "discard", "neutral"
+    improvement: float = 0.0  # % change in PnL
+    recommendation: str = ""  # "apply", "discard", "neutral"
     details: str = ""
     created_at: str = ""
 
@@ -83,12 +84,10 @@ class ExperimentRunner:
         if len(params) > MAX_PARAMS:
             return ExperimentResult(
                 recommendation="error",
-                details=f"Max {MAX_PARAMS} parametre. {len(params)} verildi."
+                details=f"Max {MAX_PARAMS} parametre. {len(params)} verildi.",
             )
 
-        result = ExperimentResult(
-            created_at=datetime.now(timezone.utc).isoformat()[:19]
-        )
+        result = ExperimentResult(created_at=datetime.now(UTC).isoformat()[:19])
 
         # Snapshot current values
         for key, new_val in params.items():
@@ -128,11 +127,17 @@ class ExperimentRunner:
                     # Improvement
                     if result.baseline_pnl != 0:
                         result.improvement = round(
-                            (result.experiment_pnl - result.baseline_pnl) / abs(result.baseline_pnl) * 100, 1
+                            (result.experiment_pnl - result.baseline_pnl)
+                            / abs(result.baseline_pnl)
+                            * 100,
+                            1,
                         )
 
                     # Recommendation
-                    if result.experiment_pnl > result.baseline_pnl and result.experiment_wr >= result.baseline_wr - 2:
+                    if (
+                        result.experiment_pnl > result.baseline_pnl
+                        and result.experiment_wr >= result.baseline_wr - 2
+                    ):
                         result.recommendation = "apply"
                         result.details = "PnL artışı bekleniyor, WR stabil."
                     elif result.experiment_pnl < result.baseline_pnl:
@@ -142,8 +147,14 @@ class ExperimentRunner:
                         result.recommendation = "neutral"
                         result.details = "Belirgin fark yok. Canlıda test önerilir."
 
-            except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
-                    IndexError, AttributeError) as e:
+            except (
+                aiosqlite.Error,
+                ValueError,
+                TypeError,
+                ArithmeticError,
+                IndexError,
+                AttributeError,
+            ) as e:
                 # T1.4 Faz 3: DB fetch (executions) + per-row unpack (r[0]/r[1])
                 # + numeric summing + baseline_pnl division at L130.
                 # Realistic failure modes:
@@ -164,8 +175,9 @@ class ExperimentRunner:
 
         return result
 
-    def _estimate_impact(self, key: str, old_val: str, new_val: str,
-                         trades: list) -> Dict[str, float]:
+    def _estimate_impact(
+        self, key: str, old_val: str, new_val: str, trades: list
+    ) -> Dict[str, float]:
         """Heuristic estimate of parameter change impact."""
         impact = {"wr_delta": 0.0, "pnl_delta": 0.0, "trade_delta": 0}
 
@@ -178,8 +190,13 @@ class ExperimentRunner:
         key_upper = key.upper()
 
         # Filter-tightening params: higher = fewer trades but higher WR
-        if key_upper in ("MIN_COMPOSITE", "CONVICTION_MIN", "EDGE_GATE",
-                         "MIN_SIGNAL_SCORE", "CONFLUENCE_MIN_GATES"):
+        if key_upper in (
+            "MIN_COMPOSITE",
+            "CONVICTION_MIN",
+            "EDGE_GATE",
+            "MIN_SIGNAL_SCORE",
+            "CONFLUENCE_MIN_GATES",
+        ):
             delta = new_f - old_f
             if delta > 0:  # Tightening
                 # Estimate: 10% tighter → -5% trades, +2% WR
@@ -264,7 +281,8 @@ class ExperimentRunner:
 
         # Recommendation
         rec_emoji = {"apply": "✅", "discard": "❌", "neutral": "🟡"}.get(
-            result.recommendation, "❓")
+            result.recommendation, "❓"
+        )
         lines.append(f"\n{rec_emoji} Öneri: <b>{result.recommendation.upper()}</b>")
         lines.append(f"<i>{result.details}</i>")
 

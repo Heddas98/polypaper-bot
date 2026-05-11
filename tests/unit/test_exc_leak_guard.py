@@ -10,12 +10,12 @@ Verifies:
   7. Files outside telegram_bot/ skipped
   8. CLI --all on current handlers exits 0 (post-T11.6-B annotations)
 """
+
 from __future__ import annotations
 
 import subprocess
 import sys
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "check_exc_leak.py"
@@ -115,7 +115,9 @@ def test_cli_all_clean_on_current_handlers():
     """All current handlers should pass --all (post-T11.6-B annotations)."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--all"],
-        capture_output=True, text=True, cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
     )
     assert result.returncode == 0, (
         f"--all should exit 0; got {result.returncode}.\n"

@@ -13,6 +13,7 @@ Edge Realization Ratio = realized_pnl / expected_ev
   0.7-1.0 = acceptable
   < 0.7 = overfitting/model broken
 """
+
 import logging
 
 import aiosqlite
@@ -52,11 +53,7 @@ class EVTracker:
         payout_if_win = trade_amount * (1.0 / execution_price)
 
         # Expected value = P(win) × payout_if_win - P(loss) × bet - fee
-        ev = (
-            win_probability * payout_if_win
-            - (1 - win_probability) * trade_amount
-            - total_fee
-        )
+        ev = win_probability * payout_if_win - (1 - win_probability) * trade_amount - total_fee
         return round(ev, 4)
 
     async def calculate_edge_realization(
@@ -119,12 +116,12 @@ class EVTracker:
 
             if not rows or rows[0][0] == 0:
                 return {
-                    'trade_count': 0,
-                    'avg_expected_ev': 0.0,
-                    'avg_realized_pnl': 0.0,
-                    'edge_realization_avg': 0.0,
-                    'win_rate': 0.0,
-                    'edge_quality': 'insufficient_data'
+                    "trade_count": 0,
+                    "avg_expected_ev": 0.0,
+                    "avg_realized_pnl": 0.0,
+                    "edge_realization_avg": 0.0,
+                    "win_rate": 0.0,
+                    "edge_quality": "insufficient_data",
                 }
 
             row = rows[0]
@@ -138,24 +135,30 @@ class EVTracker:
 
             # Classify edge quality
             if edge_realization >= 0.9:
-                quality = 'excellent'
+                quality = "excellent"
             elif edge_realization >= 0.75:
-                quality = 'good'
+                quality = "good"
             elif edge_realization >= 0.6:
-                quality = 'acceptable'
+                quality = "acceptable"
             else:
-                quality = 'bad'
+                quality = "bad"
 
             return {
-                'trade_count': int(cnt),
-                'avg_expected_ev': round(avg_ev, 3),
-                'avg_realized_pnl': round(avg_pnl, 3),
-                'edge_realization_avg': round(edge_realization, 3),
-                'win_rate': round(wr, 1),
-                'edge_quality': quality,
+                "trade_count": int(cnt),
+                "avg_expected_ev": round(avg_ev, 3),
+                "avg_realized_pnl": round(avg_pnl, 3),
+                "edge_realization_avg": round(edge_realization, 3),
+                "win_rate": round(wr, 1),
+                "edge_quality": quality,
             }
-        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
-                IndexError, AttributeError) as e:
+        except (
+            aiosqlite.Error,
+            ValueError,
+            TypeError,
+            ArithmeticError,
+            IndexError,
+            AttributeError,
+        ) as e:
             # T1.4 Faz 3: DB fetch + rows[0] unpack + avg_pnl/avg_ev division
             # + dict build inside one try. Narrow to the realistic failure
             # modes:
@@ -166,12 +169,12 @@ class EVTracker:
             #   - IndexError/AttributeError: rows[0] guard skip or db.conn
             logger.error(f"get_strategy_ev_stats failed: {e}")
             return {
-                'trade_count': 0,
-                'avg_expected_ev': 0.0,
-                'avg_realized_pnl': 0.0,
-                'edge_realization_avg': 0.0,
-                'win_rate': 0.0,
-                'edge_quality': 'error'
+                "trade_count": 0,
+                "avg_expected_ev": 0.0,
+                "avg_realized_pnl": 0.0,
+                "edge_realization_avg": 0.0,
+                "win_rate": 0.0,
+                "edge_quality": "error",
             }
 
     async def get_all_strategies_ev_summary(self) -> list:
@@ -209,20 +212,28 @@ class EVTracker:
                 else:
                     edge_real = 1.0 if avg_pnl >= 0 else 0.0
 
-                summary.append((
-                    label,
-                    {
-                        'trades': int(cnt),
-                        'avg_ev': round(avg_ev, 3),
-                        'avg_pnl': round(avg_pnl, 3),
-                        'wr': round(wr, 1),
-                        'edge_real': round(edge_real, 3),
-                    }
-                ))
+                summary.append(
+                    (
+                        label,
+                        {
+                            "trades": int(cnt),
+                            "avg_ev": round(avg_ev, 3),
+                            "avg_pnl": round(avg_pnl, 3),
+                            "wr": round(wr, 1),
+                            "edge_real": round(edge_real, 3),
+                        },
+                    )
+                )
 
             return summary
-        except (aiosqlite.Error, ValueError, TypeError, ArithmeticError,
-                IndexError, AttributeError) as e:
+        except (
+            aiosqlite.Error,
+            ValueError,
+            TypeError,
+            ArithmeticError,
+            IndexError,
+            AttributeError,
+        ) as e:
             # T1.4 Faz 3: Same failure surface as get_strategy_ev_stats —
             # DB fetch + per-row unpack + avg_pnl/avg_ev division + list
             # append. Empty result is handled by the loop (not raising),

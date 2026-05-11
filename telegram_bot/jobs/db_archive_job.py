@@ -32,20 +32,21 @@ Env:
   DB_ARCHIVE_DELETE_BATCH       (default 50000)  # Rows per DELETE commit
   DB_ARCHIVE_ROW_GROUP_SIZE     (default 50000)  # Parquet row group size
 """
+
 from __future__ import annotations
 
 import asyncio
-import os
 import logging
+import os
 import sqlite3
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 from telegram import Update
 from telegram.error import TelegramError
-from telegram.ext import ContextTypes, Application
+from telegram.ext import Application, ContextTypes
 
 from telegram_bot.jobs.shadow_report_job import resolve_admin_chat_id
 
@@ -94,8 +95,7 @@ def _count_rows(conn: sqlite3.Connection, table: str, where: str = "") -> int:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT COUNT(*)
         # surfaces sqlite3.Error (OperationalError on missing table); fetchone
         # returns None → IndexError on [0]. TypeError covers schema drift.
-        logger.warning(f"count_rows failed for {table}: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"count_rows failed for {table}: " f"{type(e).__name__}: {e}")
         return 0
 
 
@@ -120,7 +120,9 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as e:
-        result["error"] = f"pandas/pyarrow missing: {e}. Run: pip install pandas pyarrow --break-system-packages"
+        result["error"] = (
+            f"pandas/pyarrow missing: {e}. Run: pip install pandas pyarrow --break-system-packages"
+        )
         logger.error(result["error"])
         return result
 
@@ -152,8 +154,10 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
 
     try:
         # Verify table exists
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        tables = [
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        ]
         if "ob_snapshots" not in tables:
             result["error"] = "ob_snapshots table not found"
             logger.warning(result["error"])
@@ -162,7 +166,7 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
         # Count rows to archive
         where = f"ts_ms < {int(cutoff_ms)}"
         total = _count_rows(conn, "ob_snapshots", where)
-        cutoff_iso = datetime.fromtimestamp(cutoff_ms / 1000, tz=timezone.utc).isoformat()
+        cutoff_iso = datetime.fromtimestamp(cutoff_ms / 1000, tz=UTC).isoformat()
 
         if total == 0:
             logger.info(f"No rows to archive (ts_ms >= {cutoff_ms} / {cutoff_iso}).")
@@ -254,9 +258,7 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
         )
 
         # Chunked DELETE — avoids long lock on big tables
-        logger.info(
-            f"Chunked DELETE starting ({archived:,} rows, batch={delete_batch:,})..."
-        )
+        logger.info(f"Chunked DELETE starting ({archived:,} rows, batch={delete_batch:,})...")
         t0 = time.monotonic()
         deleted_total = 0
         del_batch_n = 0
@@ -342,26 +344,21 @@ async def db_archive_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"DB size before: {db_before:.1f} MB")
 
     # Calculate cutoff
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     cutoff_ms = int(cutoff.timestamp() * 1000)
     cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
-    logger.info(
-        f"Archive cutoff: ts_ms={cutoff_ms} ({cutoff_str}, older than {days} days)"
-    )
+    logger.info(f"Archive cutoff: ts_ms={cutoff_ms} ({cutoff_str}, older than {days} days)")
 
     # Offload the heavy sync work to a thread so event loop stays responsive.
     t_start = time.monotonic()
     try:
-        result = await asyncio.to_thread(
-            _archive_to_parquet_sync, cutoff_ms, False
-        )
+        result = await asyncio.to_thread(_archive_to_parquet_sync, cutoff_ms, False)
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): asyncio.to_thread wrapper intentionally wide.
         # Inner sync archive already has its own wide-catch with result dict
         # error reporting. This catch handles the rare case where to_thread
         # itself fails (RuntimeError on closed loop, OS thread limit).
-        logger.error(f"to_thread archive failed: {type(e).__name__}: {e}",
-                     exc_info=True)
+        logger.error(f"to_thread archive failed: {type(e).__name__}: {e}", exc_info=True)
         return
     elapsed = time.monotonic() - t_start
     logger.info(f"Archive thread finished in {elapsed:.1f}s")
@@ -436,17 +433,12 @@ async def db_archive_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         f"<b>Parquet:</b> {parquet_size_mb:.1f} MB ({compression} L{level})\n"
                         f"<b>Elapsed:</b> {elapsed:.1f}s (non-blocking)\n"
                     )
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=msg,
-                    parse_mode="HTML"
-                )
-            except (TelegramError, asyncio.TimeoutError) as e:
+                await context.bot.send_message(chat_id=admin_id, text=msg, parse_mode="HTML")
+            except (TimeoutError, TelegramError) as e:
                 # T11.8-B (2026-04-24): narrow from bare Exception. Archive
                 # already done; notify is best-effort. TelegramError covers
                 # send failures + asyncio.TimeoutError on transport timeout.
-                logger.warning(f"Could not notify admin: "
-                               f"{type(e).__name__}: {e}")
+                logger.warning(f"Could not notify admin: " f"{type(e).__name__}: {e}")
 
 
 def _run_vacuum_sync() -> None:
@@ -467,22 +459,21 @@ async def db_archive_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if not admin_id or str(caller_id) != str(admin_id):
         await update.message.reply_text(
-            "🔒 Yalnız admin tarafından kullanılabilir.",
-            parse_mode="HTML"
+            "🔒 Yalnız admin tarafından kullanılabilir.", parse_mode="HTML"
         )
         return
 
     await update.message.reply_text(
         "🔄 OB archive tetikleniyor (async, streaming Zstd)...\n"
         "<i>Bot + trading çalışmaya devam eder.</i>",
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
     try:
         await db_archive_job(context)
         await update.message.reply_text(
             "✅ Archive job tamamlandı. Detaylar için /changelog veya logs'a bakın.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): outermost admin-command wrapper intentionally
@@ -493,7 +484,7 @@ async def db_archive_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"db_archive_command failed: {e}", exc_info=True)
         await update.message.reply_text(
             f"❌ Archive başarısız: <code>{type(e).__name__}: {str(e)[:100]}</code>",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
 
@@ -523,20 +514,15 @@ def setup_db_archive_job(app: Application) -> None:
             time=__import__("datetime").time(
                 hour=hour, minute=minute, tzinfo=__import__("datetime").timezone.utc
             ),
-            name="db_archive"
+            name="db_archive",
         )
 
         # First run after startup delay
-        app.job_queue.run_once(
-            db_archive_job,
-            when=first_sec,
-            name="db_archive_first"
-        )
+        app.job_queue.run_once(db_archive_job, when=first_sec, name="db_archive_first")
     except (ValueError, TypeError, AttributeError) as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. Time parse
         # (ValueError on bad "03:00"), app.job_queue attribute missing
         # (AttributeError), or run_daily signature drift (TypeError).
         # Unknown errors indicate programmer bug — let them propagate to
         # bot boot for loud failure.
-        logger.error(f"Failed to setup db_archive_job: "
-                     f"{type(e).__name__}: {e}")
+        logger.error(f"Failed to setup db_archive_job: " f"{type(e).__name__}: {e}")

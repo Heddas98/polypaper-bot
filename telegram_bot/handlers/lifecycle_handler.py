@@ -7,11 +7,13 @@ size multipliers, and last adjustment reason for each strategy.
 
 ADMIN ONLY — shows engine internals.
 """
+
 import logging
 
 import aiosqlite
 from telegram import Update
 from telegram.ext import ContextTypes
+
 from config.settings import Settings
 
 logger = logging.getLogger("polypaper.handlers.lifecycle")
@@ -58,7 +60,8 @@ async def lifecycle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not lc._cache:
         return await update.message.reply_text(
             "<i>Henüz lifecycle verisi yok. Stratejiler trade yapmaya başladığında dolacak.</i>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
 
     # Build display
     lines = ["<b>📊 Strategy Lifecycle Manager</b>\n"]
@@ -73,7 +76,8 @@ async def lifecycle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = sid[:8]
         try:
             rows = await engine.db.conn.execute_fetchall(
-                "SELECT label FROM strategies WHERE id=?", (sid,))
+                "SELECT label FROM strategies WHERE id=?", (sid,)
+            )
             if rows and rows[0][0]:
                 label = rows[0][0]
         except (aiosqlite.Error, IndexError):
@@ -90,10 +94,12 @@ async def lifecycle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"   └ <i>{p.adjustment_reason}</i>")
 
     # Summary
-    lines.insert(1,
+    lines.insert(
+        1,
         f"🔬 Exploration: {phase_counts.get('exploration', 0)} | "
         f"📊 Evaluation: {phase_counts.get('evaluation', 0)} | "
-        f"✅ Proven: {phase_counts.get('proven', 0)}\n")
+        f"✅ Proven: {phase_counts.get('proven', 0)}\n",
+    )
 
     text = "\n".join(lines)
     # Telegram max message length

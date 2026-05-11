@@ -12,12 +12,15 @@ T1.3 Commit 5 (2026-04-20): Ghost modüllere bağlı 6 komut silindi:
   Bağımlı arşivler: core.evolutionary, core.majority_voting, core.pnl_verification,
   data_feeds.whale_tracker, data_feeds.event_waves, core.strategy_correlation
 """
+
 import logging
 import os
+
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram_bot.templates.safe_html import esc
+
 from telegram_bot.handlers._exc_render import render_user_exception
+from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.roadmap")
 
@@ -51,6 +54,7 @@ async def ev_stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     try:
         from core.ev_tracker import EVTracker
+
         ev = EVTracker(db)
 
         # Get summary for all active strategies
@@ -63,10 +67,10 @@ async def ev_stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             lines.append("<b>Top Strategies by Edge Realization:</b>\n")
             for label, stats in summary[:10]:
-                trades = stats['trades']
-                avg_pnl = stats['avg_pnl']
-                edge_real = stats['edge_real']
-                wr = stats['wr']
+                trades = stats["trades"]
+                avg_pnl = stats["avg_pnl"]
+                edge_real = stats["edge_real"]
+                wr = stats["wr"]
 
                 # Color emoji based on quality
                 if edge_real >= 0.9:
@@ -97,7 +101,9 @@ async def ev_stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # T11.8-B (2026-04-24): outer handler wrapper. EVTracker chain may
         # surface aiosqlite + numpy + custom exceptions. T11.6 render policy
         # applied — user sees only exception type.
-        await update.message.reply_text(render_user_exception(e, "❌ EV stats hatası"), parse_mode="HTML")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ EV stats hatası"), parse_mode="HTML"
+        )
 
 
 # ═══════════════════════════════════════════════════
@@ -126,14 +132,16 @@ async def metrics_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         rows = await db.conn.execute_fetchall(query, params)
         if not rows or len(rows) < 5:
             await update.message.reply_text(
-                "📊 Yeterli veri yok (min 5 trade gerekli).", parse_mode="HTML")
+                "📊 Yeterli veri yok (min 5 trade gerekli).", parse_mode="HTML"
+            )
             return
 
         pnl_series = [float(r[0]) for r in rows if r[0] is not None]
 
         from backtest.metrics import compute_metrics, format_metrics_telegram
+
         m = compute_metrics(pnl_series)
-        title = f"📊 <b>Performance Metrics</b>"
+        title = "📊 <b>Performance Metrics</b>"
         if strategy_filter:
             title += f" — <code>{esc(strategy_filter)}</code>"
         text = title + "\n\n" + format_metrics_telegram(m)
@@ -141,7 +149,9 @@ async def metrics_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): SQL + backtest.metrics compute chain — wide
         # catch + T11.6 render policy.
-        await update.message.reply_text(render_user_exception(e, "❌ Metrics hatası"), parse_mode="HTML")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ Metrics hatası"), parse_mode="HTML"
+        )
 
 
 # ═══════════════════════════════════════════════════
@@ -164,18 +174,21 @@ async def surface_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if not surface:
         await update.message.reply_text(
-            "⚠️ 2D Surface aktif değil (SURFACE_2D_ENABLED=false veya veri yok).",
-            parse_mode="HTML")
+            "⚠️ 2D Surface aktif değil (SURFACE_2D_ENABLED=false veya veri yok).", parse_mode="HTML"
+        )
         return
 
     try:
         from calibration.surface_2d import format_surface_telegram
+
         text = format_surface_telegram(surface)
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): calibration.surface_2d format chain — wide
         # catch + T11.6 render policy.
-        await update.message.reply_text(render_user_exception(e, "❌ Surface hatası"), parse_mode="HTML")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ Surface hatası"), parse_mode="HTML"
+        )
 
 
 # ═══════════════════════════════════════════════════
@@ -210,6 +223,7 @@ async def latency_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
                 if last_msg_ts > 0:
                     import time
+
                     age_sec = time.time() - last_msg_ts
                     lines.append(f"Last message: {age_sec:.1f}s ago")
                 else:
@@ -228,7 +242,9 @@ async def latency_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): WS stats deep attribute access — AttributeError
         # likely. Wide catch + T11.6 render policy.
-        await update.message.reply_text(render_user_exception(e, "❌ WS stats hatası"), parse_mode="HTML")
+        await update.message.reply_text(
+            render_user_exception(e, "❌ WS stats hatası"), parse_mode="HTML"
+        )
 
 
 # ═══════════════════════════════════════════════════

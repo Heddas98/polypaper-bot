@@ -13,10 +13,12 @@ Adding new helpers?
 3. Must have a docstring that names the domain (what pairs mean) and the
    exact return-None contract.
 """
+
 from __future__ import annotations
 
 import math
-from typing import Iterable, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from typing import Optional, Tuple
 
 
 def pearson_like(
@@ -55,7 +57,7 @@ def pearson_like(
         return None
     mx = sum(xs_list) / n
     my = sum(ys_list) / n
-    cov = sum((x - mx) * (y - my) for x, y in zip(xs_list, ys_list)) / n
+    cov = sum((x - mx) * (y - my) for x, y in zip(xs_list, ys_list, strict=False)) / n
     vx = sum((x - mx) ** 2 for x in xs_list) / n
     vy = sum((y - my) ** 2 for y in ys_list) / n
     if vx <= 1e-12 or vy <= 1e-12:

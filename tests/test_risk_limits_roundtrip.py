@@ -23,6 +23,7 @@ Run:
 
 Closes T3.4 (TASKS.md Epic 3).
 """
+
 import sys
 from pathlib import Path
 
@@ -34,10 +35,10 @@ import pytest
 
 from core.risk_manager import RiskLimits
 
-
 # ============================================================================
 # DEFAULT VALUE ROUND-TRIP
 # ============================================================================
+
 
 class TestRiskLimitsDefaults:
     """Round-trip with factory defaults — baseline sanity check."""
@@ -86,6 +87,7 @@ class TestRiskLimitsDefaults:
 # CUSTOM VALUE ROUND-TRIP
 # ============================================================================
 
+
 class TestRiskLimitsCustomValues:
     """User-modified values must survive persist/restart cycle intact."""
 
@@ -118,7 +120,7 @@ class TestRiskLimitsCustomValues:
         original.per_asset_limits = {
             "BTC": 1000.0,
             "ETH": 750.0,
-            "DOGE": 50.0,   # asset not in default set
+            "DOGE": 50.0,  # asset not in default set
         }
 
         restored = RiskLimits.from_dict(original.to_dict())
@@ -144,6 +146,7 @@ class TestRiskLimitsCustomValues:
 # ============================================================================
 # EDGE CASES — per_asset_limits
 # ============================================================================
+
 
 class TestRiskLimitsPerAssetEdgeCases:
     """Tricky dict-field serialization scenarios."""
@@ -178,8 +181,8 @@ class TestRiskLimitsPerAssetEdgeCases:
         original = RiskLimits()
         original.per_asset_limits = {
             "BİTCOİN": 600.0,  # Turkish İ
-            "ЕТН": 400.0,      # Cyrillic E
-            "€UR": 200.0,      # symbol
+            "ЕТН": 400.0,  # Cyrillic E
+            "€UR": 200.0,  # symbol
         }
 
         restored = RiskLimits.from_dict(original.to_dict())
@@ -202,6 +205,7 @@ class TestRiskLimitsPerAssetEdgeCases:
 # ============================================================================
 # EDGE CASES — numeric precision
 # ============================================================================
+
 
 class TestRiskLimitsNumericEdgeCases:
     """String↔float conversion precision."""
@@ -247,6 +251,7 @@ class TestRiskLimitsNumericEdgeCases:
 # ============================================================================
 # EDGE CASES — corrupt / missing input
 # ============================================================================
+
 
 class TestRiskLimitsCorruptInput:
     """from_dict() must degrade gracefully — never crash the bot on reload."""
@@ -304,7 +309,7 @@ class TestRiskLimitsCorruptInput:
         """Unknown risk.* keys don't crash (forward-compat)."""
         d = {
             "risk.max_position_size": "15.0",
-            "risk.future_field_xyz": "123",     # unknown — should be ignored
+            "risk.future_field_xyz": "123",  # unknown — should be ignored
             "risk.per_asset.BTC": "600.0",
         }
         lim = RiskLimits.from_dict(d)
@@ -317,6 +322,7 @@ class TestRiskLimitsCorruptInput:
 # ============================================================================
 # INDEPENDENCE — per_market_limit must NOT leak into per_asset handling
 # ============================================================================
+
 
 class TestRiskLimitsFieldIndependence:
     """
@@ -362,6 +368,7 @@ class TestRiskLimitsFieldIndependence:
 # ============================================================================
 # DOUBLE ROUND-TRIP (idempotency)
 # ============================================================================
+
 
 class TestRiskLimitsIdempotency:
     """Round-tripping twice should yield the same result as once."""

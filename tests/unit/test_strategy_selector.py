@@ -16,6 +16,7 @@ Tests pin:
   - get_rankings sorted by sample desc
   - get_status returns top-10 + total count
 """
+
 from __future__ import annotations
 
 import pytest

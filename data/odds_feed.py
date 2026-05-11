@@ -9,11 +9,11 @@ ACTUALLY collects odds data for indicator calculations.
 
 The odds_series is what Signal Fusion uses for EMA, momentum, volatility.
 """
+
 import logging
 from collections import defaultdict, deque
 
 import aiosqlite
-
 
 logger = logging.getLogger("polypaper.data.odds_feed")
 
@@ -44,7 +44,9 @@ class OddsFeed:
                 self._series[slug].append(float(up_odds))
                 self._count += 1
 
-            logger.info(f"OddsFeed: loaded {self._count} records for {len(self._series)} slugs from DB")
+            logger.info(
+                f"OddsFeed: loaded {self._count} records for {len(self._series)} slugs from DB"
+            )
         except (aiosqlite.Error, ValueError, TypeError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. DB read +
             # float() parse on `up_odds`. AttributeError covered by code path.
@@ -96,6 +98,7 @@ class OddsFeed:
         return {
             "total_records": self._count,
             "tracked_slugs": len(self._series),
-            "slug_sizes": {k: len(v) for k, v in sorted(
-                self._series.items(), key=lambda x: -len(x[1]))[:5]},
+            "slug_sizes": {
+                k: len(v) for k, v in sorted(self._series.items(), key=lambda x: -len(x[1]))[:5]
+            },
         }

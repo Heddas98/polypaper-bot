@@ -17,6 +17,7 @@ Covers:
   post-audit: T10.2 kapsam kaçağı, strategies + hyperopt_results
   tablosunda UPDATE yapıyor — admin gate zorunlu)
 """
+
 from __future__ import annotations
 
 import ast
@@ -42,6 +43,7 @@ def _find_func(src: str, name: str):
 
 # ─── C1: filters_callback ───────────────────────────────────────────
 
+
 def test_filters_callback_has_admin_gate():
     """The callback reads ADMIN_TELEGRAM_ID / ADMIN_CHAT_ID and rejects
     non-admin callers before any state mutation."""
@@ -49,10 +51,10 @@ def test_filters_callback_has_admin_gate():
     func = _find_func(src, "filters_callback")
     func_src = ast.unparse(func)
 
-    assert "ADMIN_TELEGRAM_ID" in func_src, (
-        "filters_callback must check ADMIN_TELEGRAM_ID — Epic 10 T10.2 C1")
-    assert "effective_user" in func_src, (
-        "filters_callback must read update.effective_user for gate")
+    assert (
+        "ADMIN_TELEGRAM_ID" in func_src
+    ), "filters_callback must check ADMIN_TELEGRAM_ID — Epic 10 T10.2 C1"
+    assert "effective_user" in func_src, "filters_callback must read update.effective_user for gate"
     # Gate must appear before any os.environ mutation.
     gate_idx = func_src.find("ADMIN_TELEGRAM_ID")
     env_set_idx = func_src.find('os.environ["')
@@ -62,11 +64,12 @@ def test_filters_callback_has_admin_gate():
         env_set_idx = func_src.find("os.environ[")
     if env_set_idx != -1:
         assert gate_idx < env_set_idx, (
-            "filters_callback admin gate must run BEFORE os.environ "
-            "mutation")
+            "filters_callback admin gate must run BEFORE os.environ " "mutation"
+        )
 
 
 # ─── C2: brain_toggle_callback ──────────────────────────────────────
+
 
 def test_brain_toggle_callback_has_admin_gate():
     """brain_toggle_callback must reject non-admin callers before
@@ -75,21 +78,27 @@ def test_brain_toggle_callback_has_admin_gate():
     func = _find_func(src, "brain_toggle_callback")
     func_src = ast.unparse(func)
 
-    assert "ADMIN_TELEGRAM_ID" in func_src, (
-        "brain_toggle_callback must check ADMIN_TELEGRAM_ID — T10.2 C2")
+    assert (
+        "ADMIN_TELEGRAM_ID" in func_src
+    ), "brain_toggle_callback must check ADMIN_TELEGRAM_ID — T10.2 C2"
     gate_idx = func_src.find("ADMIN_TELEGRAM_ID")
     # Mutation points: engine.brain_flags or engine._kelly_mode
     mut_idx = min(
-        (i for i in (
-            func_src.find("brain_flags["),
-            func_src.find("_kelly_mode"),
-        ) if i != -1),
+        (
+            i
+            for i in (
+                func_src.find("brain_flags["),
+                func_src.find("_kelly_mode"),
+            )
+            if i != -1
+        ),
         default=-1,
     )
     if mut_idx != -1:
         assert gate_idx < mut_idx, (
             "brain_toggle_callback admin gate must run BEFORE brain_flags "
-            "or _kelly_mode mutation")
+            "or _kelly_mode mutation"
+        )
 
 
 # ─── C3: strategy callbacks ─────────────────────────────────────────
@@ -111,10 +120,8 @@ def test_strategy_callback_has_admin_gate(fn_name):
     func = _find_func(src, fn_name)
     func_src = ast.unparse(func)
 
-    assert "_is_admin_call" in func_src, (
-        f"{fn_name} must call _is_admin_call() — Epic 10 T10.2 C3")
-    assert "_deny_callback" in func_src, (
-        f"{fn_name} must use _deny_callback() on refusal")
+    assert "_is_admin_call" in func_src, f"{fn_name} must call _is_admin_call() — Epic 10 T10.2 C3"
+    assert "_deny_callback" in func_src, f"{fn_name} must use _deny_callback() on refusal"
 
     # Gate must appear before any update_strategy_status / delete_strategy.
     gate_idx = func_src.find("_is_admin_call")
@@ -124,8 +131,7 @@ def test_strategy_callback_has_admin_gate(fn_name):
     ]
     mut_idx = min((i for i in mut_points if i != -1), default=-1)
     if mut_idx != -1:
-        assert gate_idx < mut_idx, (
-            f"{fn_name}: admin gate must run BEFORE DB mutation")
+        assert gate_idx < mut_idx, f"{fn_name}: admin gate must run BEFORE DB mutation"
 
 
 # C4 hyperopt_apply_callback admin-gate tests removed 2026-04-28
@@ -142,4 +148,5 @@ def test_is_admin_call_helper_fallback_dev_mode():
     assert "return True" in func_src, (
         "_is_admin_call must allow calls when no admin configured "
         "(dev mode) — otherwise every test that doesn't set the env "
-        "would break")
+        "would break"
+    )

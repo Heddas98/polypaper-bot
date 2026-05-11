@@ -12,21 +12,22 @@ The tests exercise the WS client directly (no asyncio required for get_live_pric
 checks) and a minimal async shim for the backfill helper so we avoid standing
 up the full TradingEngine.
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 
 from data.websocket_client import PolymarketWebSocket
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Fix A — _connected_since invalidation in get_live_price
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _iso(dt: datetime) -> str:
     return dt.isoformat()
@@ -41,7 +42,7 @@ def test_connected_since_zero_legacy_behavior():
     ws = PolymarketWebSocket()
     assert ws._connected_since == 0.0
     # Seed a fresh entry
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ws.live_prices["tok_a"] = {"price": 0.55, "ts": _iso(now)}
     # _connected_since=0 means "don't apply reconnect gate"
     assert ws.get_live_price("tok_a") == 0.55
@@ -55,7 +56,7 @@ def test_precconnect_cached_price_returns_none():
     """
     ws = PolymarketWebSocket()
     # Pre-reconnect entry (5 seconds ago)
-    before = datetime.now(timezone.utc) - timedelta(seconds=5)
+    before = datetime.now(UTC) - timedelta(seconds=5)
     ws.live_prices["tok_a"] = {"price": 0.55, "ts": _iso(before)}
     # Simulate reconnect happening NOW — _connected_since is set to "now"
     ws._connected_since = time.time()
@@ -73,7 +74,7 @@ def test_postreconnect_fresh_price_accepted():
     # Reconnect happened 2 seconds ago
     ws._connected_since = time.time() - 2.0
     # Fresh entry cached NOW
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ws.live_prices["tok_a"] = {"price": 0.55, "ts": _iso(now)}
     assert ws.get_live_price("tok_a") == 0.55
 
@@ -86,7 +87,7 @@ def test_age_staleness_independent_of_reconnect():
     """
     ws = PolymarketWebSocket()
     # Very old entry (10 minutes ago), _connected_since=0 (not reconnected)
-    old = datetime.now(timezone.utc) - timedelta(seconds=600)
+    old = datetime.now(UTC) - timedelta(seconds=600)
     ws.live_prices["tok_a"] = {"price": 0.55, "ts": _iso(old)}
     # Age gate alone rejects (>60s default)
     assert ws.get_live_price("tok_a") is None
@@ -99,8 +100,10 @@ def test_age_staleness_independent_of_reconnect():
 # loop body against a mock WS + mock client to pin the contract.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class _MockWS:
     """Minimal WS surface used by the backfill helper."""
+
     def __init__(self, subscribed):
         self._subscribed = set(subscribed)
         self.live_prices: dict = {}
@@ -123,13 +126,13 @@ async def _run_backfill(ws, client):
         return 0
     try:
         results = await asyncio.gather(
-            *(client.get_live_midpoint(tid) for tid in subscribed),
-            return_exceptions=True)
+            *(client.get_live_midpoint(tid) for tid in subscribed), return_exceptions=True
+        )
     except Exception:
         return 0
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     backfilled = 0
-    for tid, p in zip(subscribed, results):
+    for tid, p in zip(subscribed, results, strict=False):
         if isinstance(p, Exception) or p is None:
             continue
         if not (0.005 < p < 0.995):

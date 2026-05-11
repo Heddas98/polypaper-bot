@@ -24,6 +24,7 @@ CI drift guard: in --check mode, regenerates in-memory and diffs against
 current `docs/env_reference.md`. If different, exits 1 with a hint to
 run the generator. This prevents silent drift between code and docs.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,18 +35,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROD_PREFIXES = ("core/", "data/", "telegram_bot/", "db/", "calibration/",
-                 "backtest/", "data_feeds/", "indicators/")
+PROD_PREFIXES = (
+    "core/",
+    "data/",
+    "telegram_bot/",
+    "db/",
+    "calibration/",
+    "backtest/",
+    "data_feeds/",
+    "indicators/",
+)
 OUTPUT = REPO_ROOT / "docs" / "env_reference.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 # Windows cp1252 default stdout cannot print UTF-8 emoji (e.g. checkmark).
 # Reconfigure stdout/stderr to UTF-8 so --stdout mode works on Windows.
-if sys.stdout.encoding and sys.stdout.encoding.lower() not in (
-    "utf-8", "utf_8", "u8"
-):
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf_8", "u8"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
@@ -63,15 +69,12 @@ class EnvUse:
 
 def _list_prod_py() -> List[Path]:
     try:
-        out = subprocess.check_output(
-            ["git", "ls-files", "*.py"], text=True, cwd=str(REPO_ROOT)
-        )
+        out = subprocess.check_output(["git", "ls-files", "*.py"], text=True, cwd=str(REPO_ROOT))
     except subprocess.CalledProcessError:
         return []
     paths: List[Path] = []
     for line in out.splitlines():
-        if any(line.replace("\\", "/").lstrip("./").startswith(p)
-               for p in PROD_PREFIXES):
+        if any(line.replace("\\", "/").lstrip("./").startswith(p) for p in PROD_PREFIXES):
             p = REPO_ROOT / line
             if p.exists():
                 paths.append(p)
@@ -120,8 +123,7 @@ def _extract_getenv_uses(path: Path) -> List[EnvUse]:
                     default = repr(d.value)
             else:
                 default = "<expr>"
-        uses.append(EnvUse(key=key, default=default, file=rel,
-                           line=node.lineno))
+        uses.append(EnvUse(key=key, default=default, file=rel, line=node.lineno))
     return uses
 
 
@@ -129,6 +131,7 @@ def _load_whitelist_keys() -> Set[str]:
     try:
         sys.path.insert(0, str(REPO_ROOT))
         from config.env_whitelist import ENV_WHITELIST  # type: ignore
+
         return set(ENV_WHITELIST.keys())
     except ImportError:
         return set()
@@ -164,29 +167,37 @@ def build_reference() -> str:
     lines: List[str] = []
     lines.append("# PolyPaper Bot — Environment Variable Reference")
     lines.append("")
-    lines.append("> **Auto-generated** by `scripts/gen_env_reference.py` "
-                 "(T11.7 doctrine).")
-    lines.append("> Do not hand-edit. Run the generator after adding any "
-                 "new `os.getenv(...)` call in production code.")
+    lines.append("> **Auto-generated** by `scripts/gen_env_reference.py` " "(T11.7 doctrine).")
+    lines.append(
+        "> Do not hand-edit. Run the generator after adding any "
+        "new `os.getenv(...)` call in production code."
+    )
     lines.append(">")
-    lines.append(f"> **Total keys:** {len(all_keys)} distinct env vars read "
-                 f"across production dirs.")
-    lines.append(f"> **Whitelist coverage:** "
-                 f"{len(set(all_keys) & whitelist)} / {len(whitelist)} "
-                 f"whitelisted keys have at least one reader.")
-    lines.append(f"> **`.env.example` coverage:** "
-                 f"{len(set(all_keys) & example)} / {len(all_keys)} "
-                 f"runtime keys are documented in `.env.example`.")
+    lines.append(
+        f"> **Total keys:** {len(all_keys)} distinct env vars read " f"across production dirs."
+    )
+    lines.append(
+        f"> **Whitelist coverage:** "
+        f"{len(set(all_keys) & whitelist)} / {len(whitelist)} "
+        f"whitelisted keys have at least one reader."
+    )
+    lines.append(
+        f"> **`.env.example` coverage:** "
+        f"{len(set(all_keys) & example)} / {len(all_keys)} "
+        f"runtime keys are documented in `.env.example`."
+    )
     lines.append("")
     lines.append("## Legend")
     lines.append("")
     lines.append("- **Key:** the environment variable name")
-    lines.append("- **Default:** default value when unset "
-                 "(`None` if no fallback, `<expr>` if non-literal)")
-    lines.append("- **Whitelist:** `/env_toggle` runtime-tuneable? "
-                 "(`✅` = in `config/env_whitelist.py`)")
-    lines.append("- **`.env.example`:** documented in the template file? "
-                 "(`✅` = yes)")
+    lines.append(
+        "- **Default:** default value when unset "
+        "(`None` if no fallback, `<expr>` if non-literal)"
+    )
+    lines.append(
+        "- **Whitelist:** `/env_toggle` runtime-tuneable? " "(`✅` = in `config/env_whitelist.py`)"
+    )
+    lines.append("- **`.env.example`:** documented in the template file? " "(`✅` = yes)")
     lines.append("- **Readers:** first 3 call sites (see full scan for more)")
     lines.append("")
     lines.append("## Reference Table")
@@ -207,13 +218,10 @@ def build_reference() -> str:
         wl = "✅" if key in whitelist else ""
         ex = "✅" if key in example else ""
         # Readers: first 3 file:line pairs
-        readers = ", ".join(
-            f"`{u.file}:{u.line}`" for u in uses[:3]
-        )
+        readers = ", ".join(f"`{u.file}:{u.line}`" for u in uses[:3])
         if len(uses) > 3:
             readers += f" (+{len(uses) - 3} more)"
-        lines.append(f"| `{key}` | {default_str} | {wl} | {ex} | "
-                     f"{readers} |")
+        lines.append(f"| `{key}` | {default_str} | {wl} | {ex} | " f"{readers} |")
 
     lines.append("")
     lines.append("## Drift Detection")
@@ -222,14 +230,15 @@ def build_reference() -> str:
     lines.append("```bash")
     lines.append("python scripts/gen_env_reference.py --check")
     lines.append("```")
-    lines.append("Exits 1 if this document is stale relative to current "
-                 "`os.getenv(...)` scan. Fix: re-run without `--check` to "
-                 "regenerate + commit.")
+    lines.append(
+        "Exits 1 if this document is stale relative to current "
+        "`os.getenv(...)` scan. Fix: re-run without `--check` to "
+        "regenerate + commit."
+    )
     lines.append("")
     lines.append("## Scope")
     lines.append("")
-    lines.append("Production dirs scanned: " +
-                 ", ".join(f"`{p}`" for p in PROD_PREFIXES))
+    lines.append("Production dirs scanned: " + ", ".join(f"`{p}`" for p in PROD_PREFIXES))
     lines.append("")
     lines.append("Excluded: `tests/`, `scripts/`, `_archive/`, project root.")
     lines.append("")
@@ -239,11 +248,14 @@ def build_reference() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="T11.7 env_reference AST-gen")
-    parser.add_argument("--check", action="store_true",
-                        help="drift-detect mode: exit 1 if docs/env_reference.md "
-                             "is stale")
-    parser.add_argument("--stdout", action="store_true",
-                        help="print to stdout instead of writing to file")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="drift-detect mode: exit 1 if docs/env_reference.md " "is stale",
+    )
+    parser.add_argument(
+        "--stdout", action="store_true", help="print to stdout instead of writing to file"
+    )
     args = parser.parse_args()
 
     new_content = build_reference()
@@ -254,23 +266,29 @@ def main() -> int:
 
     if args.check:
         if not OUTPUT.exists():
-            print(f"[env-ref] {OUTPUT} does not exist. "
-                  f"Run without --check to generate.", file=sys.stderr)
+            print(
+                f"[env-ref] {OUTPUT} does not exist. " f"Run without --check to generate.",
+                file=sys.stderr,
+            )
             return 1
         current = OUTPUT.read_text(encoding="utf-8")
         if current != new_content:
             print(f"[env-ref] DRIFT: {OUTPUT} is stale.", file=sys.stderr)
-            print(f"[env-ref] Fix: python scripts/gen_env_reference.py "
-                  f"(no args) + git add {OUTPUT.relative_to(REPO_ROOT)}",
-                  file=sys.stderr)
+            print(
+                f"[env-ref] Fix: python scripts/gen_env_reference.py "
+                f"(no args) + git add {OUTPUT.relative_to(REPO_ROOT)}",
+                file=sys.stderr,
+            )
             return 1
         print(f"[env-ref] OK: {OUTPUT.relative_to(REPO_ROOT)} is in sync.")
         return 0
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(new_content, encoding="utf-8")
-    print(f"[env-ref] wrote {OUTPUT.relative_to(REPO_ROOT)} "
-          f"({len(new_content.splitlines())} lines)")
+    print(
+        f"[env-ref] wrote {OUTPUT.relative_to(REPO_ROOT)} "
+        f"({len(new_content.splitlines())} lines)"
+    )
     return 0
 
 

@@ -25,6 +25,7 @@ NOTE: Module reload trick -- fill_model.py reads ENV at top-level
 constant init time. Setting ENV mid-process needs `importlib.reload`
 to re-evaluate constants. We do this between runs.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,10 +34,9 @@ import importlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "data_store" / "polypaper.db"
@@ -50,20 +50,20 @@ if str(REPO_ROOT) not in sys.path:
 #   HEURISTIC  = current code defaults (T4.2 Faz A baseline)
 #   EMPIRICAL  = T4.5 calibration findings (1082 trade analysis)
 HEURISTIC_ENV = {
-    "FILL_SPREAD_COST": "0.005",          # 0.5% (current default)
-    "FILL_IMPACT_SCALE": "0.01",          # 1% (current default)
+    "FILL_SPREAD_COST": "0.005",  # 0.5% (current default)
+    "FILL_IMPACT_SCALE": "0.01",  # 1% (current default)
     "FILL_LATENCY_DRIFT_BPS_PER_MS": "0.08",
 }
 EMPIRICAL_ENV = {
-    "FILL_SPREAD_COST": "0.023",          # T4.5 weighted p90 ~= 2.3%
-    "FILL_IMPACT_SCALE": "0.025",         # ~1 stdev above mean
-    "FILL_LATENCY_DRIFT_BPS_PER_MS": "0.04",   # T4.7 telemetry: half heuristic
+    "FILL_SPREAD_COST": "0.023",  # T4.5 weighted p90 ~= 2.3%
+    "FILL_IMPACT_SCALE": "0.025",  # ~1 stdev above mean
+    "FILL_LATENCY_DRIFT_BPS_PER_MS": "0.04",  # T4.7 telemetry: half heuristic
 }
 
 
-async def run_backtest(env_overrides: Dict[str, str], label: str,
-                       strategy_name: str, markets: int,
-                       trade_amount: float) -> Dict[str, Any]:
+async def run_backtest(
+    env_overrides: Dict[str, str], label: str, strategy_name: str, markets: int, trade_amount: float
+) -> Dict[str, Any]:
     """Apply ENV overrides + reload fill_model + run a backtest."""
     print(f"\n[{label}] Setting ENV: {env_overrides}")
     saved = {}
@@ -74,14 +74,17 @@ async def run_backtest(env_overrides: Dict[str, str], label: str,
     try:
         # Reload fill_model so module-top constants pick up the new ENV
         import backtest.simulation.fill_model as _fm
+
         importlib.reload(_fm)
-        print(f"[{label}] fill_model reloaded -- "
-              f"SPREAD_COST={_fm.FillSimulator.SPREAD_COST}, "
-              f"IMPACT_SCALE={getattr(_fm.FillSimulator, 'IMPACT_SCALE', 'N/A')}")
+        print(
+            f"[{label}] fill_model reloaded -- "
+            f"SPREAD_COST={_fm.FillSimulator.SPREAD_COST}, "
+            f"IMPACT_SCALE={getattr(_fm.FillSimulator, 'IMPACT_SCALE', 'N/A')}"
+        )
 
         # Lazy import to avoid loading deps until needed
+        from backtest.replay_engine import ReplayConfig, ReplayEngine
         from db.database import Database
-        from backtest.replay_engine import ReplayEngine, ReplayConfig
 
         db = Database(str(DEFAULT_DB))
         await db.initialize()
@@ -94,8 +97,7 @@ async def run_backtest(env_overrides: Dict[str, str], label: str,
                 last_n=markets,
             )
             engine = ReplayEngine(db, config)
-            print(f"[{label}] Running backtest "
-                  f"(strategy={strategy_name}, last_n={markets})...")
+            print(f"[{label}] Running backtest " f"(strategy={strategy_name}, last_n={markets})...")
             stats = await engine.run()
 
             return {
@@ -105,17 +107,13 @@ async def run_backtest(env_overrides: Dict[str, str], label: str,
                 "wins": getattr(stats, "wins", 0),
                 "losses": getattr(stats, "losses", 0),
                 "wr_pct": (
-                    getattr(stats, "wins", 0)
-                    / max(1, getattr(stats, "total_trades", 1)) * 100
+                    getattr(stats, "wins", 0) / max(1, getattr(stats, "total_trades", 1)) * 100
                 ),
                 "total_pnl": round(getattr(stats, "total_pnl", 0.0), 4),
                 "mean_pnl": round(
-                    getattr(stats, "total_pnl", 0.0)
-                    / max(1, getattr(stats, "total_trades", 1)), 4
+                    getattr(stats, "total_pnl", 0.0) / max(1, getattr(stats, "total_trades", 1)), 4
                 ),
-                "final_balance": round(
-                    getattr(stats, "final_balance", 10000.0), 2
-                ),
+                "final_balance": round(getattr(stats, "final_balance", 10000.0), 2),
             }
         finally:
             try:
@@ -139,9 +137,8 @@ def compare(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     else:
         delta_pct = (b["total_pnl"] - a["total_pnl"]) / abs(a["total_pnl"]) * 100
 
-    direction_consistent = (
-        (a["total_pnl"] >= 0 and b["total_pnl"] >= 0)
-        or (a["total_pnl"] < 0 and b["total_pnl"] < 0)
+    direction_consistent = (a["total_pnl"] >= 0 and b["total_pnl"] >= 0) or (
+        a["total_pnl"] < 0 and b["total_pnl"] < 0
     )
 
     abs_delta_pct = abs(delta_pct) if delta_pct != float("inf") else 999
@@ -164,8 +161,7 @@ def compare(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def render_console(run_a: Dict[str, Any], run_b: Dict[str, Any],
-                   delta: Dict[str, Any]) -> str:
+def render_console(run_a: Dict[str, Any], run_b: Dict[str, Any], delta: Dict[str, Any]) -> str:
     lines = []
     lines.append("=" * 70)
     lines.append("T4.6 Fill Heuristic Sweep -- HEURISTIC vs EMPIRICAL")
@@ -191,7 +187,9 @@ def render_console(run_a: Dict[str, Any], run_b: Dict[str, Any],
     lines.append("")
     lines.append(f"  delta_pnl     : {delta['delta_pnl']:+.4f}")
     lines.append(f"  delta_pnl_pct : {delta['delta_pnl_pct']:+.2f}%")
-    lines.append(f"  direction     : {'consistent' if delta['direction_consistent'] else 'FLIPPED'}")
+    lines.append(
+        f"  direction     : {'consistent' if delta['direction_consistent'] else 'FLIPPED'}"
+    )
     lines.append(f"  criterion     : {delta['criterion']}")
     lines.append("")
     lines.append(f"  VERDICT       : {delta['verdict']}")
@@ -213,8 +211,9 @@ def render_console(run_a: Dict[str, Any], run_b: Dict[str, Any],
 async def amain() -> int:
     parser = argparse.ArgumentParser(description="T4.6 fill heuristic sweep")
     parser.add_argument("--strategy", default="hour_edge")
-    parser.add_argument("--markets", type=int, default=20,
-                        help="Last N markets to replay (default 20)")
+    parser.add_argument(
+        "--markets", type=int, default=20, help="Last N markets to replay (default 20)"
+    )
     parser.add_argument("--trade-amount", type=float, default=1.0)
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
@@ -224,11 +223,17 @@ async def amain() -> int:
     print(f"[t4.6] EMPIRICAL env: {EMPIRICAL_ENV}")
 
     run_a = await run_backtest(
-        HEURISTIC_ENV, "HEURISTIC", args.strategy, args.markets,
+        HEURISTIC_ENV,
+        "HEURISTIC",
+        args.strategy,
+        args.markets,
         args.trade_amount,
     )
     run_b = await run_backtest(
-        EMPIRICAL_ENV, "EMPIRICAL", args.strategy, args.markets,
+        EMPIRICAL_ENV,
+        "EMPIRICAL",
+        args.strategy,
+        args.markets,
         args.trade_amount,
     )
     delta = compare(run_a, run_b)
@@ -239,10 +244,10 @@ async def amain() -> int:
     # Save JSON
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"sweep_fill_heuristic_{ts}.json"
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "strategy": args.strategy,
         "markets": args.markets,
         "heuristic": run_a,

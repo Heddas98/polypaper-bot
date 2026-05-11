@@ -19,11 +19,14 @@ ENV:
   CHANGELOG_DEFAULT_LIMIT=20  (default rows)
   CHANGELOG_MAX_LIMIT=100     (hard cap to prevent oversized messages)
 """
+
 import json
 import logging
 import os
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
 from config.settings import Settings
 from telegram_bot.templates.safe_html import esc
 
@@ -44,7 +47,7 @@ _SOURCE_ALIASES = {
     "user_telegram": "user_telegram",
     "telegram": "user_telegram",
     # Hyperopt aliases removed 2026-04-28 (Heddas direktifi)
-    "all": None,   # no filter
+    "all": None,  # no filter
     "*": None,
 }
 
@@ -122,8 +125,7 @@ def _format_change_compact(old_v: str, new_v: str) -> str:
 
 def _format_row(row: tuple) -> str:
     """Format one changelog row as HTML-safe Telegram message line."""
-    (label, action, source, old_v, new_v, reason,
-     wr, pnl, trades, ts) = row
+    (label, action, source, old_v, new_v, reason, wr, pnl, trades, ts) = row
 
     label = label or "?"
     action = action or "?"
@@ -204,15 +206,16 @@ async def changelog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # T11.6-OK reason=/changelog admin-only, DB SQL hatasi operator icin
         # gerekli (table missing vs syntax vs lock). Truncated.
         return await update.message.reply_text(  # noqa: T11.6-OK
-            f"⚠️ Changelog sorgusu basarisiz: {esc(str(e)[:100])}",
-            parse_mode="HTML")
+            f"⚠️ Changelog sorgusu basarisiz: {esc(str(e)[:100])}", parse_mode="HTML"
+        )
 
     if not rows:
         src_label = source or "all"
         return await update.message.reply_text(
             f"📋 <b>Strategy Changelog</b>\n\n"
             f"Kayit yok (source=<code>{esc(src_label)}</code>, limit={limit}).",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
 
     # Header
     src_label = source or "all"
@@ -246,9 +249,8 @@ async def changelog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             footer = f"\n\n<i>[{i+1}/{len(chunks)}]</i>"
         try:
             await update.message.reply_text(
-                chunk + footer,
-                parse_mode="HTML",
-                disable_web_page_preview=True)
+                chunk + footer, parse_mode="HTML", disable_web_page_preview=True
+            )
         except Exception as e:  # noqa: BLE001
             # T11.8-B (2026-04-24): chunk send fallback intentionally wide.
             # HTML parse error (BadRequest) is the common case; falls back
@@ -256,5 +258,4 @@ async def changelog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # is acceptable for operator diagnosis.
             logger.error(f"changelog send chunk {i+1}/{len(chunks)} failed: {e}")
             # Fallback: no HTML
-            await update.message.reply_text(
-                f"Chunk {i+1} HTML hatasi, raw: {str(e)[:100]}")
+            await update.message.reply_text(f"Chunk {i+1} HTML hatasi, raw: {str(e)[:100]}")

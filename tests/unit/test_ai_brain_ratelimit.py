@@ -18,6 +18,7 @@ Out-of-scope (→ T9.8 integration):
   * `_handle_rate_limit` — DB write via `_save_budget`
   * `start` / `_cycle` — 10-min loop orchestration
 """
+
 from __future__ import annotations
 
 import time
@@ -26,8 +27,8 @@ import pytest
 
 from core import ai_brain as ab_mod
 
-
 # ═══ Module-level ENV helpers: runtime re-read guards ═══════════════════
+
 
 class TestLlmRateLimitBackoff:
     """Phase post-closure: /env_toggle knob must apply without restart."""
@@ -76,6 +77,7 @@ class TestLlmRateLimitMinCost:
 
 
 # ═══ AIBrain method-level helpers ══════════════════════════════════════
+
 
 def _make_brain():
     """Minimal AIBrain — only uses state touched by pure-logic methods."""

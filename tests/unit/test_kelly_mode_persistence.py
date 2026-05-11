@@ -22,6 +22,7 @@ and the boot loader reads back. Contract:
 These tests are AST-based + semantic simulation to run without
 full httpx/websockets engine bootstrap.
 """
+
 from __future__ import annotations
 
 import ast
@@ -29,7 +30,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENGINE_PY = REPO_ROOT / "core" / "engine.py"
@@ -47,15 +47,15 @@ def _read(path: Path) -> str:
 # Structural contracts — BOOT loader (engine.start)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def test_engine_start_reads_kelly_mode_from_db():
     """engine.start() must read `engine.kelly_mode` setting at boot."""
     src = _read(ENGINE_PY)
     # Look for get_setting call with the canonical key anywhere in the file
-    assert re.search(
-        rf'get_setting\s*\(\s*["\']{re.escape(KELLY_DB_KEY)}["\']',
-        src), (
-        f"Boot loader missing `get_setting(\"{KELLY_DB_KEY}\")` — Kelly "
-        "mode will not survive restart.")
+    assert re.search(rf'get_setting\s*\(\s*["\']{re.escape(KELLY_DB_KEY)}["\']', src), (
+        f'Boot loader missing `get_setting("{KELLY_DB_KEY}")` — Kelly '
+        "mode will not survive restart."
+    )
 
 
 def test_engine_start_sets_kelly_mode_from_db_value():
@@ -66,10 +66,11 @@ def test_engine_start_sets_kelly_mode_from_db_value():
     # long as the write exists somewhere near the key read.
     idx = src.find(KELLY_DB_KEY)
     assert idx >= 0, f"{KELLY_DB_KEY} missing from engine.py"
-    window = src[max(0, idx - 200): idx + 600]
+    window = src[max(0, idx - 200) : idx + 600]
     assert re.search(r"self\._kelly_mode\s*=", window), (
         "No assignment to `self._kelly_mode` found near the "
-        f"`{KELLY_DB_KEY}` read — boot loader incomplete.")
+        f"`{KELLY_DB_KEY}` read — boot loader incomplete."
+    )
 
 
 def test_kelly_boot_read_inside_start_method():
@@ -84,12 +85,14 @@ def test_kelly_boot_read_inside_start_method():
                 break
     assert found, (
         "Kelly boot read must live inside engine.start() so it runs "
-        "after the DB connection is established and brain_flags load.")
+        "after the DB connection is established and brain_flags load."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Structural contracts — WRITERS
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def test_kelly_toggle_command_persists_to_db():
     """/kelly_toggle handler must call set_setting with canonical key."""
@@ -102,12 +105,11 @@ def test_kelly_toggle_command_persists_to_db():
             func_src = ast.get_source_segment(src, node) or ""
             break
     assert func_src, "kelly_toggle_command not found in strategies.py"
-    assert re.search(
-        rf'set_setting\s*\(\s*["\']{re.escape(KELLY_DB_KEY)}["\']',
-        func_src), (
+    assert re.search(rf'set_setting\s*\(\s*["\']{re.escape(KELLY_DB_KEY)}["\']', func_src), (
         "kelly_toggle_command must persist the new state via "
-        f"set_setting(\"{KELLY_DB_KEY}\", ...) — otherwise the "
-        "Kelly toggle is in-memory-only and lost on restart.")
+        f'set_setting("{KELLY_DB_KEY}", ...) — otherwise the '
+        "Kelly toggle is in-memory-only and lost on restart."
+    )
 
 
 def test_brain_toggle_callback_persists_kelly():
@@ -121,19 +123,20 @@ def test_brain_toggle_callback_persists_kelly():
             break
     assert func_src, "brain_toggle_callback not found in ai_handler.py"
     # The kelly_sizing branch should include the same DB persistence.
-    assert "kelly_sizing" in func_src, (
-        "kelly_sizing virtual-flag branch missing from brain_toggle_callback")
-    assert re.search(
-        rf'set_setting\s*\(\s*["\']{re.escape(KELLY_DB_KEY)}["\']',
-        func_src), (
+    assert (
+        "kelly_sizing" in func_src
+    ), "kelly_sizing virtual-flag branch missing from brain_toggle_callback"
+    assert re.search(rf'set_setting\s*\(\s*["\']{re.escape(KELLY_DB_KEY)}["\']', func_src), (
         "brain_toggle_callback kelly_sizing branch must persist via "
-        f"set_setting(\"{KELLY_DB_KEY}\", ...). Divergence between the "
-        "two writers (command vs panel) is a classic ghost-toggle source.")
+        f'set_setting("{KELLY_DB_KEY}", ...). Divergence between the '
+        "two writers (command vs panel) is a classic ghost-toggle source."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Semantic simulation — mimic the full persistence round trip
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class _StubDB:
     """In-memory stand-in for the bot_settings table."""
@@ -158,14 +161,13 @@ async def _simulate_boot_load(engine):
     """Mirrors the production boot logic: read key, set attr if present."""
     saved = await engine.db.get_setting(KELLY_DB_KEY)
     if saved is not None:
-        engine._kelly_mode = (saved == "1")
+        engine._kelly_mode = saved == "1"
 
 
 async def _simulate_toggle_and_persist(engine):
     """Mirrors /kelly_toggle + brain panel writers."""
     engine._kelly_mode = not engine._kelly_mode
-    await engine.db.set_setting(
-        KELLY_DB_KEY, "1" if engine._kelly_mode else "0")
+    await engine.db.set_setting(KELLY_DB_KEY, "1" if engine._kelly_mode else "0")
 
 
 @pytest.mark.asyncio
@@ -218,8 +220,8 @@ async def test_sim_round_trip():
     engine_b = _StubEngine(db, initial_kelly=True)  # default True
     await _simulate_boot_load(engine_b)
     assert engine_b._kelly_mode is False, (
-        "After restart, Kelly should remain OFF — regression would "
-        "force-reset to default True.")
+        "After restart, Kelly should remain OFF — regression would " "force-reset to default True."
+    )
 
 
 @pytest.mark.asyncio

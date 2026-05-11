@@ -14,11 +14,12 @@ Does NOT touch production polypaper.db.
 Run: python3 scripts/verify_db_health.py
 Exit: 0 = pass, 1 = any failure.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,7 +37,7 @@ def check(cond: bool, label: str) -> None:
 
 
 def _iso(days_ago: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
 
 
 def build_fixture_db() -> sqlite3.Connection:
@@ -70,11 +71,9 @@ def build_fixture_db() -> sqlite3.Connection:
         ("candles_ext", "t"),
     ]:
         for i in range(5):
-            cur.execute(
-                f"INSERT INTO {table} ({ts_col}) VALUES (?)", (_iso(1),))  # fresh
+            cur.execute(f"INSERT INTO {table} ({ts_col}) VALUES (?)", (_iso(1),))  # fresh
         for i in range(5):
-            cur.execute(
-                f"INSERT INTO {table} ({ts_col}) VALUES (?)", (_iso(60),))  # stale
+            cur.execute(f"INSERT INTO {table} ({ts_col}) VALUES (?)", (_iso(60),))  # stale
     con.commit()
     return con
 
@@ -125,9 +124,7 @@ def test_db_health_query_shape() -> None:
     print("▶ _db_health-style query shape")
     con = build_fixture_db()
     cur = con.cursor()
-    cur.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-    )
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
     tables = [r[0] for r in cur.fetchall()]
     check(len(tables) == 5, f"sqlite_master returned {len(tables)} tables (expect 5)")
 
@@ -138,8 +135,9 @@ def test_db_health_query_shape() -> None:
         rows.append((t, n))
     rows.sort(key=lambda r: r[1], reverse=True)
     check(all(r[1] == 10 for r in rows), "each fixture table has 10 rows")
-    check(rows == sorted(rows, key=lambda r: r[1], reverse=True),
-          "results sorted descending by count")
+    check(
+        rows == sorted(rows, key=lambda r: r[1], reverse=True), "results sorted descending by count"
+    )
     con.close()
 
 

@@ -10,11 +10,11 @@ YENI:
 
 This test pins the corrected mapping so the bug never returns.
 """
+
 from __future__ import annotations
 
 import re
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DIAGNOSE = REPO_ROOT / "telegram_bot" / "handlers" / "diagnose_handler.py"
@@ -27,9 +27,7 @@ def _read_source() -> str:
 def test_no_legacy_active_label_in_halt_text():
     """Old buggy line `... else \"Active\"` must not appear in halt_text."""
     src = _read_source()
-    legacy_pattern = re.compile(
-        r'halt_text\s*=\s*[^=\n]*else\s*"Active"'
-    )
+    legacy_pattern = re.compile(r'halt_text\s*=\s*[^=\n]*else\s*"Active"')
     matches = legacy_pattern.findall(src)
     assert not matches, (
         f"T6.3-B regression: legacy halt_text 'Active' label found in:\n"
@@ -41,13 +39,11 @@ def test_no_legacy_active_label_in_halt_text():
 def test_halt_text_uses_no_halt_when_not_halted():
     """The corrected pattern: halted=False branch should yield 'No halt'."""
     src = _read_source()
-    correct_pattern = re.compile(
-        r'halt_text\s*=\s*[^=\n]*else\s*"No halt"'
-    )
+    correct_pattern = re.compile(r'halt_text\s*=\s*[^=\n]*else\s*"No halt"')
     occurrences = correct_pattern.findall(src)
     assert len(occurrences) >= 2, (
         f"Expected at least 2 occurrences of correct pattern "
-        f"`else \"No halt\"` (one per halt_text site); got {len(occurrences)}.\n"
+        f'`else "No halt"` (one per halt_text site); got {len(occurrences)}.\n'
         f"diagnose_handler.py has 2 halt_text formation sites; both must use "
         f"the T6.3-B-correct pattern."
     )
@@ -73,9 +69,7 @@ def test_halted_true_branch_uses_halt_reason():
     src = _read_source()
     # Match `rs.get("halt_reason", "Halted")` (or "No halt" -- old default)
     # The corrected pattern uses "Halted" as the missing-reason fallback
-    pattern = re.compile(
-        r'rs\.get\("halt_reason",\s*"Halted"\)\s*if\s*rs\.get\("halted"\)'
-    )
+    pattern = re.compile(r'rs\.get\("halt_reason",\s*"Halted"\)\s*if\s*rs\.get\("halted"\)')
     matches = pattern.findall(src)
     assert len(matches) >= 2, (
         f"halted=True branch should use rs.get('halt_reason', 'Halted'); "

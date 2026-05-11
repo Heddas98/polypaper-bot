@@ -23,12 +23,13 @@ or schema drift should NOT crash the feed thread — the reconnect
 loop handles it. Wide catches at the orchestration layer are
 intentional and logged.
 """
+
 import asyncio
 import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
@@ -39,8 +40,8 @@ logger = logging.getLogger("polypaper.data.market_recorder")
 # Phase 38d: 10s → 2s — captures 5× more intra-interval price moves for
 # realistic backtesting. CLOB API rate is comfortable with 2s per-market
 # given we only track top 2 markets per asset/tf pair (~10 markets max).
-SNAPSHOT_INTERVAL = 2   # Her 2 saniyede 1 snapshot
-CLEANUP_DAYS = 30       # 30 gunden eski veriyi sil
+SNAPSHOT_INTERVAL = 2  # Her 2 saniyede 1 snapshot
+CLEANUP_DAYS = 30  # 30 gunden eski veriyi sil
 # Phase 57: 20 → 50 levels for deeper L2 capture.
 # More levels = more realistic VWAP fills in REAL_ORDERBOOK backtest mode.
 # Storage impact: ~+40% per snapshot JSON blob (~2KB → ~2.8KB).
@@ -61,8 +62,7 @@ class MarketRecorder:
     (tick-level resolution icin).
     """
 
-    def __init__(self, db, polymarket_client, scanner=None,
-                 external_feed=None, ws_client=None):
+    def __init__(self, db, polymarket_client, scanner=None, external_feed=None, ws_client=None):
         self.db = db
         self.pm_client = polymarket_client
         self.scanner = scanner
@@ -210,8 +210,7 @@ class MarketRecorder:
         for col, ddl in (
             ("size", "ALTER TABLE ob_trades ADD COLUMN size REAL"),
             ("side", "ALTER TABLE ob_trades ADD COLUMN side TEXT"),
-            ("event_type",
-             "ALTER TABLE ob_trades ADD COLUMN event_type TEXT DEFAULT 'price_tick'"),
+            ("event_type", "ALTER TABLE ob_trades ADD COLUMN event_type TEXT DEFAULT 'price_tick'"),
         ):
             try:
                 await self.db.conn.execute(ddl)
@@ -220,7 +219,8 @@ class MarketRecorder:
         try:
             await self.db.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ob_trades_event_type "
-                "ON ob_trades(event_type, ts_ms)")
+                "ON ob_trades(event_type, ts_ms)"
+            )
         except Exception:  # noqa: BLE001
             pass
         await self.db.conn.commit()
@@ -243,7 +243,7 @@ class MarketRecorder:
         # Uses the running loop (asyncio.get_event_loop() is deprecated inside
         # callbacks started from outside an asyncio coroutine).
         if self.ws_client:
-            original_cb = getattr(self.ws_client, '_on_price_callback', None)
+            original_cb = getattr(self.ws_client, "_on_price_callback", None)
             self._original_ws_callback = original_cb
             try:
                 loop = asyncio.get_running_loop()
@@ -260,8 +260,7 @@ class MarketRecorder:
                 # 2. Schedule async tick recording on the running loop
                 try:
                     loop.call_soon_threadsafe(
-                        lambda: asyncio.ensure_future(
-                            self._record_tick(token_id, price), loop=loop)
+                        lambda: asyncio.ensure_future(self._record_tick(token_id, price), loop=loop)
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"tick schedule error: {e}")
@@ -273,23 +272,19 @@ class MarketRecorder:
             )
 
             # Phase 39 (P1.1): wire real trade event callback
-            def trade_callback(token_id: str, price: float, size: float,
-                                side: str, ts_ms: int):
+            def trade_callback(token_id: str, price: float, size: float, side: str, ts_ms: int):
                 # 1. Forward to engine for maker queue tracking (P1.2)
-                if hasattr(self, "_engine_trade_listener") and \
-                        self._engine_trade_listener:
+                if hasattr(self, "_engine_trade_listener") and self._engine_trade_listener:
                     try:
-                        self._engine_trade_listener(
-                            token_id, price, size, side, ts_ms)
+                        self._engine_trade_listener(token_id, price, size, side, ts_ms)
                     except Exception as e:  # noqa: BLE001
                         logger.debug(f"engine trade listener: {e}")
                 # 2. Persist to ob_trades
                 try:
                     loop.call_soon_threadsafe(
                         lambda: asyncio.ensure_future(
-                            self._record_trade(
-                                token_id, price, size, side, ts_ms),
-                            loop=loop)
+                            self._record_trade(token_id, price, size, side, ts_ms), loop=loop
+                        )
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"trade schedule error: {e}")
@@ -300,8 +295,7 @@ class MarketRecorder:
         self._running = True
         # Phase 82e Sprint 2.1: safe_create_task — if the recording loop dies
         # silently we lose ALL backtest data. Must be notified.
-        self._task = safe_create_task(
-            self._recording_loop(), name="market_recorder_loop")
+        self._task = safe_create_task(self._recording_loop(), name="market_recorder_loop")
         logger.info(f"📸 MarketRecorder: STARTED ({SNAPSHOT_INTERVAL}s interval)")
 
     async def stop(self):
@@ -315,13 +309,15 @@ class MarketRecorder:
                 pass
 
         # Restore original WS callback
-        if self.ws_client and hasattr(self, '_original_ws_callback'):
+        if self.ws_client and hasattr(self, "_original_ws_callback"):
             self.ws_client._on_price_callback = self._original_ws_callback
 
         await self._update_meta("total_snapshots", str(self._snapshot_count))
         await self._update_meta("total_trades", str(self._trade_count))
-        logger.info(f"📸 MarketRecorder: STOPPED "
-                     f"(snapshots={self._snapshot_count}, trades={self._trade_count})")
+        logger.info(
+            f"📸 MarketRecorder: STOPPED "
+            f"(snapshots={self._snapshot_count}, trades={self._trade_count})"
+        )
 
     # ═══════════════════════════════════════════════
     #  MAIN RECORDING LOOP
@@ -360,8 +356,7 @@ class MarketRecorder:
                 if self._snapshot_count % 60 == 0 and self._snapshot_count > 0:
                     await self._update_meta("total_snapshots", str(self._snapshot_count))
                     await self._update_meta("total_trades", str(self._trade_count))
-                    await self._update_meta("last_recording",
-                        datetime.now(timezone.utc).isoformat())
+                    await self._update_meta("last_recording", datetime.now(UTC).isoformat())
 
                 # Sleep until next interval
                 elapsed = time.time() - loop_start
@@ -408,15 +403,17 @@ class MarketRecorder:
                 asset = parts[0] if parts else "BTC"
                 tf = parts[1] if len(parts) > 1 else "5m"
 
-                markets.append({
-                    "slug": slug,
-                    "asset": asset,
-                    "timeframe": tf,
-                    "up_token": up_token,
-                    "down_token": down_token,
-                    "market_data": m,
-                    "odds": odds,
-                })
+                markets.append(
+                    {
+                        "slug": slug,
+                        "asset": asset,
+                        "timeframe": tf,
+                        "up_token": up_token,
+                        "down_token": down_token,
+                        "market_data": m,
+                        "odds": odds,
+                    }
+                )
 
         return markets
 
@@ -432,7 +429,7 @@ class MarketRecorder:
             odds = market.get("odds", {})
 
             now_ms = int(time.time() * 1000)
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = datetime.now(UTC).isoformat()
 
             # ── 1. Fetch UP orderbook ──
             up_ob = await self._fetch_orderbook(up_token)
@@ -447,12 +444,16 @@ class MarketRecorder:
             down_metrics = self._calc_ob_metrics(down_ob)
 
             # Mid prices
-            mid_up = ((up_metrics["best_bid"] + up_metrics["best_ask"]) / 2
-                      if up_metrics["best_bid"] > 0 and up_metrics["best_ask"] > 0
-                      else up_metrics["best_ask"])
-            mid_down = ((down_metrics["best_bid"] + down_metrics["best_ask"]) / 2
-                        if down_metrics["best_bid"] > 0 and down_metrics["best_ask"] > 0
-                        else down_metrics["best_ask"])
+            mid_up = (
+                (up_metrics["best_bid"] + up_metrics["best_ask"]) / 2
+                if up_metrics["best_bid"] > 0 and up_metrics["best_ask"] > 0
+                else up_metrics["best_ask"]
+            )
+            mid_down = (
+                (down_metrics["best_bid"] + down_metrics["best_ask"]) / 2
+                if down_metrics["best_bid"] > 0 and down_metrics["best_ask"] > 0
+                else down_metrics["best_ask"]
+            )
 
             # Implied probability (UP odds = UP best_ask for buyer)
             implied_up = mid_up if mid_up > 0 else odds.get("up_odds", 0)
@@ -472,15 +473,17 @@ class MarketRecorder:
 
             # ── 5. Market timing ──
             start_time = mdata.get("start_time", mdata.get("game_start_time", ""))
-            end_time = mdata.get("end_time", mdata.get("game_end_time",
-                        mdata.get("expiration", "")))
+            end_time = mdata.get(
+                "end_time", mdata.get("game_end_time", mdata.get("expiration", ""))
+            )
             elapsed_pct = 0.0
             if start_time and end_time:
                 try:
                     from datetime import datetime as dt
+
                     st = dt.fromisoformat(start_time.replace("Z", "+00:00"))
                     et = dt.fromisoformat(end_time.replace("Z", "+00:00"))
-                    now_utc = datetime.now(timezone.utc)
+                    now_utc = datetime.now(UTC)
                     total = (et - st).total_seconds()
                     elapsed = (now_utc - st).total_seconds()
                     elapsed_pct = max(0, min(1, elapsed / total)) if total > 0 else 0
@@ -514,22 +517,46 @@ class MarketRecorder:
                            ?,?,?, ?,?, ?,?, ?,?,
                            ?,?, ?,?,
                            ?,?,?, ?,?, ?,?,?, ?)""",
-                (slug, asset, tf, up_token, down_token,
-                 now_ms, now_iso,
-                 up_metrics["best_bid"], up_metrics["best_ask"], up_metrics["spread"],
-                 up_metrics["bid_depth"], up_metrics["ask_depth"],
-                 up_metrics["bid_levels"], up_metrics["ask_levels"],
-                 up_metrics["bids_json"], up_metrics["asks_json"],
-                 down_metrics["best_bid"], down_metrics["best_ask"], down_metrics["spread"],
-                 down_metrics["bid_depth"], down_metrics["ask_depth"],
-                 down_metrics["bid_levels"], down_metrics["ask_levels"],
-                 down_metrics["bids_json"], down_metrics["asks_json"],
-                 mid_up, mid_down,
-                 implied_up, implied_down,
-                 binance_price, binance_vol, binance_change,
-                 market_vol, market_liq,
-                 start_time, end_time, elapsed_pct,
-                 now_iso)
+                (
+                    slug,
+                    asset,
+                    tf,
+                    up_token,
+                    down_token,
+                    now_ms,
+                    now_iso,
+                    up_metrics["best_bid"],
+                    up_metrics["best_ask"],
+                    up_metrics["spread"],
+                    up_metrics["bid_depth"],
+                    up_metrics["ask_depth"],
+                    up_metrics["bid_levels"],
+                    up_metrics["ask_levels"],
+                    up_metrics["bids_json"],
+                    up_metrics["asks_json"],
+                    down_metrics["best_bid"],
+                    down_metrics["best_ask"],
+                    down_metrics["spread"],
+                    down_metrics["bid_depth"],
+                    down_metrics["ask_depth"],
+                    down_metrics["bid_levels"],
+                    down_metrics["ask_levels"],
+                    down_metrics["bids_json"],
+                    down_metrics["asks_json"],
+                    mid_up,
+                    mid_down,
+                    implied_up,
+                    implied_down,
+                    binance_price,
+                    binance_vol,
+                    binance_change,
+                    market_vol,
+                    market_liq,
+                    start_time,
+                    end_time,
+                    elapsed_pct,
+                    now_iso,
+                ),
             )
             await self.db.conn.commit()
             self._snapshot_count += 1
@@ -554,10 +581,15 @@ class MarketRecorder:
     def _calc_ob_metrics(self, ob: Optional[dict]) -> dict:
         """Calculate orderbook metrics from raw L2 data."""
         empty = {
-            "best_bid": 0.0, "best_ask": 0.0, "spread": 0.0,
-            "bid_depth": 0.0, "ask_depth": 0.0,
-            "bid_levels": 0, "ask_levels": 0,
-            "bids_json": "[]", "asks_json": "[]",
+            "best_bid": 0.0,
+            "best_ask": 0.0,
+            "spread": 0.0,
+            "bid_depth": 0.0,
+            "ask_depth": 0.0,
+            "bid_levels": 0,
+            "ask_levels": 0,
+            "bids_json": "[]",
+            "asks_json": "[]",
         }
         if not ob:
             return empty
@@ -623,15 +655,14 @@ class MarketRecorder:
 
             self._last_prices[token_id] = price
             now_ms = int(time.time() * 1000)
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = datetime.now(UTC).isoformat()
 
             await self.db.conn.execute(
                 """INSERT INTO ob_trades
                    (slug, token_id, direction, price, prev_price,
                     price_change, ts_ms, ts_iso, source)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (slug, token_id, direction, price, prev_price,
-                 price_change, now_ms, now_iso, "ws")
+                (slug, token_id, direction, price, prev_price, price_change, now_ms, now_iso, "ws"),
             )
             # Commit in batches (every 10 trades)
             self._trade_count += 1
@@ -641,8 +672,7 @@ class MarketRecorder:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Tick record error: {e}")
 
-    async def _record_trade(self, token_id: str, price: float, size: float,
-                             side: str, ts_ms: int):
+    async def _record_trade(self, token_id: str, price: float, size: float, side: str, ts_ms: int):
         """Phase 39 (P1.1): Record a real `last_trade_price` fill event.
         Unlike _record_tick (price_change derived), this is an actual trade
         with size + side, used for the maker queue simulation and as a real
@@ -656,8 +686,7 @@ class MarketRecorder:
             if not mapping:
                 return
             slug, direction = mapping
-            now_iso = datetime.fromtimestamp(
-                ts_ms / 1000.0, tz=timezone.utc).isoformat()
+            now_iso = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).isoformat()
 
             await self.db.conn.execute(
                 """INSERT INTO ob_trades
@@ -665,8 +694,20 @@ class MarketRecorder:
                     price_change, ts_ms, ts_iso, source,
                     size, side, event_type)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (slug, token_id, direction, price, None, 0.0,
-                 ts_ms, now_iso, "ws", size, side, "trade")
+                (
+                    slug,
+                    token_id,
+                    direction,
+                    price,
+                    None,
+                    0.0,
+                    ts_ms,
+                    now_iso,
+                    "ws",
+                    size,
+                    side,
+                    "trade",
+                ),
             )
             self._real_trade_count += 1
             if self._real_trade_count % 5 == 0:
@@ -682,12 +723,12 @@ class MarketRecorder:
                            (slug, token_id, direction, side, price, size,
                             notional_usd, ts_ms, ts_iso)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (slug, token_id, direction, side, price, size,
-                         notional, ts_ms, now_iso)
+                        (slug, token_id, direction, side, price, size, notional, ts_ms, now_iso),
                     )
                     logger.info(
                         f"🐋 WHALE: {slug} {side.upper()} {size:.1f}sh "
-                        f"@ {price:.4f} = ${notional:.0f}")
+                        f"@ {price:.4f} = ${notional:.0f}"
+                    )
             except Exception as _we:  # noqa: BLE001
                 logger.debug(f"Whale detect: {_we}")
         except Exception as e:  # noqa: BLE001
@@ -702,9 +743,9 @@ class MarketRecorder:
         try:
             cutoff_ms = int((time.time() - CLEANUP_DAYS * 86400) * 1000)
             r1 = await self.db.conn.execute(
-                "DELETE FROM ob_snapshots WHERE ts_ms < ?", (cutoff_ms,))
-            r2 = await self.db.conn.execute(
-                "DELETE FROM ob_trades WHERE ts_ms < ?", (cutoff_ms,))
+                "DELETE FROM ob_snapshots WHERE ts_ms < ?", (cutoff_ms,)
+            )
+            r2 = await self.db.conn.execute("DELETE FROM ob_trades WHERE ts_ms < ?", (cutoff_ms,))
             await self.db.conn.commit()
             logger.info(f"📸 Cleanup: removed old data before {CLEANUP_DAYS}d")
         except Exception as e:  # noqa: BLE001
@@ -713,11 +754,11 @@ class MarketRecorder:
     async def _update_meta(self, key: str, value: str):
         """Update recorder_meta table."""
         try:
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             await self.db.conn.execute(
                 """INSERT OR REPLACE INTO recorder_meta (key, value, updated_at)
                    VALUES (?, ?, ?)""",
-                (key, value, now)
+                (key, value, now),
             )
             await self.db.conn.commit()
         except Exception:  # noqa: BLE001
@@ -727,9 +768,9 @@ class MarketRecorder:
     #  QUERY HELPERS (for Backtest Engine)
     # ═══════════════════════════════════════════════
 
-    async def get_snapshots_for_market(self, slug: str,
-                                       start_ms: int = 0,
-                                       end_ms: int = 0) -> list[dict]:
+    async def get_snapshots_for_market(
+        self, slug: str, start_ms: int = 0, end_ms: int = 0
+    ) -> list[dict]:
         """
         Retrieve all orderbook snapshots for a given market slug.
         Returns chronologically ordered list of snapshot dicts.
@@ -753,16 +794,15 @@ class MarketRecorder:
             return []
 
         # Get column names
-        cursor = await self.db.conn.execute(
-            "PRAGMA table_info(ob_snapshots)")
+        cursor = await self.db.conn.execute("PRAGMA table_info(ob_snapshots)")
         columns_info = await cursor.fetchall()
         columns = [c[1] for c in columns_info]
 
-        return [dict(zip(columns, row)) for row in rows]
+        return [dict(zip(columns, row, strict=False)) for row in rows]
 
-    async def get_trades_for_market(self, slug: str,
-                                     start_ms: int = 0,
-                                     end_ms: int = 0) -> list[dict]:
+    async def get_trades_for_market(
+        self, slug: str, start_ms: int = 0, end_ms: int = 0
+    ) -> list[dict]:
         """Retrieve tick-level trades for a market."""
         query = "SELECT * FROM ob_trades WHERE slug = ?"
         params = [slug]
@@ -784,7 +824,7 @@ class MarketRecorder:
         columns_info = await cursor.fetchall()
         columns = [c[1] for c in columns_info]
 
-        return [dict(zip(columns, row)) for row in rows]
+        return [dict(zip(columns, row, strict=False)) for row in rows]
 
     async def get_stats(self) -> dict:
         """Get recorder statistics."""
@@ -794,25 +834,23 @@ class MarketRecorder:
             oldest_ts = None
             newest_ts = None
 
-            r = await self.db.conn.execute_fetchall(
-                "SELECT COUNT(*) FROM ob_snapshots")
+            r = await self.db.conn.execute_fetchall("SELECT COUNT(*) FROM ob_snapshots")
             if r:
                 snap_count = r[0][0]
 
-            r = await self.db.conn.execute_fetchall(
-                "SELECT COUNT(*) FROM ob_trades")
+            r = await self.db.conn.execute_fetchall("SELECT COUNT(*) FROM ob_trades")
             if r:
                 trade_count = r[0][0]
 
             r = await self.db.conn.execute_fetchall(
-                "SELECT MIN(ts_iso), MAX(ts_iso) FROM ob_snapshots")
+                "SELECT MIN(ts_iso), MAX(ts_iso) FROM ob_snapshots"
+            )
             if r and r[0][0]:
                 oldest_ts = r[0][0]
                 newest_ts = r[0][1]
 
             # Unique markets
-            r = await self.db.conn.execute_fetchall(
-                "SELECT COUNT(DISTINCT slug) FROM ob_snapshots")
+            r = await self.db.conn.execute_fetchall("SELECT COUNT(DISTINCT slug) FROM ob_snapshots")
             unique_markets = r[0][0] if r else 0
 
             # DB size estimate (rows × avg row size)
@@ -820,7 +858,8 @@ class MarketRecorder:
 
             # Phase 39 (P1.1): real trade count
             r = await self.db.conn.execute_fetchall(
-                "SELECT COUNT(*) FROM ob_trades WHERE event_type='trade'")
+                "SELECT COUNT(*) FROM ob_trades WHERE event_type='trade'"
+            )
             real_trade_count = r[0][0] if r else 0
 
             return {

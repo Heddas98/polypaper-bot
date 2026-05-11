@@ -16,19 +16,29 @@ Usage:
                      old={"odds_threshold": 0.55}, new={"odds_threshold": 0.50},
                      reason="WR < 55%", wr=42.0, pnl=-1.5, trades=30)
 """
+
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
 logger = logging.getLogger("polypaper.core.changelog")
 
 
-async def log_change(db, strategy_id: str, action: str, source: str,
-                     old: dict = None, new: dict = None,
-                     reason: str = "", label: str = "",
-                     wr: float = None, pnl: float = None, trades: int = None):
+async def log_change(
+    db,
+    strategy_id: str,
+    action: str,
+    source: str,
+    old: dict = None,
+    new: dict = None,
+    reason: str = "",
+    label: str = "",
+    wr: float = None,
+    pnl: float = None,
+    trades: int = None,
+):
     """Log a strategy change to the changelog table.
 
     Args:
@@ -50,8 +60,8 @@ async def log_change(db, strategy_id: str, action: str, source: str,
         if not label and strategy_id:
             try:
                 rows = await db.conn.execute_fetchall(
-                    "SELECT label FROM strategies WHERE id LIKE ?",
-                    (f"{strategy_id}%",))
+                    "SELECT label FROM strategies WHERE id LIKE ?", (f"{strategy_id}%",)
+                )
                 if rows:
                     label = rows[0][0] or strategy_id[:8]
             except (aiosqlite.Error, IndexError, TypeError, AttributeError):
@@ -59,22 +69,27 @@ async def log_change(db, strategy_id: str, action: str, source: str,
                 # for table/column missing. Fall back to short strategy_id.
                 label = strategy_id[:8] if strategy_id else "?"
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await db.conn.execute(
             """INSERT INTO strategy_changelog
                (strategy_id, strategy_label, action, source,
                 old_value, new_value, reason,
                 wr_at_time, pnl_at_time, trades_at_time, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (strategy_id[:36] if strategy_id else "",
-             label or "?",
-             action,
-             source,
-             json.dumps(old, default=str) if old else None,
-             json.dumps(new, default=str) if new else None,
-             reason or "",
-             wr, pnl, trades,
-             now))
+            (
+                strategy_id[:36] if strategy_id else "",
+                label or "?",
+                action,
+                source,
+                json.dumps(old, default=str) if old else None,
+                json.dumps(new, default=str) if new else None,
+                reason or "",
+                wr,
+                pnl,
+                trades,
+                now,
+            ),
+        )
         await db.conn.commit()
     except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
         # T1.4 Faz 3: INSERT into strategy_changelog + commit + json.dumps
@@ -89,8 +104,9 @@ async def log_change(db, strategy_id: str, action: str, source: str,
         logger.debug(f"changelog write: {e}")
 
 
-async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
-                                max_stopped_summary: int = 20) -> list[str]:
+async def get_changelog_for_ai(
+    db, max_active_per_strat: int = 0, max_stopped_summary: int = 20
+) -> list[str]:
     """Get formatted changelog for AI Brain _gather_data().
 
     Active strategies: ALL changelog entries (no limit per strategy)
@@ -110,7 +126,8 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                FROM strategy_changelog c
                LEFT JOIN strategies s ON c.strategy_id = s.id
                WHERE s.status = 'active'
-               ORDER BY c.strategy_label, c.created_at""")
+               ORDER BY c.strategy_label, c.created_at"""
+        )
 
         if active_rows:
             lines.append("\n═══ AKTIF STRATEJI DEGISIKLIK GECMISI (TAM) ═══")
@@ -144,8 +161,7 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                                 changes.append(f"{k}:{old_d.get(k)}→{new_d.get(k)}")
                         if changes:
                             change_str = " " + ", ".join(changes)
-                    except (json.JSONDecodeError, AttributeError,
-                            TypeError, ValueError):
+                    except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
                         # T1.4 Faz 3: json.loads (JSONDecodeError on
                         # corrupt old/new JSON), then .keys()/.get()
                         # (AttributeError if JSON root isn't a dict).
@@ -156,7 +172,8 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                 lines.append(
                     f"    {ts} {action} [{source}]{change_str}"
                     f"{context}"
-                    f"{' — ' + reason if reason else ''}")
+                    f"{' — ' + reason if reason else ''}"
+                )
 
         # Stopped strategies — 1-line summary per strategy
         stopped_summary = await db.conn.execute_fetchall(
@@ -173,7 +190,9 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                  AND c.created_at > datetime('now', '-30 days')
                GROUP BY c.strategy_id
                ORDER BY last_change DESC
-               LIMIT ?""", (max_stopped_summary,))
+               LIMIT ?""",
+            (max_stopped_summary,),
+        )
 
         if stopped_summary:
             lines.append("\n═══ DURMUS STRATEJI OZETI (son 30 gun) ═══")
@@ -188,10 +207,10 @@ async def get_changelog_for_ai(db, max_active_per_strat: int = 0,
                 pnl_str = f"min_PnL={worst_pnl:+.2f}" if worst_pnl is not None else ""
                 lines.append(
                     f"  {label}: {changes} degisiklik, {max_trades or 0}t, "
-                    f"{wr_str} {pnl_str} | {chain[:60]}")
+                    f"{wr_str} {pnl_str} | {chain[:60]}"
+                )
 
-    except (aiosqlite.Error, ValueError, TypeError, IndexError,
-            AttributeError) as e:
+    except (aiosqlite.Error, ValueError, TypeError, IndexError, AttributeError) as e:
         # T1.4 Faz 3: Two large SELECTs (active + stopped) + per-row
         # unpack (r[0]..r[10], s[0]..s[7]) + numeric formatting. Realistic
         # modes: aiosqlite.Error for table missing / column schema drift,

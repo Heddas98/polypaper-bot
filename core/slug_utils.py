@@ -20,6 +20,7 @@ Tag-based inference (sağlam, docs uyumlu):
 
 Reference: memory/reference_polymarket_updown_discovery.md
 """
+
 from __future__ import annotations
 
 import re
@@ -62,8 +63,7 @@ _RE_HOURLY = re.compile(
 # 24h daily: bitcoin-up-or-down-on-may-9-2026  veya
 #            bitcoin-up-or-down-on-march-17 (year suffix opsiyonel — eski format)
 _RE_DAILY = re.compile(
-    r"^(?:btc|bitcoin|eth|ethereum|sol|solana|xrp|ripple)"
-    r"-up-or-down-on-[a-z]+-\d+(?:-\d{4})?$"
+    r"^(?:btc|bitcoin|eth|ethereum|sol|solana|xrp|ripple)" r"-up-or-down-on-[a-z]+-\d+(?:-\d{4})?$"
 )
 
 

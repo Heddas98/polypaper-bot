@@ -15,10 +15,15 @@ Parameters:
   - min_confidence: min entry confidence (default 0.60)
   - max_elapsed_pct: max entry timing (default 0.40)
 """
+
 from typing import Optional
+
 from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Direction,
+    BaseBacktestStrategy,
+    MarketData,
+    OrderbookSnapshot,
+    Signal,
+    StrategyRegistryV2,
 )
 
 
@@ -28,10 +33,13 @@ class CrossCoinStrategy(BaseBacktestStrategy):
     version = "1.0"
     description = "Cross-coin correlation: BTC direction → ETH/SOL alignment"
 
-    def __init__(self, reference_coin: str = "BTC",
-                 min_confidence: float = 0.60,
-                 max_elapsed_pct: float = 0.40,
-                 btc_move_threshold: float = 0.1):
+    def __init__(
+        self,
+        reference_coin: str = "BTC",
+        min_confidence: float = 0.60,
+        max_elapsed_pct: float = 0.40,
+        btc_move_threshold: float = 0.1,
+    ):
         self.reference_coin = reference_coin.upper()
         self.min_confidence = min_confidence
         self.max_elapsed_pct = max_elapsed_pct
@@ -70,9 +78,11 @@ class CrossCoinStrategy(BaseBacktestStrategy):
             else:
                 entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
             return self.make_signal(
-                direction, self.min_confidence, entry,
+                direction,
+                self.min_confidence,
+                entry,
                 reason=f"cross_coin: {self.reference_coin}→{direction.upper()} "
-                       f"(correlation alignment)",
+                f"(correlation alignment)",
             )
 
         # Method 2: Use BTC price movement as proxy
@@ -81,21 +91,21 @@ class CrossCoinStrategy(BaseBacktestStrategy):
                 self._btc_open_price = snap.binance_price
                 return None
 
-            pct_change = ((snap.binance_price - self._btc_open_price)
-                          / self._btc_open_price) * 100
+            pct_change = ((snap.binance_price - self._btc_open_price) / self._btc_open_price) * 100
 
             if abs(pct_change) >= self.btc_move_threshold:
                 direction = "up" if pct_change > 0 else "down"
-                confidence = min(0.85, self.min_confidence +
-                                abs(pct_change) * 0.1)
+                confidence = min(0.85, self.min_confidence + abs(pct_change) * 0.1)
                 if direction == "up":
                     entry = snap.up_best_ask if snap.up_best_ask > 0 else 0.5
                 else:
                     entry = snap.down_best_ask if snap.down_best_ask > 0 else 0.5
                 return self.make_signal(
-                    direction, confidence, entry,
+                    direction,
+                    confidence,
+                    entry,
                     reason=f"cross_coin: BTC {pct_change:+.3f}% "
-                           f"→ {direction.upper()} alignment",
+                    f"→ {direction.upper()} alignment",
                     btc_pct_change=pct_change,
                 )
 

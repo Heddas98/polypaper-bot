@@ -14,12 +14,13 @@ ENV:
   PORTFOLIO_REFRESH_ENABLED  — Master switch (default true)
   PORTFOLIO_FAIL_ALERT_THRESHOLD — Sıralı fail count for admin alert (default 5)
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 from telegram.ext import ContextTypes
@@ -64,14 +65,11 @@ async def polymarket_portfolio_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         if _consecutive_failures == threshold:
             err_summary = "; ".join(snap.fetch_errors[:3])
             await _maybe_alert_admin(
-                context,
-                f"Portfolio fetch {threshold}x sıralı hata. Son: {err_summary}"
+                context, f"Portfolio fetch {threshold}x sıralı hata. Son: {err_summary}"
             )
     else:
         if _consecutive_failures > 0:
-            logger.info(
-                f"portfolio_job recovered after {_consecutive_failures} fails"
-            )
+            logger.info(f"portfolio_job recovered after {_consecutive_failures} fails")
         _consecutive_failures = 0
 
     # Persist snapshot — UPSERT on id=1 (single-row cache pattern)
@@ -87,8 +85,13 @@ async def polymarket_portfolio_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             "fetched_at=excluded.fetched_at, "
             "fetch_latency_ms=excluded.fetch_latency_ms, "
             "error_count=excluded.error_count",
-            (snap.user_address, snap_json, snap.fetched_at,
-             snap.fetch_latency_ms, len(snap.fetch_errors)),
+            (
+                snap.user_address,
+                snap_json,
+                snap.fetched_at,
+                snap.fetch_latency_ms,
+                len(snap.fetch_errors),
+            ),
         )
         await db.conn.commit()
         logger.debug(
@@ -104,7 +107,7 @@ async def polymarket_portfolio_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _maybe_alert_admin(context: ContextTypes.DEFAULT_TYPE, msg: str) -> None:
     """Send admin Telegram alert with 30-min cooldown to avoid spam."""
     global _last_alert_at
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cooldown = int(os.getenv("PORTFOLIO_ALERT_COOLDOWN_SEC", "1800"))
     if _last_alert_at and (now - _last_alert_at).total_seconds() < cooldown:
         return

@@ -41,6 +41,7 @@ or schema drift should NOT crash the feed thread — the reconnect
 loop handles it. Wide catches at the orchestration layer are
 intentional and logged.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -76,10 +77,19 @@ RECONNECT_BACKOFF = (2, 5, 10, 20, 30)
 
 class _AssetState:
     """Rolling microstructure state for one asset."""
+
     __slots__ = (
-        "asset", "best_bid", "best_ask", "bid_size", "ask_size",
-        "depth_bid_usd", "depth_ask_usd", "trades", "funding_rate",
-        "mark_price", "last_update_ts",
+        "asset",
+        "best_bid",
+        "best_ask",
+        "bid_size",
+        "ask_size",
+        "depth_bid_usd",
+        "depth_ask_usd",
+        "trades",
+        "funding_rate",
+        "mark_price",
+        "last_update_ts",
     )
 
     def __init__(self, asset: str):
@@ -145,7 +155,9 @@ class _AssetState:
         # Microprice = depth-weighted mid (favours the heavier side)
         size_total = self.bid_size + self.ask_size
         if size_total > 0:
-            microprice = (self.best_ask * self.bid_size + self.best_bid * self.ask_size) / size_total
+            microprice = (
+                self.best_ask * self.bid_size + self.best_bid * self.ask_size
+            ) / size_total
         else:
             microprice = mid
 
@@ -189,8 +201,7 @@ class _AssetState:
 class BinanceMultiStream:
     """Single-task combined websocket subscription for all 4 assets."""
 
-    def __init__(self, trade_window_seconds: float = 60.0,
-                 enable_funding: bool = True, db=None):
+    def __init__(self, trade_window_seconds: float = 60.0, enable_funding: bool = True, db=None):
         self.trade_window = trade_window_seconds
         self.enable_funding = enable_funding
         # P0-08-E6 (2026-05-08): db ref + 1s throttle for external_prices persist
@@ -224,13 +235,13 @@ class BinanceMultiStream:
         self._running = True
         # Phase 82e Sprint 2.1: Binance feeds die silently = no external price
         # confirmation. Notify on death.
-        self._spot_task = safe_create_task(
-            self._spot_loop(), name="binance_spot_ms")
+        self._spot_task = safe_create_task(self._spot_loop(), name="binance_spot_ms")
         if self.enable_funding:
-            self._fut_task = safe_create_task(
-                self._fut_loop(), name="binance_fut_ms")
-        logger.info("📡 Phase 44a: Binance multistream STARTED "
-                    f"(spot+{len(SPOT_SYMBOLS)} pairs, funding={self.enable_funding})")
+            self._fut_task = safe_create_task(self._fut_loop(), name="binance_fut_ms")
+        logger.info(
+            "📡 Phase 44a: Binance multistream STARTED "
+            f"(spot+{len(SPOT_SYMBOLS)} pairs, funding={self.enable_funding})"
+        )
 
     async def stop(self):
         self._running = False
@@ -241,6 +252,7 @@ class BinanceMultiStream:
     # ── spot loop (depth + aggTrade combined stream) ─────────────────
     async def _spot_loop(self):
         import websockets
+
         streams = []
         for sym in SPOT_SYMBOLS.values():
             streams.append(f"{sym}@depth{DEPTH_LEVELS}@{DEPTH_INTERVAL_MS}ms")
@@ -249,8 +261,9 @@ class BinanceMultiStream:
         backoff_idx = 0
         while self._running:
             try:
-                async with websockets.connect(url, ping_interval=PING_INTERVAL,
-                                              ping_timeout=10, max_size=2**20) as ws:
+                async with websockets.connect(
+                    url, ping_interval=PING_INTERVAL, ping_timeout=10, max_size=2**20
+                ) as ws:
                     self._connected_at = time.time()
                     backoff_idx = 0
                     logger.info(f"📡 Binance spot multistream connected ({len(streams)} streams)")
@@ -268,7 +281,9 @@ class BinanceMultiStream:
             except Exception as e:  # noqa: BLE001
                 self._reconnects += 1
                 wait = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
-                logger.warning(f"📡 Binance spot WS lost ({type(e).__name__}: {e}); retry in {wait}s")
+                logger.warning(
+                    f"📡 Binance spot WS lost ({type(e).__name__}: {e}); retry in {wait}s"
+                )
                 backoff_idx += 1
                 try:
                     await asyncio.sleep(wait)
@@ -295,13 +310,15 @@ class BinanceMultiStream:
     # ── futures loop (markPrice with funding) ────────────────────────
     async def _fut_loop(self):
         import websockets
+
         streams = "/".join(f"{sym}@markPrice@1s" for sym in SPOT_SYMBOLS.values())
         url = FUT_WS.format(streams=streams)
         backoff_idx = 0
         while self._running:
             try:
-                async with websockets.connect(url, ping_interval=PING_INTERVAL,
-                                              ping_timeout=10) as ws:
+                async with websockets.connect(
+                    url, ping_interval=PING_INTERVAL, ping_timeout=10
+                ) as ws:
                     backoff_idx = 0
                     logger.info("📡 Binance futures markPrice stream connected")
                     async for raw in ws:
@@ -323,7 +340,9 @@ class BinanceMultiStream:
             except Exception as e:  # noqa: BLE001
                 self._reconnects += 1
                 wait = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
-                logger.warning(f"📡 Binance fut WS lost ({type(e).__name__}: {e}); retry in {wait}s")
+                logger.warning(
+                    f"📡 Binance fut WS lost ({type(e).__name__}: {e}); retry in {wait}s"
+                )
                 backoff_idx += 1
                 try:
                     await asyncio.sleep(wait)
@@ -372,4 +391,3 @@ class BinanceMultiStream:
             await self.db.conn.commit()
         except Exception:  # noqa: BLE001
             pass
-

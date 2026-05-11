@@ -11,18 +11,19 @@ Usage:
 
 ADMIN ONLY.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from config.settings import Settings
-from telegram_bot.templates.safe_html import esc
 from telegram_bot.handlers._exc_render import render_user_exception
+from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.archive_info")
 
@@ -38,9 +39,7 @@ def _fmt_ts(ts_ms: int) -> str:
     if not ts_ms:
         return "N/A"
     try:
-        return datetime.fromtimestamp(
-            ts_ms / 1000, tz=timezone.utc
-        ).strftime("%Y-%m-%d %H:%M UTC")
+        return datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
     except (ValueError, TypeError, OverflowError, OSError):
         # T11.8-B (2026-04-24): narrow from bare Exception. fromtimestamp
         # raises ValueError (out of range), TypeError (non-numeric), and
@@ -63,12 +62,12 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         from backtest.archive_reader import ArchiveReader
     except ImportError as e:
         return await update.message.reply_text(
-            render_user_exception(e, "⚠️ ArchiveReader import failed"),
-            parse_mode="HTML")
+            render_user_exception(e, "⚠️ ArchiveReader import failed"), parse_mode="HTML"
+        )
 
     await update.message.reply_text(
-        "⏳ Archive reader taranıyor (hot + cold tier)...",
-        parse_mode="HTML")
+        "⏳ Archive reader taranıyor (hot + cold tier)...", parse_mode="HTML"
+    )
 
     try:
         reader = ArchiveReader()
@@ -79,8 +78,8 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         # T11.6-OK reason=/archive_info admin-only, parquet/sqlite I/O hatasi
         # operator icin gerekli (Disk full vs missing file ayrimi). Truncated.
         return await update.message.reply_text(  # noqa: T11.6-OK
-            f"⚠️ Archive reader hata: <code>{esc(str(e)[:200])}</code>",
-            parse_mode="HTML")
+            f"⚠️ Archive reader hata: <code>{esc(str(e)[:200])}</code>", parse_mode="HTML"
+        )
 
     # Build HTML report
     hot = info.get("hot_range", {})
@@ -108,7 +107,6 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         "📦 <b>Archive Reader Info</b>\n"
         f"<i>Phase 82e Sprint B.2 — hot (SQLite) + cold (Parquet)</i>\n"
         f"{'─' * 24}\n\n"
-
         f"<b>🔥 Hot Tier (SQLite, live)</b>\n"
         f"  Path: <code>{esc(info.get('db_path', ''))}</code>\n"
         f"  Available: {'✅' if info.get('hot_available') else '❌'}\n"
@@ -116,7 +114,6 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         f"  Range: <code>{esc(_fmt_ts(hot_min))}</code> → "
         f"<code>{esc(_fmt_ts(hot_max))}</code>\n"
         f"  Span: <b>{hot_span:.1f} days</b>\n\n"
-
         f"<b>🧊 Cold Tier (Parquet, archive)</b>\n"
         f"  Path: <code>{esc(info.get('archive_dir', ''))}</code>\n"
         f"  Files: <b>{pq_files}</b> parquet dosyasi\n"
@@ -125,15 +122,12 @@ async def archive_info_command(update: Update, context: ContextTypes.DEFAULT_TYP
         f"  Range: <code>{esc(_fmt_ts(cold_min))}</code> → "
         f"<code>{esc(_fmt_ts(cold_max))}</code>\n"
         f"  Span: <b>{cold_span:.1f} days</b>\n\n"
-
         f"<b>📊 Combined</b>\n"
         f"  Total rows: <code>{counts.get('total', 0):,}</code>\n"
         f"  Full span: <b>{total_span:.1f} days</b>\n"
         f"  Earliest: <code>{esc(_fmt_ts(all_min))}</code>\n"
         f"  Latest:   <code>{esc(_fmt_ts(all_max))}</code>\n\n"
-
         f"<i>Backtest uses this via ReplayConfig.use_archive=True.</i>"
     )
 
-    await update.message.reply_text(
-        text, parse_mode="HTML", disable_web_page_preview=True)
+    await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)

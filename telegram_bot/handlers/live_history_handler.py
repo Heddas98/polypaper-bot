@@ -18,17 +18,19 @@ CSV export rich fields:
   size_shares, price_usd, usdc_size, tx_hash, polygonscan_url,
   title, end_date, holding_seconds (computed)
 """
+
 from __future__ import annotations
 
 import csv
 import io
 import logging
-import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from telegram import (
-    InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+    Update,
 )
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
@@ -44,7 +46,7 @@ def _fmt_time(ts: int) -> str:
     if not ts:
         return "?"
     try:
-        dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        dt = datetime.fromtimestamp(int(ts), tz=UTC)
         return dt.strftime("%d %b %H:%M UTC")
     except (ValueError, OSError):
         return "?"
@@ -55,8 +57,7 @@ def _fmt_iso_full(ts: int) -> str:
     if not ts:
         return ""
     try:
-        return datetime.fromtimestamp(
-            int(ts), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(int(ts), tz=UTC).isoformat()
     except (ValueError, OSError):
         return ""
 
@@ -77,7 +78,8 @@ def _type_emoji(act_type: str, side: str = "") -> str:
 
 
 async def live_history_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Live history callback handler.
 
@@ -112,7 +114,8 @@ async def live_history_callback(
 
 
 async def live_history_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """`/lh` veya `/livehistory` komutu — page 0."""
     fake_q = update.callback_query
@@ -127,6 +130,7 @@ async def live_history_command(
 
             async def answer(self):
                 pass
+
         fake_q = _Q()
     await _show_history_list(fake_q, context, 0)
 
@@ -138,6 +142,7 @@ async def _get_activity(context: ContextTypes.DEFAULT_TYPE) -> list[dict]:
         return []
     try:
         from data.polymarket_portfolio import read_cached_snapshot
+
         snap = await read_cached_snapshot(engine.db)
         if snap:
             return list(snap.get("activity", []) or [])
@@ -159,12 +164,12 @@ async def _show_history_list(q, context, page: int) -> None:
             "<i>Polymarket cache henüz güncellenmemiş olabilir — "
             "bot başlatıldıktan 60sn sonra populate olur.</i>"
         )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Yenile",
-                                   callback_data=f"live_history:{page}")],
-            [InlineKeyboardButton("◀️ Live Menü",
-                                   callback_data="main_live")],
-        ])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🔄 Yenile", callback_data=f"live_history:{page}")],
+                [InlineKeyboardButton("◀️ Live Menü", callback_data="main_live")],
+            ]
+        )
         try:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
         except (BadRequest, TelegramError):
@@ -202,32 +207,44 @@ async def _show_history_list(q, context, page: int) -> None:
             f"  🎯 {title}{' · ' + outcome if outcome else ''}\n"
             f"  💵 {size:.2f} @ ${price:.3f} = ${usdc:.2f}\n\n"
         )
-        rows.append([InlineKeyboardButton(
-            f"{emoji} {act_type} — Detay",
-            callback_data=f"live_history_detail:{idx}",
-        )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{emoji} {act_type} — Detay",
+                    callback_data=f"live_history_detail:{idx}",
+                )
+            ]
+        )
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton(
-            "⏪ Önceki", callback_data=f"live_history:{page - 1}",
-        ))
+        nav_row.append(
+            InlineKeyboardButton(
+                "⏪ Önceki",
+                callback_data=f"live_history:{page - 1}",
+            )
+        )
     if page < pages - 1:
-        nav_row.append(InlineKeyboardButton(
-            "Sonraki ⏩", callback_data=f"live_history:{page + 1}",
-        ))
+        nav_row.append(
+            InlineKeyboardButton(
+                "Sonraki ⏩",
+                callback_data=f"live_history:{page + 1}",
+            )
+        )
     if nav_row:
         rows.append(nav_row)
-    rows.append([
-        InlineKeyboardButton("🔄 Yenile",
-                              callback_data=f"live_history:{page}"),
-        InlineKeyboardButton("📤 CSV Export",
-                              callback_data="live_export_csv"),
-    ])
-    rows.append([
-        InlineKeyboardButton("📈 PnL Özet", callback_data="live_pnl"),
-        InlineKeyboardButton("◀️ Live Menü", callback_data="main_live"),
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton("🔄 Yenile", callback_data=f"live_history:{page}"),
+            InlineKeyboardButton("📤 CSV Export", callback_data="live_export_csv"),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton("📈 PnL Özet", callback_data="live_pnl"),
+            InlineKeyboardButton("◀️ Live Menü", callback_data="main_live"),
+        ]
+    )
     kb = InlineKeyboardMarkup(rows)
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
@@ -279,32 +296,43 @@ async def _show_trade_detail(q, context, idx: int) -> None:
 
     rows = []
     if tx_hash:
-        text += (
-            f"\n<b>🔗 Transaction:</b>\n"
-            f"<code>{tx_hash[:18]}...{tx_hash[-6:]}</code>\n"
+        text += f"\n<b>🔗 Transaction:</b>\n" f"<code>{tx_hash[:18]}...{tx_hash[-6:]}</code>\n"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "🔗 Polygonscan'da Aç",
+                    url=f"{POLYGONSCAN_TX}{tx_hash}",
+                )
+            ]
         )
-        rows.append([InlineKeyboardButton(
-            "🔗 Polygonscan'da Aç",
-            url=f"{POLYGONSCAN_TX}{tx_hash}",
-        )])
 
     if slug:
-        rows.append([InlineKeyboardButton(
-            "🌐 Polymarket'da Gör",
-            url=f"https://polymarket.com/event/{slug}",
-        )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "🌐 Polymarket'da Gör",
+                    url=f"https://polymarket.com/event/{slug}",
+                )
+            ]
+        )
 
-    rows.append([InlineKeyboardButton(
-        "◀️ Liste",
-        callback_data="live_history:0",
-    )])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "◀️ Liste",
+                callback_data="live_history:0",
+            )
+        ]
+    )
     kb = InlineKeyboardMarkup(rows)
     try:
-        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb,
-                                   disable_web_page_preview=True)
+        await q.edit_message_text(
+            text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True
+        )
     except (BadRequest, TelegramError):
-        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb,
-                                    disable_web_page_preview=True)
+        await q.message.reply_text(
+            text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True
+        )
 
 
 async def _export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -321,40 +349,49 @@ async def _export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     buf = io.StringIO()
     fieldnames = [
-        "timestamp_unix", "timestamp_iso", "type", "side",
-        "title", "slug", "outcome", "outcome_index",
-        "size_shares", "price_usd", "usdc_size",
-        "condition_id", "asset_token_id",
-        "transaction_hash", "polygonscan_url",
+        "timestamp_unix",
+        "timestamp_iso",
+        "type",
+        "side",
+        "title",
+        "slug",
+        "outcome",
+        "outcome_index",
+        "size_shares",
+        "price_usd",
+        "usdc_size",
+        "condition_id",
+        "asset_token_id",
+        "transaction_hash",
+        "polygonscan_url",
     ]
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
     writer.writeheader()
     for a in activity:
         ts = int(a.get("timestamp", 0) or 0)
         tx = str(a.get("transaction_hash", ""))
-        writer.writerow({
-            "timestamp_unix": ts,
-            "timestamp_iso": _fmt_iso_full(ts),
-            "type": a.get("type", ""),
-            "side": a.get("side", ""),
-            "title": a.get("title", ""),
-            "slug": a.get("slug", ""),
-            "outcome": a.get("outcome", ""),
-            "outcome_index": a.get("outcome_index", 0),
-            "size_shares": a.get("size", 0),
-            "price_usd": a.get("price", 0),
-            "usdc_size": a.get("usdc_size", 0),
-            "condition_id": a.get("condition_id", ""),
-            "asset_token_id": a.get("asset", ""),
-            "transaction_hash": tx,
-            "polygonscan_url": (POLYGONSCAN_TX + tx) if tx else "",
-        })
+        writer.writerow(
+            {
+                "timestamp_unix": ts,
+                "timestamp_iso": _fmt_iso_full(ts),
+                "type": a.get("type", ""),
+                "side": a.get("side", ""),
+                "title": a.get("title", ""),
+                "slug": a.get("slug", ""),
+                "outcome": a.get("outcome", ""),
+                "outcome_index": a.get("outcome_index", 0),
+                "size_shares": a.get("size", 0),
+                "price_usd": a.get("price", 0),
+                "usdc_size": a.get("usdc_size", 0),
+                "condition_id": a.get("condition_id", ""),
+                "asset_token_id": a.get("asset", ""),
+                "transaction_hash": tx,
+                "polygonscan_url": (POLYGONSCAN_TX + tx) if tx else "",
+            }
+        )
 
     csv_bytes = buf.getvalue().encode("utf-8")
-    fname = (
-        "polypaper_live_trades_"
-        f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
-    )
+    fname = "polypaper_live_trades_" f"{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
     try:
         await update.callback_query.message.reply_document(
             document=InputFile(io.BytesIO(csv_bytes), filename=fname),
@@ -381,6 +418,7 @@ async def _show_pnl_summary(q, context: ContextTypes.DEFAULT_TYPE) -> None:
     if engine and getattr(engine, "db", None):
         try:
             from data.polymarket_portfolio import read_cached_snapshot
+
             snap = await read_cached_snapshot(engine.db)
             if snap:
                 closed_positions = list(snap.get("closed_positions", []) or [])
@@ -389,21 +427,30 @@ async def _show_pnl_summary(q, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.debug(f"_show_pnl_summary: {e}")
 
     # Compute statistics
-    today_ts_start = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0).timestamp()
+    today_ts_start = (
+        datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    )
     week_ts_start = today_ts_start - 7 * 86400
 
-    today_trades = [a for a in activity if a.get("type") == "TRADE"
-                    and int(a.get("timestamp", 0) or 0) >= today_ts_start]
-    week_trades = [a for a in activity if a.get("type") == "TRADE"
-                   and int(a.get("timestamp", 0) or 0) >= week_ts_start]
-    today_redeems = [a for a in activity if a.get("type") == "REDEEM"
-                     and int(a.get("timestamp", 0) or 0) >= today_ts_start]
+    today_trades = [
+        a
+        for a in activity
+        if a.get("type") == "TRADE" and int(a.get("timestamp", 0) or 0) >= today_ts_start
+    ]
+    week_trades = [
+        a
+        for a in activity
+        if a.get("type") == "TRADE" and int(a.get("timestamp", 0) or 0) >= week_ts_start
+    ]
+    today_redeems = [
+        a
+        for a in activity
+        if a.get("type") == "REDEEM" and int(a.get("timestamp", 0) or 0) >= today_ts_start
+    ]
 
     # Open + closed PnL
     open_pnl = sum(
-        float(p.get("cur_value_usd", 0)) - float(p.get("cost_basis_usd", 0))
-        for p in open_positions
+        float(p.get("cur_value_usd", 0)) - float(p.get("cost_basis_usd", 0)) for p in open_positions
     )
     closed_pnl = sum(float(c.get("realized_pnl", 0)) for c in closed_positions)
 
@@ -414,15 +461,13 @@ async def _show_pnl_summary(q, context: ContextTypes.DEFAULT_TYPE) -> None:
     win_rate = (len(wins) / total_closed * 100.0) if total_closed > 0 else 0.0
 
     # Best/worst
-    best = max(closed_positions, key=lambda c: float(c.get("realized_pnl", 0)),
-                default=None)
-    worst = min(closed_positions, key=lambda c: float(c.get("realized_pnl", 0)),
-                 default=None)
+    best = max(closed_positions, key=lambda c: float(c.get("realized_pnl", 0)), default=None)
+    worst = min(closed_positions, key=lambda c: float(c.get("realized_pnl", 0)), default=None)
 
     text = (
         "📈 <b>LIVE PnL — Detay</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>Bugün ({datetime.now(timezone.utc).strftime('%d %b')}):</b>\n"
+        f"<b>Bugün ({datetime.now(UTC).strftime('%d %b')}):</b>\n"
         f"  • Trade: {len(today_trades)}\n"
         f"  • Redeem: {len(today_redeems)}\n\n"
         f"<b>Son 7 gün:</b>\n"
@@ -453,14 +498,13 @@ async def _show_pnl_summary(q, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"({float(worst.get('percent_realized_pnl', 0)):+.1f}%)\n"
         )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📜 Trade Listesi",
-                               callback_data="live_history:0")],
-        [InlineKeyboardButton("📤 CSV Export",
-                               callback_data="live_export_csv")],
-        [InlineKeyboardButton("◀️ Live Menü",
-                               callback_data="main_live")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📜 Trade Listesi", callback_data="live_history:0")],
+            [InlineKeyboardButton("📤 CSV Export", callback_data="live_export_csv")],
+            [InlineKeyboardButton("◀️ Live Menü", callback_data="main_live")],
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
     except (BadRequest, TelegramError):

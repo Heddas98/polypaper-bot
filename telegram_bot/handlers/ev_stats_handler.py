@@ -15,11 +15,14 @@ Shows:
   ⚠️ 0.6-0.75 = acceptable (monitor)
   ❌ <0.6 = bad (overfitting/broken)
 """
+
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
 from telegram_bot.handlers._exc_render import render_user_exception
 from telegram_bot.templates.safe_html import esc
-import logging
 
 logger = logging.getLogger("polypaper.handlers.ev_stats")
 
@@ -33,6 +36,7 @@ async def ev_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         from core.ev_tracker import EVTracker
+
         ev = EVTracker(db)
 
         # Get summary for all strategies
@@ -40,8 +44,7 @@ async def ev_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not summary:
             await update.message.reply_text(
-                "📊 <b>Edge Realization Stats</b>\n\n"
-                "Henüz trade yok.",
+                "📊 <b>Edge Realization Stats</b>\n\n" "Henüz trade yok.",
                 parse_mode="HTML",
             )
             return
@@ -50,10 +53,10 @@ async def ev_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("(ratio: realized / expected)\n")
 
         for label, stats in summary[:15]:  # Top 15
-            trades = stats['trades']
-            avg_pnl = stats['avg_pnl']
-            edge_real = stats['edge_real']
-            wr = stats['wr']
+            trades = stats["trades"]
+            avg_pnl = stats["avg_pnl"]
+            edge_real = stats["edge_real"]
+            wr = stats["wr"]
 
             # Color emoji based on quality
             if edge_real >= 0.9:
@@ -102,9 +105,7 @@ async def ev_stats_strategy_command(update: Update, context: ContextTypes.DEFAUL
 
         args = context.args or []
         if not args:
-            await update.message.reply_text(
-                "Usage: /ev_stats_detail [strategy_name]"
-            )
+            await update.message.reply_text("Usage: /ev_stats_detail [strategy_name]")
             return
 
         strategy_label = " ".join(args)
@@ -116,30 +117,27 @@ async def ev_stats_strategy_command(update: Update, context: ContextTypes.DEFAUL
         )
 
         if not rows:
-            await update.message.reply_text(
-                f"❌ Strateji bulunamadı: {esc(strategy_label)}"
-            )
+            await update.message.reply_text(f"❌ Strateji bulunamadı: {esc(strategy_label)}")
             return
 
         strategy_id = rows[0][0]
 
         # Get stats
         from core.ev_tracker import EVTracker
+
         ev = EVTracker(db)
         stats = await ev.get_strategy_ev_stats(strategy_id)
 
-        if stats['trade_count'] == 0:
-            await update.message.reply_text(
-                f"❌ {esc(strategy_label)}: trade yok"
-            )
+        if stats["trade_count"] == 0:
+            await update.message.reply_text(f"❌ {esc(strategy_label)}: trade yok")
             return
 
         # Quality color
-        if stats['edge_quality'] == 'excellent':
+        if stats["edge_quality"] == "excellent":
             emoji = "✅✅"
-        elif stats['edge_quality'] == 'good':
+        elif stats["edge_quality"] == "good":
             emoji = "✅"
-        elif stats['edge_quality'] == 'acceptable':
+        elif stats["edge_quality"] == "acceptable":
             emoji = "⚠️"
         else:
             emoji = "❌"
@@ -157,7 +155,7 @@ async def ev_stats_strategy_command(update: Update, context: ContextTypes.DEFAUL
         )
 
         # Interpretation
-        ratio = stats['edge_realization_avg']
+        ratio = stats["edge_realization_avg"]
         if ratio >= 0.9:
             text += "✅ Model mükemmel çalışıyor, scale et.\n"
         elif ratio >= 0.75:

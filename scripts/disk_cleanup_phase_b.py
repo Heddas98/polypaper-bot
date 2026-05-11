@@ -2,11 +2,11 @@
 Disk Cleanup — Phase B (Backups Prune)
 =========================================
 
-data_store\backups\ klasöründe çok eski .db backup'ları var (~73 GB).
+data_store\backups\\ klasöründe çok eski .db backup'ları var (~73 GB).
 Bu script son N tanesini korur, geri kalanını siler.
 
 Kullanım:
-    py -3.11 scripts\disk_cleanup_phase_b.py [--keep 3] [--dry-run]
+    py -3.11 scripts\\disk_cleanup_phase_b.py [--keep 3] [--dry-run]
 
 Varsayılan: son 3 backup korunur (yaklaşık son 1 hafta).
 
@@ -15,12 +15,12 @@ Korunan:
 - .db.tmp dosyaları (atomic write in-progress, dokunulmaz)
 
 Heddas direktifi: "yedekle önce, sonra sil" — script execute-only,
-yedek kopyalama (D:\backup_safety\ vb.) Heddas yerel manuel.
+yedek kopyalama (D:\backup_safety\\ vb.) Heddas yerel manuel.
 """
+
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -107,7 +107,11 @@ def main():
         return
 
     print()
-    confirm = input(f"Delete {len(delete)} backups + {len(related_to_delete)} related? (y/N): ").strip().lower()
+    confirm = (
+        input(f"Delete {len(delete)} backups + {len(related_to_delete)} related? (y/N): ")
+        .strip()
+        .lower()
+    )
     if confirm not in ("y", "yes"):
         print("❌ Aborted.")
         return

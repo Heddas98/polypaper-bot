@@ -12,10 +12,8 @@ Patterns detected:
   - Zone performance shifts (e.g., "35-50c zone WR dropped from 65% to 55%")
   - Strategy-specific streaks (e.g., "fusion strategy on BTC peaks Monday-Wednesday")
 """
-import asyncio
+
 import logging
-import os
-from datetime import datetime, timezone
 
 import aiosqlite
 from telegram.error import TelegramError
@@ -60,7 +58,8 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
 
     try:
         # ── Pattern 1: Hour-of-day WR by asset ──
-        hour_data = await db.conn.execute_fetchall("""
+        hour_data = await db.conn.execute_fetchall(
+            """
             SELECT
                 CAST(strftime('%%H', e.created_at) AS INTEGER) as hour,
                 CASE WHEN e.event_slug LIKE '%%btc%%' THEN 'BTC'
@@ -78,9 +77,11 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
             GROUP BY hour, asset, e.direction
             HAVING trades >= 5
             ORDER BY total_pnl DESC
-        """, (f"-{days}",))
+        """,
+            (f"-{days}",),
+        )
 
-        for row in (hour_data or []):
+        for row in hour_data or []:
             hour, asset, direction, trades, wins, pnl = row
             wr = wins / trades * 100 if trades > 0 else 0
             if wr >= 65 and trades >= 5:
@@ -91,7 +92,8 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
                 findings.append(("hour_avoid", desc, asset, wr, trades))
 
         # ── Pattern 2: Asset+direction performance ──
-        asset_data = await db.conn.execute_fetchall("""
+        asset_data = await db.conn.execute_fetchall(
+            """
             SELECT
                 CASE WHEN e.event_slug LIKE '%%btc%%' THEN 'BTC'
                      WHEN e.event_slug LIKE '%%eth%%' THEN 'ETH'
@@ -109,9 +111,11 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
             GROUP BY asset, e.direction
             HAVING trades >= 10
             ORDER BY total_pnl DESC
-        """, (f"-{days}",))
+        """,
+            (f"-{days}",),
+        )
 
-        for row in (asset_data or []):
+        for row in asset_data or []:
             asset, direction, trades, wins, pnl, avg = row
             wr = wins / trades * 100 if trades > 0 else 0
             if wr >= 60:
@@ -122,7 +126,8 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
                 findings.append(("asset_avoid", desc, asset, wr, trades))
 
         # ── Pattern 3: Zone performance trends ──
-        zone_data = await db.conn.execute_fetchall("""
+        zone_data = await db.conn.execute_fetchall(
+            """
             SELECT
                 CASE
                     WHEN e.execution_price < 0.35 THEN '0-35c'
@@ -139,9 +144,11 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
                 AND e.created_at >= datetime('now', ? || ' days')
             GROUP BY zone
             HAVING trades >= 5
-        """, (f"-{days}",))
+        """,
+            (f"-{days}",),
+        )
 
-        for row in (zone_data or []):
+        for row in zone_data or []:
             zone, trades, wins, pnl = row
             wr = wins / trades * 100 if trades > 0 else 0
             status = "✅" if pnl > 0 else "⚠️"
@@ -149,7 +156,8 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
             findings.append(("zone_perf", desc, None, wr, trades))
 
         # ── Pattern 4: Strategy-type performance ──
-        strat_data = await db.conn.execute_fetchall("""
+        strat_data = await db.conn.execute_fetchall(
+            """
             SELECT
                 s.strategy_type,
                 COUNT(*) as trades,
@@ -161,9 +169,11 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
                 AND e.created_at >= datetime('now', ? || ' days')
             GROUP BY s.strategy_type
             HAVING trades >= 5
-        """, (f"-{days}",))
+        """,
+            (f"-{days}",),
+        )
 
-        for row in (strat_data or []):
+        for row in strat_data or []:
             stype, trades, wins, pnl = row
             wr = wins / trades * 100 if trades > 0 else 0
             desc = f"Strategy [{stype}]: {wr:.0f}% WR, {trades}t, PnL:{pnl:+.2f}"
@@ -172,7 +182,8 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
         # ── Save findings to DB ──
         # Expire old patterns first
         await db.conn.execute(
-            "UPDATE discovered_patterns SET is_active=0 WHERE discovered_at < datetime('now', '-7 days')")
+            "UPDATE discovered_patterns SET is_active=0 WHERE discovered_at < datetime('now', '-7 days')"
+        )
 
         for ptype, desc, asset, metric, sample in findings:
             confidence = "high" if sample >= 20 else ("medium" if sample >= 10 else "low")
@@ -181,7 +192,8 @@ async def run_pattern_discovery(db, days: int = 7) -> list[str]:
                 (pattern_type, description, asset, metric_value, sample_size, confidence,
                  expires_at)
                 VALUES (?,?,?,?,?,?, datetime('now', '+7 days'))""",
-                (ptype, desc, asset, metric, sample, confidence))
+                (ptype, desc, asset, metric, sample, confidence),
+            )
 
         await db.conn.commit()
         logger.info(f"📊 Pattern discovery: {len(findings)} patterns found from {days} days")

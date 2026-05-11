@@ -7,15 +7,17 @@ Usage:
     registry = StrategyRegistry()
     registry.register(MomentumStrategy())
     registry.register(ContrarianStrategy())
-    
+
     result = registry.evaluate("momentum", odds_data)
 """
+
 import logging
 import math
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, Protocol
+from datetime import UTC
+from typing import Optional
 
 logger = logging.getLogger("polypaper.core.strategy_plugins")
 
@@ -23,8 +25,9 @@ logger = logging.getLogger("polypaper.core.strategy_plugins")
 @dataclass
 class StrategySignal:
     """Output of a strategy evaluation."""
+
     direction: Optional[str] = None  # "up", "down", None
-    confidence: float = 0.0          # 0.0 to 1.0
+    confidence: float = 0.0  # 0.0 to 1.0
     should_trade: bool = False
     reason: str = ""
     metadata: dict = field(default_factory=dict)
@@ -38,14 +41,15 @@ class MarketSnapshot:
     TF-adaptive logic için kullanabilir (örn. 5m'de "son 1 dk" mantıklı,
     24h'de değil; ratio-based `minutes_remaining/total_minutes` tercih).
     """
+
     up_odds: float = 0.5
     down_odds: float = 0.5
     threshold: float = 0.50
-    direction_filter: str = "any"    # "up", "down", "any"
+    direction_filter: str = "any"  # "up", "down", "any"
     odds_series: list = field(default_factory=list)  # Historical up_odds
     minutes_remaining: float = 2.5
     total_minutes: float = 5.0
-    timeframe: str = "5m"            # P0-08-F: TF context (5m/15m/1h/24h)
+    timeframe: str = "5m"  # P0-08-F: TF context (5m/15m/1h/24h)
     spread: float = 0.02
     best_ask: float = 0.5
     best_bid: float = 0.48
@@ -158,7 +162,7 @@ class ContrarianStrategy(BaseStrategy):
 
         # Volatility confirmation: contrarian works better in volatile markets
         if len(series) >= 5:
-            vol = math.sqrt(sum((x - mean)**2 for x in series[-10:]) / min(len(series), 10))
+            vol = math.sqrt(sum((x - mean) ** 2 for x in series[-10:]) / min(len(series), 10))
             if vol > 0.05:
                 result.confidence *= 1.2  # Boost in volatile markets
             result.metadata["volatility"] = vol
@@ -261,7 +265,7 @@ class SniperStrategy(BaseStrategy):
         # Check 5: Volatility is moderate
         if len(series) >= 5:
             mean = sum(series[-10:]) / min(len(series), 10)
-            vol = math.sqrt(sum((x - mean)**2 for x in series[-10:]) / min(len(series), 10))
+            vol = math.sqrt(sum((x - mean) ** 2 for x in series[-10:]) / min(len(series), 10))
             if 0.02 < vol < 0.12:
                 checks_passed += 1
 
@@ -281,14 +285,14 @@ class SniperStrategy(BaseStrategy):
 class MartingaleStrategy(BaseStrategy):
     """Kelly-Filtered Fractional DCA Martingale.
     Phase 18.5: NOT pure 2x doubling — uses adaptive multiplier.
-    
+
     Core logic:
     1. Base signal from contrarian mean-reversion
     2. On consecutive losses, increase amount by multiplier
     3. Kelly Criterion pre-filter: skip if EV negative
     4. Hard cap at MAX_LEVEL (8) — never exceed
     5. Circuit breaker at max_exposure
-    
+
     Amount progression (1.5x multiplier, 8 levels):
     L0=$1 → L1=$1.5 → L2=$2.25 → L3=$3.38 → L4=$5.06
     → L5=$7.59 → L6=$11.39 → L7=$17.09
@@ -299,10 +303,10 @@ class MartingaleStrategy(BaseStrategy):
     description = "🎰 Kelly-filtered DCA. Increases size on losses, resets on win."
 
     # Configurable constants
-    MULTIPLIER = 1.3        # Phase 19: 1.3x (was 1.5x — too aggressive at 0-30c)
-    MAX_LEVEL = 8           # Hard cap: 8 levels max
+    MULTIPLIER = 1.3  # Phase 19: 1.3x (was 1.5x — too aggressive at 0-30c)
+    MAX_LEVEL = 8  # Hard cap: 8 levels max
     MAX_TOTAL_EXPOSURE = 50.0  # Circuit breaker: max $ across all levels
-    MIN_KELLY = 0.05        # Minimum Kelly fraction to enter
+    MIN_KELLY = 0.05  # Minimum Kelly fraction to enter
     MIN_ENTRY_PRICE = 0.35  # Phase 19: NEVER enter below 35c (0-30c was 0% WR)
 
     def evaluate(self, s: MarketSnapshot) -> StrategySignal:
@@ -353,22 +357,24 @@ class MartingaleStrategy(BaseStrategy):
 
         # ═══ Step 3: Martingale level from metadata ═══
         # Engine passes loss_streak via snapshot metadata or defaults to 0
-        loss_streak = s.metadata.get("loss_streak", 0) if hasattr(s, 'metadata') else 0
+        loss_streak = s.metadata.get("loss_streak", 0) if hasattr(s, "metadata") else 0
         level = min(loss_streak, self.MAX_LEVEL - 1)
-        multiplier = self.MULTIPLIER ** level
-        base_amount = s.metadata.get("base_amount", 1.0) if hasattr(s, 'metadata') else 1.0
+        multiplier = self.MULTIPLIER**level
+        base_amount = s.metadata.get("base_amount", 1.0) if hasattr(s, "metadata") else 1.0
         sized_amount = round(base_amount * multiplier, 2)
 
         # Circuit breaker
-        total_exposure = s.metadata.get("total_exposure", 0) if hasattr(s, 'metadata') else 0
+        total_exposure = s.metadata.get("total_exposure", 0) if hasattr(s, "metadata") else 0
         if total_exposure + sized_amount > self.MAX_TOTAL_EXPOSURE:
-            result.reason = f"Circuit breaker: ${total_exposure}+${sized_amount} > ${self.MAX_TOTAL_EXPOSURE}"
+            result.reason = (
+                f"Circuit breaker: ${total_exposure}+${sized_amount} > ${self.MAX_TOTAL_EXPOSURE}"
+            )
             return result
 
         # Volatility boost (same as contrarian)
         vol = 0
         if len(series) >= 5:
-            vol = math.sqrt(sum((x - mean)**2 for x in series[-10:]) / min(len(series), 10))
+            vol = math.sqrt(sum((x - mean) ** 2 for x in series[-10:]) / min(len(series), 10))
 
         confidence = signal_strength * (1.1 if vol > 0.05 else 0.9)
         confidence = min(confidence, 1.0)
@@ -376,12 +382,17 @@ class MartingaleStrategy(BaseStrategy):
         result.direction = target_dir
         result.confidence = confidence
         result.should_trade = confidence >= 0.30
-        result.reason = (f"L{level} dev={deviation:+.3f} kelly={kelly_f:.2f} "
-                         f"size=${sized_amount:.2f} vol={vol:.3f}")
+        result.reason = (
+            f"L{level} dev={deviation:+.3f} kelly={kelly_f:.2f} "
+            f"size=${sized_amount:.2f} vol={vol:.3f}"
+        )
         result.metadata = {
-            "level": level, "multiplier": multiplier,
-            "sized_amount": sized_amount, "kelly_f": kelly_f,
-            "deviation": deviation, "est_win_prob": est_win_prob,
+            "level": level,
+            "multiplier": multiplier,
+            "sized_amount": sized_amount,
+            "kelly_f": kelly_f,
+            "deviation": deviation,
+            "est_win_prob": est_win_prob,
         }
         return result
 
@@ -391,6 +402,7 @@ class MartingaleStrategy(BaseStrategy):
 # ═══════════════════════════════════════
 # Phase 26: Flash Crash + Streak Reversal
 # ═══════════════════════════════════════
+
 
 class FlashCrashStrategy(BaseStrategy):
     """Phase 26: Detects sudden odds drops and buys the crash (mean-reversion).
@@ -410,13 +422,13 @@ class FlashCrashStrategy(BaseStrategy):
             return result
 
         # Check recent drop in UP odds
-        recent_max = max(series[-self.min_series_len:])
+        recent_max = max(series[-self.min_series_len :])
         current = series[-1]
         drop = recent_max - current
 
         # Check recent drop in DOWN odds (1-up)
         down_current = 1 - current
-        down_recent_max = 1 - min(series[-self.min_series_len:])
+        down_recent_max = 1 - min(series[-self.min_series_len :])
         down_drop = down_recent_max - down_current
 
         if drop >= self.drop_threshold and s.direction_filter in ("up", "any"):
@@ -432,7 +444,9 @@ class FlashCrashStrategy(BaseStrategy):
             result.should_trade = True
             result.reason = f"FLASH_CRASH DOWN drop={down_drop:.2f}"
         else:
-            result.reason = f"No crash (up_drop={drop:.2f} down_drop={down_drop:.2f} thr={self.drop_threshold})"
+            result.reason = (
+                f"No crash (up_drop={drop:.2f} down_drop={down_drop:.2f} thr={self.drop_threshold})"
+            )
         return result
 
 
@@ -481,6 +495,7 @@ class StreakReversalStrategy(BaseStrategy):
 
 
 # ═══════════════════════════════════════
+
 
 class HighThresholdStrategy(BaseStrategy):
     """Phase 25: Only trades in the 80c+ zone where 1027 trades show %84 WR.
@@ -546,9 +561,9 @@ class LateConvergenceStrategy(BaseStrategy):
     description = "🕓 Late-window momentum. Bets the dominant side after 80% elapsed."
 
     # Configurable parameters (mirror backtest defaults)
-    min_elapsed_pct = 0.80      # 80% of window = minute 4 of 5m
-    max_entry_price = 0.95      # don't buy above 95c (EV guard)
-    min_spread_threshold = 0.02 # min distance from 50/50 to call dominance
+    min_elapsed_pct = 0.80  # 80% of window = minute 4 of 5m
+    max_entry_price = 0.95  # don't buy above 95c (EV guard)
+    min_spread_threshold = 0.02  # min distance from 50/50 to call dominance
 
     def evaluate(self, s: MarketSnapshot) -> StrategySignal:
         result = StrategySignal()
@@ -602,8 +617,10 @@ class LateConvergenceStrategy(BaseStrategy):
         result.direction = direction
         result.confidence = confidence
         result.should_trade = True
-        result.reason = (f"late_conv {direction.upper()} @ {dominant_price:.2f} "
-                         f"({elapsed_pct:.0%} elapsed) conf={confidence:.2f}")
+        result.reason = (
+            f"late_conv {direction.upper()} @ {dominant_price:.2f} "
+            f"({elapsed_pct:.0%} elapsed) conf={confidence:.2f}"
+        )
         result.metadata = {
             "elapsed_pct": elapsed_pct,
             "dominant_price": dominant_price,
@@ -660,8 +677,8 @@ class PennyContractStrategy(BaseStrategy):
         down_odds = s.down_odds
 
         # Check if we're in the penny zone
-        in_low_zone = up_odds <= self._MAX_LOW     # UP at 1-5¢
-        in_high_zone = up_odds >= self._MIN_HIGH    # UP at 95-99¢
+        in_low_zone = up_odds <= self._MAX_LOW  # UP at 1-5¢
+        in_high_zone = up_odds >= self._MIN_HIGH  # UP at 95-99¢
 
         if not in_low_zone and not in_high_zone:
             result.reason = f"not_penny_zone({up_odds:.2f})"
@@ -785,11 +802,14 @@ class BondingYieldLiveStrategy(BaseStrategy):
         result.direction = direction
         result.confidence = round(confidence, 4)
         result.should_trade = True
-        result.reason = (f"bonding {direction} @ {price:.2f}c "
-                         f"yield={exp_yield:.1%} {hours_left:.1f}h left")
+        result.reason = (
+            f"bonding {direction} @ {price:.2f}c " f"yield={exp_yield:.1%} {hours_left:.1f}h left"
+        )
         result.metadata = {
-            "entry_price": price, "expected_yield": exp_yield,
-            "hours_remaining": round(hours_left, 1), "force_maker": True,
+            "entry_price": price,
+            "expected_yield": exp_yield,
+            "hours_remaining": round(hours_left, 1),
+            "force_maker": True,
         }
         return result
 
@@ -826,8 +846,9 @@ class HourEdgeLiveStrategy(BaseStrategy):
         # Get current hour UTC from metadata or system time
         hour = meta.get("hour_utc")
         if hour is None:
-            from datetime import datetime, timezone
-            hour = datetime.now(timezone.utc).hour
+            from datetime import datetime
+
+            hour = datetime.now(UTC).hour
 
         edge = self.EDGES.get(hour)
         if not edge or edge[1] < self.min_win_rate:
@@ -956,7 +977,9 @@ class FadeRipLiveStrategy(BaseStrategy):
         if not self.fade_up_only and btc_change <= -self.rip_threshold_pct:
             if s.direction_filter in ("up", "any"):
                 result.direction = "up"
-                result.confidence = min(0.75, 0.50 + (abs(btc_change) - self.rip_threshold_pct) * 0.15)
+                result.confidence = min(
+                    0.75, 0.50 + (abs(btc_change) - self.rip_threshold_pct) * 0.15
+                )
                 result.should_trade = True
                 result.reason = f"fade_rip: BTC {btc_change:.3f}% → UP"
                 result.metadata = {"btc_pct_change": btc_change}
@@ -1066,7 +1089,9 @@ class CalibrationArbLiveStrategy(BaseStrategy):
         result = StrategySignal()
 
         # UP token mid price
-        current_price = (s.best_bid + s.best_ask) / 2 if s.best_bid > 0 and s.best_ask > 0 else s.up_odds
+        current_price = (
+            (s.best_bid + s.best_ask) / 2 if s.best_bid > 0 and s.best_ask > 0 else s.up_odds
+        )
 
         # Only trade in target zone
         if not (self.target_zone_low <= current_price <= self.target_zone_high):
@@ -1233,9 +1258,7 @@ class ClassicStrategy(BaseStrategy):
                 result.direction = "up"
                 result.confidence = self.CONFIDENCE
                 result.should_trade = True
-                result.reason = (
-                    f"classic UP @ {s.up_odds:.3f} >= trigger {s.threshold:.3f}"
-                )
+                result.reason = f"classic UP @ {s.up_odds:.3f} >= trigger {s.threshold:.3f}"
                 result.metadata = {
                     "trigger": s.threshold,
                     "entry_price": s.up_odds,
@@ -1249,9 +1272,7 @@ class ClassicStrategy(BaseStrategy):
                 result.direction = "down"
                 result.confidence = self.CONFIDENCE
                 result.should_trade = True
-                result.reason = (
-                    f"classic DOWN @ {s.down_odds:.3f} >= trigger {s.threshold:.3f}"
-                )
+                result.reason = f"classic DOWN @ {s.down_odds:.3f} >= trigger {s.threshold:.3f}"
                 result.metadata = {
                     "trigger": s.threshold,
                     "entry_price": s.down_odds,
@@ -1273,50 +1294,82 @@ class StrategyRegistry:
     # Phase 19.5: Editable plugin parameters
     CONFIGURABLE = {
         "contrarian": {"min_deviation": float, "min_confidence": float},
-        "martingale": {"MULTIPLIER": float, "MAX_LEVEL": int,
-                       "MAX_TOTAL_EXPOSURE": float, "MIN_KELLY": float,
-                       "MIN_ENTRY_PRICE": float, "min_deviation": float},
+        "martingale": {
+            "MULTIPLIER": float,
+            "MAX_LEVEL": int,
+            "MAX_TOTAL_EXPOSURE": float,
+            "MIN_KELLY": float,
+            "MIN_ENTRY_PRICE": float,
+            "min_deviation": float,
+        },
         "momentum": {"trend_threshold": float, "min_confidence": float},
         "scalper": {"max_spread": float, "tick_threshold": float},
         "sniper": {"min_checks": int, "odds_margin": float},
         "flashcrash": {"drop_threshold": float, "min_series_len": int},
         "streak": {"streak_threshold": int},
         # Phase 47f.7: late_convergence live plugin port.
-        "late_convergence": {"min_elapsed_pct": float, "max_entry_price": float,
-                             "min_spread_threshold": float},
+        "late_convergence": {
+            "min_elapsed_pct": float,
+            "max_entry_price": float,
+            "min_spread_threshold": float,
+        },
         # Phase 70: penny contract zone
         "penny_contract": {"_MAX_LOW": float, "_MIN_HIGH": float, "_MIN_SPREAD": float},
         # Phase 76: bonding yield
-        "bonding_yield": {"MIN_PRICE": float, "MAX_PRICE": float, "MIN_YIELD": float,
-                          "MAX_HOURS": float, "CONF_BASE": float},
+        "bonding_yield": {
+            "MIN_PRICE": float,
+            "MAX_PRICE": float,
+            "MIN_YIELD": float,
+            "MAX_HOURS": float,
+            "CONF_BASE": float,
+        },
         # Phase 81: fusion signal weights
-        "fusion": {"SIGNAL_W_ODDS": float, "SIGNAL_W_EMA": float,
-                   "SIGNAL_W_MOMENTUM": float, "SIGNAL_W_TIME": float,
-                   "SIGNAL_W_ORDERBOOK": float, "MIN_COMPOSITE": float},
+        "fusion": {
+            "SIGNAL_W_ODDS": float,
+            "SIGNAL_W_EMA": float,
+            "SIGNAL_W_MOMENTUM": float,
+            "SIGNAL_W_TIME": float,
+            "SIGNAL_W_ORDERBOOK": float,
+            "MIN_COMPOSITE": float,
+        },
         # Phase 81b: ported backtest strategies
         "hour_edge": {"min_win_rate": float},
         "orderbook_imbalance": {"imbalance_threshold": float, "min_depth": float},
         "fade_rip": {"rip_threshold_pct": float, "fade_up_only": bool},
         "opening_breakout": {"breakout_usd": float},
         "funding_rate": {"rate_threshold": float, "contrarian": bool},
-        "calibration_arb": {"deviation_threshold": float, "target_zone_low": float,
-                            "target_zone_high": float},
+        "calibration_arb": {
+            "deviation_threshold": float,
+            "target_zone_low": float,
+            "target_zone_high": float,
+        },
     }
 
     def __init__(self):
         self._strategies: dict[str, BaseStrategy] = {}
-        for cls in [MomentumStrategy, ContrarianStrategy, ScalperStrategy,
-                    SniperStrategy, MartingaleStrategy, FlashCrashStrategy,
-                    StreakReversalStrategy, HighThresholdStrategy,
-                    LateConvergenceStrategy, PennyContractStrategy,
-                    BondingYieldLiveStrategy, FusionStrategy,
-                    # Phase 81b: Ported from backtest-only
-                    HourEdgeLiveStrategy, OrderbookImbalanceLiveStrategy,
-                    FadeRipLiveStrategy, OpeningBreakoutLiveStrategy,
-                    FundingRateLiveStrategy, CalibrationArbLiveStrategy,
-                    # Phase 82e Sprint 4.6: Classic no-algo strategy
-                    ClassicStrategy,
-                    ]:  # Phase 47f.7 + Phase 70 + Phase 76 + Phase 81 + Phase 81b + Phase 82e
+        for cls in [
+            MomentumStrategy,
+            ContrarianStrategy,
+            ScalperStrategy,
+            SniperStrategy,
+            MartingaleStrategy,
+            FlashCrashStrategy,
+            StreakReversalStrategy,
+            HighThresholdStrategy,
+            LateConvergenceStrategy,
+            PennyContractStrategy,
+            BondingYieldLiveStrategy,
+            FusionStrategy,
+            # Phase 81b: Ported from backtest-only
+            HourEdgeLiveStrategy,
+            OrderbookImbalanceLiveStrategy,
+            FadeRipLiveStrategy,
+            OpeningBreakoutLiveStrategy,
+            FundingRateLiveStrategy,
+            CalibrationArbLiveStrategy,
+            # Phase 82e Sprint 4.6: Classic no-algo strategy
+            ClassicStrategy,
+        ]:  # Phase 47f.7 + Phase 70 + Phase 76 + Phase 81 + Phase 81b + Phase 82e
             s = cls()
             self._strategies[s.name] = s
 
@@ -1334,9 +1387,10 @@ class StrategyRegistry:
         return strategy.evaluate(snapshot)
 
     def list_all(self) -> list[dict]:
-        return [{"name": s.name, "description": s.description,
-                 "origin": getattr(s, "origin", "core")}
-                for s in self._strategies.values()]
+        return [
+            {"name": s.name, "description": s.description, "origin": getattr(s, "origin", "core")}
+            for s in self._strategies.values()
+        ]
 
     @property
     def names(self) -> list[str]:

@@ -18,6 +18,7 @@ short:
 This module deliberately uses only the stdlib so it is safe to import
 everywhere, including cold-start handlers.
 """
+
 from __future__ import annotations
 
 import html

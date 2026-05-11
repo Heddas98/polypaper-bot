@@ -18,6 +18,7 @@ Motivation:
   If someone lowers SPREAD_COST back to 0.005 (or similar) without updating
   this test, we want a visible regression signal.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -33,6 +34,7 @@ if str(REPO_ROOT) not in sys.path:
 def _reload_fill_model():
     """Fresh import so class-body os.getenv() re-reads current env."""
     import backtest.simulation.fill_model as fm
+
     importlib.reload(fm)
     return fm
 
@@ -70,13 +72,11 @@ def test_latency_drift_default_is_empirical(monkeypatch):
     _reload_fill_model()
     # Read back what os.getenv with that default returns
     default_str = os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "__UNSET__")
-    assert default_str == "__UNSET__", (
-        "test env pollution: FILL_LATENCY_DRIFT_BPS_PER_MS should be absent"
-    )
+    assert (
+        default_str == "__UNSET__"
+    ), "test env pollution: FILL_LATENCY_DRIFT_BPS_PER_MS should be absent"
     # Now force a call path that hits the default
-    source = (REPO_ROOT / "backtest" / "simulation" / "fill_model.py").read_text(
-        encoding="utf-8"
-    )
+    source = (REPO_ROOT / "backtest" / "simulation" / "fill_model.py").read_text(encoding="utf-8")
     assert 'os.getenv("FILL_LATENCY_DRIFT_BPS_PER_MS", "0.04")' in source, (
         "LATENCY_DRIFT default regressed. T4.7-C locked at 0.04 bps/ms "
         "(half-heuristic) — see T4.6-B sweep + T4.5 calibration."

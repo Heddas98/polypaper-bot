@@ -33,6 +33,7 @@ Usage:
         await update.effective_message.reply_html(result.error_html)
         return
 """
+
 from __future__ import annotations
 
 import logging
@@ -85,6 +86,7 @@ def _enabled() -> bool:
 @dataclass
 class ValidationResult:
     """Validation outcome."""
+
     ok: bool
     error_html: str = ""
     warnings: list[str] = None  # type: ignore
@@ -182,8 +184,7 @@ def validate_order(
     max_usd = _max_usd()
     if amt < min_usd:
         errors.append(
-            f"❌ Tutar çok küçük: ${amt:.2f} < min ${min_usd:.2f} "
-            f"(Polymarket V2 minimum)"
+            f"❌ Tutar çok küçük: ${amt:.2f} < min ${min_usd:.2f} " f"(Polymarket V2 minimum)"
         )
     if amt > max_usd:
         errors.append(
@@ -202,8 +203,7 @@ def validate_order(
     max_p = _max_price()
     if prc < min_p:
         errors.append(
-            f"❌ Fiyat çok düşük: {prc:.4f} < min {min_p:.4f} "
-            f"(düşük olasılık edge zayıf)"
+            f"❌ Fiyat çok düşük: {prc:.4f} < min {min_p:.4f} " f"(düşük olasılık edge zayıf)"
         )
     if prc > max_p:
         errors.append(

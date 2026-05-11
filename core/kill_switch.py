@@ -8,9 +8,10 @@ PolyPaper Bot - Kill Switch (Phase 7)
 The file-based switch is checked EVERY engine cycle. Even if asyncio
 is stuck, an external cron or monitoring script can stop trading.
 """
-import os
+
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import UTC, datetime
 
 logger = logging.getLogger("polypaper.core.killswitch")
 
@@ -34,7 +35,7 @@ class KillSwitch:
                 logger.warning(f"🛑 KILL SWITCH: File detected ({KILL_FILE})")
                 self._memory_kill = True
                 self._kill_reason = f"Kill file: {KILL_FILE}"
-                self._killed_at = datetime.now(timezone.utc).isoformat()
+                self._killed_at = datetime.now(UTC).isoformat()
             return True
 
         # Channel 2: In-memory
@@ -47,7 +48,7 @@ class KillSwitch:
         """Activate kill switch via code or Telegram."""
         self._memory_kill = True
         self._kill_reason = reason
-        self._killed_at = datetime.now(timezone.utc).isoformat()
+        self._killed_at = datetime.now(UTC).isoformat()
         logger.warning(f"🛑 KILL SWITCH ACTIVATED: {reason}")
 
     def deactivate(self):

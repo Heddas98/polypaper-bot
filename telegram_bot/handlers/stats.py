@@ -2,14 +2,15 @@
 PolyPaper Bot - /stats + /strategy_stats (Phase 5)
 Per-strategy win rate, PnL, trade count breakdown.
 """
-import asyncio
+
 import logging
-from core.slug_utils import infer_asset_from_slug
 
 import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
+from core.slug_utils import infer_asset_from_slug
 from db.database import Database
 from telegram_bot.banners import banner_stats
 from telegram_bot.handlers._exc_render import render_user_exception
@@ -56,10 +57,14 @@ async def _send_stats(message, db, user, context):
 
         # 2. Best/Worst individual trades
         all_trades = await db.conn.execute_fetchall(
-            "SELECT event_slug, direction, pnl FROM executions WHERE user_id=? AND result IS NOT NULL ORDER BY pnl DESC LIMIT 1", (user.id,))
+            "SELECT event_slug, direction, pnl FROM executions WHERE user_id=? AND result IS NOT NULL ORDER BY pnl DESC LIMIT 1",
+            (user.id,),
+        )
         best_trade = all_trades[0] if all_trades else None
         worst_trades = await db.conn.execute_fetchall(
-            "SELECT event_slug, direction, pnl FROM executions WHERE user_id=? AND result IS NOT NULL ORDER BY pnl ASC LIMIT 1", (user.id,))
+            "SELECT event_slug, direction, pnl FROM executions WHERE user_id=? AND result IS NOT NULL ORDER BY pnl ASC LIMIT 1",
+            (user.id,),
+        )
         worst_trade = worst_trades[0] if worst_trades else None
         if best_trade:
             asset = best_trade[0].split("-")[0].upper() if best_trade[0] else "?"
@@ -70,17 +75,19 @@ async def _send_stats(message, db, user, context):
 
         # 3. Daily/Weekly summary
         import datetime as dt
-        today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+
+        today = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
         today_data = await db.conn.execute_fetchall(
             "SELECT COUNT(*), COALESCE(SUM(pnl),0) FROM executions WHERE user_id=? AND result IS NOT NULL AND created_at>=?",
-            (user.id, today))
+            (user.id, today),
+        )
         today_trades, today_pnl = (today_data[0][0], today_data[0][1]) if today_data else (0, 0)
 
-        text += f"📅 <b>Zaman Analizi</b>\n"
+        text += "📅 <b>Zaman Analizi</b>\n"
         text += f"  Bugun: {today_trades}t | {today_pnl:+.2f}\n\n"
 
         # 4. Recent trades
-        text += f"🔥 <b>Son 3 Islem</b>\n"
+        text += "🔥 <b>Son 3 Islem</b>\n"
         if recent:
             for r in recent:
                 e = "🟢" if r.pnl > 0 else "🔴"
@@ -90,14 +97,16 @@ async def _send_stats(message, db, user, context):
         else:
             text += "Henuz islem yok.\n"
 
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Yenile", callback_data="show_stats")],
+        kb = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton("🎯 Strateji", callback_data="strategy_stats"),
-                InlineKeyboardButton("🌐 Pazar", callback_data="stats_by_market"),
-            ],
-            [InlineKeyboardButton("⬅️ Geri", callback_data="show_dashboard")],
-        ])
+                [InlineKeyboardButton("🔄 Yenile", callback_data="show_stats")],
+                [
+                    InlineKeyboardButton("🎯 Strateji", callback_data="strategy_stats"),
+                    InlineKeyboardButton("🌐 Pazar", callback_data="stats_by_market"),
+                ],
+                [InlineKeyboardButton("⬅️ Geri", callback_data="show_dashboard")],
+            ]
+        )
 
         banner = banner_stats()
         await message.reply_photo(photo=banner, caption=text, parse_mode="HTML", reply_markup=kb)
@@ -113,6 +122,7 @@ async def _send_stats(message, db, user, context):
 # ═══════════════════════════════════════
 # STRATEGY STATS (NEW)
 # ═══════════════════════════════════════
+
 
 async def strategy_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db: Database = context.bot_data["db"]
@@ -166,15 +176,24 @@ async def _send_strategy_stats(message, db, user):
             st_emoji = "✅" if status == "active" else "⚫"
             stype = s.get("strategy_type", "fusion") or "fusion"
             label = s.get("label", "") or ""
-            te = {"fusion": "🔬", "contrarian": "🔄", "sniper": "🎯",
-                  "momentum": "📈", "scalper": "⚡", "martingale": "🎰", "highthreshold": "🏔️", "flashcrash": "💥", "streak": "🔄"}.get(stype, "🔬")
+            te = {
+                "fusion": "🔬",
+                "contrarian": "🔄",
+                "sniper": "🎯",
+                "momentum": "📈",
+                "scalper": "⚡",
+                "martingale": "🎰",
+                "highthreshold": "🏔️",
+                "flashcrash": "💥",
+                "streak": "🔄",
+            }.get(stype, "🔬")
             name = label or f"{esc(asset)} {tf} {direction.upper()}"
 
             # PnL emoji
             pnl_emoji = "📈" if pnl > 0 else "📉" if pnl < 0 else "➖"
 
             # Rank medal
-            medal = ["🥇", "🥈", "🥉"][i-1] if i <= 3 else f"{i}."
+            medal = ["🥇", "🥈", "🥉"][i - 1] if i <= 3 else f"{i}."
 
             text += (
                 f"{medal} {te} <b>{esc(name)}</b> {st_emoji}\n"
@@ -198,17 +217,20 @@ async def _send_strategy_stats(message, db, user):
         if worst and worst.get("realized_pnl", 0) != 0 and worst != best:
             text += f"Worst: {worst['asset']} {worst['timeframe']} ({worst['realized_pnl']:+.2f})\n"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh", callback_data="strategy_stats")],
-        [InlineKeyboardButton("📊 Overview", callback_data="show_stats")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔄 Refresh", callback_data="strategy_stats")],
+            [InlineKeyboardButton("📊 Overview", callback_data="show_stats")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ═══════════════════════════════════════
 # TRADE HISTORY (NEW — Phase 52+)
 # ═══════════════════════════════════════
+
 
 async def trades_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show last 20 trades with pagination (10 per page)."""
@@ -246,10 +268,12 @@ async def _send_trades(message, db, user, page=0, edit=False):
         if not executions:
             text = "📋 <b>Trade History</b>\n\n"
             text += "No trades yet. Start a strategy to begin!"
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎯 Strategies", callback_data="show_strategies")],
-                [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-            ])
+            kb = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("🎯 Strategies", callback_data="show_strategies")],
+                    [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+                ]
+            )
             if edit:
                 return await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
             else:
@@ -316,9 +340,13 @@ async def _send_trades(message, db, user, page=0, edit=False):
         if total_pages > 1:
             nav_row = []
             if page > 0:
-                nav_row.append(InlineKeyboardButton("◀️ Önceki 10", callback_data=f"trades_page_{page - 1}"))
+                nav_row.append(
+                    InlineKeyboardButton("◀️ Önceki 10", callback_data=f"trades_page_{page - 1}")
+                )
             if page < total_pages - 1:
-                nav_row.append(InlineKeyboardButton("Sonraki 10 ▶️", callback_data=f"trades_page_{page + 1}"))
+                nav_row.append(
+                    InlineKeyboardButton("Sonraki 10 ▶️", callback_data=f"trades_page_{page + 1}")
+                )
             if nav_row:
                 kb_rows.append(nav_row)
 
@@ -347,6 +375,7 @@ async def _send_trades(message, db, user, page=0, edit=False):
 # STATS BY MARKET
 # ═══════════════════════════════════════
 
+
 async def stats_by_market_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -367,7 +396,8 @@ async def stats_by_market_callback(update: Update, context: ContextTypes.DEFAULT
                 COALESCE(SUM(CASE WHEN pnl<=0 THEN 1 ELSE 0 END),0) as losses
                FROM executions WHERE user_id=? AND result IS NOT NULL
                GROUP BY asset ORDER BY pnl DESC""",
-            (user.id,)) as c:
+            (user.id,),
+        ) as c:
             rows = await c.fetchall()
 
         if not rows:
@@ -381,17 +411,20 @@ async def stats_by_market_callback(update: Update, context: ContextTypes.DEFAULT
                 e = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
                 text += (
                     f"{esc(e)} <b>{esc(asset)}</b>\n"
-                    f"  {wins}W/{losses}L ({wr:.0f}%) | PnL: <b>{pnl:+.2f}</b>\n\n")
+                    f"  {wins}W/{losses}L ({wr:.0f}%) | PnL: <b>{pnl:+.2f}</b>\n\n"
+                )
     except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. Per-asset SQL
         # group + row coercion. Append error to text instead of failing.
         text += f"Error: {esc(str(e))}"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
-        [InlineKeyboardButton("📊 Overview", callback_data="show_stats")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
+            [InlineKeyboardButton("📊 Overview", callback_data="show_stats")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
+        ]
+    )
     await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -436,8 +469,7 @@ async def stats_hub_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<i>Kelly</i> — bankroll &amp; sizing\n"
         "<i>Velocity</i> — capital velocity per strategy"
     )
-    await update.message.reply_text(
-        text, reply_markup=_build_hub_keyboard(), parse_mode="HTML")
+    await update.message.reply_text(text, reply_markup=_build_hub_keyboard(), parse_mode="HTML")
 
 
 async def stats_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -462,9 +494,11 @@ async def stats_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return await stats_chart_command(proxy, context)
         if tab == "maker":
             from telegram_bot.handlers.strategies import maker_stats_command
+
             return await maker_stats_command(proxy, context)
         if tab == "kelly":
             from telegram_bot.handlers.strategies import kelly_command
+
             return await kelly_command(proxy, context)
         if tab == "velocity":
             return await velocity_command(proxy, context)
@@ -474,8 +508,9 @@ async def stats_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.exception(f"stats_hub route {tab} failed: {esc(str(e))}")
         try:
             await query.edit_message_text(
-                f"❌ Route failed: <code>{esc(tab)}</code>", parse_mode="HTML")
-        except (BadRequest, TelegramError, asyncio.TimeoutError):
+                f"❌ Route failed: <code>{esc(tab)}</code>", parse_mode="HTML"
+            )
+        except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): edit_message no-op tolerated.
             pass
 
@@ -483,8 +518,8 @@ async def stats_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ════════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 — merged from stats_chart.py (was Phase 47f.9 P5#20)
 # ════════════════════════════════════════════════════════════════════════
-import io as _stats_chart_io
 import datetime as _stats_chart_datetime
+import io as _stats_chart_io
 
 DEFAULT_DAYS = 14
 MAX_DAYS = 90
@@ -502,19 +537,20 @@ async def stats_chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             days = max(1, min(MAX_DAYS, int(context.args[0])))
         except (ValueError, TypeError):
             return await update.message.reply_text(
-                f"❌ Gecersiz gun sayisi. Ornek: <code>/stats_chart 30</code>",
-                parse_mode="HTML")
+                "❌ Gecersiz gun sayisi. Ornek: <code>/stats_chart 30</code>", parse_mode="HTML"
+            )
 
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         return await update.message.reply_text(
-            "❌ matplotlib yuklu degil. <code>pip install matplotlib</code>",
-            parse_mode="HTML")
+            "❌ matplotlib yuklu degil. <code>pip install matplotlib</code>", parse_mode="HTML"
+        )
 
-    today = _stats_chart_datetime.datetime.now(_stats_chart_datetime.timezone.utc).date()
+    today = _stats_chart_datetime.datetime.now(_stats_chart_datetime.UTC).date()
     start_date = today - _stats_chart_datetime.timedelta(days=days - 1)
     try:
         rows = await db.conn.execute_fetchall(
@@ -527,18 +563,19 @@ async def stats_chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                  AND created_at >= ?
                GROUP BY day
                ORDER BY day""",
-            (user.id, start_date.isoformat()))
+            (user.id, start_date.isoformat()),
+        )
     except aiosqlite.Error as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT date
         # aggregate query — aiosqlite.Error only.
         # T11.6 fix 2026-04-28: render_user_exception (no raw esc(str(e)) leak).
         logger.exception("stats_chart query failed")
         return await update.message.reply_text(
-            render_user_exception(e, "❌ Sorgu hatasi"), parse_mode="HTML")
+            render_user_exception(e, "❌ Sorgu hatasi"), parse_mode="HTML"
+        )
 
     if not rows:
-        return await update.message.reply_text(
-            f"📉 Son {days} gunde kapali trade yok.")
+        return await update.message.reply_text(f"📉 Son {days} gunde kapali trade yok.")
 
     day_map = {r[0]: (float(r[1]), int(r[2])) for r in rows}
     xs, ys, ts = [], [], []
@@ -553,12 +590,18 @@ async def stats_chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     colors = ["#2ecc71" if y >= 0 else "#e74c3c" for y in ys]
     bars = ax.bar(xs, ys, color=colors, edgecolor="black", linewidth=0.4)
 
-    for bar, tc in zip(bars, ts):
+    for bar, tc in zip(bars, ts, strict=False):
         if tc > 0:
             h = bar.get_height()
             off = 0.15 if h >= 0 else -0.35
-            ax.text(bar.get_x() + bar.get_width() / 2, h + off,
-                    f"{tc}t", ha="center", fontsize=7, color="#888")
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                h + off,
+                f"{tc}t",
+                ha="center",
+                fontsize=7,
+                color="#888",
+            )
 
     ax.axhline(y=0, color="black", linewidth=0.8)
     ax.set_title(f"Daily PnL — last {days} days", fontsize=13, fontweight="bold")
@@ -576,11 +619,12 @@ async def stats_chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     buf.seek(0)
     plt.close(fig)
 
-    caption = (f"📊 <b>Daily PnL — last {days}d</b>\n"
-               f"Total: <b>${total:+.2f}</b> | "
-               f"🟢 {pos_days}d profit | 🔴 {neg_days}d loss")
-    await update.message.reply_photo(
-        photo=buf, caption=caption, parse_mode="HTML")
+    caption = (
+        f"📊 <b>Daily PnL — last {days}d</b>\n"
+        f"Total: <b>${total:+.2f}</b> | "
+        f"🟢 {pos_days}d profit | 🔴 {neg_days}d loss"
+    )
+    await update.message.reply_photo(photo=buf, caption=caption, parse_mode="HTML")
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -600,15 +644,21 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     worst_zone_label = ""
     worst_gap = 0.0
 
-    for lo, hi, label in [(0, 0.35, "0-35c"), (0.35, 0.50, "35-50c"),
-                           (0.50, 0.65, "50-65c"), (0.65, 0.80, "65-80c"), (0.80, 1.0, "80c+")]:
+    for lo, hi, label in [
+        (0, 0.35, "0-35c"),
+        (0.35, 0.50, "35-50c"),
+        (0.50, 0.65, "50-65c"),
+        (0.65, 0.80, "65-80c"),
+        (0.80, 1.0, "80c+"),
+    ]:
         rows = await db.conn.execute_fetchall(
             """SELECT COUNT(*) as t,
                 COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) as w,
                 COALESCE(SUM(pnl),0) as p
             FROM executions WHERE result IS NOT NULL AND user_id=?
             AND execution_price>=? AND execution_price<?""",
-            (user.id, lo, hi))
+            (user.id, lo, hi),
+        )
         if rows and rows[0][0] > 0:
             t, w, p = rows[0]
             wr = w / t * 100
@@ -632,7 +682,9 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl
         FROM strategies s JOIN executions e ON e.strategy_id=s.id
         WHERE e.result IS NOT NULL AND s.user_id=?
-        GROUP BY stype ORDER BY pnl DESC""", (user.id,))
+        GROUP BY stype ORDER BY pnl DESC""",
+        (user.id,),
+    )
     medals = ["🥇", "🥈", "🥉", "4.", "5.", "6.", "7.", "8."]
     for i, r in enumerate(rows):
         wr = r[2] / r[1] * 100 if r[1] > 0 else 0
@@ -666,6 +718,7 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Get actual Brier data if available
         try:
             from utils.brier_tracker import BrierTracker
+
             tracker = BrierTracker(db)
             report = await tracker.get_report(hours=168)
             if "brier_score" in report and report.get("worst_bins"):
@@ -686,9 +739,9 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             # If Brier data unavailable, use zone-based estimate
             if worst_zone_label == "80c+":
                 brier_warning_text = (
-                    f"\n⚠️ <b>Kalibrasyon Uyarısı:</b>\n"
-                    f"80c+ zoneynde yüksek risk - model güven ile gerçek sonuç uyumsuz.\n"
-                    f"Zone bloke edildi.\n"
+                    "\n⚠️ <b>Kalibrasyon Uyarısı:</b>\n"
+                    "80c+ zoneynde yüksek risk - model güven ile gerçek sonuç uyumsuz.\n"
+                    "Zone bloke edildi.\n"
                 )
 
     text = (
@@ -701,17 +754,20 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"{brier_warning_text}"
     )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
-        [InlineKeyboardButton("🎲 Monte Carlo", callback_data="show_analytics")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🎯 Strategy Stats", callback_data="strategy_stats")],
+            [InlineKeyboardButton("🎲 Monte Carlo", callback_data="show_analytics")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ════════════════════════════════════════════════════════════════════════
 # Phase 60: Capital Velocity + Disposition Coefficient Dashboard
 # ════════════════════════════════════════════════════════════════════════
+
 
 async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Phase 60 /velocity — Capital velocity per strategy + disposition coefficient.
@@ -739,7 +795,9 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
            WHERE s.user_id = ? AND e.result IS NOT NULL
            GROUP BY s.id
            HAVING trades >= 3
-           ORDER BY total_volume DESC""", (user.id,))
+           ORDER BY total_volume DESC""",
+        (user.id,),
+    )
 
     text = "🚀 <b>Capital Velocity Dashboard</b>\n"
     text += "━━━━━━━━━━━━━━━━━━━━━\n"
@@ -762,7 +820,9 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             vel_pct = velocity / 47 * 100  # % of top wallet target
 
             emoji = "🟢" if pnl > 0 else "🔴"
-            vel_bar = "█" * min(int(vel_pct / 10), 10) + "░" * max(0, 10 - min(int(vel_pct / 10), 10))
+            vel_bar = "█" * min(int(vel_pct / 10), 10) + "░" * max(
+                0, 10 - min(int(vel_pct / 10), 10)
+            )
 
             text += (
                 f"{emoji} <b>{esc(str(label)[:12])}</b> ({esc(str(stype)[:8])})\n"
@@ -791,7 +851,9 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                FROM executions
                WHERE user_id = ? AND result = 'won'
                  AND max_unrealized_price IS NOT NULL
-                 AND execution_price > 0""", (user.id,))
+                 AND execution_price > 0""",
+            (user.id,),
+        )
 
         # Losers: how much did we lose relative to potential?
         loss_rows = await db.conn.execute_fetchall(
@@ -799,13 +861,17 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                FROM executions
                WHERE user_id = ? AND result = 'lost'
                  AND max_unrealized_price IS NOT NULL
-                 AND execution_price > 0""", (user.id,))
+                 AND execution_price > 0""",
+            (user.id,),
+        )
 
         if win_rows:
             captures = []
             for r in win_rows:
                 entry, pnl_val, amt, max_p = r
-                max_potential = (max_p - entry) * (amt / entry) if entry > 0 and max_p > entry else 0
+                max_potential = (
+                    (max_p - entry) * (amt / entry) if entry > 0 and max_p > entry else 0
+                )
                 if max_potential > 0.01:
                     capture = min(pnl_val / max_potential, 1.0) if pnl_val > 0 else 0
                     captures.append(capture)
@@ -841,17 +907,19 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # exc str OK for admin diagnostic.
         text += f"  ⚠️ Disposition hesaplanamadi ({esc(str(e)[:40])})\n"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Stats Hub", callback_data="hub:stats")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ Stats Hub", callback_data="hub:stats")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ════════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 — merged from analytics_handler.py (was Phase 13)
 # ════════════════════════════════════════════════════════════════════════
-import random as _analytics_random
 import math as _analytics_math
+import random as _analytics_random
 
 
 async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -867,7 +935,8 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       strategy_id, event_slug, closed_at
                FROM executions WHERE user_id=? AND result IS NOT NULL
                ORDER BY closed_at""",
-            (user.id,)) as c:
+            (user.id,),
+        ) as c:
             async for row in c:
                 execs.append(dict(row))
     except (aiosqlite.Error, TypeError) as e:
@@ -875,8 +944,7 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # iteration + dict(row) row-factory.
         # T11.6 fix 2026-04-28: render_user_exception (no raw esc(str(e)) leak).
         logger.exception("analytics SELECT failed")
-        return await update.message.reply_text(
-            render_user_exception(e, "Error"), parse_mode="HTML")
+        return await update.message.reply_text(render_user_exception(e, "Error"), parse_mode="HTML")
 
     if len(execs) < 5:
         return await update.message.reply_text("Need 5+ settled trades for analytics.")
@@ -939,7 +1007,8 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"PnL: <b>{fmt_usd(total_pnl, sign=True)}</b> | EV/trade: {mean_pnl:+.3f}\n"
         f"Avg Win: {avg_w:+.3f} | Avg Loss: {avg_l:+.3f}\n"
         f"Profit Factor: {pf:.2f} | Max DD: {max_dd:.2f}\n"
-        f"Sharpe: {sharpe:+.2f} | Vol: {stdev:.3f}\n")
+        f"Sharpe: {sharpe:+.2f} | Vol: {stdev:.3f}\n"
+    )
 
     n_sims = 500
     n_trades = 100
@@ -957,7 +1026,8 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += (
         f"\n<b>Monte Carlo ({n_trades} trades)</b>\n"
         f"Worst 5%: {p5:+.1f} | Median: <b>{p50:+.1f}</b> | Best 5%: {p95:+.1f}\n"
-        f"P(profit): <b>{prob_profit:.0f}%</b>\n")
+        f"P(profit): <b>{prob_profit:.0f}%</b>\n"
+    )
 
     text += "\n<b>Recommendations</b>\n"
     if mean_pnl < -0.05:
@@ -974,13 +1044,16 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text += "⚠️ Borderline. Edge gate should help.\n"
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Daily", callback_data="show_daily")],
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")]])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 Daily", callback_data="show_daily")],
+            [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")],
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 async def analytics_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    await q.message.reply_text('Use /analytics for full report.')
+    await q.message.reply_text("Use /analytics for full report.")

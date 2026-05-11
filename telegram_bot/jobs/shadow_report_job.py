@@ -8,14 +8,14 @@ connection (no WSL mount / WAL race issues).
 Wired in bot.py via JobQueue.run_repeating(). Pushes A/B report to ADMIN
 chat every 30 min, with quiet-hours throttling and promotion-gate check.
 """
+
 from __future__ import annotations
 
-import asyncio
-import os
 import json
 import logging
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiosqlite
@@ -43,15 +43,14 @@ def save_admin_chat_id(chat_id: int | str) -> None:
     """Persist admin chat id discovered at runtime so JobQueue auto-runs work."""
     try:
         ADMIN_CHAT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        ADMIN_CHAT_FILE.write_text(
-            json.dumps({"chat_id": str(chat_id)}), encoding="utf-8"
-        )
+        ADMIN_CHAT_FILE.write_text(json.dumps({"chat_id": str(chat_id)}), encoding="utf-8")
     except OSError as e:
         # T11.8-B (2026-04-24): narrow from bare Exception. Path.write_text
         # + mkdir surface OSError (PermissionError, disk full). Persistence
         # failure is non-fatal — ENV remains the primary source.
-        logger.warning(f"[shadow_report] could not persist admin chat id: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(
+            f"[shadow_report] could not persist admin chat id: " f"{type(e).__name__}: {e}"
+        )
 
 
 def resolve_admin_chat_id() -> Optional[str]:
@@ -62,6 +61,7 @@ def resolve_admin_chat_id() -> Optional[str]:
             return v.strip()
     return _load_admin_chat_id_from_file()
 
+
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger("polypaper.shadow_report")
@@ -71,12 +71,14 @@ logger = logging.getLogger("polypaper.shadow_report")
 # (fusion/momentum/etc), spamming admin with mismatch warnings every 30min.
 # Now: if SHADOW_WATCHED_TYPES is unset/empty, fall back to ALL DB types silently.
 _raw_watched = (os.getenv("SHADOW_WATCHED_TYPES") or "").strip()
-WATCHED_STRATEGY_TYPES = [t.strip() for t in _raw_watched.split(",") if t.strip()] if _raw_watched else []
+WATCHED_STRATEGY_TYPES = (
+    [t.strip() for t in _raw_watched.split(",") if t.strip()] if _raw_watched else []
+)
 
 # Promotion gate thresholds
 PROMOTION_MIN_TRADES = 50
-PROMOTION_WR_DELTA_MIN = 0.0       # percentage points
-PROMOTION_PNL_DELTA_MIN = 0.0      # USD
+PROMOTION_WR_DELTA_MIN = 0.0  # percentage points
+PROMOTION_PNL_DELTA_MIN = 0.0  # USD
 
 
 def _bucket_stats(rows: list) -> dict:
@@ -122,7 +124,7 @@ async def _query_strategy_ab(db, strategy_type: str, cutoff: datetime) -> dict:
         # Handle epoch (int) or ISO string
         if isinstance(created_at_raw, (int, float)):
             try:
-                ts = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                ts = datetime.fromtimestamp(created_at_raw, tz=UTC)
             except (ValueError, OSError):
                 before.append(r)
                 continue
@@ -131,7 +133,7 @@ async def _query_strategy_ab(db, strategy_type: str, cutoff: datetime) -> dict:
             ts_raw = (created_at_raw or "").replace("T", " ").split(".")[0]
             try:
                 ts = datetime.strptime(ts_raw[:19], "%Y-%m-%d %H:%M:%S")
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             except ValueError:
                 before.append(r)
                 continue
@@ -168,8 +170,7 @@ def _format_report(strategy_type: str, cutoff: datetime, ab: dict, decision_mode
         d_wr = a["wr"] - b["wr"]
         d_pnl_per = a["avg_pnl"] - b["avg_pnl"]
         lines.append(
-            f"<b>Δ</b> WR <code>{d_wr:+.1f}pp</code>  "
-            f"avg/trade <code>{d_pnl_per:+.4f}</code>"
+            f"<b>Δ</b> WR <code>{d_wr:+.1f}pp</code>  " f"avg/trade <code>{d_pnl_per:+.4f}</code>"
         )
     elif a["trades"] == 0:
         lines.append("<i>(no executions in 'after' bucket yet)</i>")
@@ -206,6 +207,7 @@ def _is_quiet_hours() -> bool:
     try:
         # Server may not have TZ data; fall back to UTC+3 calc.
         from zoneinfo import ZoneInfo
+
         h = datetime.now(ZoneInfo("Europe/Istanbul")).hour
     except Exception:  # noqa: BLE001
         # T11.8-B (2026-04-24): bare Exception kept on purpose. ZoneInfo
@@ -267,8 +269,7 @@ async def shadow_report_job(
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT DISTINCT
         # surfaces aiosqlite.Error (missing column after migration, locked
         # DB). Empty list downstream triggers diagnostic ping.
-        logger.exception(f"[shadow_report] discover failed: "
-                         f"{type(e).__name__}: {e}")
+        logger.exception(f"[shadow_report] discover failed: " f"{type(e).__name__}: {e}")
         all_types = []
 
     # 2) Build the effective list: WATCHED ∩ existing, else fall back to all.
@@ -292,12 +293,11 @@ async def shadow_report_job(
                     parse_mode="HTML",
                 )
                 pushed += 1
-            except (TelegramError, asyncio.TimeoutError) as e:
+            except (TimeoutError, TelegramError) as e:
                 # T11.8-B (2026-04-24): narrow from bare Exception.
                 # Diagnostic send is best-effort; empty-DB signal is already
                 # in the log.
-                logger.exception(f"[shadow_report] diag send failed: "
-                                 f"{type(e).__name__}: {e}")
+                logger.exception(f"[shadow_report] diag send failed: " f"{type(e).__name__}: {e}")
         return pushed
 
     # 4) If WATCHED list missed entirely, surface that to the user.
@@ -317,11 +317,10 @@ async def shadow_report_job(
                 parse_mode="HTML",
             )
             pushed += 1
-        except (TelegramError, asyncio.TimeoutError) as e:
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. Mismatch
             # warn is best-effort.
-            logger.exception(f"[shadow_report] mismatch warn failed: "
-                             f"{type(e).__name__}: {e}")
+            logger.exception(f"[shadow_report] mismatch warn failed: " f"{type(e).__name__}: {e}")
 
     # 5) Phase 79 S4-06: Collect ALL A/B reports into summary table format (not 10 separate messages).
     summary_lines = [
@@ -341,8 +340,9 @@ async def shadow_report_job(
             # T11.8-B (2026-04-24): narrow from bare Exception. A/B query
             # surfaces aiosqlite.Error (SQL) + row access Key/Type/ValueError
             # (datetime parse, missing column). Skip this stype, continue batch.
-            logger.exception(f"[shadow_report] query failed for {stype}: "
-                             f"{type(e).__name__}: {e}")
+            logger.exception(
+                f"[shadow_report] query failed for {stype}: " f"{type(e).__name__}: {e}"
+            )
             continue
 
         promo_msg = _check_promotion_gate(ab, decision_mode)
@@ -369,7 +369,9 @@ async def shadow_report_job(
             pnl_delta = f"{d_pnl:+.2f}"
 
         # Format row (left-aligned type, values right-aligned in columns)
-        row = f"{stype:<11} | {trades_before:>6} | {trades_after:>6} | {wr_delta:>6} | {pnl_delta:>7}"
+        row = (
+            f"{stype:<11} | {trades_before:>6} | {trades_after:>6} | {wr_delta:>6} | {pnl_delta:>7}"
+        )
         summary_lines.append(row)
 
     summary_lines.append("")
@@ -382,15 +384,12 @@ async def shadow_report_job(
     if len(summary_html) <= 4096:
         # Send as single message
         try:
-            await context.bot.send_message(
-                chat_id=admin_id, text=summary_html, parse_mode="HTML"
-            )
+            await context.bot.send_message(chat_id=admin_id, text=summary_html, parse_mode="HTML")
             pushed += 1
-        except (TelegramError, asyncio.TimeoutError) as e:
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. Main summary
             # send; transport/BadRequest only. Pushed count already reflects.
-            logger.exception(f"[shadow_report] tg send failed: "
-                             f"{type(e).__name__}: {e}")
+            logger.exception(f"[shadow_report] tg send failed: " f"{type(e).__name__}: {e}")
     else:
         # Split into 2 messages: summary table + footer
         parts = summary_html.split("\n")
@@ -399,39 +398,34 @@ async def shadow_report_job(
         msg2 = "\n".join(parts[mid:])
 
         try:
-            await context.bot.send_message(
-                chat_id=admin_id, text=msg1, parse_mode="HTML"
-            )
+            await context.bot.send_message(chat_id=admin_id, text=msg1, parse_mode="HTML")
             pushed += 1
-        except (TelegramError, asyncio.TimeoutError) as e:
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. Part 1 of
             # split summary; same error surface as single-msg path.
-            logger.exception(f"[shadow_report] tg send (part 1) failed: "
-                             f"{type(e).__name__}: {e}")
+            logger.exception(
+                f"[shadow_report] tg send (part 1) failed: " f"{type(e).__name__}: {e}"
+            )
 
         try:
-            await context.bot.send_message(
-                chat_id=admin_id, text=msg2, parse_mode="HTML"
-            )
+            await context.bot.send_message(chat_id=admin_id, text=msg2, parse_mode="HTML")
             pushed += 1
-        except (TelegramError, asyncio.TimeoutError) as e:
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. Part 2
             # counterpart.
-            logger.exception(f"[shadow_report] tg send (part 2) failed: "
-                             f"{type(e).__name__}: {e}")
+            logger.exception(
+                f"[shadow_report] tg send (part 2) failed: " f"{type(e).__name__}: {e}"
+            )
 
     # Send promotion messages (separate, as they're actionable alerts)
     for promo_msg in promo_msgs:
         try:
-            await context.bot.send_message(
-                chat_id=admin_id, text=promo_msg, parse_mode="HTML"
-            )
+            await context.bot.send_message(chat_id=admin_id, text=promo_msg, parse_mode="HTML")
             pushed += 1
-        except (TelegramError, asyncio.TimeoutError) as e:
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. Promotion
             # alerts are actionable; log and continue iterating.
-            logger.exception(f"[shadow_report] promo send failed: "
-                             f"{type(e).__name__}: {e}")
+            logger.exception(f"[shadow_report] promo send failed: " f"{type(e).__name__}: {e}")
 
     if pushed:
         logger.info(f"[shadow_report] {pushed} message(s) pushed to telegram")

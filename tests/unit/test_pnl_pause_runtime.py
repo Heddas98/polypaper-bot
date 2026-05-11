@@ -24,6 +24,7 @@ These tests verify:
   3. Malformed env falls back to default without raising
   4. `_adaptive_pnl_threshold` picks up env changes on subsequent calls
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,6 +50,7 @@ def adaptive_defaults(monkeypatch):
 # ═══════════════════════════════════════════════════════════════════
 # _get_pnl_pause_threshold — direct behaviour
 # ═══════════════════════════════════════════════════════════════════
+
 
 def test_get_threshold_reads_env_fresh(adaptive_defaults, monkeypatch):
     """Helper returns current env value, not a frozen import-time one."""
@@ -85,6 +87,7 @@ def test_get_threshold_malformed_falls_back(adaptive_defaults, monkeypatch):
 # _adaptive_pnl_threshold — now picks up env changes at runtime
 # ═══════════════════════════════════════════════════════════════════
 
+
 def test_adaptive_uses_runtime_base(adaptive_defaults, monkeypatch):
     """Flip env between calls → adaptive base changes too."""
     monkeypatch.setenv("PNL_PAUSE_THRESHOLD", "-3.0")
@@ -108,9 +111,7 @@ def test_adaptive_step_applies_over_runtime_base(adaptive_defaults, monkeypatch)
     assert ao._adaptive_pnl_threshold(40) == pytest.approx(-3.0)
 
 
-def test_adaptive_floor_still_caps_after_runtime_base_change(
-    adaptive_defaults, monkeypatch
-):
+def test_adaptive_floor_still_caps_after_runtime_base_change(adaptive_defaults, monkeypatch):
     """Floor (-10.0) must cap regardless of runtime base value."""
     monkeypatch.setenv("PNL_PAUSE_THRESHOLD", "-3.0")
     # 500 trades → 25 steps → -3.0 - 12.5 = -15.5, capped at floor -10.0
@@ -121,9 +122,7 @@ def test_adaptive_floor_still_caps_after_runtime_base_change(
     assert ao._adaptive_pnl_threshold(500) == pytest.approx(-10.0)
 
 
-def test_adaptive_disabled_returns_runtime_base(
-    adaptive_defaults, monkeypatch
-):
+def test_adaptive_disabled_returns_runtime_base(adaptive_defaults, monkeypatch):
     """When adaptive is off, base must still be the live env value."""
     monkeypatch.setattr(ao, "ADAPTIVE_PNL_ENABLED", False)
     monkeypatch.setenv("PNL_PAUSE_THRESHOLD", "-7.5")
@@ -147,8 +146,7 @@ def test_ghost_toggle_regression(adaptive_defaults, monkeypatch):
     # Admin tightens threshold via /env_toggle
     monkeypatch.setenv("PNL_PAUSE_THRESHOLD", "-3.0")
     t2 = ao._adaptive_pnl_threshold(0)
-    assert t2 == pytest.approx(-3.0), (
-        "ghost-toggle regression — env change didn't take effect")
+    assert t2 == pytest.approx(-3.0), "ghost-toggle regression — env change didn't take effect"
 
     # And loosens it to -7.0 (under floor=-10.0 cap)
     monkeypatch.setenv("PNL_PAUSE_THRESHOLD", "-7.0")

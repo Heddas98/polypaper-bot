@@ -11,11 +11,11 @@ Public API:
     info = classify_error("INVALID_ORDER_MIN_TICK_SIZE", price=0.555)
     # info.tr_message, info.en_message, info.suggestion, info.severity, info.auto_fix
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
-
 
 SEVERITY_INFO = "info"
 SEVERITY_WARN = "warn"

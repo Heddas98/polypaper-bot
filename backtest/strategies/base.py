@@ -10,7 +10,9 @@ Every strategy implements BacktestStrategy Protocol:
 Strategies are auto-discovered from this package.
 Each strategy is a single file with a class inheriting BaseBacktestStrategy.
 """
+
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable
@@ -18,8 +20,8 @@ from typing import Optional, Protocol, runtime_checkable
 logger = logging.getLogger("polypaper.backtest.strategies.base")
 from enum import Enum
 
-
 # ── Data Models ──────────────────────────────────────────────
+
 
 class Direction(Enum):
     UP = "up"
@@ -29,25 +31,27 @@ class Direction(Enum):
 @dataclass
 class MarketData:
     """Market metadata passed to strategies."""
+
     market_id: str = ""
     coin: str = "BTC"
-    market_type: str = "5m"          # 5m, 15m, 1h, 4h, 24h
+    market_type: str = "5m"  # 5m, 15m, 1h, 4h, 24h
     question: str = ""
     start_time: str = ""
     end_time: str = ""
-    winner: str = ""                 # "UP" or "DOWN" (set after resolution)
+    winner: str = ""  # "UP" or "DOWN" (set after resolution)
     volume: float = 0.0
     liquidity: float = 0.0
     up_token_id: str = ""
     down_token_id: str = ""
-    duration_seconds: int = 300      # market window duration
-    hour_utc: int = 0               # hour of day (0-23) for hour_edge
+    duration_seconds: int = 300  # market window duration
+    hour_utc: int = 0  # hour of day (0-23) for hour_edge
     metadata: dict = field(default_factory=dict)
 
 
 @dataclass
 class OrderbookSnapshot:
     """Single orderbook state at a point in time."""
+
     timestamp_ms: int = 0
     # Token prices
     up_best_bid: float = 0.0
@@ -59,14 +63,14 @@ class OrderbookSnapshot:
     binance_price: float = 0.0
     binance_price_change: float = 0.0  # % change since market open
     # Depth info (if available)
-    up_bid_depth: float = 0.0       # total $ on UP bid side
+    up_bid_depth: float = 0.0  # total $ on UP bid side
     up_ask_depth: float = 0.0
     down_bid_depth: float = 0.0
     down_ask_depth: float = 0.0
     # Timing
-    elapsed_seconds: float = 0.0     # seconds since market open
-    remaining_seconds: float = 0.0   # seconds until market close
-    elapsed_pct: float = 0.0         # 0.0-1.0 progress through market
+    elapsed_seconds: float = 0.0  # seconds since market open
+    remaining_seconds: float = 0.0  # seconds until market close
+    elapsed_pct: float = 0.0  # 0.0-1.0 progress through market
     # Taker flow (if available from Binance)
     taker_buy_volume: float = 0.0
     taker_sell_volume: float = 0.0
@@ -77,10 +81,11 @@ class OrderbookSnapshot:
 @dataclass
 class Signal:
     """Trade signal emitted by a strategy."""
-    direction: Direction             # UP or DOWN
-    confidence: float = 0.5          # 0.0-1.0
-    entry_price: float = 0.5        # desired entry price
-    reason: str = ""                 # human-readable reason
+
+    direction: Direction  # UP or DOWN
+    confidence: float = 0.5  # 0.0-1.0
+    entry_price: float = 0.5  # desired entry price
+    reason: str = ""  # human-readable reason
     metadata: dict = field(default_factory=dict)
 
     @property
@@ -95,7 +100,8 @@ class Signal:
 @dataclass
 class Resolution:
     """Market resolution result."""
-    winner: Direction                # UP or DOWN
+
+    winner: Direction  # UP or DOWN
     final_up_price: float = 0.0
     final_down_price: float = 0.0
     final_binance_price: float = 0.0
@@ -103,6 +109,7 @@ class Resolution:
 
 
 # ── Strategy Protocol ────────────────────────────────────────
+
 
 @runtime_checkable
 class BacktestStrategy(Protocol):
@@ -114,6 +121,7 @@ class BacktestStrategy(Protocol):
       2. on_snapshot(snap) × N       — process each tick, optionally emit Signal
       3. on_market_close(market, res) — cleanup, record outcome
     """
+
     name: str
     version: str
 
@@ -129,19 +137,20 @@ class BacktestStrategy(Protocol):
         """
         ...
 
-    def on_market_close(self, market: MarketData,
-                        result: Resolution) -> None:
+    def on_market_close(self, market: MarketData, result: Resolution) -> None:
         """Called when market resolves. For stats/learning."""
         ...
 
 
 # ── Base Class (optional convenience) ────────────────────────
 
+
 class BaseBacktestStrategy:
     """
     Base class providing common functionality.
     Strategies can inherit this instead of implementing Protocol from scratch.
     """
+
     name: str = "base"
     version: str = "1.0"
     description: str = ""
@@ -165,14 +174,13 @@ class BaseBacktestStrategy:
         self._snapshots_seen += 1
         return None
 
-    def on_market_close(self, market: MarketData,
-                        result: Resolution) -> None:
+    def on_market_close(self, market: MarketData, result: Resolution) -> None:
         """Override for post-market analysis."""
         pass
 
-    def make_signal(self, direction: str, confidence: float,
-                    entry_price: float, reason: str = "",
-                    **kwargs) -> Optional[Signal]:
+    def make_signal(
+        self, direction: str, confidence: float, entry_price: float, reason: str = "", **kwargs
+    ) -> Optional[Signal]:
         """Helper to create Signal if not already emitted."""
         if self._signal_emitted:
             return None
@@ -191,6 +199,7 @@ class BaseBacktestStrategy:
 
 
 # ── Strategy Registry ────────────────────────────────────────
+
 
 class StrategyRegistryV2:
     """Registry for backtest v2 strategies. Auto-discovers from files."""
@@ -227,6 +236,7 @@ class StrategyRegistryV2:
         # Phase 81: Backtest'te yoksa live adaptörü dene
         try:
             from backtest.strategies.live_adapter import get_live_adapter
+
             adapter = get_live_adapter(name, extra_params=params if params else None)
             if adapter:
                 logger.info(f"StrategyRegistryV2: '{name}' → live adapter kullanılıyor")
@@ -243,6 +253,7 @@ class StrategyRegistryV2:
         # Phase 81: Live stratejileri de listele
         try:
             from core.strategy_plugins import StrategyRegistry
+
             live_reg = StrategyRegistry()
             for ln in live_reg.names:
                 if ln not in names:

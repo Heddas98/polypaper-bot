@@ -14,14 +14,16 @@ Originally 1034-line monolith `_evaluate`. Now split into logical helpers:
 All helpers return a dict (context bag) or None to abort. The orchestrator
 threads context through, so each helper has all state from prior steps.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json  # Epic 8 T8.1: narrow json.JSONDecodeError in reasoning/lifecycle parse
+import logging
 import math
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite  # Epic 8 T8.1: narrow DB exception handling (brier/trade_memory)
 import httpx  # Epic 8 T8.1: narrow HTTP exception handling (orderbook fetches)
@@ -42,7 +44,6 @@ from core.trade_journal import log_rejection
 from data.polymarket_client import safe_float
 from db.models import Direction
 
-import logging
 logger = logging.getLogger("polypaper.core.engine")
 
 
@@ -151,9 +152,7 @@ class EngineSignalsMixin:
         the full amount on fill — slight over-reservation is intentional and
         safe. Scoped by wallet_id for multi-wallet isolation.
         """
-        return sum(
-            o.amount for o in self._pending
-            if o.wallet_id == wallet_id)
+        return sum(o.amount for o in self._pending if o.wallet_id == wallet_id)
 
     # ───────────────────────────────────────────────────────────────────
     # Phase 79 S4-04: Brier Calibration Alarm Helpers
@@ -172,6 +171,7 @@ class EngineSignalsMixin:
 
         try:
             from utils.brier_tracker import BrierTracker
+
             tracker = BrierTracker(self.db)
             report = await tracker.get_report(source=None, hours=168)
 
@@ -268,6 +268,7 @@ class EngineSignalsMixin:
             # safe global defaults (trade cycle MUST continue). Narrow per-layer
             # guards already inside lifecycle module.
             from core.strategy_lifecycle import StrategyParams
+
             logger.debug(f"lifecycle.get_params fallback for {s.id[:8]}: {_lcp_err}")
             _lc_params = StrategyParams()  # Global defaults as fallback
 
@@ -316,9 +317,11 @@ class EngineSignalsMixin:
             return None
 
         # Market halt detection
-        if (not market.get("active", True)
-                or market.get("closed", False)
-                or market.get("archived", False)):
+        if (
+            not market.get("active", True)
+            or market.get("closed", False)
+            or market.get("archived", False)
+        ):
             self.skips.record("MARKET_HALT")
             if verbose:
                 logger.info(f"  [{sid}] ❌ MARKET_HALT: market not tradeable")
@@ -326,7 +329,7 @@ class EngineSignalsMixin:
 
         # Record Binance open price ONCE
         if self.external_feed and self.external_feed.is_available:
-            asset_name = s.asset.value if hasattr(s.asset, 'value') else str(s.asset)
+            asset_name = s.asset.value if hasattr(s.asset, "value") else str(s.asset)
             if slug not in self._market_open_recorded:
                 self.external_feed.record_market_open(asset_name, slug)
                 self._market_open_recorded.add(slug)
@@ -337,7 +340,7 @@ class EngineSignalsMixin:
         if f"{s.id}:{slug}" in self._settled_slugs:
             return None
         cd = self._cooldowns.get(f"{s.id}:{asset}_{tf}")
-        if cd and datetime.now(timezone.utc) < cd:
+        if cd and datetime.now(UTC) < cd:
             return None
 
         # Pending lock check
@@ -360,11 +363,11 @@ class EngineSignalsMixin:
         # T1.3 Commit 1 (2026-04-20): lag_arb recorder kaldırıldı
         # (core.lag_arbitrage ghost modül — engine.py init'ten silindi).
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Sprint 5 HOTFIX v5: compute classic-free early so both TOO_EARLY
         # and TOO_LATE can opt out for user-directed triggers.
-        _stype_early = getattr(s, 'strategy_type', '') or ''
+        _stype_early = getattr(s, "strategy_type", "") or ""
         _classic_free = self._classic_free_mode(_stype_early)
 
         # BET_FROM
@@ -433,10 +436,16 @@ class EngineSignalsMixin:
                         return None
 
         return {
-            "sid": sid, "asset": asset, "tf": tf,
-            "market": market, "slug": slug, "cached": cached,
-            "up": up, "down": down,
-            "threshold": threshold, "ws_fresh": ws_fresh,
+            "sid": sid,
+            "asset": asset,
+            "tf": tf,
+            "market": market,
+            "slug": slug,
+            "cached": cached,
+            "up": up,
+            "down": down,
+            "threshold": threshold,
+            "ws_fresh": ws_fresh,
             "minutes_remaining": minutes_remaining,
             "total_minutes": total_minutes,
         }
@@ -455,7 +464,7 @@ class EngineSignalsMixin:
         total_minutes = ctx["total_minutes"]
 
         odds_series = self.odds_feed.get_odds_series(slug, "up")
-        stype = getattr(s, 'strategy_type', 'fusion') or 'fusion'
+        stype = getattr(s, "strategy_type", "fusion") or "fusion"
         psig = None
 
         # ── Phase 82: Unified orderbook fetch (cached, shared across paths) ──
@@ -479,13 +488,12 @@ class EngineSignalsMixin:
 
             # 1. TIME
             try:
-                _now_utc = datetime.now(timezone.utc)
+                _now_utc = datetime.now(UTC)
                 plugin_meta["hour_utc"] = _now_utc.hour
                 plugin_meta["minute_utc"] = _now_utc.minute
                 if total_minutes and total_minutes > 0:
                     _elapsed = total_minutes - (minutes_remaining or 0)
-                    plugin_meta["time_pct"] = round(
-                        max(0.0, min(1.0, _elapsed / total_minutes)), 4)
+                    plugin_meta["time_pct"] = round(max(0.0, min(1.0, _elapsed / total_minutes)), 4)
             except (TypeError, ValueError, AttributeError) as _tme:
                 # Epic 8 T8.1: narrow — datetime/arithmetic fallback; plugin_meta optional
                 logger.debug(f"plugin_meta time err: {_tme}")
@@ -522,7 +530,8 @@ class EngineSignalsMixin:
                         plugin_meta["down_best_ask"] = float(_dasks[0][0])
                     if _dbids and _dasks:
                         plugin_meta["down_spread"] = round(
-                            float(_dasks[0][0]) - float(_dbids[0][0]), 4)
+                            float(_dasks[0][0]) - float(_dbids[0][0]), 4
+                        )
                     plugin_meta["down_bid_depth"] = sum(float(sz) for _px, sz in _dbids[:5])
                     plugin_meta["down_ask_depth"] = sum(float(sz) for _px, sz in _dasks[:5])
             except (TypeError, ValueError, KeyError, IndexError, AttributeError) as _obe:
@@ -541,8 +550,7 @@ class EngineSignalsMixin:
                     if _mom:
                         plugin_meta["asset_price_change"] = _mom.get("change_pct")
                         plugin_meta["spot_momentum_strength"] = _mom.get("strength")
-                        _move = (_mom.get("latest_price", 0.0)
-                                 - _mom.get("oldest_price", 0.0))
+                        _move = _mom.get("latest_price", 0.0) - _mom.get("oldest_price", 0.0)
                         if _asset_up == "BTC":
                             plugin_meta["btc_price_change"] = _mom.get("change_pct")
                             plugin_meta["btc_move_usd"] = round(_move, 4)
@@ -551,8 +559,9 @@ class EngineSignalsMixin:
                         _btc_mom = self.external_feed.get_spot_momentum("BTC", 60)
                         if _btc_mom:
                             plugin_meta["btc_price_change"] = _btc_mom.get("change_pct")
-                            _bmove = (_btc_mom.get("latest_price", 0.0)
-                                      - _btc_mom.get("oldest_price", 0.0))
+                            _bmove = _btc_mom.get("latest_price", 0.0) - _btc_mom.get(
+                                "oldest_price", 0.0
+                            )
                             plugin_meta["btc_move_usd"] = round(_bmove, 4)
             except (TypeError, ValueError, KeyError, AttributeError) as _se:
                 # Epic 8 T8.1: narrow — external_feed momentum dict parse
@@ -579,8 +588,7 @@ class EngineSignalsMixin:
             # 6. PRE-COMPUTED DIVERGENCE (spot vs odds)
             try:
                 if self.external_feed and self.external_feed.is_available:
-                    _div = self.external_feed.get_divergence(
-                        _asset_up, up or 0.5, slug=slug)
+                    _div = self.external_feed.get_divergence(_asset_up, up or 0.5, slug=slug)
                     if _div:
                         plugin_meta["divergence_signal"] = _div.get("signal")
                         plugin_meta["divergence_confidence"] = _div.get("confidence")
@@ -616,14 +624,15 @@ class EngineSignalsMixin:
                 if _pjson:
                     _params = json.loads(_pjson) if isinstance(_pjson, str) else _pjson
                     plugin_meta["strategy_phase"] = _params.get("phase", "unknown")
-            except (json.JSONDecodeError, TypeError, ValueError, AttributeError,
-                    KeyError) as _lpe:
+            except (json.JSONDecodeError, TypeError, ValueError, AttributeError, KeyError) as _lpe:
                 # Epic 8 T8.1: narrow — strategy_params JSON + dict access
                 logger.debug(f"plugin_meta lifecycle err: {_lpe}")
 
             snap = MarketSnapshot(
-                up_odds=up or 0.5, down_odds=down or 0.5,
-                threshold=threshold, direction_filter=s.direction.value,
+                up_odds=up or 0.5,
+                down_odds=down or 0.5,
+                threshold=threshold,
+                direction_filter=s.direction.value,
                 odds_series=odds_series,
                 minutes_remaining=minutes_remaining or 2.5,
                 total_minutes=total_minutes,
@@ -634,7 +643,8 @@ class EngineSignalsMixin:
                 spread=cached.get("spread") or 0.02,
                 best_ask=real_best_ask,
                 best_bid=real_best_bid,
-                metadata=plugin_meta)
+                metadata=plugin_meta,
+            )
             # Phase 82a hotfix: plugin evaluate isolated — a crashing plugin
             # now skips this strategy instead of bubbling up and silently
             # killing the engine main loop (root cause of the 01:28 freeze
@@ -645,9 +655,7 @@ class EngineSignalsMixin:
                 # Third-party/user-authored plugin isolation boundary; a crashing
                 # plugin must NOT propagate into engine main loop. Full exception
                 # is logged (Phase 82a hotfix root cause comment above).
-                logger.warning(
-                    f"  [{sid}] ⚠️ PLUGIN_ERROR [{stype}]: {type(_pe).__name__}: {_pe}"
-                )
+                logger.warning(f"  [{sid}] ⚠️ PLUGIN_ERROR [{stype}]: {type(_pe).__name__}: {_pe}")
                 self.skips.record("PLUGIN_ERROR")
                 return None
             should_trade = psig.should_trade
@@ -656,11 +664,15 @@ class EngineSignalsMixin:
             signal_reason = f"[{stype}] {psig.reason}"
         else:
             sig = self.signals.evaluate(
-                up_odds=up or 0.5, down_odds=down or 0.5,
-                threshold=threshold, direction=s.direction.value,
+                up_odds=up or 0.5,
+                down_odds=down or 0.5,
+                threshold=threshold,
+                direction=s.direction.value,
                 odds_series=odds_series,
-                minutes_remaining=minutes_remaining, total_minutes=total_minutes,
-                orderbook=ob_data)
+                minutes_remaining=minutes_remaining,
+                total_minutes=total_minutes,
+                orderbook=ob_data,
+            )
             should_trade = sig.should_trade
             trade_direction = sig.direction
             signal_score = sig.composite_score
@@ -669,10 +681,14 @@ class EngineSignalsMixin:
         # EMA OVERRIDE
         # Sprint 5 HOTFIX v5: classic stype bypasses EMA filter — classic
         # snapshot trigger is user-directed, EMA is a technical filter.
-        _stype_ema = getattr(s, 'strategy_type', '') or ''
+        _stype_ema = getattr(s, "strategy_type", "") or ""
         _classic_free_ema = self._classic_free_mode(_stype_ema)
-        if (s.ma_filter_enabled and trade_direction and len(odds_series) >= 12
-                and not _classic_free_ema):
+        if (
+            s.ma_filter_enabled
+            and trade_direction
+            and len(odds_series) >= 12
+            and not _classic_free_ema
+        ):
             ema_dir = ema_direction_filter(odds_series)
             if ema_dir and ema_dir != trade_direction:
                 self.skips.record("EMA_BLOCK")
@@ -682,26 +698,34 @@ class EngineSignalsMixin:
 
         # BINANCE DIVERGENCE + Phase 79b: Spot Momentum Boost
         if self.external_feed and self.external_feed.is_available:
-            asset_name = s.asset.value if hasattr(s.asset, 'value') else str(s.asset)
+            asset_name = s.asset.value if hasattr(s.asset, "value") else str(s.asset)
             div = self.external_feed.get_divergence(asset_name, up or 0.5, slug=slug)
             if div:
                 if div["divergence"] and div["signal"]:
                     spot_dir = div["signal"]
-                    if trade_direction and spot_dir != trade_direction and div["confidence"] >= 0.10:
+                    if (
+                        trade_direction
+                        and spot_dir != trade_direction
+                        and div["confidence"] >= 0.10
+                    ):
                         old_dir = trade_direction
                         trade_direction = spot_dir
                         signal_score = min(signal_score + 0.2, 1.0)
                         signal_reason += f" | DIV:{div['spot_change_pct']:+.2f}%→{spot_dir}"
                         if self.skips.should_log(sid, "DIVERGENCE"):
-                            logger.info(f"  [{sid}] 🌐 DIVERGENCE: {old_dir}→{spot_dir} "
-                                        f"(spot {div['spot_change_pct']:+.2f}% conf={div['confidence']:.2f})")
+                            logger.info(
+                                f"  [{sid}] 🌐 DIVERGENCE: {old_dir}→{spot_dir} "
+                                f"(spot {div['spot_change_pct']:+.2f}% conf={div['confidence']:.2f})"
+                            )
                     elif not trade_direction and div["confidence"] >= 0.30:
                         trade_direction = spot_dir
                         signal_score = div["confidence"]
                         should_trade = True
                         signal_reason += f" | DIV_NEW:{div['spot_change_pct']:+.2f}%→{spot_dir}"
-                        logger.info(f"  [{sid}] 🌐 DIV_NEW: →{spot_dir} "
-                                    f"(spot {div['spot_change_pct']:+.2f}% conf={div['confidence']:.2f})")
+                        logger.info(
+                            f"  [{sid}] 🌐 DIV_NEW: →{spot_dir} "
+                            f"(spot {div['spot_change_pct']:+.2f}% conf={div['confidence']:.2f})"
+                        )
                 elif not div["divergence"] and trade_direction:
                     signal_score = min(signal_score + 0.1, 1.0)
                     signal_reason += f" | SPOT_OK:{div['spot_change_pct']:+.2f}%"
@@ -726,10 +750,16 @@ class EngineSignalsMixin:
         # MIN_VOLATILITY
         # Sprint 5 HOTFIX v5: classic bypasses LOW_VOL — user-directed
         # trigger should fire regardless of book volatility.
-        if (s.min_volatility and s.min_volatility > 0 and len(odds_series) >= 5
-                and not _classic_free_ema):
+        if (
+            s.min_volatility
+            and s.min_volatility > 0
+            and len(odds_series) >= 5
+            and not _classic_free_ema
+        ):
             mean = sum(odds_series[-10:]) / min(len(odds_series), 10)
-            vol = math.sqrt(sum((x - mean)**2 for x in odds_series[-10:]) / min(len(odds_series), 10))
+            vol = math.sqrt(
+                sum((x - mean) ** 2 for x in odds_series[-10:]) / min(len(odds_series), 10)
+            )
             if vol < s.min_volatility / 100:
                 self.skips.record("LOW_VOL")
                 if verbose:
@@ -746,8 +776,10 @@ class EngineSignalsMixin:
             if _lc_min < _global_min and signal_score >= _lc_min:
                 should_trade = True
                 signal_reason += f" | LC_OVERRIDE({_lc.phase}:{_lc_min:.2f})"
-                logger.info(f"  [{sid}] 🔬 LIFECYCLE: override min_composite "
-                            f"{_global_min:.2f}→{_lc_min:.2f} (phase={_lc.phase})")
+                logger.info(
+                    f"  [{sid}] 🔬 LIFECYCLE: override min_composite "
+                    f"{_global_min:.2f}→{_lc_min:.2f} (phase={_lc.phase})"
+                )
 
         if not should_trade or not trade_direction:
             if "no_direction" in signal_reason:
@@ -755,7 +787,9 @@ class EngineSignalsMixin:
             else:
                 self.skips.record("SIG_WEAK")
             if verbose:
-                logger.info(f"  [{sid} {ctx['asset']}/{ctx['tf']}] ❌ {signal_reason} (data={len(odds_series)}pts)")
+                logger.info(
+                    f"  [{sid} {ctx['asset']}/{ctx['tf']}] ❌ {signal_reason} (data={len(odds_series)}pts)"
+                )
                 log_rejection(slug, "SIGNAL", signal_reason, s.id)
             return None
 
@@ -768,8 +802,10 @@ class EngineSignalsMixin:
         if not _classic_free and self.regime.should_skip(stype):
             self.skips.record("REGIME")
             if verbose and self.skips.should_log(sid, "REGIME"):
-                logger.info(f"  [{sid}] ❌ REGIME: {stype} unfit for {self.regime.regime} "
-                           f"(fit={self.regime.strategy_fit(stype):.1f})")
+                logger.info(
+                    f"  [{sid}] ❌ REGIME: {stype} unfit for {self.regime.regime} "
+                    f"(fit={self.regime.strategy_fit(stype):.1f})"
+                )
             return None
 
         # THOMPSON SAMPLING GATE
@@ -813,37 +849,55 @@ class EngineSignalsMixin:
         # Override via CLASSIC_RESPECT_ZONES=true if user wants to apply
         # zones to classic too.
         _classic_bypass_zones = (
-            stype == "classic"
-            and os.getenv("CLASSIC_RESPECT_ZONES", "false").lower() != "true"
+            stype == "classic" and os.getenv("CLASSIC_RESPECT_ZONES", "false").lower() != "true"
         )
-        if (self._ALLOWED_ZONES and not _classic_bypass_zones
-                and not self._in_allowed_zone(best_ask, self._ALLOWED_ZONES)):
+        if (
+            self._ALLOWED_ZONES
+            and not _classic_bypass_zones
+            and not self._in_allowed_zone(best_ask, self._ALLOWED_ZONES)
+        ):
             self.skips.record("ZONE_BLOCKED")
             if verbose and self.skips.should_log(sid, "ZONE_BLOCKED"):
                 zone_str = ",".join(f"{lo*100:.0f}-{hi*100:.0f}c" for lo, hi in self._ALLOWED_ZONES)
-                logger.info(f"  [{sid}] ❌ ZONE_BLOCKED: price {best_ask*100:.2f}c not in [{zone_str}]")
+                logger.info(
+                    f"  [{sid}] ❌ ZONE_BLOCKED: price {best_ask*100:.2f}c not in [{zone_str}]"
+                )
             return None
 
         # Phase 82c Task #19: Per-strategy-type blocked zone (fusion/AI_F)
         # AI_F strategies lose ~72% of 30-40c entries in production. Block
         # this range for fusion-type strats unless FUSION_BLOCKED_ZONES is
         # cleared. Applies to AI_F_* (label) and any strategy_type==fusion.
-        if (stype == "fusion" and self._FUSION_BLOCKED_ZONES
-                and self._in_allowed_zone(best_ask, self._FUSION_BLOCKED_ZONES)):
+        if (
+            stype == "fusion"
+            and self._FUSION_BLOCKED_ZONES
+            and self._in_allowed_zone(best_ask, self._FUSION_BLOCKED_ZONES)
+        ):
             self.skips.record("FUSION_ZONE_BLOCKED")
             if verbose and self.skips.should_log(sid, "FUSION_ZONE_BLOCKED"):
-                zone_str = ",".join(f"{lo*100:.0f}-{hi*100:.0f}c" for lo, hi in self._FUSION_BLOCKED_ZONES)
-                logger.info(f"  [{sid}] ❌ FUSION_ZONE_BLOCKED: price {best_ask*100:.2f}c in [{zone_str}] (loss-prone bucket)")
+                zone_str = ",".join(
+                    f"{lo*100:.0f}-{hi*100:.0f}c" for lo, hi in self._FUSION_BLOCKED_ZONES
+                )
+                logger.info(
+                    f"  [{sid}] ❌ FUSION_ZONE_BLOCKED: price {best_ask*100:.2f}c in [{zone_str}] (loss-prone bucket)"
+                )
             return None
 
-        ctx.update({
-            "stype": stype, "psig": psig,
-            "should_trade": should_trade, "trade_direction": trade_direction,
-            "signal_score": signal_score, "signal_reason": signal_reason,
-            "direction": direction, "token_id": token_id,
-            "best_ask": best_ask, "ob_data": ob_data,
-            "odds_series": odds_series,
-        })
+        ctx.update(
+            {
+                "stype": stype,
+                "psig": psig,
+                "should_trade": should_trade,
+                "trade_direction": trade_direction,
+                "signal_score": signal_score,
+                "signal_reason": signal_reason,
+                "direction": direction,
+                "token_id": token_id,
+                "best_ask": best_ask,
+                "ob_data": ob_data,
+                "odds_series": odds_series,
+            }
+        )
         return ctx
 
     # ═══════════════════════════════════════════════════════════════════
@@ -880,6 +934,7 @@ class EngineSignalsMixin:
         if _settings_46 is None:
             try:
                 from config.settings import Settings as _SettingsCls46
+
                 _settings_46 = _SettingsCls46()
             except (ImportError, AttributeError, TypeError) as _sie:
                 # Epic 8 T8.1: narrow — settings import/construct fallback
@@ -895,8 +950,13 @@ class EngineSignalsMixin:
                 micro_features = None
 
         # ── Chainlink parity gate ──
-        if (not _classic_free and clo is not None and micro_features and trade_direction
-                and (_settings_46 is None or getattr(_settings_46, "PARITY_GATE_ENABLED", True))):
+        if (
+            not _classic_free
+            and clo is not None
+            and micro_features
+            and trade_direction
+            and (_settings_46 is None or getattr(_settings_46, "PARITY_GATE_ENABLED", True))
+        ):
             try:
                 ref_mid = micro_features.get("mid") or micro_features.get("microprice")
                 if ref_mid and clo.parity_break(asset.upper(), float(ref_mid)):
@@ -910,11 +970,22 @@ class EngineSignalsMixin:
                 logger.debug(f"  [{sid}] parity_gate_error: {_pe}")
 
         # ── Microstructure boost ──
-        if (micro_features and trade_direction
-                and (_settings_46 is None or getattr(_settings_46, "MICRO_BOOST_ENABLED", True))):
+        if (
+            micro_features
+            and trade_direction
+            and (_settings_46 is None or getattr(_settings_46, "MICRO_BOOST_ENABLED", True))
+        ):
             try:
-                weight = float(getattr(_settings_46, "MICRO_BOOST_WEIGHT", 0.15)) if _settings_46 else 0.15
-                clamp = float(getattr(_settings_46, "MICRO_BOOST_CLAMP", 0.20)) if _settings_46 else 0.20
+                weight = (
+                    float(getattr(_settings_46, "MICRO_BOOST_WEIGHT", 0.15))
+                    if _settings_46
+                    else 0.15
+                )
+                clamp = (
+                    float(getattr(_settings_46, "MICRO_BOOST_CLAMP", 0.20))
+                    if _settings_46
+                    else 0.20
+                )
                 if getattr(self, "micro_weight", None) is not None:
                     try:
                         weight *= float(self.micro_weight.get_multiplier())
@@ -938,25 +1009,45 @@ class EngineSignalsMixin:
                     signal_reason += f" | μ={boost:+.3f}"
                     micro_boost_value = boost
                     if verbose:
-                        logger.info(f"  [{sid}] 🔬 micro={boost:+.3f} "
-                                    f"(tilt={micro_tilt:+.2f} imb={ob_imb:+.2f} flow={tflow:+.2f})")
+                        logger.info(
+                            f"  [{sid}] 🔬 micro={boost:+.3f} "
+                            f"(tilt={micro_tilt:+.2f} imb={ob_imb:+.2f} flow={tflow:+.2f})"
+                        )
             except (AttributeError, TypeError, ValueError, KeyError) as _me:
                 # Epic 8 T8.1: narrow — micro boost math on feature dict
                 logger.debug(f"  [{sid}] micro_boost_error: {_me}")
 
         # ── Funding rate tilt ──
-        if (micro_features and trade_direction
-                and (_settings_46 is None or getattr(_settings_46, "FUNDING_TILT_ENABLED", True))):
+        if (
+            micro_features
+            and trade_direction
+            and (_settings_46 is None or getattr(_settings_46, "FUNDING_TILT_ENABLED", True))
+        ):
             try:
                 fr = micro_features.get("funding_rate")
                 if fr is not None:
                     fr_val = float(fr)
-                    threshold_fr = float(getattr(_settings_46, "FUNDING_TILT_THRESHOLD", 0.0005)) if _settings_46 else 0.0005
-                    fweight = float(getattr(_settings_46, "FUNDING_TILT_WEIGHT", 0.05)) if _settings_46 else 0.05
+                    threshold_fr = (
+                        float(getattr(_settings_46, "FUNDING_TILT_THRESHOLD", 0.0005))
+                        if _settings_46
+                        else 0.0005
+                    )
+                    fweight = (
+                        float(getattr(_settings_46, "FUNDING_TILT_WEIGHT", 0.05))
+                        if _settings_46
+                        else 0.05
+                    )
                     if abs(fr_val) >= threshold_fr:
-                        bear_bias = (fr_val > 0)
-                        tilt = -fweight if (bear_bias and trade_direction == "up") else (
-                            -fweight if ((not bear_bias) and trade_direction == "down") else fweight)
+                        bear_bias = fr_val > 0
+                        tilt = (
+                            -fweight
+                            if (bear_bias and trade_direction == "up")
+                            else (
+                                -fweight
+                                if ((not bear_bias) and trade_direction == "down")
+                                else fweight
+                            )
+                        )
                         signal_score = max(min(signal_score + tilt, 1.0), -1.0)
                         signal_reason += f" | fr={fr_val*100:+.3f}%→{tilt:+.2f}"
                         if verbose:
@@ -971,13 +1062,19 @@ class EngineSignalsMixin:
         if _surface_2d is not None and os.getenv("SURFACE_2D_ENABLED", "true").lower() == "true":
             try:
                 from calibration.surface_2d import surface_delta as _surf_delta
+
                 _surf_result = _surf_delta(
                     _surface_2d,
                     best_ask,
                     hours_remaining=minutes_remaining / 60.0 if minutes_remaining else None,
                     fallback_1d_curve=None,  # Becker removed 2026-04-28
                 )
-                if _surf_result.source not in ("disabled", "no_surface", "out_of_range", "1d_no_data"):
+                if _surf_result.source not in (
+                    "disabled",
+                    "no_surface",
+                    "out_of_range",
+                    "1d_no_data",
+                ):
                     bboost = _surf_result.boost
                     # becker_weight multiplier removed 2026-04-28 (Becker silindi)
                     if abs(bboost) > 1e-4:
@@ -994,9 +1091,9 @@ class EngineSignalsMixin:
                                 f"C_int={_surf_result.c_int:+.4f}) "
                                 f"conf={_surf_result.confidence:.2f} "
                                 f"→ boost={bboost:+.3f}"
-                                f"{' ⚠️antisym' if not _surf_result.antisym_ok else ''}")
-            except (AttributeError, TypeError, ValueError, KeyError,
-                    ImportError) as _s2e:
+                                f"{' ⚠️antisym' if not _surf_result.antisym_ok else ''}"
+                            )
+            except (AttributeError, TypeError, ValueError, KeyError, ImportError) as _s2e:
                 # Epic 8 T8.1: narrow — calibration.surface_2d import + math
                 logger.debug(f"  [{sid}] surface_2d_error: {_s2e}")
 
@@ -1019,17 +1116,20 @@ class EngineSignalsMixin:
             try:
                 _pattern = await _tm.get_pattern(s.id, slug, best_ask)
                 if _pattern is not None:
-                    _mem_adj = (_pattern.confidence_mult - 1.0)
+                    _mem_adj = _pattern.confidence_mult - 1.0
                     _mem_adj = max(min(_mem_adj, 0.15), -0.20)  # clamp
                     signal_score = max(min(signal_score + _mem_adj, 1.0), -1.0)
-                    signal_reason += (f" | memory={_mem_adj:+.3f}"
-                                      f"(wr={_pattern.win_rate:.0f}%,n={_pattern.total_trades})")
+                    signal_reason += (
+                        f" | memory={_mem_adj:+.3f}"
+                        f"(wr={_pattern.win_rate:.0f}%,n={_pattern.total_trades})"
+                    )
                     if verbose:
-                        logger.info(f"  [{sid}] 🧠 MEMORY: {_pattern.pattern_key} "
-                                    f"wr={_pattern.win_rate:.0f}% n={_pattern.total_trades} "
-                                    f"adj={_mem_adj:+.3f}")
-            except (AttributeError, TypeError, ValueError, KeyError,
-                    aiosqlite.Error) as _tme:
+                        logger.info(
+                            f"  [{sid}] 🧠 MEMORY: {_pattern.pattern_key} "
+                            f"wr={_pattern.win_rate:.0f}% n={_pattern.total_trades} "
+                            f"adj={_mem_adj:+.3f}"
+                        )
+            except (AttributeError, TypeError, ValueError, KeyError, aiosqlite.Error) as _tme:
                 # Epic 8 T8.1: narrow — trade_memory DB/parse fallback
                 logger.debug(f"  [{sid}] trade_memory_error: {_tme}")
 
@@ -1037,15 +1137,17 @@ class EngineSignalsMixin:
         # silindi — data_feeds.event_waves ghost modül, default ENV=false zaten
         # kapalıydı. EVENT_WAVES_QUALITY skip reason da ölü.
 
-        ctx.update({
-            "signal_score": signal_score,
-            "signal_reason": signal_reason,
-            "direction": direction,
-            "token_id": token_id,
-            "best_ask": best_ask,
-            "micro_boost_value": micro_boost_value,
-            "becker_delta_value": becker_delta_value,
-        })
+        ctx.update(
+            {
+                "signal_score": signal_score,
+                "signal_reason": signal_reason,
+                "direction": direction,
+                "token_id": token_id,
+                "best_ask": best_ask,
+                "micro_boost_value": micro_boost_value,
+                "becker_delta_value": becker_delta_value,
+            }
+        )
         return ctx
 
     # ═══════════════════════════════════════════════════════════════════
@@ -1078,7 +1180,9 @@ class EngineSignalsMixin:
             if s.max_entry_slippage and s.max_entry_slippage > 0:
                 if best_ask > threshold + s.max_entry_slippage:
                     self.skips.record("SLIPPAGE")
-                    logger.info(f"  [{sid}] ❌ SLIP: ask={best_ask:.3f} > {threshold}+{s.max_entry_slippage}")
+                    logger.info(
+                        f"  [{sid}] ❌ SLIP: ask={best_ask:.3f} > {threshold}+{s.max_entry_slippage}"
+                    )
                     return None
 
         # EDGE GATE (Phase 74b: lifecycle edge_gate_mult adjusts thresholds)
@@ -1100,7 +1204,9 @@ class EngineSignalsMixin:
         if not _classic_free and signal_score < min_sig:
             self.skips.record("EDGE_GATE")
             if verbose:
-                logger.info(f"  [{sid}] ❌ EDGE: ask={best_ask:.3f} min={min_sig} sig={signal_score:.2f}")
+                logger.info(
+                    f"  [{sid}] ❌ EDGE: ask={best_ask:.3f} min={min_sig} sig={signal_score:.2f}"
+                )
             return None
 
         # Sprint 1 S1-02: FEE-AWARE ENTRY GATE
@@ -1114,8 +1220,10 @@ class EngineSignalsMixin:
             if _fee_pct > 0 and _estimated_edge < _fee_pct * _min_edge_over_fee:
                 self.skips.record("LOW_EDGE_VS_FEE")
                 if verbose:
-                    logger.info(f"  [{sid}] ❌ FEE_GATE: edge={_estimated_edge:.4f} < "
-                                f"fee={_fee_pct:.4f}×{_min_edge_over_fee}")
+                    logger.info(
+                        f"  [{sid}] ❌ FEE_GATE: edge={_estimated_edge:.4f} < "
+                        f"fee={_fee_pct:.4f}×{_min_edge_over_fee}"
+                    )
                 return None
 
         # Phase 79 S4-04: BRIER CALIBRATION ALARM
@@ -1129,8 +1237,7 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(f"  [{sid}] ❌ {reason}")
                     return None
-            except (aiosqlite.Error, ValueError, TypeError, KeyError,
-                    AttributeError) as _be:
+            except (aiosqlite.Error, ValueError, TypeError, KeyError, AttributeError) as _be:
                 # Epic 8 T8.1: narrow — brier cache reload + bin lookup
                 logger.debug(f"brier alarm check failed (non-critical): {_be}")
 
@@ -1145,15 +1252,16 @@ class EngineSignalsMixin:
             ctx.get("stype") == "classic"
             and os.getenv("CLASSIC_RESPECT_UNSELLABLE", "false").lower() != "true"
         )
-        if (os.getenv("UNSELLABLE_CHECK_ENABLED", "true").lower() == "true"
-                and not _unsellable_bypass):
+        if (
+            os.getenv("UNSELLABLE_CHECK_ENABLED", "true").lower() == "true"
+            and not _unsellable_bypass
+        ):
             try:
                 ob_data = ctx.get("orderbook")
                 mins_remaining = ctx.get("minutes_remaining")
                 unsellable = self.risk.check_unsellable_risk(
-                    market_odds=best_ask,
-                    orderbook=ob_data,
-                    minutes_to_close=mins_remaining)
+                    market_odds=best_ask, orderbook=ob_data, minutes_to_close=mins_remaining
+                )
                 if not unsellable.approved:
                     self.skips.record("UNSELLABLE")
                     logger.info(f"  [{sid}] ❌ {unsellable.reason}")
@@ -1171,7 +1279,9 @@ class EngineSignalsMixin:
         pending_reserved = self._compute_pending_reserved(s.wallet_id)
         effective_balance = max(wallet.balance - pending_reserved, 0.0)
         try:
-            verdict = self.risk.check_trade(s.trade_amount, slug, effective_balance, strategy_id=s.id)
+            verdict = self.risk.check_trade(
+                s.trade_amount, slug, effective_balance, strategy_id=s.id
+            )
         except Exception as _risk_err:  # noqa: BLE001 — Epic 8 T8.1: KEEP umbrella.
             # RiskManager.check_trade composes ~20 sub-gates (DB, state math, ENV).
             # ANY failure must FAIL-CLOSED: skip the trade, record, and continue.
@@ -1229,8 +1339,7 @@ class EngineSignalsMixin:
             try:
                 _current_regime = getattr(self, "regime_classifier", None)
                 _regime_str = _current_regime.regime if _current_regime else "ranging"
-                kelly = await get_strategy_kelly(self.db, s.id, wallet.balance,
-                                                  regime=_regime_str)
+                kelly = await get_strategy_kelly(self.db, s.id, wallet.balance, regime=_regime_str)
                 if kelly.get("skip") and not _classic_free:
                     if verbose:
                         logger.info(f"  ⛔ [{sid}] KELLY_SKIP: {kelly.get('reason', 'no edge')}")
@@ -1262,27 +1371,32 @@ class EngineSignalsMixin:
                                 break
                         if asset_tag:
                             already = sum(
-                                1 for ex in self._pending
+                                1
+                                for ex in self._pending
                                 if ex.wallet_id == s.wallet_id
-                                and asset_tag in (ex.slug or "").lower())
+                                and asset_tag in (ex.slug or "").lower()
+                            )
                             if already >= 1:
                                 trade_amount *= 0.5
                                 if verbose:
-                                    logger.info(f"  🔗 [{sid}] CORR_HALF: "
-                                                f"existing {asset_tag} exposure → size /2")
+                                    logger.info(
+                                        f"  🔗 [{sid}] CORR_HALF: "
+                                        f"existing {asset_tag} exposure → size /2"
+                                    )
 
                     trade_amount = round(trade_amount, 2)
                     if trade_amount != old_amt:
-                        logger.info(f"  🎯 [{sid}] KELLY: ${old_amt:.2f}→${trade_amount:.2f} "
-                                    f"({kelly['quarter_kelly_pct']:.1f}% QK, {kelly['confidence']})")
-            except (AttributeError, TypeError, ValueError, KeyError,
-                    aiosqlite.Error) as _ke:
+                        logger.info(
+                            f"  🎯 [{sid}] KELLY: ${old_amt:.2f}→${trade_amount:.2f} "
+                            f"({kelly['quarter_kelly_pct']:.1f}% QK, {kelly['confidence']})"
+                        )
+            except (AttributeError, TypeError, ValueError, KeyError, aiosqlite.Error) as _ke:
                 # Epic 8 T8.1: narrow + observability fix (was silent pass)
                 logger.debug(f"  [{sid}] kelly_sizing err: {_ke}")
 
         # Event calendar sizing
         _event_sizing_mult = 1.0
-        if hasattr(self, '_event_monitor') and self._event_monitor:
+        if hasattr(self, "_event_monitor") and self._event_monitor:
             try:
                 ev_alert = self._event_monitor.get_active_event()
                 if ev_alert:
@@ -1290,7 +1404,8 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(
                             f"  [{sid}] 📅 EVENT: {ev_alert.name} in {ev_alert.hours_until:.1f}h "
-                            f"(sev={ev_alert.severity:.2f}) → size×{_event_sizing_mult:.2f}")
+                            f"(sev={ev_alert.severity:.2f}) → size×{_event_sizing_mult:.2f}"
+                        )
             except (AttributeError, TypeError, ValueError, KeyError) as _eve:
                 # Epic 8 T8.1: narrow + observability fix (was silent pass)
                 logger.debug(f"  [{sid}] event_monitor err: {_eve}")
@@ -1302,7 +1417,8 @@ class EngineSignalsMixin:
                 _sig_norm = min(max(signal_score, 0.0), 1.0)
                 _conf_map = {"low": 0.5, "medium": 0.75, "high": 1.0}
                 _conf = _conf_map.get(
-                    kelly.get("confidence", "low") if self._kelly_mode else "medium", 0.5)
+                    kelly.get("confidence", "low") if self._kelly_mode else "medium", 0.5
+                )
                 _zone_mult = 1.0
                 if 0.35 <= best_ask <= 0.50:
                     _zone_mult = 1.15
@@ -1317,7 +1433,8 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(
                             f"  [{sid}] ❌ CONVICTION: {conviction:.2f} < {_conv_min}"
-                            f" (sig={_sig_norm:.2f} conf={_conf} zone={_zone_mult})")
+                            f" (sig={_sig_norm:.2f} conf={_conf} zone={_zone_mult})"
+                        )
                     return None
                 pre_conv = trade_amount
                 trade_amount = round(trade_amount * conviction, 2)
@@ -1327,7 +1444,8 @@ class EngineSignalsMixin:
                     logger.info(
                         f"  🎯 [{sid}] CONVICTION: {conviction:.2f} "
                         f"${pre_conv:.2f}→${trade_amount:.2f} "
-                        f"(sig={_sig_norm:.2f} conf={_conf} zone={_zone_mult:.2f})")
+                        f"(sig={_sig_norm:.2f} conf={_conf} zone={_zone_mult:.2f})"
+                    )
             except (AttributeError, TypeError, ValueError, KeyError) as _conv_err:
                 # Epic 8 T8.1: narrow — conviction math on kelly dict + env
                 logger.debug(f"Conviction calc: {_conv_err}")
@@ -1341,17 +1459,23 @@ class EngineSignalsMixin:
             if trade_amount != pre_event:
                 logger.info(
                     f"  📅 [{sid}] EVENT_SIZE: ${pre_event:.2f}→${trade_amount:.2f} "
-                    f"(×{_event_sizing_mult:.2f})")
+                    f"(×{_event_sizing_mult:.2f})"
+                )
 
         # Phase 70: EV Threshold check — filter or reduce size for EV- trades
         _ev_enabled = os.getenv("EV_THRESHOLD_ENABLED", "true").lower() == "true"
         if _ev_enabled:
             try:
                 from calibration.ev_threshold import compute_ev
+
                 # Use Bayesian posterior as model_wr if available, else use simple estimate
                 _sig_result = ctx.get("signal_result")
                 _model_wr = 0.0
-                if _sig_result and hasattr(_sig_result, "bayesian_posterior") and _sig_result.bayesian_posterior > 0:
+                if (
+                    _sig_result
+                    and hasattr(_sig_result, "bayesian_posterior")
+                    and _sig_result.bayesian_posterior > 0
+                ):
                     _model_wr = _sig_result.bayesian_posterior
                 else:
                     # Rough estimate: price + signal_score * 0.05
@@ -1373,7 +1497,8 @@ class EngineSignalsMixin:
                     if verbose:
                         logger.info(
                             f"  [{sid}] ⛔ EV_SKIP: ev={ev_result.ev_per_dollar:+.4f} "
-                            f"(model_wr={_model_wr:.3f} price={best_ask:.3f})")
+                            f"(model_wr={_model_wr:.3f} price={best_ask:.3f})"
+                        )
                     return None
                 if ev_result.size_multiplier < 1.0:
                     pre_ev = trade_amount
@@ -1384,13 +1509,13 @@ class EngineSignalsMixin:
                         logger.info(
                             f"  [{sid}] 📊 EV: {ev_result.ev_per_dollar:+.4f} "
                             f"→ size×{ev_result.size_multiplier:.2f} "
-                            f"${pre_ev:.2f}→${trade_amount:.2f}")
+                            f"${pre_ev:.2f}→${trade_amount:.2f}"
+                        )
                 # Track EV stats
                 _ev_tracker = getattr(self, "_ev_tracker", None)
                 if _ev_tracker:
                     _ev_tracker.record(ev_result)
-            except (AttributeError, TypeError, ValueError, KeyError,
-                    ImportError) as _ev_err:
+            except (AttributeError, TypeError, ValueError, KeyError, ImportError) as _ev_err:
                 # Epic 8 T8.1: narrow — compute_ev import + math; fail-open
                 logger.debug(f"ev_threshold: {_ev_err}")
 
@@ -1405,7 +1530,8 @@ class EngineSignalsMixin:
                     trade_amount = self.MIN_ORDER_USD
                 if trade_amount != pre_cap and verbose:
                     logger.info(
-                        f"  🕯 [{sid}] CANARY: ${pre_cap:.2f}→${trade_amount:.2f} (×{canary_mult})")
+                        f"  🕯 [{sid}] CANARY: ${pre_cap:.2f}→${trade_amount:.2f} (×{canary_mult})"
+                    )
         except (AttributeError, TypeError, ValueError) as _ce:
             # Epic 8 T8.1: narrow — canary env-mult float cast
             logger.debug(f"canary cap: {_ce}")
@@ -1418,8 +1544,10 @@ class EngineSignalsMixin:
             if trade_amount < 1.0:
                 trade_amount = 1.0
             if trade_amount != pre_lc:
-                logger.info(f"  📊 [{sid}] LIFECYCLE_SIZE: ${pre_lc:.2f}→${trade_amount:.2f} "
-                            f"(×{_lc.trade_amount_mult:.2f}, phase={_lc.phase})")
+                logger.info(
+                    f"  📊 [{sid}] LIFECYCLE_SIZE: ${pre_lc:.2f}→${trade_amount:.2f} "
+                    f"(×{_lc.trade_amount_mult:.2f}, phase={_lc.phase})"
+                )
 
         # Phase 76: Capital Allocator budget check
         _ca = getattr(self, "_capital_allocator", None)
@@ -1438,17 +1566,18 @@ class EngineSignalsMixin:
                         trade_amount = 1.0
                     if verbose:
                         logger.info(f"  [{sid}] 💰 CAPITAL_CAP: ${pre_ca:.2f}→${trade_amount:.2f}")
-            except (AttributeError, TypeError, ValueError, KeyError,
-                    aiosqlite.Error) as _cae:
+            except (AttributeError, TypeError, ValueError, KeyError, aiosqlite.Error) as _cae:
                 # Epic 8 T8.1: narrow — capital_allocator DB/dict access
                 logger.debug(f"capital_allocator check: {_cae}")
 
-        ctx.update({
-            "trade_amount": trade_amount,
-            "kelly": kelly,
-            "signal_score": signal_score,
-            "signal_reason": signal_reason,
-        })
+        ctx.update(
+            {
+                "trade_amount": trade_amount,
+                "kelly": kelly,
+                "signal_score": signal_score,
+                "signal_reason": signal_reason,
+            }
+        )
         return ctx
 
     # ═══════════════════════════════════════════════════════════════════
@@ -1501,11 +1630,15 @@ class EngineSignalsMixin:
         if minutes_remaining is not None and minutes_remaining < fallback_mins:
             force_taker = True
             if verbose:
-                logger.info(f"  ⏱  [{sid}] TAKER_FORCE: {minutes_remaining:.1f}m < {fallback_mins:.1f}m")
+                logger.info(
+                    f"  ⏱  [{sid}] TAKER_FORCE: {minutes_remaining:.1f}m < {fallback_mins:.1f}m"
+                )
         elif abs(signal_score) > fallback_sig:
             force_taker = True
             if verbose:
-                logger.info(f"  💪 [{sid}] TAKER_FORCE: |sig|={abs(signal_score):.2f} > {fallback_sig:.2f}")
+                logger.info(
+                    f"  💪 [{sid}] TAKER_FORCE: |sig|={abs(signal_score):.2f} > {fallback_sig:.2f}"
+                )
 
         if not force_taker and spread and spread > wide_spread_th:
             mid = up if direction == Direction.UP else down
@@ -1521,9 +1654,13 @@ class EngineSignalsMixin:
             _half_wide = wide_spread_th * 0.5
             _adaptive_min_mins = float(os.getenv("ADAPTIVE_MAKER_MIN_MINS", "2.0"))
             _adaptive_max_sig = float(os.getenv("ADAPTIVE_MAKER_MAX_SIGNAL", "0.45"))
-            if (spread and spread > _half_wide and
-                    minutes_remaining is not None and minutes_remaining > _adaptive_min_mins and
-                    abs(signal_score) < _adaptive_max_sig):
+            if (
+                spread
+                and spread > _half_wide
+                and minutes_remaining is not None
+                and minutes_remaining > _adaptive_min_mins
+                and abs(signal_score) < _adaptive_max_sig
+            ):
                 mid = up if direction == Direction.UP else down
                 if mid:
                     # Place slightly better than mid for higher fill probability
@@ -1531,9 +1668,11 @@ class EngineSignalsMixin:
                     limit = round(mid + _stagger(s.id) + _improve * self.PRICE_TICK, 4)
                     is_maker = True
                     if verbose:
-                        logger.info(f"  🎯 [{sid}] ADAPTIVE_MAKER: spread={spread:.4f} > "
-                                    f"{_half_wide:.4f}, mins={minutes_remaining:.1f}, "
-                                    f"|sig|={abs(signal_score):.2f}")
+                        logger.info(
+                            f"  🎯 [{sid}] ADAPTIVE_MAKER: spread={spread:.4f} > "
+                            f"{_half_wide:.4f}, mins={minutes_remaining:.1f}, "
+                            f"|sig|={abs(signal_score):.2f}"
+                        )
                 else:
                     limit = round(best_ask + _stagger(s.id), 4)
             else:
@@ -1548,7 +1687,9 @@ class EngineSignalsMixin:
             limit = round(limit + _optax_tick_bonus * self.PRICE_TICK, 4)
             signal_reason += " | optax_no"
             if verbose:
-                logger.info(f"  [{sid}] 💰 OPTIMISM_TAX: NO-side maker → limit+{_optax_tick_bonus}tick ({limit:.4f})")
+                logger.info(
+                    f"  [{sid}] 💰 OPTIMISM_TAX: NO-side maker → limit+{_optax_tick_bonus}tick ({limit:.4f})"
+                )
 
         # Sprint 5 HOTFIX v6 (2026-04-20): classic TAKER fill ceiling.
         # User observed "trade açık değil" (no open trade) — root cause
@@ -1563,15 +1704,15 @@ class EngineSignalsMixin:
         # Opt-out: CLASSIC_TAKER_LIMIT_CEIL=0 disables (falls back to v5).
         if _classic_free and not is_maker:
             try:
-                _classic_ceil = float(
-                    os.getenv("CLASSIC_TAKER_LIMIT_CEIL", "0.99"))
+                _classic_ceil = float(os.getenv("CLASSIC_TAKER_LIMIT_CEIL", "0.99"))
             except ValueError:
                 _classic_ceil = 0.99
             if _classic_ceil > 0 and _classic_ceil > limit:
                 if verbose:
                     logger.info(
                         f"  🆓 [{sid}] CLASSIC_TAKER_CEIL: "
-                        f"limit {limit:.4f} -> {_classic_ceil:.4f}")
+                        f"limit {limit:.4f} -> {_classic_ceil:.4f}"
+                    )
                 limit = _classic_ceil
 
         # Exchange constraints
@@ -1587,8 +1728,10 @@ class EngineSignalsMixin:
         if shares_estimate < self.MIN_ORDER_SHARES:
             self.skips.record("MIN_SHARES")
             if verbose:
-                logger.info(f"  [{sid}] ❌ MIN_SHARES: ${trade_amount:.2f}/{limit:.3f}"
-                            f" = {shares_estimate:.2f} < {self.MIN_ORDER_SHARES}")
+                logger.info(
+                    f"  [{sid}] ❌ MIN_SHARES: ${trade_amount:.2f}/{limit:.3f}"
+                    f" = {shares_estimate:.2f} < {self.MIN_ORDER_SHARES}"
+                )
             return
 
         # Fee tail-zone gate
@@ -1596,20 +1739,25 @@ class EngineSignalsMixin:
         # strategy trigger is typically in the tail zone (>=0.85 for cheap
         # YES) — FEE_TAIL was the exact reason classic observed price hits
         # but never fired. Opt back in with CLASSIC_RESPECT_FEE_TAIL=true.
-        _classic_respect_fee_tail = (
-            os.getenv("CLASSIC_RESPECT_FEE_TAIL", "false").lower() == "true"
-        )
+        _classic_respect_fee_tail = os.getenv("CLASSIC_RESPECT_FEE_TAIL", "false").lower() == "true"
         _fee_tail_bypass = _classic_free and not _classic_respect_fee_tail
         fee_tail_low = getattr(self.settings, "FEE_TAIL_LOW", 0.15)
         fee_tail_high = getattr(self.settings, "FEE_TAIL_HIGH", 0.85)
-        if (fee_tail_low > 0 and not _fee_tail_bypass
-                and (best_ask < fee_tail_low or best_ask > fee_tail_high)):
+        if (
+            fee_tail_low > 0
+            and not _fee_tail_bypass
+            and (best_ask < fee_tail_low or best_ask > fee_tail_high)
+        ):
             self.skips.record("FEE_TAIL")
             if verbose:
-                logger.info(f"  [{sid}] ❌ FEE_TAIL: price={best_ask:.3f} outside [{fee_tail_low:.2f},{fee_tail_high:.2f}]")
+                logger.info(
+                    f"  [{sid}] ❌ FEE_TAIL: price={best_ask:.3f} outside [{fee_tail_low:.2f},{fee_tail_high:.2f}]"
+                )
             return
         if _fee_tail_bypass and verbose and (best_ask < fee_tail_low or best_ask > fee_tail_high):
-            logger.info(f"  [{sid}] 🆓 FEE_TAIL bypass (classic): price={best_ask:.3f} outside [{fee_tail_low:.2f},{fee_tail_high:.2f}]")
+            logger.info(
+                f"  [{sid}] 🆓 FEE_TAIL bypass (classic): price={best_ask:.3f} outside [{fee_tail_low:.2f},{fee_tail_high:.2f}]"
+            )
 
         # Fee calculation
         market_category = market.get("category") if isinstance(market, dict) else None
@@ -1622,11 +1770,17 @@ class EngineSignalsMixin:
         queue_ahead_usd = 0.0
         if is_maker:
             try:
-                ob_q = await asyncio.wait_for(
-                    self.client.get_orderbook(token_id), timeout=2.0)
+                ob_q = await asyncio.wait_for(self.client.get_orderbook(token_id), timeout=2.0)
                 queue_ahead_usd = self._compute_queue_ahead_usd(ob_q, limit, side="BUY")
-            except (httpx.HTTPError, asyncio.TimeoutError, AttributeError,
-                    TypeError, ValueError, KeyError, IndexError) as _qee:
+            except (
+                TimeoutError,
+                httpx.HTTPError,
+                AttributeError,
+                TypeError,
+                ValueError,
+                KeyError,
+                IndexError,
+            ) as _qee:
                 # Epic 8 T8.1: narrow + observability fix (was silent pass)
                 logger.debug(f"queue_ahead_usd fetch err: {_qee}")
                 queue_ahead_usd = 0.0
@@ -1641,9 +1795,11 @@ class EngineSignalsMixin:
             # Self-trade prevention
             if getattr(self.settings, "SELF_TRADE_PREVENTION", True):
                 for ex in self._pending:
-                    if (ex.wallet_id == s.wallet_id
-                            and ex.token_id == token_id
-                            and ex.direction != direction.value):
+                    if (
+                        ex.wallet_id == s.wallet_id
+                        and ex.token_id == token_id
+                        and ex.direction != direction.value
+                    ):
                         self.skips.record("STP")
                         if verbose:
                             logger.info(f"  [{sid}] ❌ STP: opposite pending on token")
@@ -1657,12 +1813,16 @@ class EngineSignalsMixin:
             max_token_exp = getattr(self.settings, "MAX_TOKEN_EXPOSURE_USD", 50.0)
             if max_token_exp > 0 and not (_classic_free and not _classic_respect_token_cap):
                 token_exposure = sum(
-                    ex.amount for ex in self._pending
-                    if ex.wallet_id == s.wallet_id and ex.token_id == token_id)
+                    ex.amount
+                    for ex in self._pending
+                    if ex.wallet_id == s.wallet_id and ex.token_id == token_id
+                )
                 if token_exposure + trade_amount > max_token_exp:
                     self.skips.record("TOKEN_CAP")
                     if verbose:
-                        logger.info(f"  [{sid}] ❌ TOKEN_CAP: ${token_exposure + trade_amount:.2f} > ${max_token_exp:.0f}")
+                        logger.info(
+                            f"  [{sid}] ❌ TOKEN_CAP: ${token_exposure + trade_amount:.2f} > ${max_token_exp:.0f}"
+                        )
                     return
             # Safety cap
             if len(self._pending) >= 50:
@@ -1686,7 +1846,8 @@ class EngineSignalsMixin:
                         f"  [{sid}] ❌ RESERVED_OVERFLOW: "
                         f"reserved=${pending_reserved_now:.2f}+"
                         f"need=${trade_amount:.2f} > "
-                        f"balance=${wallet.balance:.2f}")
+                        f"balance=${wallet.balance:.2f}"
+                    )
                 return
 
             # Build reasoning JSON
@@ -1703,7 +1864,9 @@ class EngineSignalsMixin:
                             "spread": round(spread, 4) if spread else None,
                             "is_maker": is_maker,
                         },
-                        "becker_delta": round(becker_delta_value, 4) if abs(becker_delta_value) > 1e-4 else None,
+                        "becker_delta": round(becker_delta_value, 4)
+                        if abs(becker_delta_value) > 1e-4
+                        else None,
                     }
                     try:
                         _rdata["conviction"] = round(ctx.get("_conviction", 0), 3)
@@ -1724,28 +1887,51 @@ class EngineSignalsMixin:
                     # Epic 8 T8.1: narrow + observability fix (was silent pass)
                     logger.debug(f"reasoning JSON build err: {_rje}")
 
-            self._pending.append(VirtualOrder(
-                strategy_id=s.id, slug=slug, token_id=token_id,
-                direction=direction.value, limit_price=limit,
-                amount=trade_amount, fee=fee, is_maker=is_maker,
-                signal_score=signal_score,
-                signal_price=best_ask,
-                queue_ahead_usd=queue_ahead_usd,
-                cum_traded_at_price_usd=0.0,
-                placement_ts_ms=int(time.time() * 1000),
-                category=market_category,
-                wallet_id=s.wallet_id, user_id=s.user_id,
-                sl_pct=s.stop_loss_percent, sl_odds=s.stop_loss_odds,
-                tp_pct=s.take_profit_percent, tp_odds=s.take_profit_odds,
-                threshold=s.odds_threshold,
-                reasoning_json=_reasoning))
+            self._pending.append(
+                VirtualOrder(
+                    strategy_id=s.id,
+                    slug=slug,
+                    token_id=token_id,
+                    direction=direction.value,
+                    limit_price=limit,
+                    amount=trade_amount,
+                    fee=fee,
+                    is_maker=is_maker,
+                    signal_score=signal_score,
+                    signal_price=best_ask,
+                    queue_ahead_usd=queue_ahead_usd,
+                    cum_traded_at_price_usd=0.0,
+                    placement_ts_ms=int(time.time() * 1000),
+                    category=market_category,
+                    wallet_id=s.wallet_id,
+                    user_id=s.user_id,
+                    sl_pct=s.stop_loss_percent,
+                    sl_odds=s.stop_loss_odds,
+                    tp_pct=s.take_profit_percent,
+                    tp_odds=s.take_profit_odds,
+                    threshold=s.odds_threshold,
+                    reasoning_json=_reasoning,
+                )
+            )
 
         # Sprint 2 S2-01: Log trade OPEN decision (with regime)
         try:
             from core.trade_journal import log_decision_open
-            _regime = getattr(self.regime, "regime", "unknown") if hasattr(self, "regime") else "unknown"
-            log_decision_open(s.id, slug, direction.value, signal_score,
-                              signal_reason, limit, trade_amount, fee, regime=_regime)
+
+            _regime = (
+                getattr(self.regime, "regime", "unknown") if hasattr(self, "regime") else "unknown"
+            )
+            log_decision_open(
+                s.id,
+                slug,
+                direction.value,
+                signal_score,
+                signal_reason,
+                limit,
+                trade_amount,
+                fee,
+                regime=_regime,
+            )
         except (ImportError, AttributeError, TypeError, ValueError, OSError) as _lde:
             # Epic 8 T8.1: narrow + observability fix (was silent pass)
             logger.debug(f"log_decision_open err: {_lde}")
@@ -1754,8 +1940,10 @@ class EngineSignalsMixin:
         if getattr(self, "micro_weight", None) is not None and abs(micro_boost_value) > 1e-4:
             try:
                 self.micro_weight.record_open(
-                    order_key=f"{s.id}:{slug}", asset=ctx["asset"].upper(),
-                    signed_boost=micro_boost_value)
+                    order_key=f"{s.id}:{slug}",
+                    asset=ctx["asset"].upper(),
+                    signed_boost=micro_boost_value,
+                )
             except (AttributeError, TypeError, ValueError, KeyError) as _mwo:
                 # Epic 8 T8.1: narrow — micro_weight tracker record
                 logger.debug(f"micro_weight.record_open: {_mwo}")

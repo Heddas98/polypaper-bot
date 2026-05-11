@@ -34,6 +34,7 @@ Public API:
 - `await check_all_allowances(client) -> dict[str, dict]` — read-only status
 - `format_status_report(status) -> str` — Telegram HTML rapor
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -90,7 +91,7 @@ async def check_collateral_allowance(client) -> dict:
         "error": None,
     }
     try:
-        from py_clob_client_v2 import BalanceAllowanceParams, AssetType
+        from py_clob_client_v2 import AssetType, BalanceAllowanceParams
     except ImportError as e:
         result["error"] = f"V2 SDK import: {e}"
         return result
@@ -102,18 +103,18 @@ async def check_collateral_allowance(client) -> dict:
     try:
         params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
         loop = asyncio.get_running_loop()
-        bal = await loop.run_in_executor(
-            None, lambda: client.get_balance_allowance(params)
-        )
+        bal = await loop.run_in_executor(None, lambda: client.get_balance_allowance(params))
         result["raw"] = bal if isinstance(bal, dict) else {}
         # Raw values are USDC.e units (6 decimals)
         balance_raw = float(bal.get("balance", 0) or 0) if isinstance(bal, dict) else 0
         # 2026-05-05 V2 API fix: bal["allowances"] (çoğul dict) vs V1 "allowance"
         if isinstance(bal, dict) and "allowances" in bal and isinstance(bal["allowances"], dict):
-            allow_raw = float(max(
-                (int(v or 0) for v in bal["allowances"].values()),
-                default=0,
-            ))
+            allow_raw = float(
+                max(
+                    (int(v or 0) for v in bal["allowances"].values()),
+                    default=0,
+                )
+            )
         else:
             allow_raw = float(bal.get("allowance", 0) or 0) if isinstance(bal, dict) else 0
         result["balance"] = balance_raw / 1e6
@@ -158,13 +159,11 @@ async def check_conditional_allowance(client, sample_token_id: Optional[str] = N
         # No token_id — infer OK from successful prior trades
         result["ok"] = True
         result["inferred"] = True
-        result["error"] = (
-            "no sample token_id provided; inferred OK from active trade history"
-        )
+        result["error"] = "no sample token_id provided; inferred OK from active trade history"
         return result
 
     try:
-        from py_clob_client_v2 import BalanceAllowanceParams, AssetType
+        from py_clob_client_v2 import AssetType, BalanceAllowanceParams
     except ImportError as e:
         result["error"] = f"V2 SDK import: {e}"
         return result
@@ -179,16 +178,16 @@ async def check_conditional_allowance(client, sample_token_id: Optional[str] = N
             token_id=sample_token_id,
         )
         loop = asyncio.get_running_loop()
-        bal = await loop.run_in_executor(
-            None, lambda: client.get_balance_allowance(params)
-        )
+        bal = await loop.run_in_executor(None, lambda: client.get_balance_allowance(params))
         result["raw"] = bal if isinstance(bal, dict) else {}
         # 2026-05-05 V2 API fix: bal["allowances"] (dict) vs V1 "allowance"
         if isinstance(bal, dict) and "allowances" in bal and isinstance(bal["allowances"], dict):
-            allow_raw = float(max(
-                (int(v or 0) for v in bal["allowances"].values()),
-                default=0,
-            ))
+            allow_raw = float(
+                max(
+                    (int(v or 0) for v in bal["allowances"].values()),
+                    default=0,
+                )
+            )
         else:
             allow_raw = float(bal.get("allowance", 0) or 0) if isinstance(bal, dict) else 0
         # CTF tokens 6 decimals (same as pUSD)
@@ -289,8 +288,7 @@ def format_status_report(status: dict) -> str:
         lines.append("")
         lines.append("<b>Çözüm:</b>")
         lines.append(
-            "1. Polymarket UI'da ilk trade attempt'inde otomatik approve "
-            "isteyecek (Polygon gas)"
+            "1. Polymarket UI'da ilk trade attempt'inde otomatik approve " "isteyecek (Polygon gas)"
         )
         lines.append(
             "2. Veya: <code>/approve_allowance</code> komutu ile bot SDK "

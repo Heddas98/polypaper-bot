@@ -17,6 +17,7 @@ Covers the three parts of the fix:
   Fix C — `_cap_hit_count`, `_cap_skipped_total`, `_last_cap_hit_ts`
   counters expose cap pressure via get_status().
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,10 +29,10 @@ import pytest
 
 from data.websocket_client import PolymarketWebSocket
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Fix A — prune_stale_tokens contract (WS client side)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_prune_removes_missing_tokens():
     """Tokens not in active_token_ids are removed from _subscribed + cache."""
@@ -76,6 +77,7 @@ def test_prune_empty_subscribed_is_safe():
 # ═══════════════════════════════════════════════════════════════════════════
 # Fix B — deterministic cap + priority_first
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_subscribe_below_cap_admits_all(monkeypatch):
@@ -131,7 +133,7 @@ async def test_subscribe_full_cap_admits_none(monkeypatch):
     await ws.subscribe(["c", "d", "e"])
 
     assert ws._subscribed == {"a", "b"}  # unchanged
-    assert ws._send.await_count == 0     # nothing sent
+    assert ws._send.await_count == 0  # nothing sent
     assert ws._cap_hit_count == 1
     assert ws._cap_skipped_total == 3
 
@@ -149,9 +151,7 @@ async def test_priority_first_admitted_before_regular_on_cap(monkeypatch):
     # 2 slots, 4 candidates. Priority = [prot_a, prot_b].
     # Regular = [reg_x, reg_y]. Expected: prot_a + prot_b admitted,
     # reg_x + reg_y dropped.
-    await ws.subscribe(
-        ["reg_x", "reg_y"],
-        priority_first=["prot_a", "prot_b"])
+    await ws.subscribe(["reg_x", "reg_y"], priority_first=["prot_a", "prot_b"])
 
     assert ws._subscribed == {"prot_a", "prot_b"}
     assert ws._cap_hit_count == 1
@@ -165,9 +165,7 @@ async def test_priority_first_dedupe_cross_list(monkeypatch):
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
-    await ws.subscribe(
-        ["a", "b", "c"],
-        priority_first=["b", "a"])  # overlap
+    await ws.subscribe(["a", "b", "c"], priority_first=["b", "a"])  # overlap
 
     assert ws._subscribed == {"a", "b", "c"}
     assert ws._send.await_count == 3  # not 5 — dedupe worked
@@ -207,13 +205,11 @@ async def test_priority_overflows_only_priorities_dropped_from_tail(monkeypatch)
     ws = PolymarketWebSocket()
     ws._send = AsyncMock()
 
-    await ws.subscribe(
-        ["reg_x"],
-        priority_first=["p1", "p2", "p3"])
+    await ws.subscribe(["reg_x"], priority_first=["p1", "p2", "p3"])
 
-    assert ws._subscribed == {"p1", "p2"}   # p3 dropped, reg_x never touched
+    assert ws._subscribed == {"p1", "p2"}  # p3 dropped, reg_x never touched
     assert ws._cap_hit_count == 1
-    assert ws._cap_skipped_total == 2        # p3 + reg_x
+    assert ws._cap_skipped_total == 2  # p3 + reg_x
 
 
 @pytest.mark.asyncio
@@ -241,6 +237,7 @@ async def test_none_priority_first_behaves_as_empty(monkeypatch):
 # Fix C — cap telemetry surfaces via get_status()
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_status_exposes_cap_counters(monkeypatch):
     """get_status() includes cap_hits, cap_skipped, last_cap_hit_age."""
@@ -255,12 +252,12 @@ async def test_status_exposes_cap_counters(monkeypatch):
     assert s0["last_cap_hit_age"] is None
 
     # Trigger 2 cap hits
-    await ws.subscribe(["a", "b"])      # b drops
-    await ws.subscribe(["c", "d"])      # both drop (full)
+    await ws.subscribe(["a", "b"])  # b drops
+    await ws.subscribe(["c", "d"])  # both drop (full)
 
     s1 = ws.get_status()
     assert s1["cap_hits"] == 2
-    assert s1["cap_skipped"] == 3       # b, c, d
+    assert s1["cap_skipped"] == 3  # b, c, d
     assert s1["last_cap_hit_age"] is not None
     assert s1["last_cap_hit_age"] >= 0
 
@@ -268,6 +265,7 @@ async def test_status_exposes_cap_counters(monkeypatch):
 # ═══════════════════════════════════════════════════════════════════════════
 # Integration — Fix A scanner path: prune after subscribe cycle
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_scan_cycle_pattern_prunes_dead_tokens(monkeypatch):
@@ -291,7 +289,7 @@ async def test_scan_cycle_pattern_prunes_dead_tokens(monkeypatch):
     live_after_resolve = {"b_up", "b_down", "c_up", "c_down"}
     # Scanner prunes first:
     pruned = ws.prune_stale_tokens(live_after_resolve)
-    assert pruned == 2                       # a_up + a_down gone
+    assert pruned == 2  # a_up + a_down gone
     assert ws._subscribed == {"b_up", "b_down"}
 
     # Now scanner subscribes new set — c_up + c_down fit

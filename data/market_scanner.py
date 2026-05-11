@@ -9,16 +9,17 @@ or schema drift should NOT crash the feed thread — the reconnect
 loop handles it. Wide catches at the orchestration layer are
 intentional and logged.
 """
+
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 from config.settings import Settings
+from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
 from data.polymarket_client import PolymarketClient
 from db.database import Database
-from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
 
 logger = logging.getLogger("polypaper.data.scanner")
 
@@ -33,8 +34,14 @@ SCAN_INTERVAL_S = max(2, int(os.getenv("SCAN_INTERVAL_S", "5")))
 
 
 class MarketScanner:
-    def __init__(self, settings: Settings, client: PolymarketClient, db: Database,
-                 ws_client=None, odds_feed=None):
+    def __init__(
+        self,
+        settings: Settings,
+        client: PolymarketClient,
+        db: Database,
+        ws_client=None,
+        odds_feed=None,
+    ):
         self.settings = settings
         self.client = client
         self.db = db
@@ -63,7 +70,9 @@ class MarketScanner:
         if self.ws and self.odds_feed:
             self.ws._on_price_callback = self._on_ws_price
             up_count = sum(1 for _, d in self._token_slug.values() if d == "up")
-            logger.info(f"📡 WS→OddsFeed bridge active ({up_count} UP tokens, {len(self._token_slug)} total)")
+            logger.info(
+                f"📡 WS→OddsFeed bridge active ({up_count} UP tokens, {len(self._token_slug)} total)"
+            )
         # Phase 82e Sprint 2.1: scanner death = no market discovery
         self._task = safe_create_task(self._loop(), name="market_scanner_loop")
         logger.info(
@@ -102,7 +111,7 @@ class MarketScanner:
                 if "down_odds" not in entry or entry.get("down_odds") is None:
                     entry["down_odds"] = max(0.0, 1.0 - float(price))
                 entry["has_liquidity"] = True  # WS tick means market is live
-                entry["ws_ts"] = datetime.now(timezone.utc).isoformat()
+                entry["ws_ts"] = datetime.now(UTC).isoformat()
                 self.odds_cache[slug] = entry
                 # Keep last_known_odds in sync for fallback path
                 self.last_known_odds[slug] = {
@@ -121,8 +130,7 @@ class MarketScanner:
                 if "up_odds" not in entry or entry.get("up_odds") is None:
                     entry["up_odds"] = max(0.0, 1.0 - float(price))
                 entry["has_liquidity"] = True
-                entry.setdefault(
-                    "ws_ts", datetime.now(timezone.utc).isoformat())
+                entry.setdefault("ws_ts", datetime.now(UTC).isoformat())
                 self.odds_cache[slug] = entry
             except Exception:  # noqa: BLE001
                 pass
@@ -191,41 +199,39 @@ class MarketScanner:
                         iter_pairs.append((asset, tf, sid))
 
         for asset, tf, series_id in iter_pairs:
-                key = f"{asset}_{tf}"
-                mkts = await self.client.discover_active_markets(
-                    asset, tf, series_id=series_id)
-                if mkts:
-                    self.active_markets[key] = mkts
-                    for m in mkts[:2]:
-                        slug = m.get("slug", "")
-                        if not slug:
-                            continue
-                        odds = await self.client.get_market_odds(m)
-                        if odds:
-                            self.odds_cache[slug] = odds
-                            self._save_last_odds(slug, odds)
-                            await self._save_odds_to_db(slug, odds)
-                            # Feed to OddsFeed for indicators
-                            if self.odds_feed and odds.get("up_odds"):
-                                self.odds_feed.record_odds(
-                                    slug, odds["up_odds"], odds.get("down_odds"))
+            key = f"{asset}_{tf}"
+            mkts = await self.client.discover_active_markets(asset, tf, series_id=series_id)
+            if mkts:
+                self.active_markets[key] = mkts
+                for m in mkts[:2]:
+                    slug = m.get("slug", "")
+                    if not slug:
+                        continue
+                    odds = await self.client.get_market_odds(m)
+                    if odds:
+                        self.odds_cache[slug] = odds
+                        self._save_last_odds(slug, odds)
+                        await self._save_odds_to_db(slug, odds)
+                        # Feed to OddsFeed for indicators
+                        if self.odds_feed and odds.get("up_odds"):
+                            self.odds_feed.record_odds(slug, odds["up_odds"], odds.get("down_odds"))
 
-                            # Collect token IDs for WS subscription
-                            for tk in ("up_token", "down_token"):
-                                tid = odds.get(tk)
-                                if tid:
-                                    # Epic 5 T5.6: record as live regardless
-                                    # of whether it's already subscribed.
-                                    live_token_ids.add(tid)
-                                if tid and tid not in self._subscribed_ws_tokens:
-                                    new_tokens.append(tid)
-                                    self._subscribed_ws_tokens.add(tid)
-                                # Phase 23: Map token_id → (slug, direction)
-                                if tid:
-                                    direction = "up" if tk == "up_token" else "down"
-                                    self._token_slug[tid] = (slug, direction)
-                else:
-                    self.active_markets.pop(key, None)
+                        # Collect token IDs for WS subscription
+                        for tk in ("up_token", "down_token"):
+                            tid = odds.get(tk)
+                            if tid:
+                                # Epic 5 T5.6: record as live regardless
+                                # of whether it's already subscribed.
+                                live_token_ids.add(tid)
+                            if tid and tid not in self._subscribed_ws_tokens:
+                                new_tokens.append(tid)
+                                self._subscribed_ws_tokens.add(tid)
+                            # Phase 23: Map token_id → (slug, direction)
+                            if tid:
+                                direction = "up" if tk == "up_token" else "down"
+                                self._token_slug[tid] = (slug, direction)
+            else:
+                self.active_markets.pop(key, None)
 
         # Subscribe new tokens to WebSocket
         if new_tokens and self.ws:
@@ -250,37 +256,41 @@ class MarketScanner:
                     # _subscribed_ws_tokens" guard in the loop above will
                     # re-attempt subscribe if a pruned token comes back.
                     self._subscribed_ws_tokens &= live_token_ids
-                    stale_slugs = [tid for tid in list(self._token_slug)
-                                   if tid not in live_token_ids]
+                    stale_slugs = [
+                        tid for tid in list(self._token_slug) if tid not in live_token_ids
+                    ]
                     for tid in stale_slugs:
                         self._token_slug.pop(tid, None)
                     if pruned:
                         logger.info(
-                            f"  Scanner pruned {pruned} tokens, "
-                            f"slugs -{len(stale_slugs)}")
+                            f"  Scanner pruned {pruned} tokens, " f"slugs -{len(stale_slugs)}"
+                        )
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"prune_stale_tokens: {e}")
             else:
                 logger.debug(
                     f"  Scanner skipping prune (live={len(live_token_ids)} "
-                    f"< {threshold}, prev={prev_count}) — API hiccup?")
+                    f"< {threshold}, prev={prev_count}) — API hiccup?"
+                )
 
-        self.last_scan = datetime.now(timezone.utc)
+        self.last_scan = datetime.now(UTC)
 
     def _save_last_odds(self, slug, odds):
         up, down = odds.get("up_odds"), odds.get("down_odds")
         if up is not None or down is not None:
             self.last_known_odds[slug] = {
-                "up_odds": up, "down_odds": down,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "up_odds": up,
+                "down_odds": down,
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     async def _save_odds_to_db(self, slug, odds):
         try:
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             await self.db.conn.execute(
                 "INSERT INTO odds_history (event_slug,up_odds,down_odds,timestamp) VALUES (?,?,?,?)",
-                (slug, odds.get("up_odds"), odds.get("down_odds"), now))
+                (slug, odds.get("up_odds"), odds.get("down_odds"), now),
+            )
             await self.db.conn.commit()
         except Exception:  # noqa: BLE001
             pass
@@ -306,4 +316,5 @@ class MarketScanner:
         return (
             f"Markets: {total} | Odds: {len(self.odds_cache)} | Scan: {t}\n"
             f"WS: {ws_status} | Subscribed: {len(self._subscribed_ws_tokens)}\n"
-            f"Pairs: {', '.join(pairs) or 'none'}")
+            f"Pairs: {', '.join(pairs) or 'none'}"
+        )

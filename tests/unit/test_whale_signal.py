@@ -1,12 +1,13 @@
 """Unit tests for WhaleFlowSignal (Phase 60)"""
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import aiosqlite
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from core.signals.whale_flow import WhaleFlowSignal
+
 from core.signal_fusion import SignalFusion, SignalWeights
+from core.signals.whale_flow import WhaleFlowSignal
 
 
 # Epic 9 T9.5 (2026-04-22): autouse env + module-flag isolation.
@@ -28,6 +29,7 @@ def _clean_signal_env(monkeypatch):
     ):
         monkeypatch.delenv(var, raising=False)
     import core.signal_fusion as sf_mod
+
     monkeypatch.setattr(sf_mod, "_WHALE_SIGNAL_ENABLED", True)
     monkeypatch.setattr(sf_mod, "_BAYESIAN_ENABLED", True)
     yield
@@ -38,11 +40,7 @@ class TestWhaleFlowSignal:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.whale = WhaleFlowSignal(
-            lookback_seconds=300,
-            min_trades=2,
-            min_volume_usd=100.0
-        )
+        self.whale = WhaleFlowSignal(lookback_seconds=300, min_trades=2, min_volume_usd=100.0)
 
     @pytest.mark.asyncio
     async def test_whale_signal_buy_dominant_up_direction(self):
@@ -51,16 +49,12 @@ class TestWhaleFlowSignal:
         mock_db = MagicMock()
         mock_db.conn.execute_fetchall = AsyncMock(
             return_value=[
-                ("buy", 3, 7000.0),    # 3 buys, $7,000 total
-                ("sell", 1, 3000.0),   # 1 sell, $3,000 total
+                ("buy", 3, 7000.0),  # 3 buys, $7,000 total
+                ("sell", 1, 3000.0),  # 1 sell, $3,000 total
             ]
         )
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Net flow = (7000 - 3000) / 10000 = 0.4
         # Direction is UP, so signal stays positive
@@ -78,11 +72,7 @@ class TestWhaleFlowSignal:
             ]
         )
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="down"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="down")
 
         # Net flow = (7000 - 3000) / 10000 = 0.4
         # Direction is DOWN, so signal flips: -0.4
@@ -100,11 +90,7 @@ class TestWhaleFlowSignal:
             ]
         )
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Net flow = (3000 - 7000) / 10000 = -0.4
         assert signal == pytest.approx(-0.4, abs=0.001)
@@ -119,11 +105,7 @@ class TestWhaleFlowSignal:
             ]
         )
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         assert signal == 0.0
 
@@ -133,16 +115,12 @@ class TestWhaleFlowSignal:
         mock_db = MagicMock()
         mock_db.conn.execute_fetchall = AsyncMock(
             return_value=[
-                ("buy", 5, 50.0),   # Total $50 < min_volume_usd=100
+                ("buy", 5, 50.0),  # Total $50 < min_volume_usd=100
                 ("sell", 5, 30.0),
             ]
         )
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         assert signal == 0.0
 
@@ -152,11 +130,7 @@ class TestWhaleFlowSignal:
         mock_db = MagicMock()
         mock_db.conn.execute_fetchall = AsyncMock(return_value=[])
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         assert signal == 0.0
 
@@ -175,11 +149,7 @@ class TestWhaleFlowSignal:
             side_effect=aiosqlite.Error("Database connection failed")
         )
 
-        signal = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Should return 0.0, not raise
         assert signal == 0.0
@@ -196,18 +166,10 @@ class TestWhaleFlowSignal:
         )
 
         # First call — hits DB
-        sig1 = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        sig1 = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Second call immediately after — uses cache
-        sig2 = await self.whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        sig2 = await self.whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         assert sig1 == sig2
         assert mock_db.conn.execute_fetchall.call_count == 1  # Only 1 DB call
@@ -261,7 +223,7 @@ class TestWhaleSignalFusion:
             direction="up",
             odds_series=[0.55, 0.57, 0.59, 0.61],
             minutes_remaining=2.5,
-            whale_signal=0.3  # Pre-computed whale signal
+            whale_signal=0.3,  # Pre-computed whale signal
         )
 
         assert hasattr(result, "whale_signal")
@@ -287,7 +249,7 @@ class TestWhaleSignalFusion:
             direction="up",
             odds_series=[0.55, 0.57, 0.59, 0.61],
             minutes_remaining=2.5,
-            whale_signal=0.0
+            whale_signal=0.0,
         )
 
         # Evaluate WITH strong positive whale signal
@@ -298,7 +260,7 @@ class TestWhaleSignalFusion:
             direction="up",
             odds_series=[0.55, 0.57, 0.59, 0.61],
             minutes_remaining=2.5,
-            whale_signal=0.5  # Strong whale support
+            whale_signal=0.5,  # Strong whale support
         )
 
         # With weight=0.10 + whale_signal=0.5 vs 0.0 → composite must differ
@@ -324,7 +286,7 @@ class TestWhaleSignalFusion:
             direction="up",
             odds_series=[0.55, 0.57, 0.59, 0.61],
             minutes_remaining=2.5,
-            whale_signal=0.5
+            whale_signal=0.5,
         )
 
         # Whale signal should be zeroed out when disabled
@@ -347,11 +309,7 @@ class TestWhaleSignalEdgeCases:
             ]
         )
 
-        signal = await whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Net flow = (5000 - 5000) / 10000 = 0
         assert signal == pytest.approx(0.0, abs=0.001)
@@ -367,11 +325,7 @@ class TestWhaleSignalEdgeCases:
             ]
         )
 
-        signal = await whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Net flow = (10000 - 0) / 10000 = 1.0 (clamped)
         assert signal == pytest.approx(1.0, abs=0.001)
@@ -388,11 +342,7 @@ class TestWhaleSignalEdgeCases:
             ]
         )
 
-        signal = await whale.compute(
-            db=mock_db,
-            slug="BTC-2025-01-10",
-            direction="up"
-        )
+        signal = await whale.compute(db=mock_db, slug="BTC-2025-01-10", direction="up")
 
         # Even though ratio is extreme, should clamp to 1.0
         assert signal <= 1.0

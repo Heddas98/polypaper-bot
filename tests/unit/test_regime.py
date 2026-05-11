@@ -15,13 +15,14 @@ Both are pure stdlib (math + collections.deque). Tests pin:
   - Drift detector recovers weight gradually
   - get_status dict shape (UI contract)
 """
+
 from __future__ import annotations
 
 import os
 
 import pytest
 
-from core.regime import RegimeClassifier, DriftDetector
+from core.regime import DriftDetector, RegimeClassifier
 
 
 # ════════════════════════════════════════════════════════════════

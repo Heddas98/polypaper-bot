@@ -11,27 +11,31 @@ Charts:
 Uses pure Pillow for Replit/low-dependency environments.
 If matplotlib is available, uses it for better charts.
 """
+
 import io
 import logging
-from typing import Optional
 from collections import defaultdict
+from typing import Optional
 
-from backtest.simulation.portfolio import VirtualPortfolio, Trade
+from backtest.simulation.portfolio import VirtualPortfolio
 
 logger = logging.getLogger("polypaper.backtest.charts")
 
 # Try matplotlib first, fallback to Pillow
 try:
     import matplotlib
+
     matplotlib.use("Agg")  # non-interactive backend
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
+
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False
 
 try:
     from PIL import Image, ImageDraw
+
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -40,9 +44,13 @@ except ImportError:
 class ChartGenerator:
     """Generate chart images from backtest results."""
 
-    def __init__(self, portfolio: VirtualPortfolio,
-                 strategy_name: str = "",
-                 width: int = 800, height: int = 400):
+    def __init__(
+        self,
+        portfolio: VirtualPortfolio,
+        strategy_name: str = "",
+        width: int = 800,
+        height: int = 400,
+    ):
         self.portfolio = portfolio
         self.strategy_name = strategy_name
         self.width = width
@@ -86,8 +94,7 @@ class ChartGenerator:
         fig, ax = plt.subplots(figsize=(10, 5))
 
         ax.plot(eq, color="#2196F3", linewidth=1.5, label="Equity")
-        ax.axhline(y=eq[0], color="gray", linestyle="--", alpha=0.5,
-                    label=f"Start ${eq[0]:,.0f}")
+        ax.axhline(y=eq[0], color="gray", linestyle="--", alpha=0.5, label=f"Start ${eq[0]:,.0f}")
 
         # Drawdown shading
         peak = eq[0]
@@ -97,8 +104,7 @@ class ChartGenerator:
             dd.append(val - peak)
 
         ax2 = ax.twinx()
-        ax2.fill_between(range(len(dd)), dd, 0,
-                         alpha=0.15, color="red", label="Drawdown")
+        ax2.fill_between(range(len(dd)), dd, 0, alpha=0.15, color="red", label="Drawdown")
         ax2.set_ylabel("Drawdown ($)")
 
         ax.set_title(f"Equity Curve: {self.strategy_name}", fontsize=14)
@@ -108,8 +114,7 @@ class ChartGenerator:
         ax.grid(True, alpha=0.3)
 
         # Format y-axis as currency
-        ax.yaxis.set_major_formatter(
-            mticker.FormatStrFormatter('$%,.0f'))
+        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("$%,.0f"))
 
         buf = io.BytesIO()
         fig.tight_layout()
@@ -127,8 +132,10 @@ class ChartGenerator:
             h["pnl"] += t.pnl
 
         hours = list(range(24))
-        wr = [hourly[h]["wins"] / hourly[h]["trades"] * 100
-              if hourly[h]["trades"] > 0 else 50 for h in hours]
+        wr = [
+            hourly[h]["wins"] / hourly[h]["trades"] * 100 if hourly[h]["trades"] > 0 else 50
+            for h in hours
+        ]
         counts = [hourly[h]["trades"] for h in hours]
 
         fig, ax = plt.subplots(figsize=(12, 4))
@@ -149,14 +156,19 @@ class ChartGenerator:
         bars = ax.bar(hours, wr, color=colors, alpha=0.8, edgecolor="white")
 
         # Add trade count labels
-        for i, (bar, cnt) in enumerate(zip(bars, counts)):
+        for i, (bar, cnt) in enumerate(zip(bars, counts, strict=False)):
             if cnt > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
-                        str(cnt), ha="center", va="bottom", fontsize=8)
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 1,
+                    str(cnt),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
 
         ax.axhline(y=50, color="gray", linestyle="--", alpha=0.5)
-        ax.set_title(f"Win Rate by Hour (UTC): {self.strategy_name}",
-                     fontsize=14)
+        ax.set_title(f"Win Rate by Hour (UTC): {self.strategy_name}", fontsize=14)
         ax.set_xlabel("Hour (UTC)")
         ax.set_ylabel("Win Rate (%)")
         ax.set_xticks(hours)
@@ -178,8 +190,7 @@ class ChartGenerator:
         ax.axvline(x=0, color="red", linestyle="--", alpha=0.5)
 
         avg = sum(pnls) / len(pnls) if pnls else 0
-        ax.axvline(x=avg, color="green", linestyle="-", alpha=0.7,
-                   label=f"Mean: ${avg:+.4f}")
+        ax.axvline(x=avg, color="green", linestyle="-", alpha=0.7, label=f"Mean: ${avg:+.4f}")
 
         ax.set_title(f"PnL Distribution: {self.strategy_name}", fontsize=14)
         ax.set_xlabel("PnL ($)")
@@ -229,8 +240,7 @@ class ChartGenerator:
             draw.line(points, fill="#2196F3", width=2)
 
         # Title
-        draw.text((mx, 5), f"Equity: {self.strategy_name}",
-                  fill="#FFFFFF")
+        draw.text((mx, 5), f"Equity: {self.strategy_name}", fill="#FFFFFF")
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")

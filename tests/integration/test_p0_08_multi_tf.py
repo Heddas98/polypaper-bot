@@ -15,6 +15,7 @@ End-to-end smoke tests covering:
 
 These run against a fresh in-memory DB. No external network.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,7 @@ import pytest
 # ════ P0-08-A: Config matrix ═══════════════════════════════════════
 def test_a_tf_discovery_matrix_default():
     from config.settings import Settings
+
     s = Settings()
     assert "5m" in s.TF_DISCOVERY_MATRIX
     assert "15m" in s.TF_DISCOVERY_MATRIX
@@ -56,6 +58,7 @@ def test_a_tf_discovery_matrix_default():
 
 def test_a_supported_timeframes_property():
     from config.settings import Settings
+
     s = Settings()
     assert set(s.SUPPORTED_TIMEFRAMES) == {"5m", "15m", "1h", "24h"}
     assert set(s.SUPPORTED_ASSETS) == {"BTC", "ETH", "SOL", "XRP"}
@@ -63,7 +66,8 @@ def test_a_supported_timeframes_property():
 
 # ════ P0-08-D: Slug utils ═════════════════════════════════════════
 def test_d_slug_utils_tf_inference_5m_15m():
-    from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
+    from core.slug_utils import infer_asset_from_slug, infer_tf_from_slug
+
     assert infer_tf_from_slug("btc-updown-5m-1778268300") == "5m"
     assert infer_asset_from_slug("btc-updown-5m-1778268300") == "BTC"
     assert infer_tf_from_slug("eth-updown-15m-1778268900") == "15m"
@@ -71,7 +75,8 @@ def test_d_slug_utils_tf_inference_5m_15m():
 
 
 def test_d_slug_utils_tf_inference_1h_24h():
-    from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
+    from core.slug_utils import infer_asset_from_slug, infer_tf_from_slug
+
     assert infer_tf_from_slug("bitcoin-up-or-down-may-8-2026-12pm-et") == "1h"
     assert infer_asset_from_slug("bitcoin-up-or-down-may-8-2026-12pm-et") == "BTC"
     assert infer_tf_from_slug("bitcoin-up-or-down-on-may-9-2026") == "24h"
@@ -80,6 +85,7 @@ def test_d_slug_utils_tf_inference_1h_24h():
 
 def test_d_slug_utils_market_dict_tags_priority():
     from core.slug_utils import infer_tf_from_market
+
     # tags > series > slug
     mkt_tag_daily = {"slug": "x", "tags": [{"slug": "daily"}]}
     assert infer_tf_from_market(mkt_tag_daily) == "24h"
@@ -100,6 +106,7 @@ async def _make_fresh_db():
     os.unlink(tmp.name)  # Database() will create
 
     from db.database import Database
+
     db = Database(tmp.name)
     await db.initialize()
     return db, tmp.name
@@ -113,8 +120,14 @@ async def test_e2_schema_v18_tables_exist():
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ) as cur:
             tables = {r[0] async for r in cur}
-        for t in ("ob_deltas", "public_trades", "external_prices",
-                  "ob_snapshots", "candles_ext", "candles_poly"):
+        for t in (
+            "ob_deltas",
+            "public_trades",
+            "external_prices",
+            "ob_snapshots",
+            "candles_ext",
+            "candles_poly",
+        ):
             assert t in tables, f"Missing table: {t}"
         async with db.conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             ver = (await cur.fetchone())[0]
@@ -133,6 +146,7 @@ async def test_e3_candle_aggregation_5m_to_1h():
     db, path = await _make_fresh_db()
     try:
         from data.candle_collector import CandleCollector
+
         cc = CandleCollector(db=db, scanner=None)
 
         # Insert 12 × 5m candles (1 hour worth)
@@ -144,7 +158,9 @@ async def test_e3_candle_aggregation_5m_to_1h():
         await db.conn.executemany(
             """INSERT INTO candles_ext
                (symbol, interval, open_ts, open, high, low, close, volume)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", rows)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
         await db.conn.commit()
 
         # Aggregate to 1h
@@ -172,16 +188,31 @@ async def test_e4_wss_price_change_persists_deltas():
     db, path = await _make_fresh_db()
     try:
         from data.websocket_client import PolymarketWebSocket
+
         ws = PolymarketWebSocket(db=db)
 
         ev = {
             "event_type": "price_change",
             "market": "0xMARKET",
             "price_changes": [
-                {"asset_id": "AID1", "price": "0.5", "size": "100",
-                 "side": "BUY", "hash": "h1", "best_bid": "0.5", "best_ask": "0.51"},
-                {"asset_id": "AID2", "price": "0.5", "size": "0",  # level removed
-                 "side": "SELL", "hash": "h2", "best_bid": "0.49", "best_ask": "0.5"},
+                {
+                    "asset_id": "AID1",
+                    "price": "0.5",
+                    "size": "100",
+                    "side": "BUY",
+                    "hash": "h1",
+                    "best_bid": "0.5",
+                    "best_ask": "0.51",
+                },
+                {
+                    "asset_id": "AID2",
+                    "price": "0.5",
+                    "size": "0",  # level removed
+                    "side": "SELL",
+                    "hash": "h2",
+                    "best_bid": "0.49",
+                    "best_ask": "0.5",
+                },
             ],
             "timestamp": str(int(time.time() * 1000)),
         }
@@ -206,6 +237,7 @@ async def test_e5_wss_last_trade_price_persists_public_trades():
     db, path = await _make_fresh_db()
     try:
         from data.websocket_client import PolymarketWebSocket
+
         ws = PolymarketWebSocket(db=db)
 
         ev = {
@@ -222,7 +254,8 @@ async def test_e5_wss_last_trade_price_persists_public_trades():
         await asyncio.sleep(0.3)
 
         async with db.conn.execute(
-            "SELECT taker_side, price, size, fee_rate_bps FROM public_trades") as cur:
+            "SELECT taker_side, price, size, fee_rate_bps FROM public_trades"
+        ) as cur:
             rows = [r async for r in cur]
         assert len(rows) == 1
         assert rows[0]["taker_side"] == "BUY"
@@ -239,6 +272,7 @@ async def test_e5_wss_last_trade_price_persists_public_trades():
 # ════ P0-08-F: MarketSnapshot.timeframe + TF-adaptive plugin ══════
 def test_f_marketsnapshot_has_timeframe_field():
     from core.strategy_plugins import MarketSnapshot
+
     s = MarketSnapshot()
     assert hasattr(s, "timeframe")
     assert s.timeframe == "5m"  # default
@@ -251,20 +285,29 @@ def test_f_marketsnapshot_has_timeframe_field():
 def test_f_pennycontract_tf_adaptive_threshold():
     """PennyContract too_close_to_close uses ratio, not absolute minutes."""
     from core.strategy_plugins import MarketSnapshot, PennyContractStrategy
+
     strat = PennyContractStrategy()
 
     # 1h market, 10 dk kalan = 16% (< 20% threshold) → too_close
     s_1h_close = MarketSnapshot(
-        timeframe="1h", total_minutes=60.0, minutes_remaining=10.0,
-        up_odds=0.05, threshold=0.10, spread=0.02,
+        timeframe="1h",
+        total_minutes=60.0,
+        minutes_remaining=10.0,
+        up_odds=0.05,
+        threshold=0.10,
+        spread=0.02,
     )
     sig = strat.evaluate(s_1h_close)
     assert sig.reason == "too_close_to_close"
 
     # 1h market, 30 dk kalan = 50% → NOT too_close
     s_1h_ok = MarketSnapshot(
-        timeframe="1h", total_minutes=60.0, minutes_remaining=30.0,
-        up_odds=0.05, threshold=0.10, spread=0.02,
+        timeframe="1h",
+        total_minutes=60.0,
+        minutes_remaining=30.0,
+        up_odds=0.05,
+        threshold=0.10,
+        spread=0.02,
     )
     sig2 = strat.evaluate(s_1h_ok)
     assert sig2.reason != "too_close_to_close"
@@ -273,6 +316,7 @@ def test_f_pennycontract_tf_adaptive_threshold():
 # ════ P0-08-G: AI Brain BRAIN_SYSTEM TF context ═══════════════════
 def test_g_brain_system_has_tf_matrix():
     from core import ai_brain
+
     assert "TF MATRIX" in ai_brain.BRAIN_SYSTEM
     assert "5m" in ai_brain.BRAIN_SYSTEM
     assert "15m" in ai_brain.BRAIN_SYSTEM
@@ -285,20 +329,24 @@ def test_g_brain_system_has_tf_matrix():
 # ════ P0-08-H: LIVE_STRATEGIES whitelist intact ═══════════════════
 def test_h_live_strategies_whitelist_only_5m_baseline():
     from core.live_trader import LIVE_STRATEGIES
+
     assert "M_BTC_5m_any_0.92" in LIVE_STRATEGIES
     assert "BTC High-Threshold Pure" in LIVE_STRATEGIES
     assert "AI_F_BTC_5m_up_0.38" in LIVE_STRATEGIES
     # New TF combos should NOT be whitelisted yet (paper-only)
-    new_tf_strats = [s for s in LIVE_STRATEGIES
-                      if any(tf in s for tf in ("_15m_", "_1h_", "_24h_"))]
-    assert len(new_tf_strats) == 0, \
-        f"New TF strategies should require manual whitelist: {new_tf_strats}"
+    new_tf_strats = [
+        s for s in LIVE_STRATEGIES if any(tf in s for tf in ("_15m_", "_1h_", "_24h_"))
+    ]
+    assert (
+        len(new_tf_strats) == 0
+    ), f"New TF strategies should require manual whitelist: {new_tf_strats}"
 
 
 # ════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     # Standalone runner — `python tests/integration/test_p0_08_multi_tf.py`
     import sys
+
     print("Running P0-08 multi-TF smoke tests standalone...\n")
     # Sync tests
     sync_tests = [
@@ -341,7 +389,3 @@ if __name__ == "__main__":
     total = len(sync_tests) + len(async_tests)
     print(f"\n{passed}/{total} pass, {failed} fail")
     sys.exit(0 if failed == 0 else 1)
-
-
-if __name__ == "__main__":
-    main()

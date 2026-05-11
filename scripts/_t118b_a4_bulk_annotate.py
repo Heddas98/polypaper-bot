@@ -11,6 +11,7 @@ network blip should not crash the feed thread; reconnect logic handles it.
 Usage:
     python scripts/_t118b_a4_bulk_annotate.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -53,7 +54,7 @@ def annotate(path: Path) -> tuple[int, int]:
             # Insert before the closing """
             doc = m.group(1)
             new_doc = doc[:-3] + "\n" + DOCTRINE_NOTE + '"""'
-            src = src[:m.start()] + new_doc + src[close:]
+            src = src[: m.start()] + new_doc + src[close:]
 
     # Add noqa to every except Exception that doesn't have it
     def add_noqa(m: re.Match) -> str:
@@ -63,9 +64,7 @@ def annotate(path: Path) -> tuple[int, int]:
         return line.rstrip(":") + ":  # noqa: BLE001"
 
     # Three patterns: bare, as e, as _name
-    pattern = re.compile(
-        r"except\s+Exception(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?:"
-    )
+    pattern = re.compile(r"except\s+Exception(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?:")
     new_src, n = pattern.subn(add_noqa, src)
 
     # Count totals before save
@@ -79,8 +78,7 @@ def annotate(path: Path) -> tuple[int, int]:
         return (0, total)
 
     path.write_text(new_src, encoding="utf-8")
-    annotated = sum(1 for line in new_src.splitlines()
-                    if "noqa: BLE001" in line)
+    annotated = sum(1 for line in new_src.splitlines() if "noqa: BLE001" in line)
     return (annotated, total)
 
 

@@ -16,11 +16,10 @@ Usage: py -3.11 analysis/edge_discovery.py [--db polypaper.db]
 
 import argparse
 import sqlite3
-import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 
 class EdgeDiscovery:
@@ -151,16 +150,18 @@ class EdgeDiscovery:
                         total_pnl = row[4] or 0.0
                         win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0.0
 
-                        results.append({
-                            "zone": label,
-                            "direction": direction.upper(),
-                            "trades": trade_count,
-                            "wins": wins,
-                            "losses": losses,
-                            "win_rate": f"{win_rate:.1f}%",
-                            "avg_pnl": f"{avg_pnl:.4f}",
-                            "total_pnl": f"{total_pnl:.2f}",
-                        })
+                        results.append(
+                            {
+                                "zone": label,
+                                "direction": direction.upper(),
+                                "trades": trade_count,
+                                "wins": wins,
+                                "losses": losses,
+                                "win_rate": f"{win_rate:.1f}%",
+                                "avg_pnl": f"{avg_pnl:.4f}",
+                                "total_pnl": f"{total_pnl:.2f}",
+                            }
+                        )
                 except Exception as e:
                     print(f"ERROR in zone analysis ({label}, {direction}): {e}")
 
@@ -212,15 +213,17 @@ class EdgeDiscovery:
 
                 if trade_count > 0 and (wins + losses) > 0:
                     win_rate = wins / (wins + losses) * 100
-                    results.append({
-                        "hour_utc": f"{hour:02d}:00",
-                        "trades": trade_count,
-                        "wins": wins,
-                        "losses": losses,
-                        "win_rate": f"{win_rate:.1f}%",
-                        "avg_pnl": f"{avg_pnl:.4f}",
-                        "total_pnl": f"{total_pnl:.2f}",
-                    })
+                    results.append(
+                        {
+                            "hour_utc": f"{hour:02d}:00",
+                            "trades": trade_count,
+                            "wins": wins,
+                            "losses": losses,
+                            "win_rate": f"{win_rate:.1f}%",
+                            "avg_pnl": f"{avg_pnl:.4f}",
+                            "total_pnl": f"{total_pnl:.2f}",
+                        }
+                    )
 
                     if win_rate > best_wr:
                         best_wr = win_rate
@@ -235,7 +238,9 @@ class EdgeDiscovery:
         self.results["time_of_day"] = {
             "hourly": results,
             "best_hour": f"{best_hour:02d}:00 ({best_wr:.1f}%)" if best_hour is not None else "N/A",
-            "worst_hour": f"{worst_hour:02d}:00 ({worst_wr:.1f}%)" if worst_hour is not None else "N/A",
+            "worst_hour": f"{worst_hour:02d}:00 ({worst_wr:.1f}%)"
+            if worst_hour is not None
+            else "N/A",
         }
         return self.results["time_of_day"]
 
@@ -290,14 +295,18 @@ class EdgeDiscovery:
         try:
             cursor.execute(query_buy)
             buy_results = cursor.fetchall()
-            buy_summary = [{"pressure": "Strong BUY (>60%)", "outcome": row[0], "count": row[1]}
-                          for row in buy_results]
+            buy_summary = [
+                {"pressure": "Strong BUY (>60%)", "outcome": row[0], "count": row[1]}
+                for row in buy_results
+            ]
             results["strong_buy_pressure"] = buy_summary
 
             cursor.execute(query_sell)
             sell_results = cursor.fetchall()
-            sell_summary = [{"pressure": "Strong SELL (<40%)", "outcome": row[0], "count": row[1]}
-                           for row in sell_results]
+            sell_summary = [
+                {"pressure": "Strong SELL (<40%)", "outcome": row[0], "count": row[1]}
+                for row in sell_results
+            ]
             results["strong_sell_pressure"] = sell_summary
 
         except Exception as e:
@@ -406,15 +415,17 @@ class EdgeDiscovery:
                     total_pnl = row[4] or 0.0
                     win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0.0
 
-                    results.append({
-                        "spread_range": label,
-                        "trades": trade_count,
-                        "wins": wins,
-                        "losses": losses,
-                        "win_rate": f"{win_rate:.1f}%",
-                        "avg_pnl": f"{avg_pnl:.4f}",
-                        "total_pnl": f"{total_pnl:.2f}",
-                    })
+                    results.append(
+                        {
+                            "spread_range": label,
+                            "trades": trade_count,
+                            "wins": wins,
+                            "losses": losses,
+                            "win_rate": f"{win_rate:.1f}%",
+                            "avg_pnl": f"{avg_pnl:.4f}",
+                            "total_pnl": f"{total_pnl:.2f}",
+                        }
+                    )
 
             except Exception as e:
                 print(f"ERROR in spread analysis ({label}): {e}")
@@ -485,20 +496,24 @@ class EdgeDiscovery:
                         avg_pnl = zone_row[3] or 0.0
                         wr = (wins / trades * 100) if trades > 0 else 0.0
 
-                        zone_perf.append({
-                            "zone": zone,
-                            "trades": trades,
-                            "wr": f"{wr:.1f}%",
-                            "avg_pnl": f"{avg_pnl:.4f}",
-                        })
+                        zone_perf.append(
+                            {
+                                "zone": zone,
+                                "trades": trades,
+                                "wr": f"{wr:.1f}%",
+                                "avg_pnl": f"{avg_pnl:.4f}",
+                            }
+                        )
 
                         if wr > 55 and trades >= 5:
-                            high_wr_combos.append({
-                                "strategy": label,
-                                "condition": f"zone_{zone}",
-                                "wr": f"{wr:.1f}%",
-                                "trades": trades,
-                            })
+                            high_wr_combos.append(
+                                {
+                                    "strategy": label,
+                                    "condition": f"zone_{zone}",
+                                    "wr": f"{wr:.1f}%",
+                                    "trades": trades,
+                                }
+                            )
 
                 except Exception as e:
                     print(f"ERROR getting zone perf for {label}: {e}")
@@ -525,7 +540,7 @@ class EdgeDiscovery:
         # Summary
         trade_count = self.get_trade_count()
         snapshot_count = self.get_snapshot_count()
-        print(f"\nData Summary:")
+        print("\nData Summary:")
         print(f"  Total Completed Trades: {trade_count:,}")
         print(f"  Total Orderbook Snapshots: {snapshot_count:,}")
 
@@ -536,7 +551,16 @@ class EdgeDiscovery:
             print("-" * 80)
             rows = self.results["zone_direction_matrix"]
             if rows:
-                headers = ["Zone", "Direction", "Trades", "Wins", "Losses", "WR", "Avg PnL", "Total PnL"]
+                headers = [
+                    "Zone",
+                    "Direction",
+                    "Trades",
+                    "Wins",
+                    "Losses",
+                    "WR",
+                    "Avg PnL",
+                    "Total PnL",
+                ]
                 self._print_table(headers, rows)
             else:
                 print("No data available")
@@ -599,8 +623,10 @@ class EdgeDiscovery:
                 print(f"\n{strat_label}:")
                 if perf.get("by_zone"):
                     for zone_data in perf["by_zone"]:
-                        print(f"  {zone_data['zone']}: {zone_data['trades']} trades, "
-                              f"WR={zone_data['wr']}, avg_pnl={zone_data['avg_pnl']}")
+                        print(
+                            f"  {zone_data['zone']}: {zone_data['trades']} trades, "
+                            f"WR={zone_data['wr']}, avg_pnl={zone_data['avg_pnl']}"
+                        )
 
         # High WR Combos
         if "high_wr_combos" in self.results and self.results["high_wr_combos"]:
@@ -645,7 +671,7 @@ class EdgeDiscovery:
 
         with open(output_path, "w") as f:
             f.write("# PolyPaper Bot - Edge Discovery Analysis Report\n\n")
-            f.write(f"Generated: {datetime.now(timezone.utc).isoformat()}\n\n")
+            f.write(f"Generated: {datetime.now(UTC).isoformat()}\n\n")
 
             # Summary
             trade_count = self.get_trade_count()
@@ -706,7 +732,9 @@ class EdgeDiscovery:
                         f.write("| Zone | Trades | WR | Avg PnL |\n")
                         f.write("|------|--------|----|---------|\n")
                         for zone_data in perf["by_zone"]:
-                            f.write(f"| {zone_data['zone']} | {zone_data['trades']} | {zone_data['wr']} | {zone_data['avg_pnl']} |\n")
+                            f.write(
+                                f"| {zone_data['zone']} | {zone_data['trades']} | {zone_data['wr']} | {zone_data['avg_pnl']} |\n"
+                            )
                         f.write("\n")
 
             # High WR Combos
@@ -775,9 +803,7 @@ class EdgeDiscovery:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="PolyPaper Bot Edge Discovery Analysis"
-    )
+    parser = argparse.ArgumentParser(description="PolyPaper Bot Edge Discovery Analysis")
     parser.add_argument(
         "--db",
         default="polypaper.db",

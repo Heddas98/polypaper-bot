@@ -5,9 +5,9 @@ Lightweight, framework-free migration runner for async SQLite.
 Tracks applied migrations in schema_version table, runs unapplied
 migrations in order, idempotent + transactional.
 """
+
 import logging
 from datetime import datetime
-from typing import Union
 
 import aiosqlite
 
@@ -195,7 +195,6 @@ MIGRATIONS = [
             "ON hyperopt_results(strategy_name, asset, timeframe)",
         ],
     },
-
     # ── 2026-04-28 Heddas direktifi: Hyperopt tam silme ────────────────
     # Phase 82d hyperopt_results table'ı drop edildi. Hyperopt subsistemi
     # tamamen kaldırıldı (5 backtest dosyası, AI Brain hyperopt fonksiyonları,
@@ -212,7 +211,6 @@ MIGRATIONS = [
             "DROP TABLE IF EXISTS hyperopt_results",
         ],
     },
-
     # ── 2026-04-29 Polymarket Portfolio Cache (Aşama 1) ──────────────────
     # data/polymarket_portfolio.py PortfolioSnapshot'u JSON blob olarak
     # cache'ler. Telegram /portfolio komutu cache'ten okur (anlık), 60s
@@ -232,7 +230,6 @@ MIGRATIONS = [
             "ON polymarket_portfolio_cache(fetched_at)",
         ],
     },
-
     # ════════════════════════════════════════════════════════════════════
     # P0-08-E2 (2026-05-08): Event-driven multi-TF data layer.
     #
@@ -262,11 +259,9 @@ MIGRATIONS = [
             "best_bid REAL,"
             "best_ask REAL,"
             "PRIMARY KEY (ts_ms, asset_id, side, price))",
-            "CREATE INDEX IF NOT EXISTS idx_ob_deltas_asset_ts "
-            "ON ob_deltas(asset_id, ts_ms)",
+            "CREATE INDEX IF NOT EXISTS idx_ob_deltas_asset_ts " "ON ob_deltas(asset_id, ts_ms)",
             "CREATE INDEX IF NOT EXISTS idx_ob_deltas_condition_ts "
             "ON ob_deltas(condition_id, ts_ms)",
-
             "CREATE TABLE IF NOT EXISTS public_trades ("
             "ts_ms INTEGER NOT NULL,"
             "asset_id TEXT NOT NULL,"
@@ -280,7 +275,6 @@ MIGRATIONS = [
             "ON public_trades(asset_id, ts_ms)",
             "CREATE INDEX IF NOT EXISTS idx_public_trades_condition_ts "
             "ON public_trades(condition_id, ts_ms)",
-
             "CREATE TABLE IF NOT EXISTS ob_snapshots ("
             "ts_ms INTEGER NOT NULL,"
             "asset_id TEXT NOT NULL,"
@@ -300,7 +294,6 @@ MIGRATIONS = [
             "ON ob_snapshots(asset_id, ts_ms)",
             "CREATE INDEX IF NOT EXISTS idx_ob_snapshots_atf "
             "ON ob_snapshots(asset, timeframe, ts_ms)",
-
             "CREATE TABLE IF NOT EXISTS external_prices ("
             "ts_ms INTEGER NOT NULL,"
             "symbol TEXT NOT NULL,"
@@ -311,7 +304,6 @@ MIGRATIONS = [
             "ON external_prices(symbol, ts_ms)",
             "CREATE INDEX IF NOT EXISTS idx_external_prices_source_ts "
             "ON external_prices(source, ts_ms)",
-
             "CREATE TABLE IF NOT EXISTS candles_ext ("
             "symbol TEXT NOT NULL,"
             "interval TEXT NOT NULL DEFAULT '5m',"
@@ -322,7 +314,6 @@ MIGRATIONS = [
             "close REAL,"
             "volume REAL,"
             "PRIMARY KEY (symbol, interval, open_ts))",
-
             "CREATE TABLE IF NOT EXISTS candles_poly ("
             "asset_id TEXT NOT NULL,"
             "slug TEXT,"
@@ -341,7 +332,6 @@ MIGRATIONS = [
             "ON candles_poly(asset, timeframe, open_ts)",
         ],
     },
-
     # ════════════════════════════════════════════════════════════════════
     # P0-08-E1 hotfix (2026-05-09): polymarket_portfolio_cache tablosu
     # E1 cleanup'ında DROP edildi ama schema_version v17 zaten "applied"
@@ -363,7 +353,6 @@ MIGRATIONS = [
             "ON polymarket_portfolio_cache(fetched_at)",
         ],
     },
-
     # ════════════════════════════════════════════════════════════════════
     # P0-08-E1 hotfix #2 (2026-05-09): executions tablosu eksik column'lar
     # E1 cleanup'ında executions DROP edildi, bot startup'ta minimal
@@ -420,7 +409,6 @@ MIGRATIONS = [
             "CREATE INDEX IF NOT EXISTS idx_executions_user ON executions(user_id)",
         ],
     },
-
     # ════════════════════════════════════════════════════════════════════
     # P0-07 (2026-05-09): reference_price_audit
     # Polymarket binary Up/Down market'lerin official resolution price'ı
@@ -471,8 +459,7 @@ MIGRATIONS = [
             "created_at TEXT NOT NULL,"
             "PRIMARY KEY (condition_id, settle_ts_ms))",
             # Index for "show me last 7 days" reports (most common query)
-            "CREATE INDEX IF NOT EXISTS idx_ref_audit_ts "
-            "ON reference_price_audit(settle_ts_ms)",
+            "CREATE INDEX IF NOT EXISTS idx_ref_audit_ts " "ON reference_price_audit(settle_ts_ms)",
             # Index for "per-asset/tf statistics" reports
             "CREATE INDEX IF NOT EXISTS idx_ref_audit_asset_tf "
             "ON reference_price_audit(asset, timeframe, settle_ts_ms)",
@@ -503,9 +490,7 @@ async def _ensure_schema_version_table(conn):
 async def _get_current_version(conn) -> int:
     """Get the current schema version. Returns 0 if no migrations applied."""
     try:
-        async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        ) as cursor:
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
             return row[0] if row and row[0] else 0
     except aiosqlite.Error:
@@ -554,8 +539,7 @@ async def _apply_migration(conn, migration: dict) -> bool:
         # (ALTER/CREATE/UPDATE) raises aiosqlite.Error subclasses only.
         # Unknown exception types would indicate a Python bug — let those
         # propagate (caller catches at run_migrations level).
-        logger.error(f"Migration v{version} ({name}) failed: "
-                     f"{type(e).__name__}: {e}")
+        logger.error(f"Migration v{version} ({name}) failed: " f"{type(e).__name__}: {e}")
         try:
             await conn.rollback()
         except aiosqlite.Error:
@@ -658,5 +642,4 @@ async def grandfather_deploy_stage(conn) -> None:
         # T11.8-B (2026-04-24): narrow from bare Exception. SELECT/UPDATE/
         # INSERT all aiosqlite.Error. Idempotent operation — silent skip on
         # any DB error is correct (next boot retries).
-        logger.warning(f"Phase 47f.10 grandfather skipped: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"Phase 47f.10 grandfather skipped: " f"{type(e).__name__}: {e}")

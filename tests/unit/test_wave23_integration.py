@@ -10,13 +10,14 @@ Re-enable etmek için ENV `WAVE23_INTEGRATION_ENABLED=true` set et.
 
 Hedef: 43.6% → 55%+ (DISABLED — bu approach Windows'ta unsafe)
 """
+
 from __future__ import annotations
 
 import asyncio
 import importlib
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,6 +36,7 @@ if os.getenv("WAVE23_INTEGRATION_ENABLED", "false").lower() != "true":
 # ════════════════════════════════════════════════════════════════════════
 try:
     import pytest_asyncio
+
     _ASYNC_FIXTURE = pytest_asyncio.fixture
 except ImportError:
     _ASYNC_FIXTURE = pytest.fixture
@@ -73,7 +75,7 @@ async def db_with_data(real_db):
     if real_db is None:
         return None
     conn = real_db.conn
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     # Insert test user + wallet + strategy + executions
     try:
         await conn.execute(
@@ -92,8 +94,21 @@ async def db_with_data(real_db):
                 "asset, timeframe, direction, trade_amount, odds_threshold, "
                 "strategy_type, status, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (f"s{i}", "u1", "w1", f"strat_{i}", "BTC", "5m", "any",
-                 1.0, 0.55, "fusion", "started", now, now),
+                (
+                    f"s{i}",
+                    "u1",
+                    "w1",
+                    f"strat_{i}",
+                    "BTC",
+                    "5m",
+                    "any",
+                    1.0,
+                    0.55,
+                    "fusion",
+                    "started",
+                    now,
+                    now,
+                ),
             )
         for i in range(20):
             await conn.execute(
@@ -101,9 +116,19 @@ async def db_with_data(real_db):
                 "event_slug, direction, trade_amount, status, pnl, "
                 "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
                 "?, ?)",
-                (f"e{i}", "u1", "w1", f"s{i % 3}", f"btc-up-5m-{i}",
-                 "UP" if i % 2 == 0 else "DOWN", 1.0, "filled",
-                 ((-1) ** i) * 0.5, now, now),
+                (
+                    f"e{i}",
+                    "u1",
+                    "w1",
+                    f"s{i % 3}",
+                    f"btc-up-5m-{i}",
+                    "UP" if i % 2 == 0 else "DOWN",
+                    1.0,
+                    "filled",
+                    ((-1) ** i) * 0.5,
+                    now,
+                    now,
+                ),
             )
         await conn.commit()
     except Exception:
@@ -120,8 +145,15 @@ async def test_db_schema_smoke(real_db):
     if real_db is None:
         return
     # SELECT from each table to verify schema
-    tables = ["users", "wallets", "strategies", "executions",
-              "market_events", "odds_history", "trades"]
+    tables = [
+        "users",
+        "wallets",
+        "strategies",
+        "executions",
+        "market_events",
+        "odds_history",
+        "trades",
+    ]
     for t in tables:
         try:
             async with real_db.conn.execute(f"SELECT * FROM {t} LIMIT 1") as cur:
@@ -176,8 +208,10 @@ async def test_db_models_module(real_db):
         obj = getattr(mm, name)
         if asyncio.iscoroutinefunction(obj):
             for args in [
-                (real_db,), (real_db.conn,),
-                (real_db, "u1"), (real_db, 1667498935),
+                (real_db,),
+                (real_db.conn,),
+                (real_db, "u1"),
+                (real_db, 1667498935),
                 (real_db, "u1", {"strategy": "test"}),
             ]:
                 try:
@@ -194,6 +228,7 @@ async def test_db_migration_phase79(real_db):
         return
     try:
         import db.migration_phase79 as mp
+
         for name in dir(mp):
             if name.startswith("_") or name.isupper():
                 continue
@@ -214,6 +249,7 @@ async def test_db_ro_connect(real_db):
         return
     try:
         import db.ro_connect as ro
+
         for name in dir(ro):
             if name.startswith("_") or name.isupper():
                 continue
@@ -248,8 +284,7 @@ async def test_engine_construct_with_real_db(real_db):
 
     # Try multiple ctor signatures
     eng = None
-    for ctor in [(real_db,), (real_db, MagicMock()),
-                 (real_db, MagicMock(), MagicMock())]:
+    for ctor in [(real_db,), (real_db, MagicMock()), (real_db, MagicMock(), MagicMock())]:
         try:
             eng = Engine(*ctor)
             break
@@ -269,8 +304,7 @@ async def test_engine_construct_with_real_db(real_db):
             pass
 
     # Try common engine sync methods
-    for method_name in ["snapshot", "summary", "get_status",
-                        "is_running", "stop", "shutdown"]:
+    for method_name in ["snapshot", "summary", "get_status", "is_running", "stop", "shutdown"]:
         m = getattr(eng, method_name, None)
         if callable(m) and not asyncio.iscoroutinefunction(m):
             try:
@@ -311,7 +345,7 @@ async def test_engine_sync_helpers_real_db(real_db):
                 try:
                     await asyncio.wait_for(method(*args), timeout=0.3)
                     break
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     continue
 
 
@@ -344,22 +378,34 @@ async def test_engine_signals_mixin_real_db(real_db):
             self._brier_cache_time = 0.0
             self._wallet_pending = {}
             self.scanner = MagicMock()
-            self.scanner.get_current_market = MagicMock(return_value={
-                "slug": "btc-up-5m-test", "active": True,
-                "closed": False, "archived": False,
-                "endDate": "2030-01-01T00:00:00Z",
-                "duration_seconds": 300,
-                "coin": "BTC", "type": "5m",
-                "clobTokenIds": ["1", "2"],
-                "minimum_tick_size": "0.01", "neg_risk": False,
-            })
-            self.scanner.get_current_odds = MagicMock(return_value={
-                "up_odds": 0.55, "down_odds": 0.45,
-                "has_liquidity": True,
-            })
-            self.scanner.get_orderbook = MagicMock(return_value={
-                "bids": [[0.54, 100]], "asks": [[0.56, 100]],
-            })
+            self.scanner.get_current_market = MagicMock(
+                return_value={
+                    "slug": "btc-up-5m-test",
+                    "active": True,
+                    "closed": False,
+                    "archived": False,
+                    "endDate": "2030-01-01T00:00:00Z",
+                    "duration_seconds": 300,
+                    "coin": "BTC",
+                    "type": "5m",
+                    "clobTokenIds": ["1", "2"],
+                    "minimum_tick_size": "0.01",
+                    "neg_risk": False,
+                }
+            )
+            self.scanner.get_current_odds = MagicMock(
+                return_value={
+                    "up_odds": 0.55,
+                    "down_odds": 0.45,
+                    "has_liquidity": True,
+                }
+            )
+            self.scanner.get_orderbook = MagicMock(
+                return_value={
+                    "bids": [[0.54, 100]],
+                    "asks": [[0.56, 100]],
+                }
+            )
             self.odds_feed = MagicMock()
             self.odds_feed.get_odds_series = MagicMock(
                 return_value=[0.5 + i * 0.01 for i in range(20)]
@@ -371,10 +417,14 @@ async def test_engine_signals_mixin_real_db(real_db):
             self.signals = MagicMock()
             self.plugins = MagicMock()
             stub_plugin = MagicMock()
-            stub_plugin.evaluate = MagicMock(return_value=MagicMock(
-                should_trade=True, direction="UP",
-                confidence=0.7, reason="signal",
-            ))
+            stub_plugin.evaluate = MagicMock(
+                return_value=MagicMock(
+                    should_trade=True,
+                    direction="UP",
+                    confidence=0.7,
+                    reason="signal",
+                )
+            )
             self.plugins.get = MagicMock(return_value=stub_plugin)
             self.selector = MagicMock()
             self.live = MagicMock()
@@ -385,8 +435,8 @@ async def test_engine_signals_mixin_real_db(real_db):
             self.lifecycle = MagicMock()
             try:
                 from core.strategy_lifecycle import StrategyParams
-                self.lifecycle.get_params = AsyncMock(
-                    return_value=StrategyParams())
+
+                self.lifecycle.get_params = AsyncMock(return_value=StrategyParams())
             except (ImportError, AttributeError):
                 self.lifecycle.get_params = AsyncMock(return_value=MagicMock())
             self.risk = MagicMock()
@@ -425,18 +475,17 @@ async def test_engine_signals_mixin_real_db(real_db):
     # Try _evaluate full chain
     try:
         await asyncio.wait_for(eng._evaluate(s, verbose=True), timeout=2.0)
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         pass
     # Try internal helpers
-    for name in ["_load_brier_calibration_cache", "_check_brier_alarm",
-                 "_get_ob_cached"]:
+    for name in ["_load_brier_calibration_cache", "_check_brier_alarm", "_get_ob_cached"]:
         m = getattr(eng, name, None)
         if asyncio.iscoroutinefunction(m):
             for args in [(), (0.5,), ("token1",)]:
                 try:
                     await asyncio.wait_for(m(*args), timeout=1.0)
                     break
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     continue
 
 
@@ -463,12 +512,18 @@ async def test_engine_fills_real_db(real_db):
             self._cancel_count = 0
             self._ws_drop_count = 0
             self.scanner = MagicMock()
-            self.scanner.get_current_market = MagicMock(return_value={
-                "slug": "btc-up", "active": True,
-            })
-            self.scanner.get_orderbook = MagicMock(return_value={
-                "bids": [[0.54, 100]], "asks": [[0.56, 100]],
-            })
+            self.scanner.get_current_market = MagicMock(
+                return_value={
+                    "slug": "btc-up",
+                    "active": True,
+                }
+            )
+            self.scanner.get_orderbook = MagicMock(
+                return_value={
+                    "bids": [[0.54, 100]],
+                    "asks": [[0.56, 100]],
+                }
+            )
             self.live = MagicMock()
             self.live._open = None
             self.risk = MagicMock()
@@ -485,7 +540,7 @@ async def test_engine_fills_real_db(real_db):
                 try:
                     await asyncio.wait_for(method(*args), timeout=0.5)
                     break
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     continue
 
 
@@ -510,10 +565,14 @@ async def test_engine_settlement_real_db(db_with_data):
             self._pending = []
             self.skips = SkipCounter()
             self.scanner = MagicMock()
-            self.scanner.get_current_market = MagicMock(return_value={
-                "slug": "btc-up-5m", "active": False, "closed": True,
-                "winningOutcome": "UP",
-            })
+            self.scanner.get_current_market = MagicMock(
+                return_value={
+                    "slug": "btc-up-5m",
+                    "active": False,
+                    "closed": True,
+                    "winningOutcome": "UP",
+                }
+            )
             self.live = MagicMock()
             self.live.is_enabled = MagicMock(return_value=False)
             self.risk = MagicMock()
@@ -532,7 +591,7 @@ async def test_engine_settlement_real_db(db_with_data):
                 try:
                     await asyncio.wait_for(method(*args), timeout=0.5)
                     break
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     continue
 
 
@@ -572,7 +631,7 @@ async def test_engine_monitor_real_db(real_db):
         if asyncio.iscoroutinefunction(method):
             try:
                 await asyncio.wait_for(method(), timeout=0.5)
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass
 
 
@@ -612,9 +671,12 @@ async def test_strategies_handler_real_db(db_with_data):
     ctx.bot.send_message = AsyncMock()
 
     callbacks = [
-        "strategies", "strategies_page:0",
-        "start_strategy:s0", "stop_strategy:s0",
-        "delete_strategy:s0", "edit_strategy:s0",
+        "strategies",
+        "strategies_page:0",
+        "start_strategy:s0",
+        "stop_strategy:s0",
+        "delete_strategy:s0",
+        "edit_strategy:s0",
         "strategy_field:s0:edge_threshold",
     ]
     for cb in callbacks:
@@ -626,7 +688,7 @@ async def test_strategies_handler_real_db(db_with_data):
             if asyncio.iscoroutinefunction(obj):
                 try:
                     await asyncio.wait_for(obj(update, ctx), timeout=1.0)
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     pass
 
 
@@ -659,8 +721,7 @@ async def test_stats_handler_real_db(db_with_data):
     ctx.user_data = {}
     ctx.args = []
 
-    for cb in ["stats", "stats_filter:WR", "trades_page:0",
-               "stats_hub", "performance", "velocity"]:
+    for cb in ["stats", "stats_filter:WR", "trades_page:0", "stats_hub", "performance", "velocity"]:
         update.callback_query.data = cb
         for name in dir(st):
             if name.startswith("_") or name.isupper():
@@ -669,7 +730,7 @@ async def test_stats_handler_real_db(db_with_data):
             if asyncio.iscoroutinefunction(obj):
                 try:
                     await asyncio.wait_for(obj(update, ctx), timeout=1.0)
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     pass
 
 
@@ -701,8 +762,7 @@ async def test_dashboard_handler_real_db(db_with_data):
     ctx.user_data = {}
     ctx.args = []
 
-    for cb in ["dashboard", "dashboard_refresh", "info_pnl",
-               "info_trades", "info_balance"]:
+    for cb in ["dashboard", "dashboard_refresh", "info_pnl", "info_trades", "info_balance"]:
         update.callback_query.data = cb
         for name in dir(dh):
             if name.startswith("_") or name.isupper():
@@ -711,7 +771,7 @@ async def test_dashboard_handler_real_db(db_with_data):
             if asyncio.iscoroutinefunction(obj):
                 try:
                     await asyncio.wait_for(obj(update, ctx), timeout=1.0)
-                except (asyncio.TimeoutError, Exception):
+                except (TimeoutError, Exception):
                     pass
 
 
@@ -736,12 +796,11 @@ async def test_strategy_lifecycle_real_db(db_with_data):
                     continue
                 method = getattr(lc, name, None)
                 if asyncio.iscoroutinefunction(method):
-                    for args in [(), ("s0",), ("s0", "fade_rip"),
-                                 ({"id": "s0", "name": "x"},)]:
+                    for args in [(), ("s0",), ("s0", "fade_rip"), ({"id": "s0", "name": "x"},)]:
                         try:
                             await asyncio.wait_for(method(*args), timeout=0.5)
                             break
-                        except (asyncio.TimeoutError, Exception):
+                        except (TimeoutError, Exception):
                             continue
             break
         except Exception:
@@ -773,7 +832,7 @@ async def test_auto_optimizer_real_db(db_with_data):
                         try:
                             await asyncio.wait_for(method(*args), timeout=0.5)
                             break
-                        except (asyncio.TimeoutError, Exception):
+                        except (TimeoutError, Exception):
                             continue
             break
         except Exception:
@@ -810,7 +869,7 @@ async def test_trade_journal_real_db(db_with_data):
                                 try:
                                     await asyncio.wait_for(method(*args), timeout=0.5)
                                     break
-                                except (asyncio.TimeoutError, Exception):
+                                except (TimeoutError, Exception):
                                     continue
                     break
                 except Exception:
@@ -825,8 +884,7 @@ async def test_bot_class_construction(monkeypatch, real_db):
     """telegram_bot/bot.py — Bot class instantiate (no actual Telegram poll)."""
     if real_db is None:
         return
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN",
-                       "1234567890:test-token-not-real")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1234567890:test-token-not-real")
     monkeypatch.setenv("ADMIN_TELEGRAM_ID", "1667498935")
     try:
         from telegram_bot.bot import Bot
@@ -835,8 +893,7 @@ async def test_bot_class_construction(monkeypatch, real_db):
         return
     # Try to construct (different signatures)
     bot = None
-    for ctor in [(), ("token",), (real_db,),
-                 (real_db, MagicMock())]:
+    for ctor in [(), ("token",), (real_db,), (real_db, MagicMock())]:
         try:
             bot = Bot(*ctor)
             break
@@ -865,7 +922,8 @@ async def test_portfolio_cache_real_db(real_db):
         return
     try:
         from data.polymarket_portfolio import (
-            read_cached_snapshot, _proxy_address,
+            _proxy_address,
+            read_cached_snapshot,
         )
     except (ImportError, AttributeError):
         pytest.skip()
@@ -902,8 +960,7 @@ async def test_live_trader_real_db_state(real_db):
             pass
 
     # Try sync state methods
-    for name in ["get_status", "is_enabled", "summary",
-                 "snapshot", "stop"]:
+    for name in ["get_status", "is_enabled", "summary", "snapshot", "stop"]:
         m = getattr(t, name, None)
         if callable(m) and not asyncio.iscoroutinefunction(m):
             try:
@@ -929,11 +986,13 @@ async def test_live_handler_real_engine(real_db):
     engine = MagicMock()
     engine.db = real_db
     engine.live = MagicMock()
-    engine.live.get_status = MagicMock(return_value={
-        "auth_verified": True,
-        "remaining": 8.0,
-        "budget": 10.0,
-    })
+    engine.live.get_status = MagicMock(
+        return_value={
+            "auth_verified": True,
+            "remaining": 8.0,
+            "budget": 10.0,
+        }
+    )
     engine.scanner = MagicMock()
     engine.scanner.get_active_markets = MagicMock(return_value=[])
 
@@ -954,7 +1013,9 @@ async def test_live_handler_real_engine(real_db):
     ctx.user_data = {}
 
     callbacks = [
-        "live_main", "live_market_buy", "live_market_sell",
+        "live_main",
+        "live_market_buy",
+        "live_market_sell",
         "live_market_tf:BUY:5m",
         "live_market_asset:BUY:BTC_UP:5m",
         "live_market_amount:BUY:BTC_UP:5m:1",
@@ -966,7 +1027,7 @@ async def test_live_handler_real_engine(real_db):
         update.callback_query.data = cb
         try:
             await asyncio.wait_for(live_callback(update, ctx), timeout=1.0)
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             pass
 
 
@@ -1021,17 +1082,16 @@ async def test_multi_strategy_concurrent(db_with_data):
         s = MagicMock()
         s.id = i
         s.name = f"test_{i}"
-        s.strategy_type = ["fade_rip", "streak_reversal",
-                            "opening_breakout"][i % 3]
+        s.strategy_type = ["fade_rip", "streak_reversal", "opening_breakout"][i % 3]
         s.coin = ["BTC", "ETH", "SOL"][i % 3]
         s.market_type = ["5m", "15m", "1h"][i % 3]
         s.direction = "UP" if i % 2 == 0 else "DOWN"
         s.amount = 1.0
         s.odds_threshold = 0.5
         try:
-            tasks.append(asyncio.create_task(
-                asyncio.wait_for(eng._evaluate(s, verbose=False), timeout=1.0)
-            ))
+            tasks.append(
+                asyncio.create_task(asyncio.wait_for(eng._evaluate(s, verbose=False), timeout=1.0))
+            )
         except Exception:
             pass
     if tasks:
@@ -1045,16 +1105,37 @@ async def test_multi_strategy_concurrent(db_with_data):
 # Real handler module load + CallbackQueryHandler wireup test
 # ════════════════════════════════════════════════════════════════════════
 HANDLER_MODULES = [
-    "ai_handler", "archive_info_handler", "backtest_v2",
-    "changelog_handler", "dashboard", "diagnose_handler",
-    "env_toggle", "filters_handler", "force_settle_handler",
-    "lifecycle_handler", "live_guards_handler",
-    "live_handler", "live_history_handler", "main_dashboard",
-    "markets", "menu_handler", "mode_handler", "order_validator",
-    "phase77_handler", "portfolio_handler", "positions",
-    "rest_timing_handler", "risk_handler", "roadmap_handler",
-    "settings_handler", "start", "stats", "strategies",
-    "strategy_builder", "strategy_report", "strategy_tester",
+    "ai_handler",
+    "archive_info_handler",
+    "backtest_v2",
+    "changelog_handler",
+    "dashboard",
+    "diagnose_handler",
+    "env_toggle",
+    "filters_handler",
+    "force_settle_handler",
+    "lifecycle_handler",
+    "live_guards_handler",
+    "live_handler",
+    "live_history_handler",
+    "main_dashboard",
+    "markets",
+    "menu_handler",
+    "mode_handler",
+    "order_validator",
+    "phase77_handler",
+    "portfolio_handler",
+    "positions",
+    "rest_timing_handler",
+    "risk_handler",
+    "roadmap_handler",
+    "settings_handler",
+    "start",
+    "stats",
+    "strategies",
+    "strategy_builder",
+    "strategy_report",
+    "strategy_tester",
 ]
 
 
@@ -1065,8 +1146,7 @@ async def test_handler_module_full_async(module_name, db_with_data):
     if db_with_data is None:
         return
     try:
-        mod = importlib.import_module(
-            f"telegram_bot.handlers.{module_name}")
+        mod = importlib.import_module(f"telegram_bot.handlers.{module_name}")
     except ImportError:
         pytest.skip()
         return
@@ -1113,7 +1193,7 @@ async def test_handler_module_full_async(module_name, db_with_data):
         if asyncio.iscoroutinefunction(obj):
             try:
                 await asyncio.wait_for(obj(update, ctx), timeout=0.5)
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass
 
 
@@ -1121,10 +1201,16 @@ async def test_handler_module_full_async(module_name, db_with_data):
 # Real job module — every async job
 # ════════════════════════════════════════════════════════════════════════
 JOB_MODULES = [
-    "auto_promote_job", "auto_redeem_job", "db_archive_job",
-    "db_retention_job", "maintenance_jobs", "pattern_discovery_job",
-    "pnl_divergence_job", "polymarket_portfolio_job",
-    "shadow_report_job", "shadow_vs_paper_job",
+    "auto_promote_job",
+    "auto_redeem_job",
+    "db_archive_job",
+    "db_retention_job",
+    "maintenance_jobs",
+    "pattern_discovery_job",
+    "pnl_divergence_job",
+    "polymarket_portfolio_job",
+    "shadow_report_job",
+    "shadow_vs_paper_job",
 ]
 
 
@@ -1157,5 +1243,5 @@ async def test_job_module_with_real_db(module_name, db_with_data):
         if asyncio.iscoroutinefunction(obj):
             try:
                 await asyncio.wait_for(obj(ctx), timeout=1.0)
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass

@@ -11,12 +11,14 @@ PolyPaper Bot - Phase 77 Handlers
 
 ADMIN ONLY.
 """
-import asyncio
+
 import logging
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
 from config.settings import Settings
 
 logger = logging.getLogger("polypaper.handlers.phase77")
@@ -33,6 +35,7 @@ def _is_admin(context, telegram_id: int) -> bool:
 # /why — Decision Explainer
 # ═══════════════════════════════════════
 
+
 async def why_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /why [slug] — Son trade kararlarını açıkla.
@@ -46,9 +49,9 @@ async def why_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if explainer is None:
         return await update.message.reply_text(
-            "🔍 Decision Explainer aktif değil.\n"
-            "<code>DECISION_EXPLAINER_ENABLED=true</code>",
-            parse_mode="HTML")
+            "🔍 Decision Explainer aktif değil.\n" "<code>DECISION_EXPLAINER_ENABLED=true</code>",
+            parse_mode="HTML",
+        )
 
     slug = " ".join(context.args) if context.args else None
 
@@ -64,10 +67,14 @@ async def why_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(text) > 4000:
         text = text[:3950] + "\n\n<i>... truncated</i>"
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Yenile", callback_data="why_refresh"),
-        InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="why_refresh"),
+                InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard"),
+            ]
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -86,13 +93,17 @@ async def why_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(text) > 4000:
         text = text[:3950] + "\n\n<i>... truncated</i>"
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Yenile", callback_data="why_refresh"),
-        InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="why_refresh"),
+                InlineKeyboardButton("📊 Dashboard", callback_data="show_dashboard"),
+            ]
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. edit_message_text
         # BadRequest "not modified" + transport failures. Refresh btn tolerates
         # no-op.
@@ -102,6 +113,7 @@ async def why_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════
 # /mistakes — Overconfident hata geçmişi
 # ═══════════════════════════════════════
+
 
 async def mistakes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/mistakes — Tekrarlayan hatalar: yüksek sinyal ama kayıp olan trade'ler."""
@@ -113,9 +125,9 @@ async def mistakes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if memory is None:
         return await update.message.reply_text(
-            "🧠 Trade Memory aktif değil.\n"
-            "<code>TRADE_MEMORY_ENABLED=true</code>",
-            parse_mode="HTML")
+            "🧠 Trade Memory aktif değil.\n" "<code>TRADE_MEMORY_ENABLED=true</code>",
+            parse_mode="HTML",
+        )
 
     text = memory.format_mistakes_telegram()
     await update.message.reply_text(text, parse_mode="HTML")
@@ -124,6 +136,7 @@ async def mistakes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════
 # /patterns — En iyi/kötü pattern'ler
 # ═══════════════════════════════════════
+
 
 async def patterns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/patterns — En iyi ve kötü trade pattern'leri."""
@@ -134,8 +147,7 @@ async def patterns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     memory = getattr(engine, "_trade_memory", None) if engine else None
 
     if memory is None:
-        return await update.message.reply_text(
-            "🧠 Trade Memory aktif değil.", parse_mode="HTML")
+        return await update.message.reply_text("🧠 Trade Memory aktif değil.", parse_mode="HTML")
 
     best = await memory.get_best_patterns(5)
     worst = await memory.get_worst_patterns(5)
@@ -148,9 +160,13 @@ async def patterns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(text) > 4000:
         text = text[:3950] + "\n\n<i>... truncated</i>"
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Yenile", callback_data="patterns_refresh"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="patterns_refresh"),
+            ]
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -166,17 +182,25 @@ async def patterns_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     best = await memory.get_best_patterns(5)
     worst = await memory.get_worst_patterns(5)
-    text = memory.format_telegram(best, "En İyi 🏆") + "\n\n" + memory.format_telegram(worst, "En Kötü ⚠️")
+    text = (
+        memory.format_telegram(best, "En İyi 🏆")
+        + "\n\n"
+        + memory.format_telegram(worst, "En Kötü ⚠️")
+    )
 
     if len(text) > 4000:
         text = text[:3950] + "\n\n<i>... truncated</i>"
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Yenile", callback_data="patterns_refresh"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="patterns_refresh"),
+            ]
+        ]
+    )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. Same edit_message
         # no-op-tolerant pattern as why_callback above.
         pass
@@ -185,6 +209,7 @@ async def patterns_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════
 # /health — Module Health Dashboard
 # ═══════════════════════════════════════
+
 
 async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/health — Tüm modül durumları ve bağlantı haritası."""
@@ -278,10 +303,14 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(text) > 4000:
         text = text[:3950] + "\n\n<i>... truncated</i>"
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Yenile", callback_data="health_refresh"),
-        InlineKeyboardButton("🔧 Diagnose", callback_data="show_diagnose"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="health_refresh"),
+                InlineKeyboardButton("🔧 Diagnose", callback_data="show_diagnose"),
+            ]
+        ]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -292,9 +321,8 @@ async def health_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Re-run the command logic
     # Use a simple refresh message since full re-run needs update.message
     try:
-        await q.edit_message_text(
-            "🏥 /health komutunu tekrar çalıştırın.", parse_mode="HTML")
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+        await q.edit_message_text("🏥 /health komutunu tekrar çalıştırın.", parse_mode="HTML")
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. Refresh hint msg.
         pass
 
@@ -302,6 +330,7 @@ async def health_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════
 # /experiment — Parametre Testi
 # ═══════════════════════════════════════
+
 
 async def experiment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -316,9 +345,9 @@ async def experiment_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if runner is None:
         return await update.message.reply_text(
-            "🧪 Experiment Runner aktif değil.\n"
-            "<code>EXPERIMENT_ENABLED=true</code>",
-            parse_mode="HTML")
+            "🧪 Experiment Runner aktif değil.\n" "<code>EXPERIMENT_ENABLED=true</code>",
+            parse_mode="HTML",
+        )
 
     if not context.args:
         # Show usage
@@ -337,7 +366,8 @@ async def experiment_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not params:
         return await update.message.reply_text(
             "⚠️ Format: KEY=VALUE. Örnek: <code>/experiment MIN_COMPOSITE=0.30</code>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
 
     await update.message.reply_text("🧪 Experiment çalışıyor...")
 
@@ -366,7 +396,9 @@ async def experiment_apply_command(update: Update, context: ContextTypes.DEFAULT
         lines = ["✅ <b>Experiment Uygulandı</b>\n"]
         for key, (old_v, new_v) in applied.items():
             lines.append(f"  <code>{key}</code>: {old_v} → <b>{new_v}</b>")
-        lines.append("\n⚠️ <i>Runtime ENV değişti. Kalıcı yapmak için .env dosyasını güncelleyin.</i>")
+        lines.append(
+            "\n⚠️ <i>Runtime ENV değişti. Kalıcı yapmak için .env dosyasını güncelleyin.</i>"
+        )
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     else:
         await update.message.reply_text("❌ Uygulama başarısız.")

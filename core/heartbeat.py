@@ -25,6 +25,7 @@ Usage:
     # ... bot runs ...
     await task.stop()
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -71,7 +72,9 @@ class HeartbeatTask:
 
     def __init__(self, client, interval_s: Optional[int] = None):
         self.client = client
-        self._interval_s = interval_s or _env_int("HEARTBEAT_INTERVAL_S", HEARTBEAT_INTERVAL_S_DEFAULT)
+        self._interval_s = interval_s or _env_int(
+            "HEARTBEAT_INTERVAL_S", HEARTBEAT_INTERVAL_S_DEFAULT
+        )
         self._heartbeat_id: str = ""
         self._task: Optional[asyncio.Task] = None
         self._running = False
@@ -96,8 +99,12 @@ class HeartbeatTask:
         return {
             "running": self._running,
             "is_alive": self.is_alive,
-            "heartbeat_id": self._heartbeat_id[:12] + "..." if len(self._heartbeat_id) > 12 else self._heartbeat_id,
-            "last_success_age_s": (time.time() - self._last_success_ts) if self._last_success_ts else None,
+            "heartbeat_id": self._heartbeat_id[:12] + "..."
+            if len(self._heartbeat_id) > 12
+            else self._heartbeat_id,
+            "last_success_age_s": (time.time() - self._last_success_ts)
+            if self._last_success_ts
+            else None,
             "consecutive_fails": self._consecutive_fails,
             "interval_s": self._interval_s,
             "enabled": self.enabled,
@@ -133,7 +140,7 @@ class HeartbeatTask:
             try:
                 self._task.cancel()
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"heartbeat stop: {e}")
@@ -153,8 +160,9 @@ class HeartbeatTask:
                 self._consecutive_fails += 1
 
             # Exponential backoff on consecutive failures (max 30s)
-            sleep_s = min(self._interval_s * (2 ** min(self._consecutive_fails, 3)),
-                          self._interval_s * 6)
+            sleep_s = min(
+                self._interval_s * (2 ** min(self._consecutive_fails, 3)), self._interval_s * 6
+            )
             try:
                 await asyncio.sleep(sleep_s)
             except asyncio.CancelledError:

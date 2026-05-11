@@ -18,13 +18,14 @@ Panel içeriği:
   - Live ingestion rate (son 1 dk)
   - Backtest komutu formatı
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import shutil
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from html import escape as _esc
 
 from telegram import Update
@@ -99,8 +100,12 @@ async def data_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # ── Tablolarda satır sayısı ────────────────────────────────
         TABLES = [
-            "ob_deltas", "public_trades", "external_prices",
-            "ob_snapshots", "candles_ext", "candles_poly",
+            "ob_deltas",
+            "public_trades",
+            "external_prices",
+            "ob_snapshots",
+            "candles_ext",
+            "candles_poly",
         ]
         row_counts: dict[str, int] = {}
         for t in TABLES:
@@ -117,9 +122,7 @@ async def data_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             if row_counts.get(t, 0) <= 0:
                 continue
             try:
-                async with db.conn.execute(
-                    f"SELECT MIN(ts_ms) FROM {t}"
-                ) as cur:
+                async with db.conn.execute(f"SELECT MIN(ts_ms) FROM {t}") as cur:
                     row = await cur.fetchone()
                     if row and row[0]:
                         ts = int(row[0])
@@ -175,7 +178,7 @@ async def data_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except Exception:  # noqa: BLE001
                     oldest_ms = None
                     cnt = 0
-                ready = (oldest_ms is not None and oldest_ms <= cutoff_24h_ms)
+                ready = oldest_ms is not None and oldest_ms <= cutoff_24h_ms
                 readiness.append((asset, tf, cnt, ready))
 
         # ── Disk uyarıları ─────────────────────────────────────────
@@ -200,7 +203,7 @@ async def data_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         ]
 
         if oldest_ts:
-            ts_iso = datetime.fromtimestamp(oldest_ts / 1000, tz=timezone.utc).isoformat()[:19]
+            ts_iso = datetime.fromtimestamp(oldest_ts / 1000, tz=UTC).isoformat()[:19]
             lines.append(f"📅 Veri başlangıcı: {_esc(ts_iso)}Z ({_ts_age(oldest_ts)})")
         else:
             lines.append("📅 Veri başlangıcı: <i>henüz veri yok</i>")
@@ -224,9 +227,7 @@ async def data_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         if readiness:
             for asset, tf, cnt, ready in readiness:
                 emoji = "✅" if ready else "⏳"
-                lines.append(
-                    f"  {emoji} {asset}_{tf}: <code>{cnt}</code> candle"
-                )
+                lines.append(f"  {emoji} {asset}_{tf}: <code>{cnt}</code> candle")
         else:
             lines.append("  <i>matrix tanımlı değil</i>")
 
@@ -239,13 +240,12 @@ async def data_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         ]
 
         text = "\n".join(lines)
-        await update.message.reply_text(
-            text, parse_mode="HTML", disable_web_page_preview=True
-        )
+        await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
 
     except Exception as e:  # noqa: BLE001
+        # T11.6 doctrine: exception details go to log only, user sees generic.
         logger.exception(f"data_status error: {e}")
         await update.message.reply_text(
-            f"❌ Data status error: <code>{_esc(str(e)[:200])}</code>",
+            "❌ Data status paneli üretilemedi. Logları kontrol edin.",
             parse_mode="HTML",
         )

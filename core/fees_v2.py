@@ -38,6 +38,7 @@ absolute terms but the edge required to overcome slippage + execution risk
 is large, so callers may want to refuse the trade via FEE_TAIL skip. This
 module only computes; the gate lives in engine._evaluate.
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,16 +57,16 @@ CATEGORY_FEES: dict[str, dict] = {
     # Formula: fee = shares x feeRate x (p x (1-p))^exponent
     # All documented categories currently use exponent == 1.
     # Audit: docs/audits/fee_reality_check_2026_04.md (FAZ 0.1).
-    "crypto":      {"taker_rate": 0.072, "taker_exp": 1, "maker_rebate_pct": 0.20},
-    "sports":      {"taker_rate": 0.030, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "politics":    {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "finance":     {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "economics":   {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "culture":     {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "weather":     {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "tech":        {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "mentions":    {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
-    "other":       {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "crypto": {"taker_rate": 0.072, "taker_exp": 1, "maker_rebate_pct": 0.20},
+    "sports": {"taker_rate": 0.030, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "politics": {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "finance": {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "economics": {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "culture": {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "weather": {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "tech": {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "mentions": {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
+    "other": {"taker_rate": 0.050, "taker_exp": 1, "maker_rebate_pct": 0.25},
     "geopolitics": {"taker_rate": 0.000, "taker_exp": 1, "maker_rebate_pct": 0.00},
 }
 
@@ -183,6 +184,7 @@ def ev_after_fee_v2(
 
 
 # ─── P2.X — Dynamic Fee Query (2026-05-03 docs re-audit) ──────────────
+
 
 def get_market_fee_params(client: Any, condition_id: str) -> dict | None:
     """Fetch per-market fee parameters from V2 SDK at runtime.
@@ -319,7 +321,8 @@ def taker_fee_dynamic(
         # Geopolitics %0 fee
         return 0.0
     return polymarket_taker_fee_v2(
-        price, amount_usd,
+        price,
+        amount_usd,
         override_rate=params["rate"],
         override_exp=params["exp"],
     )

@@ -19,13 +19,13 @@ Contains:
 
 These symbols used to live at the top of engine.py. No logic changed.
 """
+
 from __future__ import annotations
 
 import hashlib
 import os
 import time
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -33,7 +33,9 @@ from datetime import datetime, timezone
 
 INTERVAL_SECS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "24h": 86400}
 MAX_MBE = {"5m": 1.0, "15m": 3.0, "1h": 12.0, "4h": 48.0, "24h": 288.0}
-WIDE_SPREAD = float(os.getenv("MAKER_WIDE_SPREAD", "0.03"))  # Phase 74: env-tunable, 0.10→0.03 default
+WIDE_SPREAD = float(
+    os.getenv("MAKER_WIDE_SPREAD", "0.03")
+)  # Phase 74: env-tunable, 0.10→0.03 default
 WS_STALE_THRESHOLD = 60.0  # Phase 16.5: 60s for 5m market gaps
 
 
@@ -48,7 +50,8 @@ class SkipCounter:
     Phase 79b: Added per-strategy log throttle to suppress repetitive
     messages like EMA_BLOCK firing every second for the same strategy.
     """
-    __slots__ = ('_counts', '_total', '_logged')
+
+    __slots__ = ("_counts", "_total", "_logged")
 
     def __init__(self):
         self._counts: dict[str, int] = {}
@@ -101,8 +104,7 @@ def _slug_end(slug):
     if len(p) < 4:
         return None
     try:
-        return datetime.fromtimestamp(
-            int(p[3]) + INTERVAL_SECS.get(p[2], 300), tz=timezone.utc)
+        return datetime.fromtimestamp(int(p[3]) + INTERVAL_SECS.get(p[2], 300), tz=UTC)
     except (ValueError, OverflowError, OSError):
         # T1.4 Faz 3: int(p[3]) → ValueError on non-numeric slug segments.
         # datetime.fromtimestamp → ValueError/OverflowError for out-of-range
@@ -116,7 +118,7 @@ def _slug_start(slug):
     if len(p) < 4:
         return None
     try:
-        return datetime.fromtimestamp(int(p[3]), tz=timezone.utc)
+        return datetime.fromtimestamp(int(p[3]), tz=UTC)
     except (ValueError, OverflowError, OSError):
         # T1.4 Faz 3: same failure surface as _slug_end — non-numeric
         # timestamp segment or out-of-range epoch.
@@ -133,43 +135,59 @@ def _stagger(sid):
 
 
 class VirtualOrder:
-    __slots__ = ("strategy_id", "slug", "token_id", "direction",
-                 "limit_price", "amount", "fee", "created_at",
-                 "wallet_id", "user_id", "sl_pct", "sl_odds",
-                 "tp_pct", "tp_odds", "threshold", "is_maker",
-                 "signal_score", "signal_price",
-                 # Phase 39 (P1.2): maker queue position simulation
-                 "queue_ahead_usd", "cum_traded_at_price_usd",
-                 "placement_ts_ms",
-                 # Phase 43a: category tag for fee router (crypto, sports, …)
-                 "category",
-                 # Phase 59: structured trade reasoning for AI learning
-                 "reasoning_json")
+    __slots__ = (
+        "strategy_id",
+        "slug",
+        "token_id",
+        "direction",
+        "limit_price",
+        "amount",
+        "fee",
+        "created_at",
+        "wallet_id",
+        "user_id",
+        "sl_pct",
+        "sl_odds",
+        "tp_pct",
+        "tp_odds",
+        "threshold",
+        "is_maker",
+        "signal_score",
+        "signal_price",
+        # Phase 39 (P1.2): maker queue position simulation
+        "queue_ahead_usd",
+        "cum_traded_at_price_usd",
+        "placement_ts_ms",
+        # Phase 43a: category tag for fee router (crypto, sports, …)
+        "category",
+        # Phase 59: structured trade reasoning for AI learning
+        "reasoning_json",
+    )
 
     def __init__(self, **kw):
         for k, v in kw.items():
             setattr(self, k, v)
-        if not hasattr(self, 'is_maker'):
+        if not hasattr(self, "is_maker"):
             self.is_maker = False
-        if not hasattr(self, 'signal_score'):
+        if not hasattr(self, "signal_score"):
             self.signal_score = 0.0
         # Phase 38c: price seen at signal-generation time — used to compute
         # signal→fill slippage and mirror real Polymarket latency impact.
-        if not hasattr(self, 'signal_price'):
+        if not hasattr(self, "signal_price"):
             self.signal_price = 0.0
         # Phase 39 (P1.2): queue depth (USD) ahead of this order at its
         # limit price at placement time. Maker order is only considered
         # filled once cum_traded_at_price_usd >= queue_ahead_usd.
-        if not hasattr(self, 'queue_ahead_usd'):
+        if not hasattr(self, "queue_ahead_usd"):
             self.queue_ahead_usd = 0.0
-        if not hasattr(self, 'cum_traded_at_price_usd'):
+        if not hasattr(self, "cum_traded_at_price_usd"):
             self.cum_traded_at_price_usd = 0.0
-        if not hasattr(self, 'placement_ts_ms'):
+        if not hasattr(self, "placement_ts_ms"):
             self.placement_ts_ms = int(time.time() * 1000)
         # Phase 43a: default category for fee router
-        if not hasattr(self, 'category'):
+        if not hasattr(self, "category"):
             self.category = None
         # Phase 59: reasoning context for post-trade analysis
-        if not hasattr(self, 'reasoning_json'):
+        if not hasattr(self, "reasoning_json"):
             self.reasoning_json = None
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)

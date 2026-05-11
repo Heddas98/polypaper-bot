@@ -6,15 +6,21 @@ FeeCalculator name kept as alias so downstream (portfolio, replay_engine,
 engine_v2) needs no further edits. Default mode (FeeModeV3.V3) matches the
 old FeeMode.STANDARD behavior bit-for-bit (taker-only, crypto category).
 """
-from backtest.simulation.fill_model import FillSimulator, FillMode, FillResult
+
 from backtest.simulation.fee_model_v3 import (
     FeeCalculatorV3 as FeeCalculator,
     FeeModeV3 as FeeMode,
 )
-from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats, Trade
+from backtest.simulation.fill_model import FillMode, FillResult, FillSimulator
+from backtest.simulation.portfolio import PortfolioStats, Trade, VirtualPortfolio
 
 __all__ = [
-    "FillSimulator", "FillMode", "FillResult",
-    "FeeCalculator", "FeeMode",
-    "VirtualPortfolio", "PortfolioStats", "Trade",
+    "FillSimulator",
+    "FillMode",
+    "FillResult",
+    "FeeCalculator",
+    "FeeMode",
+    "VirtualPortfolio",
+    "PortfolioStats",
+    "Trade",
 ]

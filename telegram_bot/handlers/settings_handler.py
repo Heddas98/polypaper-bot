@@ -2,9 +2,10 @@
 PolyPaper Bot - /settings Handler
 Notification preferences matching Polyscout's settings view.
 """
-import asyncio
+
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
@@ -58,14 +59,41 @@ async def _send_settings(message, db, user):
         f"• No-buy alerts: <b>{on(user.notify_no_buy)}</b>\n"
     )
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"Buy notifications: {check(user.notify_buy)}", callback_data="toggle_notify_buy")],
-        [InlineKeyboardButton(f"Stop-loss alerts: {check(user.notify_stop_loss)}", callback_data="toggle_notify_stop_loss")],
-        [InlineKeyboardButton(f"Take-profit alerts: {check(user.notify_take_profit)}", callback_data="toggle_notify_take_profit")],
-        [InlineKeyboardButton(f"Claim results: {check(user.notify_claim)}", callback_data="toggle_notify_claim")],
-        [InlineKeyboardButton(f"No-buy alerts: {check(user.notify_no_buy)}", callback_data="toggle_notify_no_buy")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"Buy notifications: {check(user.notify_buy)}",
+                    callback_data="toggle_notify_buy",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Stop-loss alerts: {check(user.notify_stop_loss)}",
+                    callback_data="toggle_notify_stop_loss",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Take-profit alerts: {check(user.notify_take_profit)}",
+                    callback_data="toggle_notify_take_profit",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Claim results: {check(user.notify_claim)}",
+                    callback_data="toggle_notify_claim",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"No-buy alerts: {check(user.notify_no_buy)}",
+                    callback_data="toggle_notify_no_buy",
+                )
+            ],
+            [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
+        ]
+    )
 
     banner = banner_settings()
     await message.reply_photo(
@@ -108,14 +136,41 @@ async def toggle_notification_callback(update: Update, context: ContextTypes.DEF
         f"• No-buy alerts: <b>{on(user.notify_no_buy)}</b>\n"
     )
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"Buy notifications: {check(user.notify_buy)}", callback_data="toggle_notify_buy")],
-        [InlineKeyboardButton(f"Stop-loss alerts: {check(user.notify_stop_loss)}", callback_data="toggle_notify_stop_loss")],
-        [InlineKeyboardButton(f"Take-profit alerts: {check(user.notify_take_profit)}", callback_data="toggle_notify_take_profit")],
-        [InlineKeyboardButton(f"Claim results: {check(user.notify_claim)}", callback_data="toggle_notify_claim")],
-        [InlineKeyboardButton(f"No-buy alerts: {check(user.notify_no_buy)}", callback_data="toggle_notify_no_buy")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"Buy notifications: {check(user.notify_buy)}",
+                    callback_data="toggle_notify_buy",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Stop-loss alerts: {check(user.notify_stop_loss)}",
+                    callback_data="toggle_notify_stop_loss",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Take-profit alerts: {check(user.notify_take_profit)}",
+                    callback_data="toggle_notify_take_profit",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Claim results: {check(user.notify_claim)}",
+                    callback_data="toggle_notify_claim",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"No-buy alerts: {check(user.notify_no_buy)}",
+                    callback_data="toggle_notify_no_buy",
+                )
+            ],
+            [InlineKeyboardButton("⬅️ Back", callback_data="show_dashboard")],
+        ]
+    )
 
     try:
         await query.edit_message_caption(
@@ -123,7 +178,7 @@ async def toggle_notification_callback(update: Update, context: ContextTypes.DEF
             parse_mode="HTML",
             reply_markup=keyboard,
         )
-    except (BadRequest, TelegramError, asyncio.TimeoutError):
+    except (TimeoutError, BadRequest, TelegramError):
         # T11.8-B (2026-04-24): narrow from bare Exception. edit_message_
         # caption raises BadRequest "message is not modified" when caption
         # identical to previous; TelegramError covers other transport issues.
@@ -145,7 +200,7 @@ async def plugins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plugins = engine.plugins.list_all()
     text = "🧩 <b>Strateji Eklentileri</b>\n\n"
     for p in plugins:
-        cfg = engine.plugins.get_config(p['name'])
+        cfg = engine.plugins.get_config(p["name"])
         cfg_str = ""
         if cfg:
             cfg_str = "\n    " + " | ".join(f"{k}={v}" for k, v in cfg.items())
@@ -162,8 +217,9 @@ async def plugins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<code>/plugin_set contrarian min_deviation 0.10</code>\n"
     )
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")]])
+    kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⬅️ Dashboard", callback_data="show_dashboard")]]
+    )
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -200,17 +256,19 @@ async def plugin_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if ok:
         new_val = engine.plugins.get_config(plugin).get(param, value)
         await update.message.reply_text(
-            f"✅ <b>{plugin}.{esc(param)}</b> → <code>{new_val}</code>",
-            parse_mode="HTML")
+            f"✅ <b>{plugin}.{esc(param)}</b> → <code>{new_val}</code>", parse_mode="HTML"
+        )
     else:
         await update.message.reply_text(
-            f"❌ Geçersiz: {plugin}.{esc(param)}\n/plugin_set yazarak geçerli parametreleri görün.")
+            f"❌ Geçersiz: {plugin}.{esc(param)}\n/plugin_set yazarak geçerli parametreleri görün."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 51 P51-03 Faz-2 Cluster G — merged from promote.py
 # ═══════════════════════════════════════════════════════════════════════
 import os as _promote_os  # noqa: E402
+
 from telegram_bot.templates import ERR as _PROMOTE_ERR  # noqa: E402
 from telegram_bot.templates.safe_html import esc_code as _promote_esc_code  # noqa: E402
 
@@ -241,8 +299,8 @@ async def canary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = await cur.fetchall()
     if not rows:
         await update.message.reply_text(
-            "🕯 <b>No canary strategies.</b>\nAll strategies are promoted.",
-            parse_mode="HTML")
+            "🕯 <b>No canary strategies.</b>\nAll strategies are promoted.", parse_mode="HTML"
+        )
         return
 
     lines = [f"🕯 <b>Canary Strategies ({len(rows)})</b>\n"]
@@ -258,14 +316,16 @@ async def canary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     lines.append(
         f"\n<i>Promote gate: {PROMOTE_MIN_TRADES}+ trades, PnL > ${PROMOTE_MIN_PNL}</i>\n"
-        f"Use /promote &lt;id_prefix&gt; to graduate.")
+        f"Use /promote &lt;id_prefix&gt; to graduate."
+    )
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
-            "Usage: <code>/promote &lt;strategy_id_prefix&gt;</code>", parse_mode="HTML")
+            "Usage: <code>/promote &lt;strategy_id_prefix&gt;</code>", parse_mode="HTML"
+        )
         return
 
     prefix = context.args[0]
@@ -275,16 +335,17 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     cur = await db.conn.execute(
-        "SELECT id, label, deploy_stage FROM strategies WHERE id LIKE ?", (f"{prefix}%",))
+        "SELECT id, label, deploy_stage FROM strategies WHERE id LIKE ?", (f"{prefix}%",)
+    )
     matches = await cur.fetchall()
     if not matches:
         await update.message.reply_text(
-            f"❌ No strategy matches <code>{_promote_esc_code(prefix)}</code>", parse_mode="HTML")
+            f"❌ No strategy matches <code>{_promote_esc_code(prefix)}</code>", parse_mode="HTML"
+        )
         return
     if len(matches) > 1:
         ids = ", ".join(f"<code>{_promote_esc_code(m['id'][:8])}</code>" for m in matches)
-        await update.message.reply_text(
-            f"⚠️ Ambiguous prefix — matches: {ids}", parse_mode="HTML")
+        await update.message.reply_text(f"⚠️ Ambiguous prefix — matches: {ids}", parse_mode="HTML")
         return
 
     row = matches[0]
@@ -292,13 +353,15 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     label = row["label"] or "—"
     if row["deploy_stage"] == "promoted":
         await update.message.reply_text(
-            f"ℹ️ <b>{esc(label)}</b> already promoted.", parse_mode="HTML")
+            f"ℹ️ <b>{esc(label)}</b> already promoted.", parse_mode="HTML"
+        )
         return
 
     cur = await db.conn.execute(
         """SELECT COUNT(*) AS trades, COALESCE(SUM(pnl), 0) AS pnl
            FROM executions WHERE strategy_id=? AND result IS NOT NULL""",
-        (sid,))
+        (sid,),
+    )
     stat_row = await cur.fetchone()
     trades = stat_row["trades"] or 0
     pnl = stat_row["pnl"] or 0.0
@@ -306,30 +369,34 @@ async def promote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if trades < PROMOTE_MIN_TRADES:
         await update.message.reply_text(
             f"⛔ <b>Gate fail:</b> need ≥{PROMOTE_MIN_TRADES} trades, got {trades}",
-            parse_mode="HTML")
+            parse_mode="HTML",
+        )
         return
     if pnl <= PROMOTE_MIN_PNL:
         await update.message.reply_text(
-            f"⛔ <b>Gate fail:</b> PnL ${pnl:.2f} ≤ ${PROMOTE_MIN_PNL:.2f}",
-            parse_mode="HTML")
+            f"⛔ <b>Gate fail:</b> PnL ${pnl:.2f} ≤ ${PROMOTE_MIN_PNL:.2f}", parse_mode="HTML"
+        )
         return
 
     await db.conn.execute(
         "UPDATE strategies SET deploy_stage='promoted', updated_at=datetime('now') WHERE id=?",
-        (sid,))
+        (sid,),
+    )
     await db.conn.commit()
     logger.info(f"PROMOTE: {sid[:8]} {esc(label)} canary → promoted ({trades}t PnL${pnl:.2f})")
     await update.message.reply_text(
         f"✅ <b>Promoted:</b> {esc(label)}\n"
         f"   trades={trades} PnL=${pnl:+.2f}\n"
         f"   Full-size sizing now active.",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )
 
 
 async def demote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
-            "Usage: <code>/demote &lt;strategy_id_prefix&gt;</code>", parse_mode="HTML")
+            "Usage: <code>/demote &lt;strategy_id_prefix&gt;</code>", parse_mode="HTML"
+        )
         return
     prefix = context.args[0]
     db = await _promote_get_db(context)
@@ -337,11 +404,13 @@ async def demote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_PROMOTE_ERR["DB_UNAVAILABLE"], parse_mode="HTML")
         return
     cur = await db.conn.execute(
-        "SELECT id, label, deploy_stage FROM strategies WHERE id LIKE ?", (f"{prefix}%",))
+        "SELECT id, label, deploy_stage FROM strategies WHERE id LIKE ?", (f"{prefix}%",)
+    )
     matches = await cur.fetchall()
     if not matches:
         await update.message.reply_text(
-            f"❌ No strategy matches <code>{_promote_esc_code(prefix)}</code>", parse_mode="HTML")
+            f"❌ No strategy matches <code>{_promote_esc_code(prefix)}</code>", parse_mode="HTML"
+        )
         return
     if len(matches) > 1:
         await update.message.reply_text("⚠️ Ambiguous prefix", parse_mode="HTML")
@@ -349,10 +418,12 @@ async def demote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = matches[0]
     await db.conn.execute(
         "UPDATE strategies SET deploy_stage='canary', updated_at=datetime('now') WHERE id=?",
-        (row["id"],))
+        (row["id"],),
+    )
     await db.conn.commit()
     logger.warning(f"DEMOTE: {row['id'][:8]} {row['label']} promoted → canary")
     await update.message.reply_text(
         f"⚠️ <b>Demoted to canary:</b> {esc(row['label'] or '—')}\n"
         f"   Reduced sizing re-enabled.",
-        parse_mode="HTML")
+        parse_mode="HTML",
+    )

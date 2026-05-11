@@ -1,12 +1,14 @@
 """P0-05d smoke test - snapshot + restore round-trip in isolated tmp dir."""
+
 from __future__ import annotations
+
 import asyncio
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -34,12 +36,14 @@ async def main() -> int:
     print("[smoke] DB built: " + str(db_path.stat().st_size) + " bytes")
 
     import telegram_bot.jobs.maintenance_jobs as mj
+
     mj.DB_PATH = db_path
     mj.BACKUP_DIR = backup_dir
     mj.MANIFEST_PATH = manifest_path
 
     class _Bot:
         send_message = AsyncMock()
+
     ctx = SimpleNamespace(bot=_Bot(), application=SimpleNamespace(bot_data={}))
     os.environ.pop("TELEGRAM_ADMIN_CHAT_ID", None)
 
@@ -72,8 +76,10 @@ async def main() -> int:
         return 7
 
     import importlib.util
+
     rspec = importlib.util.spec_from_file_location(
-        "restore_cli", str(ROOT / "scripts" / "restore_from_backup.py"))
+        "restore_cli", str(ROOT / "scripts" / "restore_from_backup.py")
+    )
     rmod = importlib.util.module_from_spec(rspec)
     rspec.loader.exec_module(rmod)
     rmod.DB_PATH = db_path

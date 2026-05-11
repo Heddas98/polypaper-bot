@@ -15,12 +15,12 @@ Kullanım:
 Gereksinimler:
   pip install pandas pyarrow (veya fastparquet)
 """
+
 import argparse
 import logging
-import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Project root
@@ -151,14 +151,18 @@ def create_hourly_summary(conn: sqlite3.Connection):
 
 def main():
     parser = argparse.ArgumentParser(description="Archive ob_snapshots to parquet")
-    parser.add_argument("--days", type=int, default=7,
-                        help="Archive data older than N days (default: 7)")
-    parser.add_argument("--vacuum", action="store_true",
-                        help="Run VACUUM after archiving to reclaim disk space")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show what would be archived without making changes")
-    parser.add_argument("--summary", action="store_true",
-                        help="Also create ob_hourly_summary aggregation table")
+    parser.add_argument(
+        "--days", type=int, default=7, help="Archive data older than N days (default: 7)"
+    )
+    parser.add_argument(
+        "--vacuum", action="store_true", help="Run VACUUM after archiving to reclaim disk space"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be archived without making changes"
+    )
+    parser.add_argument(
+        "--summary", action="store_true", help="Also create ob_hourly_summary aggregation table"
+    )
     args = parser.parse_args()
 
     if not DB_PATH.exists():
@@ -174,8 +178,9 @@ def main():
     conn.execute("PRAGMA busy_timeout=10000")
 
     # Check if ob_snapshots table exists
-    tables = [r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    tables = [
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    ]
     if "ob_snapshots" not in tables:
         log.warning("ob_snapshots table not found. Nothing to archive.")
         conn.close()
@@ -190,7 +195,7 @@ def main():
         return
 
     # Calculate cutoff date
-    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    cutoff = datetime.now(UTC) - timedelta(days=args.days)
     cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
     log.info(f"Archive cutoff: {cutoff_str} (older than {args.days} days)")
 
@@ -206,8 +211,10 @@ def main():
         log.info("Running VACUUM (this may take a while for large DBs)...")
         conn.execute("VACUUM")
         db_after = get_db_size_mb()
-        log.info(f"VACUUM done. DB size: {db_before:.1f} MB → {db_after:.1f} MB "
-                 f"(saved {db_before - db_after:.1f} MB)")
+        log.info(
+            f"VACUUM done. DB size: {db_before:.1f} MB → {db_after:.1f} MB "
+            f"(saved {db_before - db_after:.1f} MB)"
+        )
     else:
         db_after = get_db_size_mb()
 
@@ -215,7 +222,7 @@ def main():
 
     # Summary
     log.info("=" * 50)
-    log.info(f"SUMMARY:")
+    log.info("SUMMARY:")
     log.info(f"  Rows archived: {archived:,}")
     log.info(f"  DB size: {db_before:.1f} MB → {db_after:.1f} MB")
     if archived > 0 and not args.dry_run:

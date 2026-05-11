@@ -12,13 +12,12 @@ Env:
     SHADOW_COMPARE_WR_ALERT=15.0     # percentage points delta
     SHADOW_COMPARE_MIN_TRADES=10     # per strategy, per bucket
 """
+
 from __future__ import annotations
 
-import os
 import logging
-from datetime import datetime, timedelta, timezone
-
-import asyncio
+import os
+from datetime import UTC, datetime, timedelta
 
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
@@ -93,12 +92,10 @@ async def shadow_vs_paper_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         wr_alert = float(os.getenv("SHADOW_COMPARE_WR_ALERT", "15.0"))
         min_trades = int(os.getenv("SHADOW_COMPARE_MIN_TRADES", "10"))
 
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=window_h)
+        cutoff = datetime.now(UTC) - timedelta(hours=window_h)
 
         # Fetch active strategies with labels
-        cur = await db.conn.execute(
-            "SELECT id, label FROM strategies WHERE status='active'"
-        )
+        cur = await db.conn.execute("SELECT id, label FROM strategies WHERE status='active'")
         strategies = await cur.fetchall()
 
         anomalies = []
@@ -111,21 +108,22 @@ async def shadow_vs_paper_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             paper = await _query_paper_stats(db, sid, cutoff)
             shadow = await _query_shadow_stats(db, label, cutoff)
 
-            if (paper["trades"] < min_trades or
-                    shadow["trades"] < min_trades):
+            if paper["trades"] < min_trades or shadow["trades"] < min_trades:
                 continue
 
             pnl_delta = shadow["pnl"] - paper["pnl"]
             wr_delta = shadow["wr"] - paper["wr"]
 
             if abs(pnl_delta) >= pnl_alert or abs(wr_delta) >= wr_alert:
-                anomalies.append({
-                    "label": label,
-                    "paper": paper,
-                    "shadow": shadow,
-                    "pnl_delta": pnl_delta,
-                    "wr_delta": wr_delta,
-                })
+                anomalies.append(
+                    {
+                        "label": label,
+                        "paper": paper,
+                        "shadow": shadow,
+                        "pnl_delta": pnl_delta,
+                        "wr_delta": wr_delta,
+                    }
+                )
 
         if not anomalies:
             logger.debug("shadow_vs_paper: no anomalies")
@@ -146,16 +144,13 @@ async def shadow_vs_paper_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         msg = "\n".join(lines)
         try:
-            await context.bot.send_message(
-                chat_id=admin, text=msg, parse_mode="HTML")
-            logger.info(
-                f"shadow_vs_paper: sent {len(anomalies)} anomaly alerts")
-        except (TelegramError, asyncio.TimeoutError) as e:
+            await context.bot.send_message(chat_id=admin, text=msg, parse_mode="HTML")
+            logger.info(f"shadow_vs_paper: sent {len(anomalies)} anomaly alerts")
+        except (TimeoutError, TelegramError) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. send_message
             # raises TelegramError subclasses; asyncio.TimeoutError on
             # transport timeout. Unknown exceptions bubble to outer wrapper.
-            logger.error(f"shadow_vs_paper send failed: "
-                         f"{type(e).__name__}: {e}")
+            logger.error(f"shadow_vs_paper send failed: " f"{type(e).__name__}: {e}")
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
         # wide. JobQueue thread safety — see T7.6 job-safety exemption.

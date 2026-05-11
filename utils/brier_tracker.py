@@ -21,13 +21,13 @@ ENV:
     BRIER_TRACKING_ENABLED=true
     BRIER_MIN_SAMPLES=20  (minimum for meaningful report)
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import math
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 logger = logging.getLogger("polypaper.utils.brier")
@@ -71,9 +71,13 @@ class BrierTracker:
         except Exception as e:
             logger.warning(f"brier table init: {e}")
 
-    async def record(self, prediction: float, outcome: int,
-                     source: str = "ai_brain",
-                     context: Optional[dict] = None) -> Optional[float]:
+    async def record(
+        self,
+        prediction: float,
+        outcome: int,
+        source: str = "ai_brain",
+        context: Optional[dict] = None,
+    ) -> Optional[float]:
         """Record a prediction-outcome pair.
 
         Args:
@@ -97,7 +101,7 @@ class BrierTracker:
         # Brier Score: (prediction - outcome)^2
         brier = (prediction - outcome) ** 2
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         ctx_json = json.dumps(context or {})
 
         try:
@@ -105,18 +109,19 @@ class BrierTracker:
                 """INSERT INTO brier_scores
                    (timestamp, source, prediction, outcome, brier_score, context_json)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (now, source, prediction, outcome, brier, ctx_json)
+                (now, source, prediction, outcome, brier, ctx_json),
             )
             await self.db.conn.commit()
-            logger.debug(f"Brier recorded: pred={prediction:.3f} out={outcome} "
-                         f"BS={brier:.4f} src={source}")
+            logger.debug(
+                f"Brier recorded: pred={prediction:.3f} out={outcome} "
+                f"BS={brier:.4f} src={source}"
+            )
         except Exception as e:
             logger.warning(f"brier record failed: {e}")
 
         return brier
 
-    async def get_report(self, source: Optional[str] = None,
-                         hours: int = 168) -> dict:
+    async def get_report(self, source: Optional[str] = None, hours: int = 168) -> dict:
         """Generate Brier Score report with Murphy decomposition.
 
         Args:
@@ -132,7 +137,7 @@ class BrierTracker:
 
         await self.ensure_table()
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
         query = "SELECT prediction, outcome FROM brier_scores WHERE timestamp >= ?"
         params = [cutoff]
         if source:
@@ -157,7 +162,7 @@ class BrierTracker:
         n = len(predictions)
 
         # ═══ Overall Brier Score ═══
-        brier_total = sum((p - o) ** 2 for p, o in zip(predictions, outcomes)) / n
+        brier_total = sum((p - o) ** 2 for p, o in zip(predictions, outcomes, strict=False)) / n
 
         # ═══ Murphy Decomposition ═══
         # BS = REL - RES + UNC
@@ -169,7 +174,7 @@ class BrierTracker:
 
         # Bin predictions for calibration analysis
         bins = [[] for _ in range(CALIBRATION_BINS)]
-        for p, o in zip(predictions, outcomes):
+        for p, o in zip(predictions, outcomes, strict=False):
             bin_idx = min(int(p * CALIBRATION_BINS), CALIBRATION_BINS - 1)
             bins[bin_idx].append((p, o))
 
@@ -180,13 +185,15 @@ class BrierTracker:
 
         for i, bin_data in enumerate(bins):
             if not bin_data:
-                calibration_curve.append({
-                    "bin": f"{i/CALIBRATION_BINS:.1f}-{(i+1)/CALIBRATION_BINS:.1f}",
-                    "count": 0,
-                    "mean_pred": 0.0,
-                    "actual_freq": 0.0,
-                    "gap": 0.0,
-                })
+                calibration_curve.append(
+                    {
+                        "bin": f"{i/CALIBRATION_BINS:.1f}-{(i+1)/CALIBRATION_BINS:.1f}",
+                        "count": 0,
+                        "mean_pred": 0.0,
+                        "actual_freq": 0.0,
+                        "gap": 0.0,
+                    }
+                )
                 continue
 
             nk = len(bin_data)
@@ -196,13 +203,15 @@ class BrierTracker:
             rel += nk * (actual_freq - mean_pred) ** 2
             res += nk * (actual_freq - base_rate) ** 2
 
-            calibration_curve.append({
-                "bin": f"{i/CALIBRATION_BINS:.1f}-{(i+1)/CALIBRATION_BINS:.1f}",
-                "count": nk,
-                "mean_pred": round(mean_pred, 4),
-                "actual_freq": round(actual_freq, 4),
-                "gap": round(abs(actual_freq - mean_pred), 4),
-            })
+            calibration_curve.append(
+                {
+                    "bin": f"{i/CALIBRATION_BINS:.1f}-{(i+1)/CALIBRATION_BINS:.1f}",
+                    "count": nk,
+                    "mean_pred": round(mean_pred, 4),
+                    "actual_freq": round(actual_freq, 4),
+                    "gap": round(abs(actual_freq - mean_pred), 4),
+                }
+            )
 
         rel /= n
         res /= n
@@ -250,7 +259,7 @@ class BrierTracker:
 
         lines = [
             f"📊 <b>Brier Score Report</b> ({report['source']}, {report['hours']}h)",
-            f"━━━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━━",
             f"🎯 Brier Score: <b>{bs:.4f}</b> {rating}",
             f"📐 Reliability: {report['reliability']:.4f} (lower=better calibrated)",
             f"🔬 Resolution: {report['resolution']:.4f} (higher=better distinction)",
@@ -268,7 +277,9 @@ class BrierTracker:
             bar = "█" * max(1, int(b["count"] / max(1, report["sample_count"]) * 20))
             gap_indicator = " ⚠️" if b["gap"] > 0.10 else ""
             # Phase 78-fix: HTML-escape bin label to avoid parse errors
-            bin_label = str(b['bin']).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            bin_label = (
+                str(b["bin"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
             lines.append(
                 f"  {bin_label}: pred={b['mean_pred']:.2f} "
                 f"act={b['actual_freq']:.2f} "
@@ -279,7 +290,9 @@ class BrierTracker:
             lines.append("")
             lines.append("<b>Worst Calibration Gaps:</b>")
             for wb in report["worst_bins"]:
-                wb_label = str(wb['bin']).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                wb_label = (
+                    str(wb["bin"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                )
                 lines.append(
                     f"  {wb_label}: gap={wb['gap']:.3f} "
                     f"(pred={wb['mean_pred']:.2f} vs actual={wb['actual_freq']:.2f})"

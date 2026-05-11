@@ -12,16 +12,16 @@ Example:
 2026-04-29 Aşama 3.C: Becker data source kaldırıldı (Heddas direktifi).
 Sadece recorder (snapshot DB) data source.
 """
+
 import asyncio
 import logging
-from datetime import datetime, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from db.database import Database
-from db.models import Strategy, Timeframe, Direction
+from db.models import Strategy
 from telegram_bot.templates.safe_html import esc
-from backtest.replay_engine import ReplayEngine, ReplayConfig
 
 logger = logging.getLogger("polypaper.handlers.strategy_tester")
 
@@ -46,7 +46,7 @@ async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TY
                 "Kullanım: <code>/test_strategy &lt;strateji_id&gt;</code>\n\n"
                 "Örnek: <code>/test_strategy abc123</code>\n\n"
                 "📌 <b>Veri Kaynağı:</b> Recorder (son 30 gün snapshot)\n",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return
 
@@ -62,7 +62,7 @@ async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TY
             f"🔍 Strateji aranıyor: <code>{esc(id_prefix)}</code>\n"
             f"Veri kaynağı: {esc(data_source)}\n"
             f"⏳ Lütfen bekleyiniz...",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
         # Set up cancel mechanism
@@ -70,9 +70,7 @@ async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TY
         _cancel_events[chat_id] = asyncio.Event()
 
         try:
-            await _run_test(
-                update, context, user_id, id_prefix, data_source, status_msg
-            )
+            await _run_test(update, context, user_id, id_prefix, data_source, status_msg)
         finally:
             # Clean up cancel event
             if chat_id in _cancel_events:
@@ -84,40 +82,35 @@ async def test_strategy_command(update: Update, context: ContextTypes.DEFAULT_TY
             # T11.6-OK reason=/test_strategy admin-only, replay engine hatasi
             # operator icin gerekli (DB / archive_reader / strategy import).
             await update.message.reply_text(  # noqa: T11.6-OK
-                f"❌ Hata: {esc(str(e)[:100])}",
-                parse_mode="HTML"
+                f"❌ Hata: {esc(str(e)[:100])}", parse_mode="HTML"
             )
         except Exception:  # noqa: BLE001
             pass
 
 
-async def _run_test(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                    user_id: str, id_prefix: str, data_source: str,
-                    status_msg):
+async def _run_test(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: str,
+    id_prefix: str,
+    data_source: str,
+    status_msg,
+):
     """
     Run the strategy test. Executed in a thread to avoid blocking the event loop.
     """
     db: Database = context.bot_data.get("db")
 
     if not db:
-        await status_msg.edit_text(
-            "❌ Veritabanı bağlantısı kurulamadı",
-            parse_mode="HTML"
-        )
+        await status_msg.edit_text("❌ Veritabanı bağlantısı kurulamadı", parse_mode="HTML")
         return
 
     try:
         # Phase 62: Run in thread to avoid blocking event loop
-        result = await asyncio.to_thread(
-            _test_strategy_sync,
-            db, user_id, id_prefix, data_source
-        )
+        result = await asyncio.to_thread(_test_strategy_sync, db, user_id, id_prefix, data_source)
 
         if not result["success"]:
-            await status_msg.edit_text(
-                f"❌ {esc(result['error'])}",
-                parse_mode="HTML"
-            )
+            await status_msg.edit_text(f"❌ {esc(result['error'])}", parse_mode="HTML")
             return
 
         # Build result message
@@ -184,34 +177,33 @@ async def _run_test(update: Update, context: ContextTypes.DEFAULT_TYPE,
         # Build keyboard
         keyboard = [
             [
-                InlineKeyboardButton("▶ Paper Trade Başlat", callback_data=f"test_start_{strategy.id}"),
-                InlineKeyboardButton("🔄 Parametreleri Değiştir", callback_data=f"test_edit_{strategy.id}"),
+                InlineKeyboardButton(
+                    "▶ Paper Trade Başlat", callback_data=f"test_start_{strategy.id}"
+                ),
+                InlineKeyboardButton(
+                    "🔄 Parametreleri Değiştir", callback_data=f"test_edit_{strategy.id}"
+                ),
             ],
             [
                 InlineKeyboardButton("🧠 AI Analiz", callback_data=f"test_ai_{strategy.id}"),
-            ]
+            ],
         ]
 
         # Becker test button removed 2026-04-29 (Heddas direktifi)
-        keyboard.append([
-            InlineKeyboardButton("❌ Kapat", callback_data="test_close"),
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton("❌ Kapat", callback_data="test_close"),
+            ]
+        )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await status_msg.edit_text(
-            result_text,
-            reply_markup=reply_markup,
-            parse_mode="HTML"
-        )
+        await status_msg.edit_text(result_text, reply_markup=reply_markup, parse_mode="HTML")
 
     except asyncio.CancelledError:
         logger.info(f"test_strategy cancelled by user {user_id}")
         try:
-            await status_msg.edit_text(
-                "⏸ Test iptal edildi",
-                parse_mode="HTML"
-            )
+            await status_msg.edit_text("⏸ Test iptal edildi", parse_mode="HTML")
         except Exception:  # noqa: BLE001
             # T11.8-B (2026-04-24): edit_text best-effort; cancellation
             # path proceeds regardless.
@@ -223,17 +215,13 @@ async def _run_test(update: Update, context: ContextTypes.DEFAULT_TYPE,
         # exception surface. Truncated str(e) admin-only acceptable.
         logger.error(f"_run_test error: {e}", exc_info=True)
         try:
-            await status_msg.edit_text(
-                f"❌ Test hatası: {esc(str(e)[:100])}",
-                parse_mode="HTML"
-            )
+            await status_msg.edit_text(f"❌ Test hatası: {esc(str(e)[:100])}", parse_mode="HTML")
         except Exception:  # noqa: BLE001
             # T11.8-B (2026-04-24): edit_text best-effort.
             pass
 
 
-def _test_strategy_sync(db: Database, user_id: str, id_prefix: str,
-                        data_source: str) -> dict:
+def _test_strategy_sync(db: Database, user_id: str, id_prefix: str, data_source: str) -> dict:
     """
     Synchronous strategy test logic (runs in thread).
     Returns dict with success flag and result or error.
@@ -248,9 +236,7 @@ def _test_strategy_sync(db: Database, user_id: str, id_prefix: str,
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        result = loop.run_until_complete(
-            _test_strategy_async(db, user_id, id_prefix, data_source)
-        )
+        result = loop.run_until_complete(_test_strategy_async(db, user_id, id_prefix, data_source))
 
         result["duration_s"] = time.time() - start_time
         return result
@@ -259,15 +245,15 @@ def _test_strategy_sync(db: Database, user_id: str, id_prefix: str,
         loop.close()
 
 
-async def _test_strategy_async(db: Database, user_id: str, id_prefix: str,
-                                data_source: str) -> dict:
+async def _test_strategy_async(
+    db: Database, user_id: str, id_prefix: str, data_source: str
+) -> dict:
     """
     Asynchronous strategy test logic.
     """
     try:
         # Find strategy by ID prefix
         # Query: SELECT * FROM strategies WHERE id LIKE 'prefix%' AND user_id = ?
-        import aiosqlite
 
         query = """
             SELECT * FROM strategies
@@ -278,37 +264,24 @@ async def _test_strategy_async(db: Database, user_id: str, id_prefix: str,
             row = await cursor.fetchone()
 
         if not row:
-            return {
-                "success": False,
-                "error": f"Strateji bulunamadı: {id_prefix}"
-            }
+            return {"success": False, "error": f"Strateji bulunamadı: {id_prefix}"}
 
         # Convert row to Strategy object
         strategy = db._row_to_strategy(row)
 
         if not strategy:
-            return {
-                "success": False,
-                "error": "Strateji yüklenemedi"
-            }
+            return {"success": False, "error": "Strateji yüklenemedi"}
 
         # Use Recorder (ob_snapshots) — Becker removed 2026-04-29
         stats = await _test_with_recorder(db, strategy)
 
-        return {
-            "success": True,
-            "strategy": strategy,
-            "stats": stats
-        }
+        return {"success": True, "strategy": strategy, "stats": stats}
 
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): async test wrapper — to_thread + replay
         # engine + strategy plugins. Result dict failure mode preserved.
         logger.error(f"_test_strategy_async error: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 async def _test_with_recorder(db: Database, strategy: Strategy) -> dict:

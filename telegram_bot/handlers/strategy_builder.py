@@ -3,6 +3,7 @@ PolyPaper Bot - Strategy Builder (Phase 2)
 Full interactive Strategy Builder matching Polyscout's UI exactly.
 Uses ConversationHandler for multi-step flow with inline buttons.
 """
+
 import logging
 import warnings
 
@@ -11,6 +12,7 @@ import warnings
 # the warning is informational only and clutters logs on every restart.
 try:
     from telegram.warnings import PTBUserWarning  # type: ignore
+
     warnings.filterwarnings(
         "ignore",
         message=r".*per_message=False.*",
@@ -22,34 +24,61 @@ except ImportError:
     # correct — warning is informational-only.
     pass
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
-    ContextTypes, ConversationHandler, CallbackQueryHandler,
-    MessageHandler, filters, CommandHandler,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
 )
 
 from db.database import Database
-from db.models import Strategy, Asset, Timeframe, Direction, StrategyStatus
+from db.models import Asset, Direction, Strategy, StrategyStatus, Timeframe
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.strategy_builder")
 
 # Conversation states
 (
-    SELECT_ASSET, SELECT_TIMEFRAME, SELECT_DIRECTION, ENTER_AMOUNT,
-    ENTER_TRIGGER, ENTER_PRICE_DIFF, ENTER_BET_FROM, ENTER_BET_TO,
-    ENTER_STOP_LOSS, ENTER_TAKE_PROFIT, ENTER_MAX_EXEC, ENTER_MAX_LOSSES,
-    ENTER_SLIPPAGE, SELECT_EMA, ENTER_VOLATILITY, CONFIRM_STRATEGY,
+    SELECT_ASSET,
+    SELECT_TIMEFRAME,
+    SELECT_DIRECTION,
+    ENTER_AMOUNT,
+    ENTER_TRIGGER,
+    ENTER_PRICE_DIFF,
+    ENTER_BET_FROM,
+    ENTER_BET_TO,
+    ENTER_STOP_LOSS,
+    ENTER_TAKE_PROFIT,
+    ENTER_MAX_EXEC,
+    ENTER_MAX_LOSSES,
+    ENTER_SLIPPAGE,
+    SELECT_EMA,
+    ENTER_VOLATILITY,
+    CONFIRM_STRATEGY,
     EDIT_FIELD,
 ) = range(17)
 
 # ── Defaults matching Polyscout ──
 DEFAULT_STRATEGY = {
-    "asset": "BTC", "timeframe": "5m", "direction": "any",
-    "amount": 1.0, "trigger": 0.50, "price_diff": 2.0,
-    "bet_from": 0.5, "bet_to": 0.5, "stop_loss": "",
-    "take_profit": "", "max_exec": 1, "max_losses": 3,
-    "slippage": None, "ema": False, "volatility": 0, "stype": "fusion",
+    "asset": "BTC",
+    "timeframe": "5m",
+    "direction": "any",
+    "amount": 1.0,
+    "trigger": 0.50,
+    "price_diff": 2.0,
+    "bet_from": 0.5,
+    "bet_to": 0.5,
+    "stop_loss": "",
+    "take_profit": "",
+    "max_exec": 1,
+    "max_losses": 3,
+    "slippage": None,
+    "ema": False,
+    "volatility": 0,
+    "stype": "fusion",
 }
 
 
@@ -121,39 +150,99 @@ def _build_confirm_keyboard(data: dict, edit_mode: bool = False) -> InlineKeyboa
         tp_display = "Disabled"
 
     confirm_text = "💾 Kaydet" if edit_mode else "✅ Confirm"
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton(f"Asset: {data.get('asset', 'BTC')}", callback_data="sb_edit_asset"),
-            InlineKeyboardButton(f"Timeframe: {data.get('timeframe', '5m')}", callback_data="sb_edit_timeframe"),
-        ],
-        [
-            InlineKeyboardButton(f"Amount: ${data.get('amount', 1)}", callback_data="sb_edit_amount"),
-            InlineKeyboardButton(f"Trigger: Odds = {data.get('trigger', 0.92)}", callback_data="sb_edit_trigger"),
-        ],
-        [InlineKeyboardButton(f"Direction: {data.get('direction', 'Any').capitalize()}", callback_data="sb_edit_direction")],
-        [InlineKeyboardButton(f"Price difference: {data.get('price_diff', 0.03)}%", callback_data="sb_edit_price_diff")],
-        [
-            InlineKeyboardButton(f"Bet from: {data.get('bet_from', 0)}m after start", callback_data="sb_edit_bet_from"),
-            InlineKeyboardButton(f"Bet to: {data.get('bet_to', 0.25)}m before end", callback_data="sb_edit_bet_to"),
-        ],
-        [InlineKeyboardButton(f"Stop loss: {sl_display}", callback_data="sb_edit_stop_loss")],
-        [InlineKeyboardButton(f"Take profit: {tp_display}", callback_data="sb_edit_take_profit")],
-        [InlineKeyboardButton(f"Max executions/event: {data.get('max_exec') or 'Unlimited'}", callback_data="sb_edit_max_exec")],
-        [InlineKeyboardButton(f"Max losses/event: {data.get('max_losses') or 'Unlimited'}", callback_data="sb_edit_max_losses")],
-        [InlineKeyboardButton(f"Max entry slippage: {data.get('slippage') or 'Unlimited'}", callback_data="sb_edit_slippage")],
-        [InlineKeyboardButton(f"Trend filter (EMA): {'On' if data.get('ema') else 'Off'}", callback_data="sb_edit_ema")],
-        [InlineKeyboardButton(f"Min volatility: {'Off (0%)' if not data.get('volatility') else str(data['volatility'])+'%'}", callback_data="sb_edit_volatility")],
-        [InlineKeyboardButton(f"Strategy type: {data.get('stype', 'fusion')}", callback_data="sb_edit_stype")],
-        [
-            InlineKeyboardButton(confirm_text, callback_data="sb_confirm"),
-            InlineKeyboardButton("⬅️ Back", callback_data="sb_cancel"),
-        ],
-    ])
+            [
+                InlineKeyboardButton(
+                    f"Asset: {data.get('asset', 'BTC')}", callback_data="sb_edit_asset"
+                ),
+                InlineKeyboardButton(
+                    f"Timeframe: {data.get('timeframe', '5m')}", callback_data="sb_edit_timeframe"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Amount: ${data.get('amount', 1)}", callback_data="sb_edit_amount"
+                ),
+                InlineKeyboardButton(
+                    f"Trigger: Odds = {data.get('trigger', 0.92)}", callback_data="sb_edit_trigger"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Direction: {data.get('direction', 'Any').capitalize()}",
+                    callback_data="sb_edit_direction",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Price difference: {data.get('price_diff', 0.03)}%",
+                    callback_data="sb_edit_price_diff",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Bet from: {data.get('bet_from', 0)}m after start",
+                    callback_data="sb_edit_bet_from",
+                ),
+                InlineKeyboardButton(
+                    f"Bet to: {data.get('bet_to', 0.25)}m before end",
+                    callback_data="sb_edit_bet_to",
+                ),
+            ],
+            [InlineKeyboardButton(f"Stop loss: {sl_display}", callback_data="sb_edit_stop_loss")],
+            [
+                InlineKeyboardButton(
+                    f"Take profit: {tp_display}", callback_data="sb_edit_take_profit"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Max executions/event: {data.get('max_exec') or 'Unlimited'}",
+                    callback_data="sb_edit_max_exec",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Max losses/event: {data.get('max_losses') or 'Unlimited'}",
+                    callback_data="sb_edit_max_losses",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Max entry slippage: {data.get('slippage') or 'Unlimited'}",
+                    callback_data="sb_edit_slippage",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Trend filter (EMA): {'On' if data.get('ema') else 'Off'}",
+                    callback_data="sb_edit_ema",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Min volatility: {'Off (0%)' if not data.get('volatility') else str(data['volatility'])+'%'}",
+                    callback_data="sb_edit_volatility",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"Strategy type: {data.get('stype', 'fusion')}", callback_data="sb_edit_stype"
+                )
+            ],
+            [
+                InlineKeyboardButton(confirm_text, callback_data="sb_confirm"),
+                InlineKeyboardButton("⬅️ Back", callback_data="sb_cancel"),
+            ],
+        ]
+    )
 
 
 # ═══════════════════════════════════════
 # ENTRY POINT
 # ═══════════════════════════════════════
+
 
 async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the Strategy Builder from /strategies → Add Strategy."""
@@ -176,24 +265,26 @@ async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     strategies = await db.get_strategies_by_user(user.id)
     if strategies:
         last = strategies[-1]
-        data.update({
-            "asset": last.asset.value,
-            "timeframe": last.timeframe.value,
-            "direction": last.direction.value,
-            "amount": last.trade_amount,
-            "trigger": last.odds_threshold or 0.92,
-            "price_diff": last.price_difference or 0.03,
-            "bet_from": last.minutes_after_start,
-            "bet_to": last.minutes_before_end,
-            "stop_loss": str(last.stop_loss_odds or last.stop_loss_percent or ""),
-            "take_profit": str(last.take_profit_odds or last.take_profit_percent or ""),
-            "max_exec": last.max_executions_per_event,
-            "max_losses": last.max_losses_per_event,
-            "slippage": last.max_entry_slippage,
-            "ema": last.ma_filter_enabled,
-            "volatility": last.min_volatility or 0,
-            "stype": getattr(last, 'strategy_type', 'fusion') or 'fusion',
-        })
+        data.update(
+            {
+                "asset": last.asset.value,
+                "timeframe": last.timeframe.value,
+                "direction": last.direction.value,
+                "amount": last.trade_amount,
+                "trigger": last.odds_threshold or 0.92,
+                "price_diff": last.price_difference or 0.03,
+                "bet_from": last.minutes_after_start,
+                "bet_to": last.minutes_before_end,
+                "stop_loss": str(last.stop_loss_odds or last.stop_loss_percent or ""),
+                "take_profit": str(last.take_profit_odds or last.take_profit_percent or ""),
+                "max_exec": last.max_executions_per_event,
+                "max_losses": last.max_losses_per_event,
+                "slippage": last.max_entry_slippage,
+                "ema": last.ma_filter_enabled,
+                "volatility": last.min_volatility or 0,
+                "stype": getattr(last, "strategy_type", "fusion") or "fusion",
+            }
+        )
         prefill_note = "\nℹ Pre-filled from your most recent strategy.\n"
     else:
         prefill_note = ""
@@ -212,19 +303,22 @@ async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # FIELD EDITORS
 # ═══════════════════════════════════════
 
+
 async def edit_asset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    keyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("₿ BTC", callback_data="sb_set_asset_BTC"),
-            InlineKeyboardButton("Ξ ETH", callback_data="sb_set_asset_ETH"),
-        ],
-        [
-            InlineKeyboardButton("◎ SOL", callback_data="sb_set_asset_SOL"),
-            InlineKeyboardButton("✕ XRP", callback_data="sb_set_asset_XRP"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("₿ BTC", callback_data="sb_set_asset_BTC"),
+                InlineKeyboardButton("Ξ ETH", callback_data="sb_set_asset_ETH"),
+            ],
+            [
+                InlineKeyboardButton("◎ SOL", callback_data="sb_set_asset_SOL"),
+                InlineKeyboardButton("✕ XRP", callback_data="sb_set_asset_XRP"),
+            ],
+        ]
+    )
     await query.edit_message_text("Select your asset:", reply_markup=keyboard)
     return CONFIRM_STRATEGY
 
@@ -240,17 +334,19 @@ async def set_asset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def edit_timeframe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    keyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("5m", callback_data="sb_set_tf_5m"),
-            InlineKeyboardButton("15m", callback_data="sb_set_tf_15m"),
-            InlineKeyboardButton("1h", callback_data="sb_set_tf_1h"),
-        ],
-        [
-            InlineKeyboardButton("4h", callback_data="sb_set_tf_4h"),
-            InlineKeyboardButton("24h", callback_data="sb_set_tf_24h"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("5m", callback_data="sb_set_tf_5m"),
+                InlineKeyboardButton("15m", callback_data="sb_set_tf_15m"),
+                InlineKeyboardButton("1h", callback_data="sb_set_tf_1h"),
+            ],
+            [
+                InlineKeyboardButton("4h", callback_data="sb_set_tf_4h"),
+                InlineKeyboardButton("24h", callback_data="sb_set_tf_24h"),
+            ],
+        ]
+    )
     await query.edit_message_text("Select timeframe:", reply_markup=keyboard)
     return CONFIRM_STRATEGY
 
@@ -266,13 +362,15 @@ async def set_timeframe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def edit_direction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    keyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("⬆ Up", callback_data="sb_set_dir_up"),
-            InlineKeyboardButton("⬇ Down", callback_data="sb_set_dir_down"),
-            InlineKeyboardButton("↕ Any", callback_data="sb_set_dir_any"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("⬆ Up", callback_data="sb_set_dir_up"),
+                InlineKeyboardButton("⬇ Down", callback_data="sb_set_dir_down"),
+                InlineKeyboardButton("↕ Any", callback_data="sb_set_dir_any"),
+            ],
+        ]
+    )
     await query.edit_message_text("Select direction:", reply_markup=keyboard)
     return CONFIRM_STRATEGY
 
@@ -305,8 +403,7 @@ async def edit_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await query.answer()
     context.user_data["sb_editing"] = "trigger"
     await query.edit_message_text(
-        "Send the odds trigger value (e.g., 0.92).\n"
-        "The bot buys when odds reach this value."
+        "Send the odds trigger value (e.g., 0.92).\n" "The bot buys when odds reach this value."
     )
     return EDIT_FIELD
 
@@ -385,7 +482,7 @@ async def edit_slippage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await query.answer()
     context.user_data["sb_editing"] = "slippage"
     await query.edit_message_text(
-        'Send the max entry slippage as a decimal (e.g., 0.10). '
+        "Send the max entry slippage as a decimal (e.g., 0.10). "
         'Send 0 or "unlimited" to disable.'
     )
     return EDIT_FIELD
@@ -395,21 +492,25 @@ async def edit_volatility(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
     context.user_data["sb_editing"] = "volatility"
-    await query.edit_message_text("Send the minimum volatility percent (e.g., 0.50). Send 0 to disable.")
+    await query.edit_message_text(
+        "Send the minimum volatility percent (e.g., 0.50). Send 0 to disable."
+    )
     return EDIT_FIELD
 
 
 async def edit_stype(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔬 Fusion (default)", callback_data="sb_set_stype_fusion")],
-        [InlineKeyboardButton("🎯 Classic (no-algo)", callback_data="sb_set_stype_classic")],
-        [InlineKeyboardButton("📈 Momentum", callback_data="sb_set_stype_momentum")],
-        [InlineKeyboardButton("🔄 Contrarian", callback_data="sb_set_stype_contrarian")],
-        [InlineKeyboardButton("⚡ Scalper", callback_data="sb_set_stype_scalper")],
-        [InlineKeyboardButton("🎯 Sniper", callback_data="sb_set_stype_sniper")],
-    ])
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔬 Fusion (default)", callback_data="sb_set_stype_fusion")],
+            [InlineKeyboardButton("🎯 Classic (no-algo)", callback_data="sb_set_stype_classic")],
+            [InlineKeyboardButton("📈 Momentum", callback_data="sb_set_stype_momentum")],
+            [InlineKeyboardButton("🔄 Contrarian", callback_data="sb_set_stype_contrarian")],
+            [InlineKeyboardButton("⚡ Scalper", callback_data="sb_set_stype_scalper")],
+            [InlineKeyboardButton("🎯 Sniper", callback_data="sb_set_stype_sniper")],
+        ]
+    )
     await query.edit_message_text(
         "Select strategy type:\n"
         "🔬 Fusion  — 12 sinyal birleşimi (default)\n"
@@ -434,6 +535,7 @@ async def set_stype(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # ═══════════════════════════════════════
 # TEXT INPUT HANDLER
 # ═══════════════════════════════════════
+
 
 async def handle_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle text input for any editable field."""
@@ -506,6 +608,7 @@ async def handle_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ═══════════════════════════════════════
 # CONFIRM & SAVE
 # ═══════════════════════════════════════
+
 
 async def confirm_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save (create or update) the strategy to database."""
@@ -581,20 +684,33 @@ async def confirm_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"{s.summary_line(1) if s else edit_id[:8]}\n\n"
             f"/strategies ile görüntüleyin.",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎰 Stratejiler", callback_data="show_strategies")],
-            ]))
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("🎰 Stratejiler", callback_data="show_strategies")],
+                ]
+            ),
+        )
     else:
         # ══ CREATE MODE: New strategy ══
         # Phase 22: Auto-generate label if not provided
         stype = data.get("stype", "fusion")
         auto_lbl = data.get("label") or None
         if not auto_lbl:
-            t = {"fusion": "F", "contrarian": "C", "sniper": "N",
-                 "momentum": "M", "scalper": "S", "martingale": "MG", "highthreshold": "HT", "flashcrash": "FC", "streak": "SR"}.get(stype, "?")
+            t = {
+                "fusion": "F",
+                "contrarian": "C",
+                "sniper": "N",
+                "momentum": "M",
+                "scalper": "S",
+                "martingale": "MG",
+                "highthreshold": "HT",
+                "flashcrash": "FC",
+                "streak": "SR",
+            }.get(stype, "?")
             auto_lbl = f"{t}_{data.get('asset','BTC')}_{data.get('timeframe','5m')}_{data.get('direction','any')}_{data.get('trigger',0.5)}"
         strategy = Strategy(
-            user_id=user.id, wallet_id=wallet.id,
+            user_id=user.id,
+            wallet_id=wallet.id,
             label=auto_lbl,
             asset=Asset(data.get("asset", "BTC")),
             timeframe=Timeframe(data.get("timeframe", "15m")),
@@ -604,15 +720,18 @@ async def confirm_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             price_difference=data.get("price_diff"),
             minutes_after_start=data.get("bet_from", 0),
             minutes_before_end=data.get("bet_to", 0.25),
-            stop_loss_percent=sl_percent, stop_loss_odds=sl_odds,
-            take_profit_percent=tp_percent, take_profit_odds=tp_odds,
+            stop_loss_percent=sl_percent,
+            stop_loss_odds=sl_odds,
+            take_profit_percent=tp_percent,
+            take_profit_odds=tp_odds,
             max_executions_per_event=data.get("max_exec"),
             max_losses_per_event=data.get("max_losses"),
             max_entry_slippage=data.get("slippage"),
             ma_filter_enabled=data.get("ema", False),
             min_volatility=data.get("volatility"),
             strategy_type=data.get("stype", "fusion"),
-            status=StrategyStatus.STOPPED)
+            status=StrategyStatus.STOPPED,
+        )
         strategy = await db.create_strategy(strategy)
         logger.info(f"Strategy created: {strategy.id} by user {user.telegram_id}")
         await query.edit_message_text(
@@ -620,10 +739,13 @@ async def confirm_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"{strategy.summary_line(1)}\n\n"
             f"/strategies ile başlatın.",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("▶ Başlat", callback_data=f"start_strat_{strategy.id}")],
-                [InlineKeyboardButton("🎰 Stratejiler", callback_data="show_strategies")],
-            ]))
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("▶ Başlat", callback_data=f"start_strat_{strategy.id}")],
+                    [InlineKeyboardButton("🎰 Stratejiler", callback_data="show_strategies")],
+                ]
+            ),
+        )
 
     context.user_data.pop("sb", None)
     context.user_data.pop("sb_editing", None)
@@ -644,8 +766,10 @@ async def start_edit_builder(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     data = {
-        "asset": s.asset.value, "timeframe": s.timeframe.value,
-        "direction": s.direction.value, "amount": s.trade_amount,
+        "asset": s.asset.value,
+        "timeframe": s.timeframe.value,
+        "direction": s.direction.value,
+        "amount": s.trade_amount,
         "trigger": s.odds_threshold or 0.50,
         "price_diff": s.price_difference or 0,
         "bet_from": s.minutes_after_start or 0,
@@ -655,15 +779,20 @@ async def start_edit_builder(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "max_exec": s.max_executions_per_event,
         "max_losses": s.max_losses_per_event,
         "slippage": s.max_entry_slippage,
-        "ema": s.ma_filter_enabled, "volatility": s.min_volatility or 0,
-        "stype": getattr(s, 'strategy_type', 'fusion') or 'fusion',
+        "ema": s.ma_filter_enabled,
+        "volatility": s.min_volatility or 0,
+        "stype": getattr(s, "strategy_type", "fusion") or "fusion",
         "label": s.label or "",
     }
     context.user_data["sb"] = data
     context.user_data["sb_edit_id"] = sid
 
     name = s.label or s.auto_label()
-    text = f"📝 <b>Düzenle:</b> {esc(name)}\n\n" + _build_summary(data) + "\n\nBir alana tıklayarak değiştirin:"
+    text = (
+        f"📝 <b>Düzenle:</b> {esc(name)}\n\n"
+        + _build_summary(data)
+        + "\n\nBir alana tıklayarak değiştirin:"
+    )
     keyboard = _build_confirm_keyboard(data, edit_mode=True)
     await query.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
     return CONFIRM_STRATEGY
@@ -683,6 +812,7 @@ async def cancel_builder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # HELPER
 # ═══════════════════════════════════════
 
+
 async def _show_summary(query, context) -> int:
     data = context.user_data.get("sb", {})
     edit_mode = "sb_edit_id" in context.user_data
@@ -695,6 +825,7 @@ async def _show_summary(query, context) -> int:
 # ═══════════════════════════════════════
 # CONVERSATION HANDLER BUILDER
 # ═══════════════════════════════════════
+
 
 def get_strategy_builder_handler() -> ConversationHandler:
     """Build the ConversationHandler for the Strategy Builder."""

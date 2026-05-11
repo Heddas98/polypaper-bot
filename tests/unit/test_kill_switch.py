@@ -13,6 +13,7 @@ Scope:
   4. File auto-cleanup on deactivate
   5. Status dict shape
 """
+
 from __future__ import annotations
 
 import os
@@ -94,8 +95,7 @@ class TestGetStatus:
         """UI contract — /kill_status handler reads these fields."""
         ks = KillSwitch()
         s = ks.get_status()
-        expected = {"killed", "reason", "killed_at", "file_exists",
-                    "file_path", "memory_flag"}
+        expected = {"killed", "reason", "killed_at", "file_exists", "file_path", "memory_flag"}
         assert expected <= set(s.keys())
 
     def test_status_reflects_file_absence(self, kill_file_tmp):

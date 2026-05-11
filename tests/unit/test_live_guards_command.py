@@ -26,6 +26,7 @@ Out of scope
 * Bot wiring (bot.py import + CommandHandler tuple) — covered by the
   regular bot bootstrap smoke (test_bot_start).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -34,7 +35,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from telegram_bot.handlers.live_guards_handler import live_guards_command
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Test fixtures — minimal Update / Context shims
@@ -66,9 +66,14 @@ def _make_context(*, admin_id: int | None = 1234, engine=None):
     return ctx
 
 
-def _make_engine(*, total_spent=0.0, daily_pnl=0.0, daily_trades=0,
-                 ws_age_sec: float | None = None,
-                 kill_status: dict | None = None):
+def _make_engine(
+    *,
+    total_spent=0.0,
+    daily_pnl=0.0,
+    daily_trades=0,
+    ws_age_sec: float | None = None,
+    kill_status: dict | None = None,
+):
     """Build a fake engine exposing the attributes the handler reads.
 
     * ``live.get_status()`` → dict mirroring ``LiveTrader.get_status``.
@@ -76,25 +81,30 @@ def _make_engine(*, total_spent=0.0, daily_pnl=0.0, daily_trades=0,
     * ``scanner.ws._last_msg_ts`` (optional) → drives WS age rendering.
     """
     import time as _time
+
     live = MagicMock()
-    live.get_status = MagicMock(return_value={
-        "total_spent": total_spent,
-        "daily_pnl": daily_pnl,
-        "daily_trades": daily_trades,
-        "remaining": max(0.0, 1.49 - total_spent),
-    })
+    live.get_status = MagicMock(
+        return_value={
+            "total_spent": total_spent,
+            "daily_pnl": daily_pnl,
+            "daily_trades": daily_trades,
+            "remaining": max(0.0, 1.49 - total_spent),
+        }
+    )
     kill_switch = MagicMock()
-    kill_switch.get_status = MagicMock(return_value=kill_status or {
-        "killed": False,
-        "reason": "",
-        "file_exists": False,
-        "file_path": "data_store/polypaper.stop",
-        "memory_flag": False,
-    })
+    kill_switch.get_status = MagicMock(
+        return_value=kill_status
+        or {
+            "killed": False,
+            "reason": "",
+            "file_exists": False,
+            "file_path": "data_store/polypaper.stop",
+            "memory_flag": False,
+        }
+    )
     # WS optional — stub only when ws_age_sec is provided
     if ws_age_sec is not None:
-        ws = SimpleNamespace(_last_msg_ts=_time.time() - ws_age_sec,
-                             is_connected=True)
+        ws = SimpleNamespace(_last_msg_ts=_time.time() - ws_age_sec, is_connected=True)
         scanner = SimpleNamespace(ws=ws)
     else:
         scanner = SimpleNamespace(ws=None)

@@ -18,19 +18,26 @@ Parameters:
   confidence_map: {streak_length: win_rate}
   entry_pct: when in market to enter (default 0.15)
 """
-from backtest.strategies.base import (
-    BaseBacktestStrategy, StrategyRegistryV2,
-    MarketData, OrderbookSnapshot, Signal, Resolution, Direction
-)
+
 from typing import Optional
+
+from backtest.strategies.base import (
+    BaseBacktestStrategy,
+    Direction,
+    MarketData,
+    OrderbookSnapshot,
+    Resolution,
+    Signal,
+    StrategyRegistryV2,
+)
 
 # Streak → reversal probability from tweet data
 DEFAULT_CONFIDENCE_MAP = {
-    3: 0.531,   # 53.1% reversal after 3 in a row
+    3: 0.531,  # 53.1% reversal after 3 in a row
     4: 0.535,
-    5: 0.540,   # 54% reversal after 5+
+    5: 0.540,  # 54% reversal after 5+
     6: 0.580,
-    7: 0.700,   # 70% reversal after 7+
+    7: 0.700,  # 70% reversal after 7+
     8: 0.720,
     9: 0.750,
     10: 0.780,
@@ -107,15 +114,14 @@ class StreakReversalStrategy(BaseBacktestStrategy):
             confidence=self._bet_confidence,
             entry_price=entry_price,
             reason=f"Streak reversal: {self._streak_count}× {self._streak_direction} "
-                   f"→ bet {direction} (conf={self._bet_confidence:.1%})",
+            f"→ bet {direction} (conf={self._bet_confidence:.1%})",
             metadata={
                 "streak_count": self._streak_count,
                 "streak_dir": self._streak_direction,
             },
         )
 
-    def on_market_close(self, market: MarketData,
-                        result: Resolution) -> None:
+    def on_market_close(self, market: MarketData, result: Resolution) -> None:
         """Update streak tracker with this market's outcome."""
         winner = result.winner.value.upper()  # "UP" or "DOWN"
 

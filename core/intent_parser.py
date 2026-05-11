@@ -32,6 +32,7 @@ from telegram_bot/ and lets the /ai handler dispatch via the standard
 command router, which benefits from all existing guard-rails
 (rate limits, HTML escape, error templates, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +40,7 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 logger = logging.getLogger("polypaper.core.intent_parser")
@@ -55,6 +56,7 @@ INTENT_TIMEOUT_S = 12.0
 # Keep this list in sync with telegram_bot/handlers/* and main.py.
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class CommandSpec:
     name: str
@@ -69,47 +71,68 @@ COMMAND_CATALOG: tuple[CommandSpec, ...] = (
     # "balance", "cüzdan" now target /dashboard + /wallets instead of
     # the Kelly sizing command (which used to poach them).
     CommandSpec(
-        "/dashboard", "Ana panel — bakiye, PnL, aktif stratejiler, risk özeti",
-        ("dashboard", "panel", "bakiye", "balance", "kasam", "bakiyem",
-         "bakiyemi", "paneli", "durum özet", "özet"),
+        "/dashboard",
+        "Ana panel — bakiye, PnL, aktif stratejiler, risk özeti",
+        (
+            "dashboard",
+            "panel",
+            "bakiye",
+            "balance",
+            "kasam",
+            "bakiyem",
+            "bakiyemi",
+            "paneli",
+            "durum özet",
+            "özet",
+        ),
     ),
     CommandSpec(
-        "/wallets", "Cüzdanlar — aktif cüzdan, para ekle/çek, bakiyeler",
-        ("cüzdan", "cüzdanlar", "wallet", "wallets", "para", "paralarim",
-         "fonlar", "funds"),
+        "/wallets",
+        "Cüzdanlar — aktif cüzdan, para ekle/çek, bakiyeler",
+        ("cüzdan", "cüzdanlar", "wallet", "wallets", "para", "paralarim", "fonlar", "funds"),
     ),
     CommandSpec(
-        "/rs", "Özet risk durumu (exposure + streak + halt)",
+        "/rs",
+        "Özet risk durumu (exposure + streak + halt)",
         ("risk", "durum", "status", "expose", "halt", "kill", "acil"),
     ),
     CommandSpec(
-        "/risk_hub", "Risk Hub — inline tablar (status/limits/canary/kill)",
+        "/risk_hub",
+        "Risk Hub — inline tablar (status/limits/canary/kill)",
         ("risk hub", "risk merkezi", "risk panel", "risk yönetimi"),
     ),
     CommandSpec(
-        "/strategies", "Aktif stratejilerin listesi + WR + PnL",
+        "/strategies",
+        "Aktif stratejilerin listesi + WR + PnL",
         ("strateji", "strategies", "stratejilerim", "aktif strateji", "çalışan strateji"),
     ),
     CommandSpec(
-        "/stats", "Genel PnL özeti + en iyi/kötü trade",
+        "/stats",
+        "Genel PnL özeti + en iyi/kötü trade",
         ("stat", "istatistik", "overall", "genel", "özet", "pnl", "kar"),
     ),
     CommandSpec(
-        "/stats_hub", "Stats Hub — tablarla tüm istatistik komutları",
+        "/stats_hub",
+        "Stats Hub — tablarla tüm istatistik komutları",
         ("stat hub", "stats hub", "istatistik hub"),
     ),
     CommandSpec(
-        "/stats_chart", "Son N günün PnL bar chart'ı",
+        "/stats_chart",
+        "Son N günün PnL bar chart'ı",
         ("grafik", "chart", "graph", "pnl grafiği", "günlük"),
-        takes_args=True, example_args="30",
+        takes_args=True,
+        example_args="30",
     ),
     CommandSpec(
-        "/trades", "Son trade'lerin listesi (opsiyonel filtre)",
+        "/trades",
+        "Son trade'lerin listesi (opsiyonel filtre)",
         ("trade", "işlem", "son trade", "recent"),
-        takes_args=True, example_args="btc 10",
+        takes_args=True,
+        example_args="btc 10",
     ),
     CommandSpec(
-        "/maker_stats", "Maker rebate istatistikleri (24h/7d/lifetime)",
+        "/maker_stats",
+        "Maker rebate istatistikleri (24h/7d/lifetime)",
         ("maker", "rebate", "maker istatistik"),
     ),
     CommandSpec(
@@ -117,71 +140,91 @@ COMMAND_CATALOG: tuple[CommandSpec, ...] = (
         # they now belong to /dashboard + /wallets. Kelly keeps only its
         # narrow sizing vocabulary so "bakiyemi goster" no longer routes
         # here with 0.82 confidence.
-        "/kelly", "Kelly Criterion bankroll breakdown",
+        "/kelly",
+        "Kelly Criterion bankroll breakdown",
         ("kelly", "bankroll", "stake", "sizing", "position sizing"),
     ),
     CommandSpec(
-        "/h", "Heartbeat — job'lar + WS + DB + engine durumu",
+        "/h",
+        "Heartbeat — job'lar + WS + DB + engine durumu",
         ("heartbeat", "kalp", "durum", "health", "sağlık"),
     ),
     CommandSpec(
-        "/db_health", "DB table-level boyut + satır sayısı",
+        "/db_health",
+        "DB table-level boyut + satır sayısı",
         ("db", "database", "veritabanı", "boyut", "table size"),
     ),
     CommandSpec(
-        "/autopilot", "Autopilot mod durumu + ayarları",
+        "/autopilot",
+        "Autopilot mod durumu + ayarları",
         ("autopilot", "otomatik", "auto pilot"),
     ),
     CommandSpec(
-        "/alerts", "Kayıtlı fiyat alarmları",
+        "/alerts",
+        "Kayıtlı fiyat alarmları",
         ("alarm", "alarmlar", "alert", "alerts", "uyarı"),
     ),
     CommandSpec(
-        "/alert", "Yeni fiyat alarmı ekle (asset op price)",
+        "/alert",
+        "Yeni fiyat alarmı ekle (asset op price)",
         ("alarm ekle", "alarm kur", "new alert", "yeni uyarı"),
-        takes_args=True, example_args="BTC > 0.6",
+        takes_args=True,
+        example_args="BTC > 0.6",
     ),
     CommandSpec(
-        "/becker_replay", "Walk-forward Becker replay (train/test split)",
+        "/becker_replay",
+        "Walk-forward Becker replay (train/test split)",
         ("becker", "walk forward", "replay", "backtest becker"),
-        takes_args=True, example_args="hour_edge BTC 5m",
+        takes_args=True,
+        example_args="hour_edge BTC 5m",
     ),
     CommandSpec(
-        "/compare", "Strateji karşılaştırma (replay veya backtest)",
+        "/compare",
+        "Strateji karşılaştırma (replay veya backtest)",
         ("karşılaştır", "kıyasla", "compare", "karşı"),
-        takes_args=True, example_args="hour_edge streak_reversal",
+        takes_args=True,
+        example_args="hour_edge streak_reversal",
     ),
     CommandSpec(
-        "/backtest_v2", "Backtest v2 — tek strateji geçmiş simülasyonu",
+        "/backtest_v2",
+        "Backtest v2 — tek strateji geçmiş simülasyonu",
         ("backtest", "backtest v2", "geriye dönük", "simülasyon", "bt2"),
-        takes_args=True, example_args="hour_edge BTC 5m",
+        takes_args=True,
+        example_args="hour_edge BTC 5m",
     ),
     CommandSpec(
-        "/promote", "Canary strategy promote (canary→live)",
+        "/promote",
+        "Canary strategy promote (canary→live)",
         ("promote", "canary promote", "yayına al"),
     ),
     CommandSpec(
-        "/canary", "Canary deploy durumu",
+        "/canary",
+        "Canary deploy durumu",
         ("canary", "kanarya", "aşamalı deploy"),
     ),
     CommandSpec(
-        "/demote", "Canary strategy demote (live→canary)",
+        "/demote",
+        "Canary strategy demote (live→canary)",
         ("demote", "düşür", "geri al"),
     ),
     CommandSpec(
-        "/filters", "Trade filtre paneli (on/off toggle)",
+        "/filters",
+        "Trade filtre paneli (on/off toggle)",
         ("filtre", "filters", "filter", "gate", "güvenlik", "engel", "toggle"),
     ),
     CommandSpec(
-        "/positions", "Açık pozisyonlar",
+        "/positions",
+        "Açık pozisyonlar",
         ("pozisyon", "positions", "açık", "open positions"),
     ),
     CommandSpec(
-        "/shadow", "Shadow live trade özeti",
+        "/shadow",
+        "Shadow live trade özeti",
         ("shadow", "gölge", "shadow trade"),
     ),
     CommandSpec(
-        "/brain", "AI Brain durumu + son cycle özeti",
+        "/brain",
+        "AI Brain durumu + son cycle özeti",
         ("brain", "ai brain", "beyin", "ai durum"),
     ),
 )
@@ -193,6 +236,7 @@ _COMMAND_BY_NAME = {c.name: c for c in COMMAND_CATALOG}
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class IntentResult:
@@ -215,8 +259,7 @@ class IntentResult:
         return asdict(self)
 
 
-UNKNOWN = IntentResult(command="", confidence=0.0, source="unknown",
-                       reasoning="eşleşme yok")
+UNKNOWN = IntentResult(command="", confidence=0.0, source="unknown", reasoning="eşleşme yok")
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +280,7 @@ def _token_matches(kw: str, tokens: set[str]) -> bool:
         return True
     if len(kw) >= 4:
         for t in tokens:
-            if t.startswith(kw) or kw.startswith(t[:max(4, len(t)-2)]):
+            if t.startswith(kw) or kw.startswith(t[: max(4, len(t) - 2)]):
                 return True
     return False
 
@@ -311,8 +354,13 @@ def keyword_match(text: str) -> IntentResult:
             best_score = s
             best = c
     if best is None or best_score < 0.35:
-        return IntentResult(command="", confidence=0.0, source="keyword",
-                            reasoning="no keyword match", original=text)
+        return IntentResult(
+            command="",
+            confidence=0.0,
+            source="keyword",
+            reasoning="no keyword match",
+            original=text,
+        )
     args = _extract_args(best, text)
     return IntentResult(
         command=best.name,
@@ -365,8 +413,7 @@ async def _call_claude(text: str) -> Optional[dict]:
     payload = {
         "model": INTENT_MODEL,
         "max_tokens": INTENT_MAX_TOKENS,
-        "system": [{"type": "text", "text": system,
-                    "cache_control": {"type": "ephemeral"}}],
+        "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         "messages": [{"role": "user", "content": text}],
     }
     try:
@@ -422,7 +469,10 @@ def _coerce_result(raw: dict, original: str) -> IntentResult:
     if cmd and cmd not in _COMMAND_BY_NAME:
         # unknown command → treat as no-match
         return IntentResult(
-            command="", args=[], confidence=0.0, source="claude",
+            command="",
+            args=[],
+            confidence=0.0,
+            source="claude",
             reasoning=f"Claude returned unknown command: {cmd}",
             original=original,
         )
@@ -449,12 +499,14 @@ def _coerce_result(raw: dict, original: str) -> IntentResult:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+
 async def parse_intent(text: str, *, use_claude: bool = True) -> IntentResult:
     """Map free-form NL input to a bot command."""
     text = (text or "").strip()
     if not text:
-        return IntentResult(command="", confidence=0.0, source="unknown",
-                            reasoning="empty input", original=text)
+        return IntentResult(
+            command="", confidence=0.0, source="unknown", reasoning="empty input", original=text
+        )
 
     # Already a command? Pass through.
     if text.startswith("/"):
@@ -462,8 +514,11 @@ async def parse_intent(text: str, *, use_claude: bool = True) -> IntentResult:
         cmd = parts[0]
         if cmd in _COMMAND_BY_NAME:
             return IntentResult(
-                command=cmd, args=parts[1:], confidence=1.0,
-                source="passthrough", reasoning="zaten komut",
+                command=cmd,
+                args=parts[1:],
+                confidence=1.0,
+                source="passthrough",
+                reasoning="zaten komut",
                 original=text,
             )
 
@@ -482,8 +537,9 @@ async def parse_intent(text: str, *, use_claude: bool = True) -> IntentResult:
     # Fall back to whatever the keyword layer produced (may be low-conf).
     if kw.command:
         return kw
-    return IntentResult(command="", confidence=0.0, source="unknown",
-                        reasoning="eşleşme bulunamadı", original=text)
+    return IntentResult(
+        command="", confidence=0.0, source="unknown", reasoning="eşleşme bulunamadı", original=text
+    )
 
 
 def parse_intent_sync(text: str, *, use_claude: bool = False) -> IntentResult:
@@ -496,8 +552,11 @@ def parse_intent_sync(text: str, *, use_claude: bool = False) -> IntentResult:
             parts = text.split()
             if parts[0] in _COMMAND_BY_NAME:
                 return IntentResult(
-                    command=parts[0], args=parts[1:], confidence=1.0,
-                    source="passthrough", original=text,
+                    command=parts[0],
+                    args=parts[1:],
+                    confidence=1.0,
+                    source="passthrough",
+                    original=text,
                 )
         return keyword_match(text)
     return asyncio.run(parse_intent(text, use_claude=True))

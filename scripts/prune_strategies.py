@@ -20,11 +20,13 @@ Usage:
     py -3.11 scripts/prune_strategies.py --apply          # confirms first
     py -3.11 scripts/prune_strategies.py --apply --yes    # skip prompt
 """
+
 from __future__ import annotations
+
 import argparse
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -37,7 +39,7 @@ def _iso_to_dt(s):
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.rstrip("Z")).replace(tzinfo=timezone.utc)
+        return datetime.fromisoformat(s.rstrip("Z")).replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
 
@@ -67,7 +69,7 @@ def _gather(conn):
             "last_closed": r["last_closed"],
         }
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     candidates = []
     for s in strategies:
         if s["status"] == "stopped":
@@ -75,7 +77,7 @@ def _gather(conn):
         st = stats.get(s["id"], {"n": 0, "last_closed": None})
         n = st["n"]
         last_dt = _iso_to_dt(st["last_closed"])
-        age_days = ((now - last_dt).total_seconds() / 86400 if last_dt else None)
+        age_days = (now - last_dt).total_seconds() / 86400 if last_dt else None
 
         reason = None
         if n == 0:
@@ -86,25 +88,26 @@ def _gather(conn):
         if reason is None:
             continue
 
-        candidates.append({
-            **s,
-            "n": n,
-            "last_closed": st["last_closed"],
-            "age_days": age_days,
-            "reason": reason,
-        })
+        candidates.append(
+            {
+                **s,
+                "n": n,
+                "last_closed": st["last_closed"],
+                "age_days": age_days,
+                "reason": reason,
+            }
+        )
     return candidates
 
 
 def main():
     p = argparse.ArgumentParser(prog="prune_strategies")
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--dry-run", action="store_true",
-                   help="preview proposed changes (no DB writes)")
-    g.add_argument("--apply", action="store_true",
-                   help="execute the prune (with confirmation prompt)")
-    p.add_argument("--yes", action="store_true",
-                   help="skip the typed confirmation prompt")
+    g.add_argument("--dry-run", action="store_true", help="preview proposed changes (no DB writes)")
+    g.add_argument(
+        "--apply", action="store_true", help="execute the prune (with confirmation prompt)"
+    )
+    p.add_argument("--yes", action="store_true", help="skip the typed confirmation prompt")
     args = p.parse_args()
 
     if not DB_PATH.exists():
@@ -115,10 +118,11 @@ def main():
     # SQLite online backup API: produces a consistent snapshot from the
     # live DB even while the bot is writing. This is the same approach
     # daily_db_snapshot_job uses; safe under WAL concurrent access.
-    import tempfile, os
+    import os
+    import tempfile
+
     snap_path = Path(tempfile.gettempdir()) / f"polypaper_ro_{os.getpid()}.db"
-    src_conn = sqlite3.connect(
-        f"file:{DB_PATH}?mode=ro", uri=True, timeout=30.0)
+    src_conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=30.0)
     src_conn.execute("PRAGMA busy_timeout=30000")
     snap_conn = sqlite3.connect(str(snap_path), timeout=30.0)
     src_conn.backup(snap_conn, pages=200, sleep=0.05)
@@ -135,8 +139,10 @@ def main():
     print()
 
     if not candidates:
-        print("[prune] Nothing to prune. All non-stopped strategies have "
-              f"recent activity (within {DEAD_AFTER_DAYS} days).")
+        print(
+            "[prune] Nothing to prune. All non-stopped strategies have "
+            f"recent activity (within {DEAD_AFTER_DAYS} days)."
+        )
         return 0
 
     # Group by reason for the summary
@@ -154,8 +160,10 @@ def main():
         sid_short = (c["id"] or "?")[:12]
         label = (c["label"] or "?")[:30]
         atf = f"{c['asset']}/{c['timeframe']}"
-        print(f"  {sid_short}  {atf:8s}  n={c['n']}  reason={c['reason']}  "
-              f"label={label}  status={c['status']}")
+        print(
+            f"  {sid_short}  {atf:8s}  n={c['n']}  reason={c['reason']}  "
+            f"label={label}  status={c['status']}"
+        )
     if len(candidates) > 10:
         print(f"  ... and {len(candidates) - 10} more")
     print()
@@ -179,7 +187,7 @@ def main():
     rw_conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
     rw_conn.row_factory = sqlite3.Row
     rw_conn.execute("PRAGMA journal_mode=WAL")
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     affected = 0
     skipped = 0
@@ -189,7 +197,8 @@ def main():
                 """UPDATE strategies
                    SET status='stopped', updated_at=?
                    WHERE id=? AND status != 'stopped'""",
-                (now_iso, c["id"]))
+                (now_iso, c["id"]),
+            )
             if cur.rowcount > 0:
                 affected += 1
             else:
@@ -202,16 +211,22 @@ def main():
 
     print(f"[prune] DONE. affected={affected} skipped={skipped}")
     _write_audit_md(candidates, dry_run=False, affected=affected)
-    print(f"[prune] Bot may need a restart for the in-memory engine to drop "
-          f"these from its active set; alternatively the next "
-          f"_startup_health_check cycle will pick up the new status.")
+    print(
+        "[prune] Bot may need a restart for the in-memory engine to drop "
+        "these from its active set; alternatively the next "
+        "_startup_health_check cycle will pick up the new status."
+    )
     return 0
 
 
 def _write_audit_md(candidates, dry_run, affected=None):
-    now = datetime.now(timezone.utc)
-    out = (REPO_ROOT / "data_store" / "audits"
-           / f"prune_{now.strftime('%Y%m%dT%H%M%SZ')}{'_dryrun' if dry_run else ''}.md")
+    now = datetime.now(UTC)
+    out = (
+        REPO_ROOT
+        / "data_store"
+        / "audits"
+        / f"prune_{now.strftime('%Y%m%dT%H%M%SZ')}{'_dryrun' if dry_run else ''}.md"
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     L = []
     L.append(f"# Strategy Prune {'DRY-RUN' if dry_run else 'APPLY'} Log")
@@ -229,8 +244,9 @@ def _write_audit_md(candidates, dry_run, affected=None):
         label = (c["label"] or "?")[:35]
         atf = f"{c['asset']}/{c['timeframe']}"
         last = (c["last_closed"] or "-")[:16]
-        L.append(f"| `{sid}` | {label} | {atf} | {c['n']} | {last} | "
-                 f"{c['reason']} | {c['status']} |")
+        L.append(
+            f"| `{sid}` | {label} | {atf} | {c['n']} | {last} | " f"{c['reason']} | {c['status']} |"
+        )
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
     print(f"[prune] audit log: {out}")
 

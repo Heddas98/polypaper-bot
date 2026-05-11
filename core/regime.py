@@ -9,8 +9,8 @@ No ML required. Pure math. <10KB RAM total.
 
 Phase 59 DRIFT-01: configurable drift recovery window (SIGNAL_DRIFT_WINDOW env var)
 """
+
 import logging
-import math
 import os
 from collections import deque
 
@@ -18,10 +18,11 @@ logger = logging.getLogger("polypaper.core.regime")
 
 # ═══ REGIME CLASSIFIER ═══
 
+
 class RegimeClassifier:
     """Simple 3-regime classifier: TRENDING, RANGING, VOLATILE.
     Uses ATR percentile + directional bias from recent price changes.
-    
+
     Strategy compatibility:
       TRENDING:  momentum ✅, fusion ✅, contrarian ❌, scalper ❌
       RANGING:   scalper ✅, contrarian ✅, momentum ❌
@@ -29,15 +30,15 @@ class RegimeClassifier:
     """
 
     STRATEGY_REGIME_FIT = {
-        "momentum":      {"trending": 1.0, "ranging": 0.3, "volatile": 0.5},
-        "fusion":        {"trending": 0.9, "ranging": 0.6, "volatile": 0.7},
-        "contrarian":    {"trending": 0.3, "ranging": 1.0, "volatile": 0.5},
-        "scalper":       {"trending": 0.4, "ranging": 1.0, "volatile": 0.3},
-        "sniper":        {"trending": 0.7, "ranging": 0.5, "volatile": 1.0},
+        "momentum": {"trending": 1.0, "ranging": 0.3, "volatile": 0.5},
+        "fusion": {"trending": 0.9, "ranging": 0.6, "volatile": 0.7},
+        "contrarian": {"trending": 0.3, "ranging": 1.0, "volatile": 0.5},
+        "scalper": {"trending": 0.4, "ranging": 1.0, "volatile": 0.3},
+        "sniper": {"trending": 0.7, "ranging": 0.5, "volatile": 1.0},
         "highthreshold": {"trending": 0.8, "ranging": 0.6, "volatile": 0.9},
-        "flashcrash":    {"trending": 0.4, "ranging": 0.3, "volatile": 1.0},
-        "streak":        {"trending": 0.5, "ranging": 0.7, "volatile": 0.6},
-        "martingale":    {"trending": 0.3, "ranging": 0.5, "volatile": 0.2},
+        "flashcrash": {"trending": 0.4, "ranging": 0.3, "volatile": 1.0},
+        "streak": {"trending": 0.5, "ranging": 0.7, "volatile": 0.6},
+        "martingale": {"trending": 0.3, "ranging": 0.5, "volatile": 0.2},
     }
 
     def __init__(self, window: int = 30):
@@ -90,7 +91,7 @@ class RegimeClassifier:
         # Check if regime detection is disabled via brain_flags
         regime_enabled = True
         if engine:
-            regime_enabled = getattr(engine, 'brain_flags', {}).get('regime_detection', True)
+            regime_enabled = getattr(engine, "brain_flags", {}).get("regime_detection", True)
 
         if not regime_enabled:
             # Regime detection disabled: all strategies fit equally
@@ -117,6 +118,7 @@ class RegimeClassifier:
 
 # ═══ SIGNAL DRIFT DETECTOR ═══
 
+
 class DriftDetector:
     """ADWIN-inspired drift detection for signal accuracy.
 
@@ -142,8 +144,10 @@ class DriftDetector:
         self._drift_threshold = drift_threshold
         self._weight_adjustments: dict[str, float] = {}  # signal → multiplier
 
-        logger.info(f"🔄 DriftDetector initialized: window={self._window} samples, "
-                   f"threshold={self._drift_threshold}")
+        logger.info(
+            f"🔄 DriftDetector initialized: window={self._window} samples, "
+            f"threshold={self._drift_threshold}"
+        )
 
     def record(self, signal_name: str, was_correct: bool):
         """Record whether a signal's prediction was correct."""
@@ -170,12 +174,15 @@ class DriftDetector:
         if drop > self._drift_threshold:
             # Significant accuracy drop → reduce weight
             self._weight_adjustments[signal_name] = max(0.3, 1.0 - drop)
-            logger.info(f"📉 DRIFT: {signal_name} accuracy {first_acc:.0%}→{second_acc:.0%} "
-                       f"(weight ×{self._weight_adjustments[signal_name]:.2f})")
+            logger.info(
+                f"📉 DRIFT: {signal_name} accuracy {first_acc:.0%}→{second_acc:.0%} "
+                f"(weight ×{self._weight_adjustments[signal_name]:.2f})"
+            )
         else:
             # No drift or improving
-            self._weight_adjustments[signal_name] = min(1.0, 
-                self._weight_adjustments.get(signal_name, 1.0) + 0.05)
+            self._weight_adjustments[signal_name] = min(
+                1.0, self._weight_adjustments.get(signal_name, 1.0) + 0.05
+            )
 
     def get_weight(self, signal_name: str) -> float:
         """Get weight multiplier for a signal (1.0 = normal, <1.0 = degraded)."""

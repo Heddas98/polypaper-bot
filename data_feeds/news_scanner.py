@@ -19,25 +19,23 @@ ENV:
   NEWS_MAX_ENTRIES=50              # max entries to process per poll
 """
 
+import logging
 import os
 import re
 import time
-import logging
-import asyncio
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Tuple
-from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # ── ENV ──────────────────────────────────────────────────
-NEWS_SCANNER_ENABLED   = os.getenv("NEWS_SCANNER_ENABLED", "true").lower() == "true"
-NEWS_POLL_INTERVAL     = int(os.getenv("NEWS_POLL_INTERVAL", "60"))
-NEWS_SIGNAL_WEIGHT     = float(os.getenv("NEWS_SIGNAL_WEIGHT", "0.08"))
-NEWS_MIN_SCORE         = float(os.getenv("NEWS_MIN_SCORE", "0.3"))
-NEWS_LOOKBACK_MINUTES  = int(os.getenv("NEWS_LOOKBACK_MINUTES", "30"))
-NEWS_MAX_ENTRIES       = int(os.getenv("NEWS_MAX_ENTRIES", "50"))
+NEWS_SCANNER_ENABLED = os.getenv("NEWS_SCANNER_ENABLED", "true").lower() == "true"
+NEWS_POLL_INTERVAL = int(os.getenv("NEWS_POLL_INTERVAL", "60"))
+NEWS_SIGNAL_WEIGHT = float(os.getenv("NEWS_SIGNAL_WEIGHT", "0.08"))
+NEWS_MIN_SCORE = float(os.getenv("NEWS_MIN_SCORE", "0.3"))
+NEWS_LOOKBACK_MINUTES = int(os.getenv("NEWS_LOOKBACK_MINUTES", "30"))
+NEWS_MAX_ENTRIES = int(os.getenv("NEWS_MAX_ENTRIES", "50"))
 
 # ── RSS Feeds (free, no auth required) ──
 RSS_FEEDS = [
@@ -51,26 +49,64 @@ RSS_FEEDS = [
 # ── Keyword sentiment dictionaries ──
 BULLISH_KEYWORDS = {
     # Strong bullish
-    "surge": 0.8, "soar": 0.8, "rally": 0.7, "breakout": 0.7,
-    "all-time high": 0.9, "ath": 0.9, "moon": 0.6, "pump": 0.5,
-    "bull": 0.6, "bullish": 0.7, "adoption": 0.5, "etf approved": 0.9,
-    "etf approval": 0.9, "institutional": 0.5, "accumulation": 0.5,
-    "buy": 0.4, "upgrade": 0.5, "partnership": 0.4,
-    "halving": 0.5, "supply shock": 0.6, "inflow": 0.5,
-    "record high": 0.8, "support": 0.3, "recovery": 0.4,
-    "breakout": 0.6, "green": 0.3, "profit": 0.4,
+    "surge": 0.8,
+    "soar": 0.8,
+    "rally": 0.7,
+    "breakout": 0.7,
+    "all-time high": 0.9,
+    "ath": 0.9,
+    "moon": 0.6,
+    "pump": 0.5,
+    "bull": 0.6,
+    "bullish": 0.7,
+    "adoption": 0.5,
+    "etf approved": 0.9,
+    "etf approval": 0.9,
+    "institutional": 0.5,
+    "accumulation": 0.5,
+    "buy": 0.4,
+    "upgrade": 0.5,
+    "partnership": 0.4,
+    "halving": 0.5,
+    "supply shock": 0.6,
+    "inflow": 0.5,
+    "record high": 0.8,
+    "support": 0.3,
+    "recovery": 0.4,
+    "breakout": 0.6,
+    "green": 0.3,
+    "profit": 0.4,
 }
 
 BEARISH_KEYWORDS = {
     # Strong bearish
-    "crash": -0.8, "plunge": -0.8, "dump": -0.7, "collapse": -0.9,
-    "bear": -0.6, "bearish": -0.7, "sell-off": -0.7, "selloff": -0.7,
-    "hack": -0.8, "exploit": -0.7, "rug pull": -0.9, "rugpull": -0.9,
-    "sec lawsuit": -0.7, "regulation": -0.4, "ban": -0.8,
-    "shutdown": -0.7, "fraud": -0.8, "ponzi": -0.9,
-    "outflow": -0.5, "resistance": -0.3, "decline": -0.5,
-    "loss": -0.4, "liquidation": -0.6, "fud": -0.4,
-    "bankrupt": -0.9, "insolvent": -0.9, "default": -0.7,
+    "crash": -0.8,
+    "plunge": -0.8,
+    "dump": -0.7,
+    "collapse": -0.9,
+    "bear": -0.6,
+    "bearish": -0.7,
+    "sell-off": -0.7,
+    "selloff": -0.7,
+    "hack": -0.8,
+    "exploit": -0.7,
+    "rug pull": -0.9,
+    "rugpull": -0.9,
+    "sec lawsuit": -0.7,
+    "regulation": -0.4,
+    "ban": -0.8,
+    "shutdown": -0.7,
+    "fraud": -0.8,
+    "ponzi": -0.9,
+    "outflow": -0.5,
+    "resistance": -0.3,
+    "decline": -0.5,
+    "loss": -0.4,
+    "liquidation": -0.6,
+    "fud": -0.4,
+    "bankrupt": -0.9,
+    "insolvent": -0.9,
+    "default": -0.7,
 }
 
 # ── Asset keyword mapping ──
@@ -86,20 +122,22 @@ ASSET_KEYWORDS = {
 @dataclass
 class NewsEntry:
     """Single parsed RSS entry."""
+
     title: str = ""
     description: str = ""
     link: str = ""
-    published: float = 0.0         # Unix timestamp
+    published: float = 0.0  # Unix timestamp
     source: str = ""
-    sentiment_score: float = 0.0   # -1.0 to 1.0
+    sentiment_score: float = 0.0  # -1.0 to 1.0
     assets: List[str] = field(default_factory=list)
 
 
 @dataclass
 class NewsSentiment:
     """Aggregated sentiment for an asset."""
+
     asset: str = ""
-    score: float = 0.0             # -1.0 to 1.0
+    score: float = 0.0  # -1.0 to 1.0
     direction: Optional[str] = None  # "up", "down", None
     entry_count: int = 0
     top_headline: str = ""
@@ -109,6 +147,7 @@ class NewsSentiment:
 @dataclass
 class NewsSnapshot:
     """Full news state."""
+
     sentiments: Dict[str, NewsSentiment] = field(default_factory=dict)
     total_entries: int = 0
     last_poll: float = 0.0
@@ -130,17 +169,20 @@ class NewsScanner:
         self._feeds_ok: int = 0
         self._feeds_failed: int = 0
         self._http_session = None
-        logger.info(f"[NEWS] init feeds={len(RSS_FEEDS)} poll={NEWS_POLL_INTERVAL}s "
-                     f"weight={NEWS_SIGNAL_WEIGHT}")
+        logger.info(
+            f"[NEWS] init feeds={len(RSS_FEEDS)} poll={NEWS_POLL_INTERVAL}s "
+            f"weight={NEWS_SIGNAL_WEIGHT}"
+        )
 
     async def _get_session(self):
         """Lazy init aiohttp session."""
         if self._http_session is None:
             try:
                 import aiohttp
+
                 self._http_session = aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=15),
-                    headers={"User-Agent": "PolyPaperBot/1.0 RSS Reader"}
+                    headers={"User-Agent": "PolyPaperBot/1.0 RSS Reader"},
                 )
             except ImportError:
                 logger.error("[NEWS] aiohttp not installed")
@@ -177,7 +219,7 @@ class NewsScanner:
                     new_entries.extend(entries)
                     self._feeds_ok += 1
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._feeds_failed += 1
                 logger.debug(f"[NEWS] timeout: {feed_url}")
             except Exception as e:
@@ -197,9 +239,11 @@ class NewsScanner:
 
         self._aggregate_sentiments()
 
-        logger.info(f"[NEWS] polled {self._feeds_ok}/{len(RSS_FEEDS)} feeds, "
-                     f"{len(self._entries)} entries, "
-                     f"assets: {list(self._sentiments.keys())}")
+        logger.info(
+            f"[NEWS] polled {self._feeds_ok}/{len(RSS_FEEDS)} feeds, "
+            f"{len(self._entries)} entries, "
+            f"assets: {list(self._sentiments.keys())}"
+        )
 
     def _parse_rss(self, xml_text: str, source_url: str) -> List[NewsEntry]:
         """Parse RSS XML into NewsEntry list."""
@@ -208,11 +252,11 @@ class NewsScanner:
             root = ET.fromstring(xml_text)
 
             # Standard RSS 2.0
-            items = root.findall('.//item')
+            items = root.findall(".//item")
             # Atom format
             if not items:
-                ns = {'atom': 'http://www.w3.org/2005/Atom'}
-                items = root.findall('.//atom:entry', ns)
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                items = root.findall(".//atom:entry", ns)
 
             for item in items[:20]:  # Max 20 per feed
                 title = ""
@@ -221,31 +265,32 @@ class NewsScanner:
                 pub_date = 0.0
 
                 # Try different tag names
-                for tag in ['title']:
+                for tag in ["title"]:
                     el = item.find(tag)
                     if el is not None and el.text:
                         title = el.text.strip()
 
-                for tag in ['description', 'summary', 'content']:
+                for tag in ["description", "summary", "content"]:
                     el = item.find(tag)
                     if el is not None and el.text:
                         desc = el.text.strip()[:500]
                         # Strip HTML tags
-                        desc = re.sub(r'<[^>]+>', '', desc)
+                        desc = re.sub(r"<[^>]+>", "", desc)
                         break
 
-                for tag in ['link', 'guid']:
+                for tag in ["link", "guid"]:
                     el = item.find(tag)
                     if el is not None and el.text:
                         link = el.text.strip()
                         break
 
                 # Parse date (best effort)
-                for tag in ['pubDate', 'published', 'updated']:
+                for tag in ["pubDate", "published", "updated"]:
                     el = item.find(tag)
                     if el is not None and el.text:
                         try:
                             from email.utils import parsedate_to_datetime
+
                             dt = parsedate_to_datetime(el.text)
                             pub_date = dt.timestamp()
                         except Exception:
@@ -253,13 +298,15 @@ class NewsScanner:
                         break
 
                 if title:
-                    entries.append(NewsEntry(
-                        title=title,
-                        description=desc,
-                        link=link,
-                        published=pub_date,
-                        source=source_url,
-                    ))
+                    entries.append(
+                        NewsEntry(
+                            title=title,
+                            description=desc,
+                            link=link,
+                            published=pub_date,
+                            source=source_url,
+                        )
+                    )
         except ET.ParseError:
             logger.debug(f"[NEWS] XML parse error for {source_url}")
         except Exception as e:
@@ -386,7 +433,7 @@ class NewsScanner:
         snap = self.get_snapshot()
 
         lines = [
-            f"<b>📰 Haber Taramasi</b>",
+            "<b>📰 Haber Taramasi</b>",
             f"  Feed: {snap.feeds_ok}/{len(RSS_FEEDS)} basarili",
             f"  Haber: {snap.total_entries} entry",
             "",
@@ -396,7 +443,9 @@ class NewsScanner:
             lines.append("  <i>Henuz sentiment verisi yok</i>")
             return "\n".join(lines)
 
-        for asset, sent in sorted(snap.sentiments.items(), key=lambda x: abs(x[1].score), reverse=True):
+        for asset, sent in sorted(
+            snap.sentiments.items(), key=lambda x: abs(x[1].score), reverse=True
+        ):
             if asset == "CRYPTO":
                 continue
             icon = "🟢" if sent.direction == "up" else ("🔴" if sent.direction == "down" else "⚪")
@@ -411,8 +460,12 @@ class NewsScanner:
         # General crypto sentiment
         crypto = snap.sentiments.get("CRYPTO")
         if crypto:
-            icon = "🟢" if crypto.direction == "up" else ("🔴" if crypto.direction == "down" else "⚪")
-            lines.append(f"\n  {icon} <b>GENEL</b>: {crypto.score:+.2f} ({crypto.entry_count} haber)")
+            icon = (
+                "🟢" if crypto.direction == "up" else ("🔴" if crypto.direction == "down" else "⚪")
+            )
+            lines.append(
+                f"\n  {icon} <b>GENEL</b>: {crypto.score:+.2f} ({crypto.entry_count} haber)"
+            )
 
         return "\n".join(lines)
 
@@ -425,6 +478,7 @@ class NewsScanner:
 
 # ── Module-level singleton ──
 _scanner: Optional[NewsScanner] = None
+
 
 def get_news_scanner() -> NewsScanner:
     global _scanner

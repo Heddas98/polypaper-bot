@@ -41,19 +41,25 @@ Kullanım:
       fill_mode="real_orderbook",   # Gerçek L2 depth walk
   )
 """
+
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Optional
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Optional
 
-from backtest.strategies.base import (
-    BacktestStrategy, BaseBacktestStrategy, MarketData, OrderbookSnapshot,
-    Signal, Resolution, Direction, StrategyRegistryV2
-)
-from backtest.simulation.fill_model import FillSimulator, FillMode
 from backtest.simulation.fee_model_v3 import FeeCalculatorV3 as FeeCalculator  # T4.1 unified
-from backtest.simulation.portfolio import VirtualPortfolio, PortfolioStats
+from backtest.simulation.fill_model import FillMode, FillSimulator
+from backtest.simulation.portfolio import PortfolioStats, VirtualPortfolio
+from backtest.strategies.base import (
+    BaseBacktestStrategy,
+    Direction,
+    MarketData,
+    OrderbookSnapshot,
+    Resolution,
+    Signal,
+    StrategyRegistryV2,
+)
 
 # Becker δ(p) helpers removed 2026-04-29 (Heddas direktifi: Becker tam silme).
 # _apply_becker_boost no-op'a indirgendi, becker_curves attribute kalır
@@ -76,21 +82,22 @@ MARKET_DURATIONS = {
 @dataclass
 class ReplayConfig:
     """Configuration for a replay backtest run."""
+
     strategy_name: str = "hour_edge"
     strategy_params: dict = field(default_factory=dict)
     # Portfolio
     initial_balance: float = 10000.0
     trade_amount: float = 1.0
     # Fill simulation
-    fill_mode: str = "real_orderbook"   # real_orderbook, midpoint, simple, orderbook
+    fill_mode: str = "real_orderbook"  # real_orderbook, midpoint, simple, orderbook
     min_liquidity: float = 0.0
     # Filters
-    asset_filter: str = ""              # "" = all, "BTC", "ETH"
-    timeframe_filter: str = ""          # "" = all, "5m", "15m"
-    direction_filter: str = ""          # "" = all, "up", "down"
+    asset_filter: str = ""  # "" = all, "BTC", "ETH"
+    timeframe_filter: str = ""  # "" = all, "5m", "15m"
+    direction_filter: str = ""  # "" = all, "up", "down"
     min_confidence: float = 0.0
     # Time range (ms)
-    start_ms: int = 0                   # 0 = no filter
+    start_ms: int = 0  # 0 = no filter
     end_ms: int = 0
     # Phase 65: Latency injection (Gaussian μ±σ ms).
     # ⚠ Defaults (250ms / 75ms) are HEURISTIC, NOT empirically calibrated.
@@ -98,13 +105,13 @@ class ReplayConfig:
     # — kept higher in backtest as conservative pessimism. Pending Epic 4
     # T4.7 Faz B: align both defaults with measured live p50 once
     # `REST_TIMING_TELEMETRY=true` collects 24h of CLOB RTT samples.
-    latency_mean_ms: int = 250          # average REST submit latency
-    latency_std_ms: int = 75            # standard deviation
+    latency_mean_ms: int = 250  # average REST submit latency
+    latency_std_ms: int = 75  # standard deviation
     # Limits
-    max_markets: int = 0                # 0 = no limit
+    max_markets: int = 0  # 0 = no limit
     # Phase 81: Market selection modes
-    last_n: int = 0                     # >0 = only last N markets (most recent)
-    random_n: int = 0                   # >0 = randomly sample N markets
+    last_n: int = 0  # >0 = only last N markets (most recent)
+    random_n: int = 0  # >0 = randomly sample N markets
     # Phase 82e Sprint B.2: Archive reader opt-in
     # When True, replay reads from SQLite hot tier + Parquet archive tier
     # via backtest.archive_reader.ArchiveReader. Lets backtest span WAY
@@ -155,6 +162,7 @@ class ReplayEngine:
             return self._archive_reader
         try:
             from backtest.archive_reader import ArchiveReader
+
             self._archive_reader = ArchiveReader()
             logger.info(
                 "ReplayEngine: archive reader ENABLED "
@@ -162,8 +170,7 @@ class ReplayEngine:
             )
         except Exception as e:
             logger.warning(
-                f"ReplayEngine: archive reader failed to init, "
-                f"falling back to hot-only: {e}"
+                f"ReplayEngine: archive reader failed to init, " f"falling back to hot-only: {e}"
             )
             self._archive_reader = None
         return self._archive_reader
@@ -195,8 +202,7 @@ class ReplayEngine:
         # Strategy
         self._debug_first_snap_logged = False  # Reset per run for price derivation debug
         self._strategy = StrategyRegistryV2.create(
-            self.config.strategy_name,
-            **self.config.strategy_params
+            self.config.strategy_name, **self.config.strategy_params
         )
         if not self._strategy:
             raise ValueError(
@@ -205,10 +211,11 @@ class ReplayEngine:
             )
 
         logger.info(
-            "ReplayEngine setup: strategy=%s, balance=$%.0f, "
-            "trade=$%.2f, fill=%s",
-            self.config.strategy_name, self.config.initial_balance,
-            self.config.trade_amount, self.config.fill_mode
+            "ReplayEngine setup: strategy=%s, balance=$%.0f, " "trade=$%.2f, fill=%s",
+            self.config.strategy_name,
+            self.config.initial_balance,
+            self.config.trade_amount,
+            self.config.fill_mode,
         )
 
     async def run(self, config: Optional[ReplayConfig] = None) -> PortfolioStats:
@@ -236,15 +243,14 @@ class ReplayEngine:
             market_windows = list(injected)
             # Apply Phase 81 selection modes on the cached result
             if self.config.last_n > 0 and len(market_windows) > self.config.last_n:
-                market_windows = market_windows[-self.config.last_n:]
-            if (self.config.random_n > 0
-                    and len(market_windows) > self.config.random_n):
+                market_windows = market_windows[-self.config.last_n :]
+            if self.config.random_n > 0 and len(market_windows) > self.config.random_n:
                 import random
-                market_windows = random.sample(
-                    market_windows, self.config.random_n)
+
+                market_windows = random.sample(market_windows, self.config.random_n)
             logger.debug(
-                "ReplayEngine: using %d pre-injected windows (cached)",
-                len(market_windows))
+                "ReplayEngine: using %d pre-injected windows (cached)", len(market_windows)
+            )
         else:
             market_windows = await self._discover_market_windows()
 
@@ -252,13 +258,11 @@ class ReplayEngine:
             logger.warning("ReplayEngine: No market windows found in ob_snapshots")
             return self.portfolio.get_stats()
 
-        logger.info("ReplayEngine: Found %d market windows to replay",
-                     len(market_windows))
+        logger.info("ReplayEngine: Found %d market windows to replay", len(market_windows))
 
         # ── 2. Replay each market window ──
         for window in market_windows:
-            if (self.config.max_markets > 0 and
-                    self._markets_processed >= self.config.max_markets):
+            if self.config.max_markets > 0 and self._markets_processed >= self.config.max_markets:
                 break
 
             # Load full snapshot data for this window
@@ -283,9 +287,12 @@ class ReplayEngine:
         logger.info(
             "ReplayEngine complete: %d markets (%d skipped), "
             "%d snapshots, %d trades, WR=%.1f%%, PnL=$%.2f",
-            self._markets_processed, self._markets_skipped,
-            self._total_snapshots, stats.total_trades,
-            stats.win_rate, stats.total_pnl
+            self._markets_processed,
+            self._markets_skipped,
+            self._total_snapshots,
+            stats.total_trades,
+            stats.win_rate,
+            stats.total_pnl,
         )
         return stats
 
@@ -331,25 +338,26 @@ class ReplayEngine:
             try:
                 if reader is not None:
                     import asyncio as _asyncio
+
                     max_ts = await _asyncio.to_thread(reader.get_max_ts_ms)
                 else:
-                    cursor = await self.db.conn.execute(
-                        "SELECT MAX(ts_ms) FROM ob_snapshots"
-                    )
+                    cursor = await self.db.conn.execute("SELECT MAX(ts_ms) FROM ob_snapshots")
                     row = await cursor.fetchone()
                     max_ts = row[0] if row and row[0] else 0
             except Exception as e:
-                logger.warning(
-                    "ReplayEngine._discover: MAX(ts_ms) probe failed: %s", e)
+                logger.warning("ReplayEngine._discover: MAX(ts_ms) probe failed: %s", e)
                 max_ts = 0
             if max_ts > 0:
                 # Phase 82b.5: last_n//20, clamped [6h..72h] for ~40x speedup
                 buffer_hours = min(72, max(6, self.config.last_n // 20))
                 ts_lower_bound = max_ts - buffer_hours * 3600 * 1000
                 logger.info(
-                    "ReplayEngine._discover: last_n=%d → "
-                    "ts_ms >= %d (~%dh back from max_ts=%d)",
-                    self.config.last_n, ts_lower_bound, buffer_hours, max_ts)
+                    "ReplayEngine._discover: last_n=%d → " "ts_ms >= %d (~%dh back from max_ts=%d)",
+                    self.config.last_n,
+                    ts_lower_bound,
+                    buffer_hours,
+                    max_ts,
+                )
 
         # Phase 82b.5: AVG(market_volume) and AVG(market_liquidity) were
         # expensive aggregates (SUM/COUNT over every snapshot in the group)
@@ -406,6 +414,7 @@ class ReplayEngine:
         reader = self._get_archive_reader()
         if reader is not None:
             import asyncio as _asyncio
+
             windows = await _asyncio.to_thread(
                 reader.discover_market_windows,
                 ts_lower_bound=ts_lower_bound,
@@ -416,25 +425,34 @@ class ReplayEngine:
             )
             _disc_elapsed = (datetime.utcnow() - _disc_t0).total_seconds()
             logger.info(
-                "ReplayEngine._discover(archive): %d windows in %.1fs",
-                len(windows), _disc_elapsed)
+                "ReplayEngine._discover(archive): %d windows in %.1fs", len(windows), _disc_elapsed
+            )
             # Apply last_n / random_n post-filters then return
             if self.config.last_n > 0:
-                windows = windows[-self.config.last_n:]
-                logger.info("ReplayEngine: --last %d → %d markets selected",
-                            self.config.last_n, len(windows))
+                windows = windows[-self.config.last_n :]
+                logger.info(
+                    "ReplayEngine: --last %d → %d markets selected",
+                    self.config.last_n,
+                    len(windows),
+                )
             if self.config.random_n > 0 and len(windows) > self.config.random_n:
                 import random
+
                 windows = random.sample(windows, self.config.random_n)
-                logger.info("ReplayEngine: --random %d → %d markets sampled",
-                            self.config.random_n, len(windows))
+                logger.info(
+                    "ReplayEngine: --random %d → %d markets sampled",
+                    self.config.random_n,
+                    len(windows),
+                )
             return windows
 
         rows = await self.db.conn.execute_fetchall(query, params)
         _disc_elapsed = (datetime.utcnow() - _disc_t0).total_seconds()
         logger.info(
             "ReplayEngine._discover: GROUP BY returned %d rows in %.1fs",
-            len(rows) if rows else 0, _disc_elapsed)
+            len(rows) if rows else 0,
+            _disc_elapsed,
+        )
         if not rows:
             return []
 
@@ -443,33 +461,38 @@ class ReplayEngine:
         # reference the keys (e.g. display code in /report).
         windows = []
         for row in rows:
-            windows.append({
-                "slug": row[0],
-                "asset": row[1],
-                "timeframe": row[2],
-                "up_token_id": row[3],
-                "down_token_id": row[4],
-                "market_start_time": row[5],
-                "market_end_time": row[6],
-                "first_snap_ms": row[7],
-                "last_snap_ms": row[8],
-                "snap_count": row[9],
-                "avg_volume": 0.0,
-                "avg_liquidity": 0.0,
-            })
+            windows.append(
+                {
+                    "slug": row[0],
+                    "asset": row[1],
+                    "timeframe": row[2],
+                    "up_token_id": row[3],
+                    "down_token_id": row[4],
+                    "market_start_time": row[5],
+                    "market_end_time": row[6],
+                    "first_snap_ms": row[7],
+                    "last_snap_ms": row[8],
+                    "snap_count": row[9],
+                    "avg_volume": 0.0,
+                    "avg_liquidity": 0.0,
+                }
+            )
 
         # Phase 81: Market selection modes
         if self.config.last_n > 0:
             # Son N market (en yeni olanlar)
-            windows = windows[-self.config.last_n:]
-            logger.info("ReplayEngine: --last %d → %d markets selected",
-                        self.config.last_n, len(windows))
+            windows = windows[-self.config.last_n :]
+            logger.info(
+                "ReplayEngine: --last %d → %d markets selected", self.config.last_n, len(windows)
+            )
 
         if self.config.random_n > 0 and len(windows) > self.config.random_n:
             import random
+
             windows = random.sample(windows, self.config.random_n)
-            logger.info("ReplayEngine: --random %d → %d markets sampled",
-                        self.config.random_n, len(windows))
+            logger.info(
+                "ReplayEngine: --random %d → %d markets sampled", self.config.random_n, len(windows)
+            )
 
         return windows
 
@@ -483,6 +506,7 @@ class ReplayEngine:
         reader = self._get_archive_reader()
         if reader is not None:
             import asyncio as _asyncio
+
             snapshots = await _asyncio.to_thread(
                 reader.load_window_snapshots,
                 window["slug"],
@@ -499,20 +523,18 @@ class ReplayEngine:
             ORDER BY ts_ms ASC
         """
         rows = await self.db.conn.execute_fetchall(
-            query,
-            (window["slug"], window["first_snap_ms"], window["last_snap_ms"])
+            query, (window["slug"], window["first_snap_ms"], window["last_snap_ms"])
         )
 
         if not rows:
             return []
 
         # Get column names
-        cursor = await self.db.conn.execute(
-            "PRAGMA table_info(ob_snapshots)")
+        cursor = await self.db.conn.execute("PRAGMA table_info(ob_snapshots)")
         columns_info = await cursor.fetchall()
         columns = [c[1] for c in columns_info]
 
-        snapshots = [dict(zip(columns, row)) for row in rows]
+        snapshots = [dict(zip(columns, row, strict=False)) for row in rows]
         self._total_snapshots += len(snapshots)
         return snapshots
 
@@ -520,16 +542,14 @@ class ReplayEngine:
     #  MARKET DATA CONSTRUCTION
     # ═══════════════════════════════════════════════
 
-    def _build_market_data(self, window: dict,
-                           snapshots: list[dict]) -> MarketData:
+    def _build_market_data(self, window: dict, snapshots: list[dict]) -> MarketData:
         """Build MarketData from window metadata."""
         # Detect hour from start time (with slug timestamp fallback)
         hour = 0
         start_time = window.get("market_start_time", "")
         if start_time:
             try:
-                dt = datetime.fromisoformat(
-                    start_time.replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
                 hour = dt.hour
             except Exception:
                 pass
@@ -539,7 +559,7 @@ class ReplayEngine:
             parts = slug.rsplit("-", 1)
             if len(parts) == 2 and parts[1].isdigit():
                 try:
-                    dt = datetime.fromtimestamp(int(parts[1]), tz=timezone.utc)
+                    dt = datetime.fromtimestamp(int(parts[1]), tz=UTC)
                     hour = dt.hour
                 except Exception:
                     pass
@@ -548,8 +568,7 @@ class ReplayEngine:
                 first_ms = window.get("first_snap_ms", 0)
                 if first_ms and int(first_ms) > 0:
                     try:
-                        dt = datetime.fromtimestamp(
-                            int(first_ms) / 1000, tz=timezone.utc)
+                        dt = datetime.fromtimestamp(int(first_ms) / 1000, tz=UTC)
                         hour = dt.hour
                     except Exception:
                         pass
@@ -612,8 +631,7 @@ class ReplayEngine:
     # (Heddas direktifi: Becker tam silme). ~190 satır dead method silindi.
     # Caller satırları (L823-846) zaten kaldırıldı, başka çağıran yok.
 
-    def _run_market(self, market: MarketData,
-                    raw_snapshots: list[dict], winner: str):
+    def _run_market(self, market: MarketData, raw_snapshots: list[dict], winner: str):
         """Process a single market episode with real data."""
         duration = MARKET_DURATIONS.get(market.market_type, 300)
         first_ts = raw_snapshots[0].get("ts_ms", 0)
@@ -664,8 +682,7 @@ class ReplayEngine:
                     market_type=market.market_type,
                     strategy=self.config.strategy_name,
                     hour_utc=market.hour_utc,
-                    entry_time_pct=(signal_snapshot.elapsed_pct
-                                   if signal_snapshot else 0),
+                    entry_time_pct=(signal_snapshot.elapsed_pct if signal_snapshot else 0),
                 )
                 if trade:
                     self.portfolio.close_trade(trade, winner)
@@ -673,8 +690,7 @@ class ReplayEngine:
         # Strategy: market close
         self._strategy.on_market_close(market, resolution)
 
-    def _convert_snapshot(self, raw: dict, first_ts: int,
-                          duration: int) -> OrderbookSnapshot:
+    def _convert_snapshot(self, raw: dict, first_ts: int, duration: int) -> OrderbookSnapshot:
         """
         Convert a DB ob_snapshots row into OrderbookSnapshot.
 
@@ -755,7 +771,12 @@ class ReplayEngine:
                 float(raw.get("up_best_ask", 0) or 0),
                 float(raw.get("down_best_bid", 0) or 0),
                 float(raw.get("down_best_ask", 0) or 0),
-                _um, _dm, _ub, _ua, _db, _da,
+                _um,
+                _dm,
+                _ub,
+                _ua,
+                _db,
+                _da,
             )
 
         return OrderbookSnapshot(
@@ -776,8 +797,8 @@ class ReplayEngine:
             elapsed_pct=min(1.0, elapsed_s / duration) if duration > 0 else 0,
             # Raw data: full orderbook for REAL_ORDERBOOK fill simulation
             raw={
-                "up_bids": up_bids,     # [[price, size], ...]
-                "up_asks": up_asks,     # [[price, size], ...]
+                "up_bids": up_bids,  # [[price, size], ...]
+                "up_asks": up_asks,  # [[price, size], ...]
                 "down_bids": down_bids,
                 "down_asks": down_asks,
                 "mid_price_up": raw.get("mid_price_up", 0),

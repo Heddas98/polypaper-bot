@@ -21,6 +21,7 @@ Polymarket docs uyumlu:
   - https://docs.polymarket.com/concepts/pusd
   - https://docs.polymarket.com/builders/fees#balance-checks
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,6 +60,7 @@ def _build_clob_client():
     """
     try:
         from py_clob_client_v2 import ClobClient
+
         pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
         wallet = os.getenv("POLYGON_WALLET", "").strip()
         if not pk or not wallet:
@@ -66,7 +68,8 @@ def _build_clob_client():
         sig_type = int(os.getenv("CLOB_SIGNATURE_TYPE", "2"))
         client = ClobClient(
             CLOB_HOST,
-            key=pk, chain_id=137,
+            key=pk,
+            chain_id=137,
             signature_type=sig_type,
             funder=wallet,
         )
@@ -74,6 +77,7 @@ def _build_clob_client():
         # ── PATH 1: Shared cache (live_trader boot'ta derive PASS yapmışsa) ──
         try:
             from core.live_trader import get_shared_creds
+
             shared_creds, shared_ts = get_shared_creds()
             if shared_creds:
                 client.set_api_creds(shared_creds)
@@ -92,15 +96,14 @@ def _build_clob_client():
         if all([api_key, api_secret, api_pass]):
             try:
                 from py_clob_client_v2 import ApiCreds
+
                 stored = ApiCreds(
-                    api_key=api_key, api_secret=api_secret,
+                    api_key=api_key,
+                    api_secret=api_secret,
                     api_passphrase=api_pass,
                 )
                 client.set_api_creds(stored)
-                logger.debug(
-                    f"actions clob_client: stored ENV creds "
-                    f"(key={api_key[:8]}...)"
-                )
+                logger.debug(f"actions clob_client: stored ENV creds " f"(key={api_key[:8]}...)")
                 return client
             except Exception as _se:  # noqa: BLE001
                 logger.debug(f"actions stored creds fail: {_se}")
@@ -183,15 +186,14 @@ async def approve_allowance() -> tuple[bool, str]:
     # ═══════════════════════════════════════════════════════════════
     relayer_key = os.getenv("RELAYER_API_KEY", "").strip()
     relayer_addr = os.getenv("RELAYER_API_KEY_ADDRESS", "").strip()
-    relayer_host = os.getenv(
-        "RELAYER_HOST", "https://relayer-v2.polymarket.com"
-    ).strip()
+    relayer_host = os.getenv("RELAYER_HOST", "https://relayer-v2.polymarket.com").strip()
 
     if relayer_key and relayer_addr:
         # ── Adım 1: SDK + helper paket import (her biri ayrı try) ──
         RelayClient = None
         try:
             from py_builder_relayer_client.client import RelayClient as _RC  # type: ignore
+
             RelayClient = _RC
         except ImportError as _ie:
             err = f"py_builder_relayer_client missing: {_ie}"
@@ -204,15 +206,19 @@ async def approve_allowance() -> tuple[bool, str]:
         if RelayClient is not None:
             try:
                 from web3 import Web3  # type: ignore
+
                 _w3 = Web3()
-                _erc20_abi = [{
-                    "name": "approve", "type": "function",
-                    "inputs": [
-                        {"name": "spender", "type": "address"},
-                        {"name": "amount", "type": "uint256"},
-                    ],
-                    "outputs": [{"type": "bool"}],
-                }]
+                _erc20_abi = [
+                    {
+                        "name": "approve",
+                        "type": "function",
+                        "inputs": [
+                            {"name": "spender", "type": "address"},
+                            {"name": "amount", "type": "uint256"},
+                        ],
+                        "outputs": [{"type": "bool"}],
+                    }
+                ]
                 _contract = _w3.eth.contract(address=PUSD, abi=_erc20_abi)
 
                 def encode_approve_data(spender, amount):
@@ -220,6 +226,7 @@ async def approve_allowance() -> tuple[bool, str]:
                         abi_element_identifier="approve",
                         args=[spender, amount],
                     )
+
                 logger.debug("Relayer Path A: ABI encode via web3")
             except ImportError:
                 # web3 yoksa manuel hex encode
@@ -228,6 +235,7 @@ async def approve_allowance() -> tuple[bool, str]:
                     s = spender.lower().replace("0x", "").rjust(64, "0")
                     a = format(amount, "x").rjust(64, "0")
                     return "0x095ea7b3" + s + a
+
                 logger.info("Relayer Path A: web3 missing, using manual hex ABI encode")
 
         # ── Adım 2: Relayer çağrısı ──
@@ -244,21 +252,22 @@ async def approve_allowance() -> tuple[bool, str]:
         if RelayClient is not None and encode_approve_data is not None:
             try:
                 # SDK internal modüllerini import et
-                from py_builder_relayer_client.signer import Signer
-                from py_builder_relayer_client.config import get_contract_config
+                import requests as _requests
                 from py_builder_relayer_client.builder.safe import (
                     build_safe_transaction_request,
                 )
+                from py_builder_relayer_client.config import get_contract_config
+                from py_builder_relayer_client.endpoints import (
+                    GET_NONCE,
+                    SUBMIT_TRANSACTION,
+                )
                 from py_builder_relayer_client.models import (
+                    OperationType,
                     SafeTransaction,
                     SafeTransactionArgs,
-                    OperationType,
                     TransactionType,
                 )
-                from py_builder_relayer_client.endpoints import (
-                    GET_NONCE, GET_DEPLOYED, SUBMIT_TRANSACTION,
-                )
-                import requests as _requests
+                from py_builder_relayer_client.signer import Signer
 
                 # Signer + contract config (SDK'nın internal'ları)
                 signer = Signer(pk, 137)
@@ -286,14 +295,11 @@ async def approve_allowance() -> tuple[bool, str]:
                 logger.info(f"Relayer Path A: GET nonce {nonce_url}")
                 nonce_resp = await asyncio.get_running_loop().run_in_executor(
                     None,
-                    lambda: _requests.get(
-                        nonce_url, headers=relayer_headers, timeout=10
-                    ),
+                    lambda: _requests.get(nonce_url, headers=relayer_headers, timeout=10),
                 )
                 if nonce_resp.status_code != 200:
                     raise RuntimeError(
-                        f"GET /nonce {nonce_resp.status_code}: "
-                        f"{nonce_resp.text[:200]}"
+                        f"GET /nonce {nonce_resp.status_code}: " f"{nonce_resp.text[:200]}"
                     )
                 nonce_data = nonce_resp.json()
                 nonce = nonce_data.get("nonce")
@@ -327,10 +333,7 @@ async def approve_allowance() -> tuple[bool, str]:
 
                 # ── 2e: POST /submit — Relayer API Key headers ile ──
                 submit_url = f"{base_url}{SUBMIT_TRANSACTION}"
-                logger.info(
-                    f"Relayer Path A: POST {submit_url}, "
-                    f"3 approve txs, nonce={nonce}"
-                )
+                logger.info(f"Relayer Path A: POST {submit_url}, " f"3 approve txs, nonce={nonce}")
                 submit_resp = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: _requests.post(
@@ -343,16 +346,13 @@ async def approve_allowance() -> tuple[bool, str]:
 
                 if submit_resp.status_code != 200:
                     raise RuntimeError(
-                        f"POST /submit {submit_resp.status_code}: "
-                        f"{submit_resp.text[:300]}"
+                        f"POST /submit {submit_resp.status_code}: " f"{submit_resp.text[:300]}"
                     )
 
                 resp_json = submit_resp.json()
                 tx_id = resp_json.get("transactionID")
                 results.append(f"Relayer submit OK: tx_id={tx_id}")
-                logger.info(
-                    f"Relayer Path A SUCCESS: transactionID={tx_id}"
-                )
+                logger.info(f"Relayer Path A SUCCESS: transactionID={tx_id}")
 
                 return True, (
                     f"✅ <b>Approve TAMAM</b> (gasless via Polymarket Relayer)\n\n"
@@ -379,7 +379,8 @@ async def approve_allowance() -> tuple[bool, str]:
     # PATH B: CLOB SDK update_balance_allowance (best-effort)
     # ═══════════════════════════════════════════════════════════════
     try:
-        from py_clob_client_v2 import BalanceAllowanceParams, AssetType
+        from py_clob_client_v2 import AssetType, BalanceAllowanceParams
+
         client = _build_clob_client()
         if client is None:
             results.append("CLOB client unavailable")
@@ -398,16 +399,16 @@ async def approve_allowance() -> tuple[bool, str]:
 
             # Verify allowance
             try:
-                check_params = BalanceAllowanceParams(
-                    asset_type=AssetType.COLLATERAL
-                )
+                check_params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
                 balance_resp = await loop.run_in_executor(
                     None, lambda: client.get_balance_allowance(check_params)
                 )
                 if isinstance(balance_resp, dict):
                     # 2026-05-05 V2 API fix:
                     # V1: bal["allowance"] (string), V2: bal["allowances"] (dict)
-                    if "allowances" in balance_resp and isinstance(balance_resp["allowances"], dict):
+                    if "allowances" in balance_resp and isinstance(
+                        balance_resp["allowances"], dict
+                    ):
                         max_raw = max(
                             (int(v or 0) for v in balance_resp["allowances"].values()),
                             default=0,
@@ -469,9 +470,7 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
     pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
     relayer_key = os.getenv("RELAYER_API_KEY", "").strip()
     relayer_addr = os.getenv("RELAYER_API_KEY_ADDRESS", "").strip()
-    relayer_host = os.getenv(
-        "RELAYER_HOST", "https://relayer-v2.polymarket.com"
-    ).strip()
+    relayer_host = os.getenv("RELAYER_HOST", "https://relayer-v2.polymarket.com").strip()
 
     if not pk:
         return False, "POLYGON_PRIVATE_KEY env yok"
@@ -496,19 +495,22 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
     PARENT_ZERO = "0x" + "00" * 32
 
     try:
-        from py_builder_relayer_client.signer import Signer  # type: ignore
-        from py_builder_relayer_client.config import get_contract_config
+        import requests as _requests
         from py_builder_relayer_client.builder.safe import (
             build_safe_transaction_request,
         )
-        from py_builder_relayer_client.models import (
-            SafeTransaction, SafeTransactionArgs,
-            OperationType, TransactionType,
-        )
+        from py_builder_relayer_client.config import get_contract_config
         from py_builder_relayer_client.endpoints import (
-            GET_NONCE, SUBMIT_TRANSACTION,
+            GET_NONCE,
+            SUBMIT_TRANSACTION,
         )
-        import requests as _requests
+        from py_builder_relayer_client.models import (
+            OperationType,
+            SafeTransaction,
+            SafeTransactionArgs,
+            TransactionType,
+        )
+        from py_builder_relayer_client.signer import Signer  # type: ignore
 
         signer = Signer(pk, 137)
         contract_config = get_contract_config(137)
@@ -521,17 +523,21 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
         # Manuel ABI encode (web3 yoksa fallback)
         try:
             from web3 import Web3
+
             w3 = Web3()
-            ctf_abi = [{
-                "name": "redeemPositions", "type": "function",
-                "inputs": [
-                    {"name": "collateralToken", "type": "address"},
-                    {"name": "parentCollectionId", "type": "bytes32"},
-                    {"name": "conditionId", "type": "bytes32"},
-                    {"name": "indexSets", "type": "uint256[]"},
-                ],
-                "outputs": [],
-            }]
+            ctf_abi = [
+                {
+                    "name": "redeemPositions",
+                    "type": "function",
+                    "inputs": [
+                        {"name": "collateralToken", "type": "address"},
+                        {"name": "parentCollectionId", "type": "bytes32"},
+                        {"name": "conditionId", "type": "bytes32"},
+                        {"name": "indexSets", "type": "uint256[]"},
+                    ],
+                    "outputs": [],
+                }
+            ]
             ctf_contract = w3.eth.contract(address=CTF, abi=ctf_abi)
             data = ctf_contract.encode_abi(
                 abi_element_identifier="redeemPositions",
@@ -556,8 +562,14 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
             el1 = format(1, "x").rjust(64, "0")
             el2 = format(2, "x").rjust(64, "0")
             data = (
-                selector + collateral_param + parent_param + cond_param +
-                offset_param + arr_len + el1 + el2
+                selector
+                + collateral_param
+                + parent_param
+                + cond_param
+                + offset_param
+                + arr_len
+                + el1
+                + el2
             )
 
         relayer_headers = {
@@ -569,8 +581,7 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
 
         # Get nonce
         nonce_url = (
-            f"{base_url}{GET_NONCE}"
-            f"?address={from_address}&type={TransactionType.SAFE.value}"
+            f"{base_url}{GET_NONCE}" f"?address={from_address}&type={TransactionType.SAFE.value}"
         )
         logger.info(f"Redeem Path A: GET nonce {nonce_url}")
         nonce_resp = await loop.run_in_executor(
@@ -579,8 +590,7 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
         )
         if nonce_resp.status_code != 200:
             return False, (
-                f"❌ Redeem nonce fail {nonce_resp.status_code}: "
-                f"{nonce_resp.text[:200]}"
+                f"❌ Redeem nonce fail {nonce_resp.status_code}: " f"{nonce_resp.text[:200]}"
             )
         nonce = nonce_resp.json().get("nonce")
         logger.info(f"Redeem nonce={nonce}")
@@ -620,8 +630,7 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
 
         if submit_resp.status_code != 200:
             return False, (
-                f"❌ Redeem submit fail {submit_resp.status_code}: "
-                f"{submit_resp.text[:300]}"
+                f"❌ Redeem submit fail {submit_resp.status_code}: " f"{submit_resp.text[:300]}"
             )
 
         resp_json = submit_resp.json()
@@ -719,9 +728,7 @@ def withdraw_info(amount: Optional[float] = None) -> dict:
 def wallet_import_steps() -> dict:
     """Yeni Polymarket cüzdanı bot'a tanıtma talimatı."""
     return {
-        "step_1": (
-            "Yeni Rabby/MetaMask wallet oluştur (private key dışa al)."
-        ),
+        "step_1": ("Yeni Rabby/MetaMask wallet oluştur (private key dışa al)."),
         "step_2": (
             "Bu wallet ile polymarket.com'a login → CREATE2 ile yeni "
             "Gnosis Safe Proxy oluşur. Profile/Wallet sayfasında "

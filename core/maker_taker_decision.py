@@ -22,6 +22,7 @@ ZORUNLU PRE-REQ:
 Public API:
     decide_order_type(orderbook, urgency="normal") -> OrderDecision
 """
+
 from __future__ import annotations
 
 import logging
@@ -52,6 +53,7 @@ def _get_maker_enabled() -> bool:
 @dataclass
 class OrderDecision:
     """Output of decide_order_type."""
+
     order_type: str  # "GTC_POST_ONLY" | "FOK" | "FAK"
     role: str  # "maker" | "taker"
     estimated_fee_usd: float

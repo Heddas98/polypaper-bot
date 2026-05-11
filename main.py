@@ -15,6 +15,7 @@ Başlangıç sırası:
 Durdurma: /kill komutu (Telegram) veya data_store/polypaper.stop dosyası oluştur.
 Platform: Windows PC, Python 3.11.x
 """
+
 import asyncio
 import logging
 import logging.handlers
@@ -24,24 +25,26 @@ import sys
 # Load .env file if exists (PC/Cowork) — Replit uses Secrets instead
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed — env vars must be set manually
 
 from config.settings import Settings
-from db.database import Database
-from data.polymarket_client import PolymarketClient
-from data.market_scanner import MarketScanner
-from data.odds_feed import OddsFeed
-from data.websocket_client import PolymarketWebSocket
-from data.external_feed import ExternalFeed
-from data.binance_multistream import BinanceMultiStream  # Phase 44a
-from data.chainlink_oracle import ChainlinkOracle  # Phase 44b
 from core.engine import TradingEngine
+from data.binance_multistream import BinanceMultiStream  # Phase 44a
+
 # Phase 65: keepalive removed (Replit-only, Windows'ta gereksiz)
 # from core.keepalive import KeepAlive
 from data.candle_collector import CandleCollector
+from data.chainlink_oracle import ChainlinkOracle  # Phase 44b
+from data.external_feed import ExternalFeed
 from data.market_recorder import MarketRecorder
+from data.market_scanner import MarketScanner
+from data.odds_feed import OddsFeed
+from data.polymarket_client import PolymarketClient
+from data.websocket_client import PolymarketWebSocket
+from db.database import Database
 from telegram_bot.bot import PolyPaperBot
 from telegram_bot.version import BOT_VERSION  # T0.2: single source of truth
 
@@ -64,7 +67,8 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.handlers.RotatingFileHandler(
-            log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"),
+            log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        ),
     ],
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -79,6 +83,7 @@ logging.getLogger("asyncio").setLevel(logging.CRITICAL)  # HOTFIX: suppress WS t
 # scans. Filter drops the specific transient message; real errors still pass.
 class _PyClobTransientFilter(logging.Filter):
     """Drop transient HTTP/2 noise from py_clob_client_v2."""
+
     _NOISE_PATTERNS = (
         "Server disconnected",
         "RemoteProtocolError",
@@ -106,6 +111,7 @@ for _h in logging.getLogger().handlers:
 # Phase 48: install correlation-id filter on every root handler
 try:
     from core.observability import CorrelationFilter
+
     _cfilter = CorrelationFilter()
     for _h in logging.getLogger().handlers:
         _h.addFilter(_cfilter)
@@ -116,6 +122,7 @@ except Exception as _e:
             if not hasattr(record, "cid"):
                 record.cid = "-"
             return True
+
     for _h in logging.getLogger().handlers:
         _h.addFilter(_DefaultCidFilter())
 
@@ -130,15 +137,16 @@ logger = logging.getLogger("polypaper")
 # Disable scrub (NOT recommended): LOG_SECRET_SCRUB=false
 try:
     from core.structured_logging import setup_structured_logging
+
     _jsonl_handler = setup_structured_logging()
     if _jsonl_handler is not None:
-        logger.info("📝 Structured JSON logging active "
-                    "(data_store/structured.jsonl, 100MB×10 rotate)")
+        logger.info(
+            "📝 Structured JSON logging active " "(data_store/structured.jsonl, 100MB×10 rotate)"
+        )
 except Exception as _slog_err:  # noqa: BLE001
     # Defensive: never let logging setup crash the bot. Existing console
     # logs continue to work even if structured layer fails.
-    logger.warning(f"structured_logging setup failed: "
-                   f"{type(_slog_err).__name__}: {_slog_err}")
+    logger.warning(f"structured_logging setup failed: " f"{type(_slog_err).__name__}: {_slog_err}")
 
 # ═══ Phase 48 — Sentry (env-gated, optional) ═══
 # Set SENTRY_DSN in .env to enable. Without it, Sentry is fully no-op.
@@ -155,20 +163,22 @@ if _SENTRY_DSN:
             # so no extra "v" prefix in the release tag.
             release=os.getenv("SENTRY_RELEASE", f"polypaper-bot@{BOT_VERSION}"),
             # Breadcrumbs from INFO, events from ERROR+
-            integrations=[LoggingIntegration(
-                level=logging.INFO,
-                event_level=logging.ERROR,
-            )],
+            integrations=[
+                LoggingIntegration(
+                    level=logging.INFO,
+                    event_level=logging.ERROR,
+                )
+            ],
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
             # PII hygiene: we handle financial data, never send user content
             send_default_pii=False,
             max_breadcrumbs=50,
         )
-        logger.info("🛰 Sentry initialized (env=%s)",
-                    os.getenv("SENTRY_ENVIRONMENT", "production"))
+        logger.info("🛰 Sentry initialized (env=%s)", os.getenv("SENTRY_ENVIRONMENT", "production"))
     except ImportError:
-        logger.warning("⚠️ SENTRY_DSN set but sentry-sdk not installed; "
-                       "run: pip install sentry-sdk")
+        logger.warning(
+            "⚠️ SENTRY_DSN set but sentry-sdk not installed; " "run: pip install sentry-sdk"
+        )
     except Exception as _e:
         logger.warning(f"⚠️ Sentry init failed: {_e}")
 else:
@@ -183,11 +193,10 @@ def _acquire_instance_lock() -> bool:
     lock_path = os.path.join(LOG_DIR, "polypaper.lock")
     try:
         if os.path.exists(lock_path):
-            with open(lock_path, "r") as f:
+            with open(lock_path) as f:
                 old_pid = f.read().strip()
             # Check if the old PID is still alive (Windows compatible)
             if old_pid.isdigit():
-                import signal
                 try:
                     os.kill(int(old_pid), 0)  # signal 0 = check existence
                     logger.error(
@@ -213,7 +222,7 @@ def _release_instance_lock():
     lock_path = os.path.join(LOG_DIR, "polypaper.lock")
     try:
         if os.path.exists(lock_path):
-            with open(lock_path, "r") as f:
+            with open(lock_path) as f:
                 pid = f.read().strip()
             if pid == str(os.getpid()):
                 os.remove(lock_path)
@@ -240,6 +249,7 @@ async def main():
     # instead of mid-trade.
     try:
         from config.validator import validate_settings
+
         cfg_errors = validate_settings(settings)
         if cfg_errors:
             for _err in cfg_errors:
@@ -249,7 +259,9 @@ async def main():
                 logger.critical("LIVE_ENABLED with config errors → aborting")
                 raise SystemExit(2)
             else:
-                logger.warning("⚠️ Config errors detected but LIVE disabled — continuing in paper mode")
+                logger.warning(
+                    "⚠️ Config errors detected but LIVE disabled — continuing in paper mode"
+                )
         else:
             logger.info("✅ Config validated")
     except ImportError:
@@ -265,6 +277,7 @@ async def main():
     ws_available = True
     try:
         import websockets
+
         logger.info("✅ websockets package found → dual-source mode")
     except ImportError:
         ws_available = False
@@ -331,9 +344,14 @@ async def main():
     engine.market_recorder = market_recorder
 
     bot = PolyPaperBot(
-        settings=settings, db=db, scanner=scanner,
-        engine=engine, odds_feed=odds_feed, poly_client=poly_client,
-        ws_client=ws_client)
+        settings=settings,
+        db=db,
+        scanner=scanner,
+        engine=engine,
+        odds_feed=odds_feed,
+        poly_client=poly_client,
+        ws_client=ws_client,
+    )
 
     # Phase 65: keepalive removed (Replit-only HTTP server, Windows'ta gereksiz)
     keepalive = None

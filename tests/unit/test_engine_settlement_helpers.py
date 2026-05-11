@@ -17,6 +17,7 @@ Out-of-scope (→ T9.8):
   * `_ai_trade_analysis` / `_close` / `_notify` — DB + AI brain + TG
   * `_count` / `_count_losses` / `_get_avg_slippage` — DB reads
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,14 +29,15 @@ from core.engine_settlement import EngineSettlementMixin
 
 class _SettlementHarness(EngineSettlementMixin):
     """Minimal stub — no state, relies on hasattr check in the method."""
+
     pass
 
 
 class TestGetSettleLock:
     """Phase 54 P0-05: `_get_settle_lock` must:
-      1. Lazy-init the `_settle_locks` dict on first access
-      2. Return the SAME lock for the same slug (prevents race regression)
-      3. Return DIFFERENT locks for different slugs (market isolation)
+    1. Lazy-init the `_settle_locks` dict on first access
+    2. Return the SAME lock for the same slug (prevents race regression)
+    3. Return DIFFERENT locks for different slugs (market isolation)
     """
 
     def test_first_call_lazy_inits_dict(self):
@@ -69,6 +71,7 @@ class TestGetSettleLock:
 
     def test_lock_is_functional_async(self):
         """The returned lock must actually gate concurrent coroutines."""
+
         async def scenario():
             h = _SettlementHarness()
             lock = h._get_settle_lock("test-slug")

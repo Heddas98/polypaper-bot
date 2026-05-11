@@ -38,6 +38,7 @@ ENV:
   BG_TASK_HISTORY_SIZE          (default 50)   # recent errors retained
   BG_TASK_NOTIFY_ENABLED        (default "1")  # 0 = log only
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -47,15 +48,14 @@ import os
 import time
 import traceback
 from collections import deque
-from typing import Any, Awaitable, Callable, Deque, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any, Deque, Optional
 
 logger = logging.getLogger("polypaper.bg_task")
 
 # ── Module-level state ────────────────────────────────────────────────
 _BG_TASK_REGISTRY: dict[str, dict] = {}
-_RECENT_ERRORS: Deque[dict] = deque(
-    maxlen=int(os.getenv("BG_TASK_HISTORY_SIZE", "50"))
-)
+_RECENT_ERRORS: Deque[dict] = deque(maxlen=int(os.getenv("BG_TASK_HISTORY_SIZE", "50")))
 _NOTIFY_COOLDOWN: dict[str, float] = {}
 _NOTIFY_HANDLER: Optional[Callable[[str, str, str], Awaitable[None]]] = None
 _NOTIFY_ENABLED = os.getenv("BG_TASK_NOTIFY_ENABLED", "1") in ("1", "true", "True", "yes", "on")
@@ -127,6 +127,7 @@ def safe_create_task(
     Returns:
       The created asyncio.Task.
     """
+
     async def _wrapped():
         started = time.time()
         _BG_TASK_REGISTRY[name] = {
@@ -151,9 +152,7 @@ def safe_create_task(
             # of the wrapper. CancelledError is re-raised above at L130.
             tb = traceback.format_exc()
             err_short = f"{type(e).__name__}: {str(e)[:250]}"
-            logger.error(
-                "bg_task[%s] FAILED: %s\n%s", name, err_short, tb
-            )
+            logger.error("bg_task[%s] FAILED: %s\n%s", name, err_short, tb)
             # Update registry
             reg = _BG_TASK_REGISTRY.setdefault(name, {"name": name})
             reg["state"] = "failed"
@@ -163,12 +162,14 @@ def safe_create_task(
             reg["error_count"] = reg.get("error_count", 0) + 1
 
             # Append to ring buffer
-            _RECENT_ERRORS.append({
-                "name": name,
-                "error": err_short,
-                "ts": time.time(),
-                "traceback": tb[-500:],
-            })
+            _RECENT_ERRORS.append(
+                {
+                    "name": name,
+                    "error": err_short,
+                    "ts": time.time(),
+                    "traceback": tb[-500:],
+                }
+            )
 
             # Telegram notify (rate-limited)
             if notify and _NOTIFY_HANDLER and _should_notify(name):
@@ -182,10 +183,7 @@ def safe_create_task(
                     # leak here would corrupt the bg_task guard itself.
                     # Docstring at set_notify_handler explicitly warns
                     # that exceptions will be swallowed.
-                    logger.warning(
-                        "bg_task[%s] notify handler failed: %s",
-                        name, notify_err
-                    )
+                    logger.warning("bg_task[%s] notify handler failed: %s", name, notify_err)
 
             # Custom cleanup
             if on_error is not None:
@@ -199,10 +197,7 @@ def safe_create_task(
                     # would corrupt the bg_task guard itself after we've
                     # already handled the original exception. Intentional
                     # guard-of-guard.
-                    logger.warning(
-                        "bg_task[%s] on_error hook failed: %s",
-                        name, hook_err
-                    )
+                    logger.warning("bg_task[%s] on_error hook failed: %s", name, hook_err)
 
             if reraise:
                 raise
@@ -222,10 +217,12 @@ def safe_create_task(
     _BG_TASK_OBJECTS.add(task)
     task.add_done_callback(_BG_TASK_OBJECTS.discard)
     # Pre-populate registry so /diagnose can see "pending" tasks
-    _BG_TASK_REGISTRY.setdefault(name, {}).update({
-        "name": name,
-        "state": "pending",
-    })
+    _BG_TASK_REGISTRY.setdefault(name, {}).update(
+        {
+            "name": name,
+            "state": "pending",
+        }
+    )
     return task
 
 
@@ -236,10 +233,7 @@ def get_registry_snapshot() -> dict[str, dict]:
     be emitted to Telegram / JSON responses.
     """
     return {
-        name: {
-            k: v for k, v in info.items()
-            if k not in ("task",)
-        }
+        name: {k: v for k, v in info.items() if k not in ("task",)}
         for name, info in _BG_TASK_REGISTRY.items()
     }
 
@@ -278,6 +272,7 @@ def make_telegram_notify_handler(
 
     Call from bot startup: `set_notify_handler(make_telegram_notify_handler(app, ADMIN_ID))`
     """
+
     async def _handler(task_name: str, err_short: str, tb_snippet: str):
         try:
             safe_err = html.escape(err_short)
@@ -291,9 +286,7 @@ def make_telegram_notify_handler(
                 f"<i>Full traceback in logs. /diagnose to list recent errors.</i>"
             )
             await bot_app.bot.send_message(
-                chat_id=admin_chat_id,
-                text=msg[:4000],
-                parse_mode="HTML"
+                chat_id=admin_chat_id, text=msg[:4000], parse_mode="HTML"
             )
         except Exception as e:  # noqa: BLE001 - T1.4 Faz 3: telegram SDK umbrella
             # python-telegram-bot's send_message can raise various

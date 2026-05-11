@@ -3,14 +3,15 @@ Phase 47f.7+ Maintenance Jobs
 =============================
 Daily DB snapshot + 10-min heartbeat ping. Wired in bot.py via JobQueue.
 """
+
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
-import os
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telegram.error import TelegramError
@@ -72,8 +73,7 @@ def _load_manifest() -> dict:
             return {"version": 1, "snapshots": []}
         return data
     except (OSError, json.JSONDecodeError) as e:
-        logger.warning(f"[manifest] load failed ({type(e).__name__}: {e}) "
-                       "— re-initializing")
+        logger.warning(f"[manifest] load failed ({type(e).__name__}: {e}) " "— re-initializing")
         return {"version": 1, "snapshots": []}
 
 
@@ -91,14 +91,13 @@ def _read_schema_version() -> int | None:
     """P0-05b: Read current schema_version from DB without aiosqlite."""
     try:
         import sqlite3
-        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True,
-                             timeout=5.0) as conn:
+
+        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=5.0) as conn:
             cur = conn.execute("SELECT MAX(version) FROM schema_version")
             row = cur.fetchone()
             return int(row[0]) if row and row[0] is not None else None
     except (sqlite3.Error, OSError, ValueError) as e:
-        logger.warning(f"[manifest] schema_version read failed: "
-                       f"{type(e).__name__}: {e}")
+        logger.warning(f"[manifest] schema_version read failed: " f"{type(e).__name__}: {e}")
         return None
 
 
@@ -154,11 +153,12 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 ghost.unlink()
                 logger.info(f"[snapshot] cleaned ghost tmp: {ghost.name}")
             except OSError as e:
-                logger.warning(f"[snapshot] ghost tmp cleanup failed "
-                               f"{ghost.name}: {e}")
+                logger.warning(f"[snapshot] ghost tmp cleanup failed " f"{ghost.name}: {e}")
+
+        import time as _time
 
         import aiosqlite
-        import time as _time
+
         t0 = _time.monotonic()
 
         # Phase 82b.6 — SEPARATE connection (read-only). Engine connection
@@ -166,6 +166,7 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         # Phase 82e Sprint 2.2 — open with retry + immutable=1 fallback so
         # transient WAL checkpoints can't silently kill the backup.
         from db.ro_connect import open_ro_aiosqlite
+
         source = await open_ro_aiosqlite(DB_PATH, connect_timeout_s=60.0)
         try:
             async with aiosqlite.connect(str(dest_tmp), timeout=60) as target:
@@ -198,8 +199,7 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             if dest_tmp.exists():
                 try:
                     dest_tmp.unlink()
-                    logger.warning(f"[snapshot] cleaned failed tmp: "
-                                   f"{dest_tmp.name}")
+                    logger.warning(f"[snapshot] cleaned failed tmp: " f"{dest_tmp.name}")
                 except OSError as e:
                     logger.warning(f"[snapshot] failed tmp cleanup failed: {e}")
 
@@ -228,33 +228,31 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 "filename": dest.name,
                 "sha256": sha256_hex,
                 "size_bytes": size_bytes,
-                "created_utc": datetime.now(timezone.utc)
-                .strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "created_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "schema_version": schema_v,
             }
             # Replace any existing entry with same filename (re-run on same
             # day overwrites). Then append new entry.
             manifest["snapshots"] = [
-                e for e in manifest.get("snapshots", [])
-                if e.get("filename") != dest.name
+                e for e in manifest.get("snapshots", []) if e.get("filename") != dest.name
             ]
             manifest["snapshots"].append(entry)
             # Prune entries for files that no longer exist on disk
             extant = {p.name for p in BACKUP_DIR.glob("polypaper_*.db")}
             manifest["snapshots"] = [
-                e for e in manifest["snapshots"]
-                if e.get("filename") in extant
+                e for e in manifest["snapshots"] if e.get("filename") in extant
             ]
             _save_manifest(manifest)
         except (OSError, KeyError, TypeError) as e:
             # Manifest update failure is non-fatal: snapshot file itself is
             # already on disk (atomic rename succeeded above). Log + continue.
-            logger.warning(f"[manifest] update failed: "
-                           f"{type(e).__name__}: {e}")
+            logger.warning(f"[manifest] update failed: " f"{type(e).__name__}: {e}")
 
         size_mb = size_bytes / (1024 * 1024)
-        logger.info(f"[snapshot] {dest.name} ({size_mb:.1f} MB) created "
-                    f"in {elapsed:.1f}s sha256={sha256_hex[:12]}…")
+        logger.info(
+            f"[snapshot] {dest.name} ({size_mb:.1f} MB) created "
+            f"in {elapsed:.1f}s sha256={sha256_hex[:12]}…"
+        )
 
         admin_id = resolve_admin_chat_id()
         if admin_id:
@@ -271,12 +269,11 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     ),
                     parse_mode="HTML",
                 )
-            except (TelegramError, asyncio.TimeoutError) as e:
+            except (TimeoutError, TelegramError) as e:
                 # T11.8-B (2026-04-24): narrow from bare Exception. send_
                 # message TelegramError + transport timeout. Snapshot itself
                 # already succeeded and was logged; notify is best-effort.
-                logger.warning(f"[snapshot] notify failed: "
-                               f"{type(e).__name__}: {e}")
+                logger.warning(f"[snapshot] notify failed: " f"{type(e).__name__}: {e}")
     except Exception as e:  # noqa: BLE001
         # T11.8-B (2026-04-24): outermost job-runner wrapper intentionally
         # wide. Daily snapshot touches OS / aiosqlite / file system — many
@@ -321,6 +318,7 @@ async def wal_checkpoint_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         import time as _time
+
         wal_path = DB_PATH.with_name(DB_PATH.name + "-wal")
         size_before = wal_path.stat().st_size if wal_path.exists() else 0
 
@@ -383,8 +381,9 @@ async def heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         pnl_warn = (pnl <= -0.8 * max_loss) and not halted
         warn_triggered = pnl_warn and not prev_warn
 
-        logger.info(f"💓 [heartbeat] halted={halted} pnl={pnl:+.2f}/"
-                    f"{-max_loss:+.2f} streak={streak}")
+        logger.info(
+            f"💓 [heartbeat] halted={halted} pnl={pnl:+.2f}/" f"{-max_loss:+.2f} streak={streak}"
+        )
 
         # Ping admin on: halt state change, 80% warning crossing, or every 6 cycles
         cycle = prev.get("cycle", 0) + 1
@@ -410,17 +409,21 @@ async def heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     if warn_triggered:
                         msg += "\n⚠️ <b>Günlük zararın %80'i aşıldı</b>"
                     await context.bot.send_message(
-                        chat_id=admin_id, text=msg, parse_mode="HTML",
+                        chat_id=admin_id,
+                        text=msg,
+                        parse_mode="HTML",
                     )
-                except (TelegramError, asyncio.TimeoutError) as e:
+                except (TimeoutError, TelegramError) as e:
                     # T11.8-B (2026-04-24): narrow from bare Exception.
                     # Heartbeat send is best-effort; transport failure is
                     # logged but doesn't break the cycle bookkeeping below.
-                    logger.warning(f"[heartbeat] notify failed: "
-                                   f"{type(e).__name__}: {e}")
+                    logger.warning(f"[heartbeat] notify failed: " f"{type(e).__name__}: {e}")
 
         context.application.bot_data["_hb_prev"] = {
-            "halted": halted, "pnl": pnl, "streak": streak, "cycle": cycle,
+            "halted": halted,
+            "pnl": pnl,
+            "streak": streak,
+            "cycle": cycle,
             "pnl_warn": pnl_warn,
         }
     except Exception as e:  # noqa: BLE001

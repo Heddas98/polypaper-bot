@@ -50,15 +50,16 @@ ENV (tuning, all optional):
   POLYPAPER_DB              (default "data_store/polypaper.db")
   ARCHIVE_READER_SQLITE_TIMEOUT  (default 30)  # seconds
 """
+
 from __future__ import annotations
 
 import glob
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Optional
 
 logger = logging.getLogger("polypaper.archive_reader")
 
@@ -80,16 +81,14 @@ def _env_int(key: str, default: int) -> int:
 
 
 def _env_bool(key: str, default: bool = True) -> bool:
-    return os.getenv(key, "1" if default else "0").strip() in (
-        "1", "true", "True", "yes", "on"
-    )
+    return os.getenv(key, "1" if default else "0").strip() in ("1", "true", "True", "yes", "on")
 
 
 def _format_ts(ts_ms: int) -> str:
     if not ts_ms:
         return "N/A"
     try:
-        return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(ts_ms / 1000, tz=UTC).isoformat()
     except Exception:
         return str(ts_ms)
 
@@ -108,12 +107,8 @@ class ArchiveReader:
         db_path: Optional[Path] = None,
         archive_dir: Optional[Path] = None,
     ):
-        self.db_path = Path(
-            db_path or os.getenv("POLYPAPER_DB", str(_DEFAULT_DB_PATH))
-        )
-        self.archive_dir = Path(
-            archive_dir or os.getenv("ARCHIVE_DIR", str(_DEFAULT_ARCHIVE_DIR))
-        )
+        self.db_path = Path(db_path or os.getenv("POLYPAPER_DB", str(_DEFAULT_DB_PATH)))
+        self.archive_dir = Path(archive_dir or os.getenv("ARCHIVE_DIR", str(_DEFAULT_ARCHIVE_DIR)))
         self.sqlite_timeout = _env_int("ARCHIVE_READER_SQLITE_TIMEOUT", 30)
 
         # Lazy check of duckdb availability
@@ -130,6 +125,7 @@ class ArchiveReader:
         still get a plain sqlite3.Connection.
         """
         from db.ro_connect import open_ro_connection
+
         return open_ro_connection(
             self.db_path,
             busy_timeout_ms=self.sqlite_timeout * 1000,
@@ -153,13 +149,12 @@ class ArchiveReader:
             return None
         try:
             import duckdb  # type: ignore
+
             con = duckdb.connect(":memory:")
             # Speed: single-threaded is typically faster for parquet scans
             # on these file sizes. Users can override via DUCKDB_THREADS env.
             try:
-                con.execute(
-                    f"SET threads TO {_env_int('DUCKDB_THREADS', 2)}"
-                )
+                con.execute(f"SET threads TO {_env_int('DUCKDB_THREADS', 2)}")
             except Exception:
                 pass
             self._duckdb_available = True
@@ -181,16 +176,15 @@ class ArchiveReader:
             "parquet_files": len(self._parquet_files()),
         }
         info["parquet_size_mb"] = round(
-            sum(
-                os.path.getsize(f) for f in self._parquet_files()
-            ) / (1024 * 1024),
+            sum(os.path.getsize(f) for f in self._parquet_files()) / (1024 * 1024),
             2,
         )
         # Ranges
         try:
             hot_min, hot_max = self._hot_range()
             info["hot_range"] = {
-                "min_ms": hot_min, "max_ms": hot_max,
+                "min_ms": hot_min,
+                "max_ms": hot_max,
                 "min_iso": _format_ts(hot_min),
                 "max_iso": _format_ts(hot_max),
             }
@@ -199,7 +193,8 @@ class ArchiveReader:
         try:
             cold_min, cold_max = self._cold_range()
             info["cold_range"] = {
-                "min_ms": cold_min, "max_ms": cold_max,
+                "min_ms": cold_min,
+                "max_ms": cold_max,
                 "min_iso": _format_ts(cold_min),
                 "max_iso": _format_ts(cold_max),
             }
@@ -212,9 +207,7 @@ class ArchiveReader:
         if not self._hot_available():
             return 0, 0
         with self._hot_connect() as conn:
-            row = conn.execute(
-                "SELECT MIN(ts_ms), MAX(ts_ms) FROM ob_snapshots"
-            ).fetchone()
+            row = conn.execute("SELECT MIN(ts_ms), MAX(ts_ms) FROM ob_snapshots").fetchone()
         return (row[0] or 0, row[1] or 0) if row else (0, 0)
 
     def _cold_range(self) -> tuple[int, int]:
@@ -226,8 +219,7 @@ class ArchiveReader:
             return 0, 0
         try:
             row = con.execute(
-                f"SELECT MIN(ts_ms), MAX(ts_ms) "
-                f"FROM read_parquet('{self._parquet_glob()}')"
+                f"SELECT MIN(ts_ms), MAX(ts_ms) " f"FROM read_parquet('{self._parquet_glob()}')"
             ).fetchone()
             return (row[0] or 0, row[1] or 0) if row else (0, 0)
         finally:
@@ -240,9 +232,7 @@ class ArchiveReader:
         if self._hot_available():
             try:
                 with self._hot_connect() as conn:
-                    row = conn.execute(
-                        "SELECT MAX(ts_ms) FROM ob_snapshots"
-                    ).fetchone()
+                    row = conn.execute("SELECT MAX(ts_ms) FROM ob_snapshots").fetchone()
                     hot_max = (row[0] or 0) if row else 0
             except Exception as e:
                 logger.warning(f"hot MAX(ts_ms) failed: {e}")
@@ -253,8 +243,7 @@ class ArchiveReader:
             if con is not None:
                 try:
                     row = con.execute(
-                        f"SELECT MAX(ts_ms) "
-                        f"FROM read_parquet('{self._parquet_glob()}')"
+                        f"SELECT MAX(ts_ms) " f"FROM read_parquet('{self._parquet_glob()}')"
                     ).fetchone()
                     cold_max = (row[0] or 0) if row else 0
                 except Exception as e:
@@ -269,9 +258,7 @@ class ArchiveReader:
         if self._hot_available():
             try:
                 with self._hot_connect() as conn:
-                    rows = conn.execute(
-                        "PRAGMA table_info(ob_snapshots)"
-                    ).fetchall()
+                    rows = conn.execute("PRAGMA table_info(ob_snapshots)").fetchall()
                     return [r[1] for r in rows]
             except Exception as e:
                 logger.warning(f"PRAGMA table_info failed: {e}")
@@ -381,17 +368,25 @@ class ArchiveReader:
         # Merge — key is (slug, market_start_time)
         merged: dict[tuple, dict] = {}
         for row in list(rows_hot) + list(rows_cold):
-            (slug, asset, timeframe, up_token_id, down_token_id,
-             mkt_start, mkt_end, first_ms, last_ms, cnt) = row
+            (
+                slug,
+                asset,
+                timeframe,
+                up_token_id,
+                down_token_id,
+                mkt_start,
+                mkt_end,
+                first_ms,
+                last_ms,
+                cnt,
+            ) = row
             key = (slug, mkt_start)
             if key in merged:
                 existing = merged[key]
-                existing["first_snap_ms"] = min(
-                    existing["first_snap_ms"], first_ms or 0
-                ) or existing["first_snap_ms"]
-                existing["last_snap_ms"] = max(
-                    existing["last_snap_ms"], last_ms or 0
+                existing["first_snap_ms"] = (
+                    min(existing["first_snap_ms"], first_ms or 0) or existing["first_snap_ms"]
                 )
+                existing["last_snap_ms"] = max(existing["last_snap_ms"], last_ms or 0)
                 existing["snap_count"] += cnt
             else:
                 merged[key] = {
@@ -413,7 +408,10 @@ class ArchiveReader:
         windows = sorted(merged.values(), key=lambda w: w["first_snap_ms"])
         logger.info(
             "ArchiveReader.discover: %d windows (hot=%d, cold=%d, merged=%d)",
-            len(windows), len(rows_hot), len(rows_cold), len(windows),
+            len(windows),
+            len(rows_hot),
+            len(rows_cold),
+            len(windows),
         )
         return windows
 
@@ -465,19 +463,12 @@ class ArchiveReader:
                         f"WHERE slug = ? AND ts_ms >= ? AND ts_ms <= ? "
                         f"ORDER BY ts_ms ASC"
                     )
-                    rows_cold_raw = con.execute(
-                        q, [slug, int(ts_from), int(ts_to)]
-                    ).fetchall()
-                    cold_cols = [
-                        d[0] for d in con.description
-                    ] if con.description else cols
+                    rows_cold_raw = con.execute(q, [slug, int(ts_from), int(ts_to)]).fetchall()
+                    cold_cols = [d[0] for d in con.description] if con.description else cols
                     # Re-map cold rows to hot column order
                     col_index = {c: i for i, c in enumerate(cold_cols)}
                     rows_cold = [
-                        tuple(
-                            r[col_index[c]] if c in col_index else None
-                            for c in cols
-                        )
+                        tuple(r[col_index[c]] if c in col_index else None for c in cols)
                         for r in rows_cold_raw
                     ]
                 except Exception as e:
@@ -493,7 +484,7 @@ class ArchiveReader:
 
         combined = list(rows_hot) + list(rows_cold)
         combined.sort(key=lambda r: r[ts_idx] if r[ts_idx] is not None else 0)
-        return [dict(zip(cols, row)) for row in combined]
+        return [dict(zip(cols, row, strict=False)) for row in combined]
 
     # ── Public: raw row counts (for diagnostics) ─────────────────────
     def count_rows(self) -> dict:
@@ -502,9 +493,7 @@ class ArchiveReader:
         if self._hot_available():
             try:
                 with self._hot_connect() as conn:
-                    result["hot"] = conn.execute(
-                        "SELECT COUNT(*) FROM ob_snapshots"
-                    ).fetchone()[0]
+                    result["hot"] = conn.execute("SELECT COUNT(*) FROM ob_snapshots").fetchone()[0]
             except Exception:
                 pass
         if self._parquet_files():

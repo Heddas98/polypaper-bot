@@ -4,14 +4,16 @@ WS-first: if WebSocket has fresh price, skip REST entirely.
 This reduces engine cycle from ~6s to <1s.
 Phase 56: 429 retry + configurable timeout.
 """
+
 import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import httpx
+
 from config.settings import Settings
 from core.observability.rest_timing import time_call
 
@@ -39,14 +41,18 @@ def safe_float(val, default=None) -> Optional[float]:
 class PolymarketClient:
     GAMMA_BASE = "https://gamma-api.polymarket.com"
     CLOB_BASE = "https://clob.polymarket.com"
-    SLUG_PREFIXES = {"BTC": "btc-updown", "ETH": "eth-updown",
-                     "SOL": "sol-updown", "XRP": "xrp-updown"}
+    SLUG_PREFIXES = {
+        "BTC": "btc-updown",
+        "ETH": "eth-updown",
+        "SOL": "sol-updown",
+        "XRP": "xrp-updown",
+    }
 
     def __init__(self, settings: Settings, ws_client=None):
         self.settings = settings
         self._client = httpx.AsyncClient(
-            timeout=CLOB_TIMEOUT,
-            headers={"Accept": "application/json"})
+            timeout=CLOB_TIMEOUT, headers={"Accept": "application/json"}
+        )
         self._events_cache: list[dict] = []
         self._events_ts: float = 0
         self.ws = ws_client
@@ -55,9 +61,13 @@ class PolymarketClient:
     async def close(self):
         await self._client.aclose()
 
-    async def _get_with_retry(self, url: str, params: dict | None = None,
-                              timeout: float | None = None,
-                              label: str | None = None) -> httpx.Response | None:
+    async def _get_with_retry(
+        self,
+        url: str,
+        params: dict | None = None,
+        timeout: float | None = None,
+        label: str | None = None,
+    ) -> httpx.Response | None:
         """Phase 56: GET with 429 exponential backoff retry.
         Returns Response on success (any 2xx/4xx), None on total failure.
 
@@ -73,15 +83,16 @@ class PolymarketClient:
                     r = await self._client.get(url, params=params, timeout=t)
                 if r.status_code == 429:
                     self._429_count += 1
-                    wait = min(2 ** attempt, 8)  # 1s, 2s, 4s, 8s
+                    wait = min(2**attempt, 8)  # 1s, 2s, 4s, 8s
                     if self._429_count <= 5 or self._429_count % 50 == 0:
                         logger.warning(
                             f"⚠️ 429 rate-limited (#{self._429_count}) "
-                            f"on {url.split('/')[-1]}, retry in {wait}s")
+                            f"on {url.split('/')[-1]}, retry in {wait}s"
+                        )
                     await asyncio.sleep(wait)
                     continue
                 return r
-            except (httpx.HTTPError, asyncio.TimeoutError):
+            except (TimeoutError, httpx.HTTPError):
                 # T11.8-B (2026-04-24): narrow from bare Exception. httpx
                 # raises HTTPError (base of TimeoutException/ConnectError/
                 # NetworkError); asyncio.TimeoutError covers older asyncio
@@ -101,8 +112,8 @@ class PolymarketClient:
 
         # Source 2: REST (Phase 56: with 429 retry)
         r = await self._get_with_retry(
-            f"{self.CLOB_BASE}/price",
-            params={"token_id": token_id, "side": side}, timeout=3.0)
+            f"{self.CLOB_BASE}/price", params={"token_id": token_id, "side": side}, timeout=3.0
+        )
         if r and r.status_code == 200:
             p = safe_float(r.json().get("price"))
             if p and 0.01 < p < 0.99:
@@ -117,8 +128,8 @@ class PolymarketClient:
         try:
             async with time_call("clob.midpoint"):
                 r = await self._client.get(
-                    f"{self.CLOB_BASE}/midpoint",
-                    params={"token_id": token_id}, timeout=3.0)
+                    f"{self.CLOB_BASE}/midpoint", params={"token_id": token_id}, timeout=3.0
+                )
             if r.status_code == 200:
                 return safe_float(r.json().get("mid"))
         except Exception:  # noqa: BLE001
@@ -133,9 +144,16 @@ class PolymarketClient:
             return None
         up_tok, dn_tok = tokens[0], (tokens[1] if len(tokens) > 1 else None)
 
-        result = {"up_odds": None, "down_odds": None, "up_token": up_tok,
-                  "down_token": dn_tok, "spread": None, "has_liquidity": False,
-                  "best_ask_up": None, "best_bid_up": None}
+        result = {
+            "up_odds": None,
+            "down_odds": None,
+            "up_token": up_tok,
+            "down_token": dn_tok,
+            "spread": None,
+            "has_liquidity": False,
+            "best_ask_up": None,
+            "best_bid_up": None,
+        }
 
         if up_tok:
             ask = await self.get_live_price(up_tok, "BUY")
@@ -166,8 +184,9 @@ class PolymarketClient:
 
     # ═══ MARKET DISCOVERY ═══
 
-    async def discover_active_markets(self, asset="BTC", timeframe="15m",
-                                       series_id: int | None = None):
+    async def discover_active_markets(
+        self, asset="BTC", timeframe="15m", series_id: int | None = None
+    ):
         """Discover active Up/Down markets for asset+timeframe.
 
         Three discovery paths:
@@ -199,7 +218,7 @@ class PolymarketClient:
                 timeout=5.0,
                 label="gamma.events.series",
             )
-        except (httpx.HTTPError, asyncio.TimeoutError):
+        except (TimeoutError, httpx.HTTPError):
             return []
         if not r or r.status_code != 200:
             return []
@@ -209,10 +228,10 @@ class PolymarketClient:
             return []
         if not isinstance(data, list):
             return []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         found = []
         for ev in data:
-            for m in (ev.get("markets") or []):
+            for m in ev.get("markets") or []:
                 if m.get("closed"):
                     continue
                 end = self._parse_dt(m.get("endDate") or ev.get("endDate"))
@@ -226,12 +245,9 @@ class PolymarketClient:
         # silently failed / not running". 1h was suspected missing in a
         # log snippet where only series_id=41 (24h) showed up.
         if found:
-            logger.info(
-                f"Series: {len(found)} {asset} {tf} (series_id={series_id})")
+            logger.info(f"Series: {len(found)} {asset} {tf} (series_id={series_id})")
         else:
-            logger.info(
-                f"Series: 0 {asset} {tf} (series_id={series_id}) "
-                f"— no active markets")
+            logger.info(f"Series: 0 {asset} {tf} (series_id={series_id}) " f"— no active markets")
         return found
 
     async def _discover_by_slug(self, asset, tf):
@@ -239,7 +255,7 @@ class PolymarketClient:
         if not prefix:
             return []
         interval = INTERVAL_SECS[tf]
-        now_ts = int(datetime.now(timezone.utc).timestamp())
+        now_ts = int(datetime.now(UTC).timestamp())
         current = now_ts - (now_ts % interval)
         found = []
         for ts in [current - interval, current, current + interval]:
@@ -247,7 +263,7 @@ class PolymarketClient:
             m = await self._query_slug(slug)
             if m and not m.get("closed", False):
                 end = self._parse_dt(m.get("endDate"))
-                if end and end <= datetime.now(timezone.utc):
+                if end and end <= datetime.now(UTC):
                     continue
                 found.append(m)
         found.sort(key=lambda m: m.get("endDate", "z"))
@@ -261,14 +277,16 @@ class PolymarketClient:
     async def _query_slug(self, slug):
         # Phase 56: 429 retry on Gamma API
         r = await self._get_with_retry(
-            f"{self.GAMMA_BASE}/events", params={"slug": slug}, timeout=4.0)
+            f"{self.GAMMA_BASE}/events", params={"slug": slug}, timeout=4.0
+        )
         if r and r.status_code == 200:
             data = r.json()
             if isinstance(data, list) and data:
                 mkts = data[0].get("markets", [])
                 return mkts[0] if mkts else data[0]
         r = await self._get_with_retry(
-            f"{self.GAMMA_BASE}/markets", params={"slug": slug}, timeout=4.0)
+            f"{self.GAMMA_BASE}/markets", params={"slug": slug}, timeout=4.0
+        )
         if r and r.status_code == 200:
             data = r.json()
             if isinstance(data, list) and data:
@@ -279,7 +297,7 @@ class PolymarketClient:
         await self._refresh_events_cache()
         prefix = self.SLUG_PREFIXES.get(asset.upper(), "btc-updown")
         target = f"{prefix}-{tf}-"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         max_f = MAX_FUTURE.get(tf, timedelta(hours=12))
         found = []
         for ev in self._events_cache:
@@ -293,7 +311,7 @@ class PolymarketClient:
         return found
 
     async def _refresh_events_cache(self):
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         if self._events_cache and (now - self._events_ts) < 25:
             return
         events = []
@@ -302,8 +320,16 @@ class PolymarketClient:
                 async with time_call("gamma.events"):
                     r = await self._client.get(
                         f"{self.GAMMA_BASE}/events",
-                        params={"active": "true", "closed": "false", "limit": 50,
-                                "offset": offset, "order": "id", "ascending": "false"}, timeout=5.0)
+                        params={
+                            "active": "true",
+                            "closed": "false",
+                            "limit": 50,
+                            "offset": offset,
+                            "order": "id",
+                            "ascending": "false",
+                        },
+                        timeout=5.0,
+                    )
                 if r.status_code != 200:
                     break
                 batch = r.json()
@@ -312,8 +338,7 @@ class PolymarketClient:
                 events.extend(batch)
                 if len(batch) < 50:
                     break
-            except (httpx.HTTPError, asyncio.TimeoutError,
-                    json.JSONDecodeError, ValueError):
+            except (TimeoutError, httpx.HTTPError, json.JSONDecodeError, ValueError):
                 # T11.8-B (2026-04-24): narrow from bare Exception. httpx
                 # request errors + r.json() parse failures end the pagination
                 # loop early. We keep partial `events` already collected.
@@ -329,28 +354,33 @@ class PolymarketClient:
         try:
             async with time_call("clob.orderbook"):
                 r = await self._client.get(
-                    f"{self.CLOB_BASE}/book",
-                    params={"token_id": token_id}, timeout=3.0)
+                    f"{self.CLOB_BASE}/book", params={"token_id": token_id}, timeout=3.0
+                )
             if r.status_code == 200:
                 data = r.json()
                 asks = []
                 bids = []
-                for a in (data.get("asks") or []):
+                for a in data.get("asks") or []:
                     p = float(a.get("price", 0))
                     s = float(a.get("size", 0))
                     if p > 0 and s > 0:
                         asks.append([p, s])
-                for b in (data.get("bids") or []):
+                for b in data.get("bids") or []:
                     p = float(b.get("price", 0))
                     s = float(b.get("size", 0))
                     if p > 0 and s > 0:
                         bids.append([p, s])
-                asks.sort(key=lambda x: x[0])      # low → high
-                bids.sort(key=lambda x: -x[0])      # high → low
+                asks.sort(key=lambda x: x[0])  # low → high
+                bids.sort(key=lambda x: -x[0])  # high → low
                 return {"asks": asks, "bids": bids}
-        except (httpx.HTTPError, asyncio.TimeoutError,
-                json.JSONDecodeError, ValueError, TypeError,
-                AttributeError) as e:
+        except (
+            TimeoutError,
+            httpx.HTTPError,
+            json.JSONDecodeError,
+            ValueError,
+            TypeError,
+            AttributeError,
+        ) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. httpx network
             # errors + JSON parse + float() coercion of dict-shape responses
             # surface here. Debug-log + None return is intentional (orderbook
@@ -413,8 +443,7 @@ class PolymarketClient:
     BULK_ORDER_MAX = 15
     BULK_ORDER_ENDPOINT = "/orders"  # plural — V2 SDK docs
 
-    async def post_orders_bulk(self, signed_orders: list[dict],
-                                clob_client=None) -> dict:
+    async def post_orders_bulk(self, signed_orders: list[dict], clob_client=None) -> dict:
         """Submit bulk signed orders to Polymarket V2 CLOB.
 
         Args:
@@ -446,14 +475,23 @@ class PolymarketClient:
           - Fallback: tek POST /order (mevcut path) yine çalışır
         """
         if not signed_orders:
-            return {"results": [], "submitted": 0, "succeeded": 0,
-                    "failed": 0, "error": "empty list"}
+            return {
+                "results": [],
+                "submitted": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "error": "empty list",
+            }
 
         if len(signed_orders) > self.BULK_ORDER_MAX:
-            return {"results": [], "submitted": 0, "succeeded": 0,
-                    "failed": 0, "count": len(signed_orders),
-                    "error": f"bulk limit {self.BULK_ORDER_MAX}, "
-                             f"got {len(signed_orders)}"}
+            return {
+                "results": [],
+                "submitted": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "count": len(signed_orders),
+                "error": f"bulk limit {self.BULK_ORDER_MAX}, " f"got {len(signed_orders)}",
+            }
 
         # PATH 1: V2 SDK native (preferred)
         if clob_client is not None:
@@ -461,41 +499,54 @@ class PolymarketClient:
                 method = getattr(clob_client, "post_orders", None)
                 if method is not None:
                     import asyncio as _asyncio
+
                     loop = _asyncio.get_running_loop()
-                    response = await loop.run_in_executor(
-                        None, lambda: method(signed_orders))
+                    response = await loop.run_in_executor(None, lambda: method(signed_orders))
                     return self._parse_bulk_response(response, signed_orders)
             except Exception as e:  # noqa: BLE001 — SDK fallback
                 logger.warning(
-                    f"post_orders SDK failed ({type(e).__name__}: {e}); "
-                    f"falling back to httpx")
+                    f"post_orders SDK failed ({type(e).__name__}: {e}); " f"falling back to httpx"
+                )
 
         # PATH 2: httpx direct (fallback)
         try:
             import httpx as _httpx
+
             url = f"{self.CLOB_BASE}{self.BULK_ORDER_ENDPOINT}"
             payload = {"orders": signed_orders}
             async with _httpx.AsyncClient(timeout=10.0) as cli:
                 r = await cli.post(url, json=payload)
             if r.status_code != 200:
-                return {"results": [], "submitted": 0, "succeeded": 0,
-                        "failed": len(signed_orders),
-                        "count": len(signed_orders),
-                        "error": f"HTTP {r.status_code}: {r.text[:200]}"}
-            return self._parse_bulk_response(r.json(), signed_orders)
-        except Exception as e:  # noqa: BLE001
-            return {"results": [], "submitted": 0, "succeeded": 0,
+                return {
+                    "results": [],
+                    "submitted": 0,
+                    "succeeded": 0,
                     "failed": len(signed_orders),
                     "count": len(signed_orders),
-                    "error": f"{type(e).__name__}: {e}"}
+                    "error": f"HTTP {r.status_code}: {r.text[:200]}",
+                }
+            return self._parse_bulk_response(r.json(), signed_orders)
+        except Exception as e:  # noqa: BLE001
+            return {
+                "results": [],
+                "submitted": 0,
+                "succeeded": 0,
+                "failed": len(signed_orders),
+                "count": len(signed_orders),
+                "error": f"{type(e).__name__}: {e}",
+            }
 
     def _parse_bulk_response(self, response, signed_orders: list[dict]) -> dict:
         """Normalize bulk response to {results, submitted, succeeded, failed}."""
         if not isinstance(response, dict):
-            return {"results": [], "submitted": 0, "succeeded": 0,
-                    "failed": len(signed_orders),
-                    "count": len(signed_orders),
-                    "error": f"non-dict response: {type(response).__name__}"}
+            return {
+                "results": [],
+                "submitted": 0,
+                "succeeded": 0,
+                "failed": len(signed_orders),
+                "count": len(signed_orders),
+                "error": f"non-dict response: {type(response).__name__}",
+            }
 
         # V2 SDK shape: {"results": [{"id": "...", "status": "placed"}, ...]}
         # Alt shape: {"orders": [...]}
@@ -503,9 +554,11 @@ class PolymarketClient:
         if not isinstance(results, list):
             results = []
 
-        succeeded = sum(1 for r in results
-                        if isinstance(r, dict)
-                        and r.get("status") in ("placed", "live", "matched", "filled"))
+        succeeded = sum(
+            1
+            for r in results
+            if isinstance(r, dict) and r.get("status") in ("placed", "live", "matched", "filled")
+        )
         failed = len(signed_orders) - succeeded
 
         return {
@@ -536,8 +589,8 @@ class PolymarketClient:
         try:
             async with time_call("gamma.markets.slug"):
                 r = await self._client.get(
-                    f"{self.GAMMA_BASE}/markets",
-                    params={"slug": slug}, timeout=4.0)
+                    f"{self.GAMMA_BASE}/markets", params={"slug": slug}, timeout=4.0
+                )
             if not r or r.status_code != 200:
                 return None
             data = r.json()
@@ -586,15 +639,20 @@ class PolymarketClient:
                     return "up"
                 if p0 <= 0.01:
                     return "down"
-        except (httpx.HTTPError, asyncio.TimeoutError,
-                json.JSONDecodeError, ValueError, TypeError,
-                AttributeError, KeyError) as e:
+        except (
+            TimeoutError,
+            httpx.HTTPError,
+            json.JSONDecodeError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+        ) as e:
             # T11.8-B (2026-04-24): narrow from bare Exception. Wraps full
             # gamma fetch + dict/list parse + outcome list iteration. Inner
             # try blocks already narrow individual coercion failures; outer
             # catch is the network/shape guard.
-            logger.debug(f"check_market_resolved({slug}): "
-                         f"{type(e).__name__}: {e}")
+            logger.debug(f"check_market_resolved({slug}): " f"{type(e).__name__}: {e}")
         return None
 
     async def get_resolution_price(self, token_id: str) -> Optional[float]:
@@ -620,8 +678,8 @@ class PolymarketClient:
 
         # Source 2: REST CLOB /price (filtresiz)
         r = await self._get_with_retry(
-            f"{self.CLOB_BASE}/price",
-            params={"token_id": token_id, "side": "BUY"}, timeout=3.0)
+            f"{self.CLOB_BASE}/price", params={"token_id": token_id, "side": "BUY"}, timeout=3.0
+        )
         if r and r.status_code == 200:
             try:
                 pf = float(r.json().get("price", 0))
@@ -635,13 +693,12 @@ class PolymarketClient:
         try:
             async with time_call("clob.time"):
                 r = await self._client.get(f"{self.CLOB_BASE}/time", timeout=5.0)
-            return int(r.text) if r.status_code == 200 else int(datetime.now(timezone.utc).timestamp())
-        except (httpx.HTTPError, asyncio.TimeoutError,
-                ValueError, AttributeError):
+            return int(r.text) if r.status_code == 200 else int(datetime.now(UTC).timestamp())
+        except (TimeoutError, httpx.HTTPError, ValueError, AttributeError):
             # T11.8-B (2026-04-24): narrow from bare Exception. httpx
             # transport errors + int(r.text) ValueError + r.text on unset
             # response (AttributeError). Local time fallback is correct.
-            return int(datetime.now(timezone.utc).timestamp())
+            return int(datetime.now(UTC).timestamp())
 
     def _extract_token_ids(self, market):
         ct = market.get("clobTokenIds")
@@ -676,7 +733,9 @@ class PolymarketClient:
             except json.JSONDecodeError:
                 op = []
         return {
-            "slug": slug, "asset": asset, "timeframe": tf,
+            "slug": slug,
+            "asset": asset,
+            "timeframe": tf,
             "question": market.get("question", ""),
             "up_token_id": ct[0] if ct else None,
             "down_token_id": ct[1] if len(ct) > 1 else None,
@@ -690,11 +749,13 @@ class PolymarketClient:
     async def get_price_history(self, token_id, interval="1h", fidelity=60):
         try:
             async with time_call("clob.prices_history"):
-                r = await self._client.get(f"{self.CLOB_BASE}/prices-history",
-                                           params={"market": token_id, "interval": interval, "fidelity": fidelity}, timeout=4.0)
+                r = await self._client.get(
+                    f"{self.CLOB_BASE}/prices-history",
+                    params={"market": token_id, "interval": interval, "fidelity": fidelity},
+                    timeout=4.0,
+                )
             return r.json().get("history", []) if r.status_code == 200 else []
-        except (httpx.HTTPError, asyncio.TimeoutError,
-                json.JSONDecodeError, ValueError, AttributeError):
+        except (TimeoutError, httpx.HTTPError, json.JSONDecodeError, ValueError, AttributeError):
             # T11.8-B (2026-04-24): narrow from bare Exception. httpx
             # transport + .json() parse + .get() on non-dict surface here.
             # Empty list is a valid signal-fusion fallback.

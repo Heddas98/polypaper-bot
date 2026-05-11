@@ -32,16 +32,16 @@ Usage:
 Bot durdurulmasina gerek yok — sadece audit tablo + external_prices'tan okur,
 ana DB schema'sini bozmaz.
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sqlite3
 import statistics
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -63,15 +63,14 @@ def _iso_to_ms(iso_str: str) -> int | None:
         return None
     try:
         s = iso_str.rstrip("Z")
-        dt = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+        dt = datetime.fromisoformat(s).replace(tzinfo=UTC)
         return int(dt.timestamp() * 1000)
     except (ValueError, TypeError):
         return None
 
 
 def _ms_to_iso(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime(
-        "%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # -------------------------------------------------------------
@@ -98,7 +97,8 @@ def cmd_backfill(args: argparse.Namespace) -> int:
            FROM executions
            WHERE status = 'claimed'
              AND closed_at IS NOT NULL
-             AND event_slug IS NOT NULL""")
+             AND event_slug IS NOT NULL"""
+    )
     rows = cur.fetchall()
     print(f"[backfill] {len(rows)} closed executions in DB")
 
@@ -124,8 +124,8 @@ def cmd_backfill(args: argparse.Namespace) -> int:
         # asset + tf inference (slug_utils available on PYTHONPATH)
         try:
             sys.path.insert(0, str(REPO_ROOT))
-            from core.slug_utils import (
-                infer_asset_from_slug, infer_tf_from_slug)
+            from core.slug_utils import infer_asset_from_slug, infer_tf_from_slug
+
             asset = infer_asset_from_slug(slug) or ""
             tf = infer_tf_from_slug(slug) or ""
         except ImportError:
@@ -140,8 +140,8 @@ def cmd_backfill(args: argparse.Namespace) -> int:
                 """SELECT source, price FROM external_prices
                    WHERE symbol = ? AND ts_ms BETWEEN ? AND ?
                    ORDER BY ABS(ts_ms - ?) ASC""",
-                (symbol, settle_ts_ms - 5000, settle_ts_ms + 5000,
-                 settle_ts_ms))
+                (symbol, settle_ts_ms - 5000, settle_ts_ms + 5000, settle_ts_ms),
+            )
             seen_src = set()
             for src, price in ext_cur.fetchall():
                 if src in seen_src:
@@ -165,10 +165,10 @@ def cmd_backfill(args: argparse.Namespace) -> int:
         # Map executions.result -> settle_outcome
         if outcome_text in ("won", "lost"):
             settle_outcome = (
-                str(r["direction"]).upper() if outcome_text == "won"
-                else (
-                    "UP" if str(r["direction"]).lower() == "down"
-                    else "DOWN"))
+                str(r["direction"]).upper()
+                if outcome_text == "won"
+                else ("UP" if str(r["direction"]).lower() == "down" else "DOWN")
+            )
         else:
             settle_outcome = None
 
@@ -181,25 +181,34 @@ def cmd_backfill(args: argparse.Namespace) -> int:
                     bot_chainlink_price, dev_binance_bps, dev_chainlink_bps,
                     settle_outcome, data_quality, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (settle_ts_ms, slug, r["market_token_id"] or "", slug,
-                 asset, tf,
-                 None,
-                 bot_rest, bot_ws, bot_cl,
-                 None, None,
-                 settle_outcome, data_quality,
-                 _ms_to_iso(int(time.time() * 1000))))
+                (
+                    settle_ts_ms,
+                    slug,
+                    r["market_token_id"] or "",
+                    slug,
+                    asset,
+                    tf,
+                    None,
+                    bot_rest,
+                    bot_ws,
+                    bot_cl,
+                    None,
+                    None,
+                    settle_outcome,
+                    data_quality,
+                    _ms_to_iso(int(time.time() * 1000)),
+                ),
+            )
             if conn.total_changes > inserted + skipped:
                 inserted += 1
             else:
                 skipped += 1
         except sqlite3.Error as e:
-            print(f"[backfill] insert failed for {slug}: {e}",
-                  file=sys.stderr)
+            print(f"[backfill] insert failed for {slug}: {e}", file=sys.stderr)
 
     conn.commit()
     conn.close()
-    print(f"[backfill] inserted={inserted} skipped(existing)={skipped} "
-          f"no_timestamp={no_ts}")
+    print(f"[backfill] inserted={inserted} skipped(existing)={skipped} " f"no_timestamp={no_ts}")
     return 0
 
 
@@ -208,8 +217,9 @@ def cmd_backfill(args: argparse.Namespace) -> int:
 # -------------------------------------------------------------
 
 
-async def _fetch_kline_close(httpx_module, client, symbol: str, interval: str,
-                             start_ms: int, end_ms: int) -> float | None:
+async def _fetch_kline_close(
+    httpx_module, client, symbol: str, interval: str, start_ms: int, end_ms: int
+) -> float | None:
     """Fetch the Binance kline close that brackets start_ms..end_ms.
 
     Returns the close price of the kline whose openTime >= start_ms.
@@ -242,8 +252,10 @@ async def _fetch_kline_close(httpx_module, client, symbol: str, interval: str,
                 best_dist = dist
         return best
     except (httpx_module.HTTPError, ValueError, TypeError, IndexError) as e:
-        print(f"[fetch] kline {symbol}@{interval}@{start_ms} failed: "
-              f"{type(e).__name__}: {e}", file=sys.stderr)
+        print(
+            f"[fetch] kline {symbol}@{interval}@{start_ms} failed: " f"{type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
         return None
 
 
@@ -266,7 +278,9 @@ async def _fetch_references_async(args) -> int:
            WHERE data_quality = 'missing_resolution'
              AND asset != ''
              AND timeframe != ''
-             AND settle_ts_ms >= ?""", (cutoff_ms,))
+             AND settle_ts_ms >= ?""",
+        (cutoff_ms,),
+    )
     rows = cur.fetchall()
     print(f"[fetch] {len(rows)} audit rows need resolution price")
 
@@ -280,8 +294,8 @@ async def _fetch_references_async(args) -> int:
             symbol = f"{asset}USDT"
 
             official = await _fetch_kline_close(
-                httpx, client, symbol, interval,
-                r["settle_ts_ms"], r["settle_ts_ms"])
+                httpx, client, symbol, interval, r["settle_ts_ms"], r["settle_ts_ms"]
+            )
 
             if official is None or official <= 0:
                 failed += 1
@@ -307,8 +321,8 @@ async def _fetch_references_async(args) -> int:
                            dev_chainlink_bps = ?,
                            data_quality = 'ok'
                        WHERE condition_id = ? AND settle_ts_ms = ?""",
-                    (official, dev_b, cl_bps, r["condition_id"],
-                     r["settle_ts_ms"]))
+                    (official, dev_b, cl_bps, r["condition_id"], r["settle_ts_ms"]),
+                )
                 enriched += 1
             except sqlite3.Error as e:
                 print(f"[fetch] update failed: {e}", file=sys.stderr)
@@ -352,7 +366,8 @@ def cmd_report(args: argparse.Namespace) -> int:
     cur = conn.execute(
         """SELECT * FROM reference_price_audit
            WHERE settle_ts_ms >= ? ORDER BY settle_ts_ms DESC""",
-        (cutoff_ms,))
+        (cutoff_ms,),
+    )
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
 
@@ -365,16 +380,17 @@ def cmd_report(args: argparse.Namespace) -> int:
     lines.append("")
 
     if not rows:
-        lines.append("> No audit data in window. Bot may not have settled "
-                     "any trades, or settle hook is disabled.")
+        lines.append(
+            "> No audit data in window. Bot may not have settled "
+            "any trades, or settle hook is disabled."
+        )
         _emit_report(args, lines)
         return 0
 
     # Data quality breakdown
     by_quality: dict[str, int] = {}
     for r in rows:
-        by_quality[r["data_quality"]] = by_quality.get(
-            r["data_quality"], 0) + 1
+        by_quality[r["data_quality"]] = by_quality.get(r["data_quality"], 0) + 1
     lines.append("## Data Quality")
     lines.append("")
     for q, n in sorted(by_quality.items()):
@@ -387,25 +403,26 @@ def cmd_report(args: argparse.Namespace) -> int:
     if not ok_rows:
         lines.append("## Statistics")
         lines.append("")
-        lines.append("> No rows with full data quality. Run "
-                     "`--fetch-references` to enrich.")
+        lines.append("> No rows with full data quality. Run " "`--fetch-references` to enrich.")
         _emit_report(args, lines)
         return 0
 
     # Per-(asset, tf, source) stats
     lines.append("## Per (asset, tf, source) Statistics")
     lines.append("")
-    lines.append("| Asset | TF | Source | N | mean_bps | "
-                 "median_bps | p95_bps | p99_bps | bias |")
-    lines.append("|-------|----|----|---:|---------:|"
-                 "---------:|--------:|--------:|----|")
+    lines.append(
+        "| Asset | TF | Source | N | mean_bps | " "median_bps | p95_bps | p99_bps | bias |"
+    )
+    lines.append("|-------|----|----|---:|---------:|" "---------:|--------:|--------:|----|")
 
     groups: dict[tuple, list[tuple[str, float]]] = {}
     for r in ok_rows:
         a = r["asset"] or "?"
         tf = r["timeframe"] or "?"
-        for src_label, val in (("binance", r["dev_binance_bps"]),
-                               ("chainlink", r["dev_chainlink_bps"])):
+        for src_label, val in (
+            ("binance", r["dev_binance_bps"]),
+            ("chainlink", r["dev_chainlink_bps"]),
+        ):
             if val is None:
                 continue
             key = (a, tf, src_label)
@@ -419,8 +436,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         median_bps = statistics.median(vals)
         p95 = _percentile(vals, 95)
         p99 = _percentile(vals, 99)
-        bias = "🔴" if abs(mean_bps) > 5 else (
-            "🟡" if abs(mean_bps) > 2 else "🟢")
+        bias = "🔴" if abs(mean_bps) > 5 else ("🟡" if abs(mean_bps) > 2 else "🟢")
         lines.append(
             f"| {a} | {tf} | {src} | {n} | {mean_bps:+.2f} | "
             f"{median_bps:+.2f} | {p95:+.2f} | {p99:+.2f} | {bias} |"
@@ -432,28 +448,30 @@ def cmd_report(args: argparse.Namespace) -> int:
     # Worst 10 deviations
     worst: list[tuple[float, dict, str]] = []
     for r in ok_rows:
-        for src_label, val in (("binance", r["dev_binance_bps"]),
-                               ("chainlink", r["dev_chainlink_bps"])):
+        for src_label, val in (
+            ("binance", r["dev_binance_bps"]),
+            ("chainlink", r["dev_chainlink_bps"]),
+        ):
             if val is not None:
                 worst.append((abs(val), r, src_label))
     worst.sort(key=lambda x: x[0], reverse=True)
 
     lines.append("## Worst 10 Deviations")
     lines.append("")
-    lines.append("| When (UTC) | Asset/TF | Source | dev_bps | "
-                 "Local | Official | Slug |")
-    lines.append("|------------|---------|--------|--------:|"
-                 "-------:|---------:|------|")
+    lines.append("| When (UTC) | Asset/TF | Source | dev_bps | " "Local | Official | Slug |")
+    lines.append("|------------|---------|--------|--------:|" "-------:|---------:|------|")
     for abs_v, r, src in worst[:10]:
         when = _ms_to_iso(r["settle_ts_ms"])
-        local = (r["bot_binance_ws_price"]
-                 if src == "binance" and r["bot_binance_ws_price"]
-                 else r["bot_binance_rest_price"]
-                 if src == "binance" else r["bot_chainlink_price"])
+        local = (
+            r["bot_binance_ws_price"]
+            if src == "binance" and r["bot_binance_ws_price"]
+            else r["bot_binance_rest_price"]
+            if src == "binance"
+            else r["bot_chainlink_price"]
+        )
         a_tf = f"{r['asset']}/{r['timeframe']}"
         slug_disp = (r["slug"] or "")[:48]
-        bps_val = (r["dev_binance_bps"] if src == "binance"
-                   else r["dev_chainlink_bps"])
+        bps_val = r["dev_binance_bps"] if src == "binance" else r["dev_chainlink_bps"]
         lines.append(
             f"| {when} | {a_tf} | {src} | {bps_val:+.2f} | "
             f"{local} | {r['official_resolution_price']} | "
@@ -466,8 +484,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     for key, vals in groups.items():
         if abs(statistics.fmean(vals)) > 5:
             a, tf, src = key
-            alarms.append(f"({a}/{tf}/{src}) mean="
-                          f"{statistics.fmean(vals):+.2f} bps")
+            alarms.append(f"({a}/{tf}/{src}) mean=" f"{statistics.fmean(vals):+.2f} bps")
     lines.append("## Alarms")
     lines.append("")
     if alarms:
@@ -501,16 +518,16 @@ def _emit_report(args, lines):
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        prog="audit_reference_price",
-        description="P0-07: PolyPaper reference price feed audit.")
+        prog="audit_reference_price", description="P0-07: PolyPaper reference price feed audit."
+    )
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--backfill", action="store_true")
     g.add_argument("--fetch-references", action="store_true")
     g.add_argument("--report", action="store_true")
-    g.add_argument("--all", action="store_true",
-                   help="run --backfill + --fetch-references + --report")
-    p.add_argument("--days", type=int, default=7,
-                   help="lookback window in days (default 7)")
+    g.add_argument(
+        "--all", action="store_true", help="run --backfill + --fetch-references + --report"
+    )
+    p.add_argument("--days", type=int, default=7, help="lookback window in days (default 7)")
     p.add_argument("--output", help="markdown output path (only --report)")
     args = p.parse_args()
 

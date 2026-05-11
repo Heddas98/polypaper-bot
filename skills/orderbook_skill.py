@@ -8,21 +8,22 @@ Provides:
     - compute_imbalance(): Bid-ask depth imbalance
     - depth_at_level(): USD depth at specific price levels
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class MicropriceResult:
     """Microprice calculation result."""
-    microprice: float = 0.0      # Volume-weighted mid
-    mid_price: float = 0.0       # Simple (bid+ask)/2
-    imbalance: float = 0.0       # [-1, 1]: positive = more bids
-    bid_depth_usd: float = 0.0   # Total bid USD (top N levels)
-    ask_depth_usd: float = 0.0   # Total ask USD
-    spread: float = 0.0          # ask - bid
+
+    microprice: float = 0.0  # Volume-weighted mid
+    mid_price: float = 0.0  # Simple (bid+ask)/2
+    imbalance: float = 0.0  # [-1, 1]: positive = more bids
+    bid_depth_usd: float = 0.0  # Total bid USD (top N levels)
+    ask_depth_usd: float = 0.0  # Total ask USD
+    spread: float = 0.0  # ask - bid
 
 
 def compute_microprice(
@@ -83,9 +84,7 @@ def compute_microprice(
     total_vol = bid_vol + ask_vol
     if total_vol > 0:
         # Microprice formula
-        result.microprice = round(
-            (bid_vol * best_ask + ask_vol * best_bid) / total_vol, 4
-        )
+        result.microprice = round((bid_vol * best_ask + ask_vol * best_bid) / total_vol, 4)
         result.imbalance = round((bid_vol - ask_vol) / total_vol, 4)
     else:
         result.microprice = result.mid_price

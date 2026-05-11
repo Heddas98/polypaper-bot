@@ -16,12 +16,13 @@ Panel icerigi:
 Yeni satir uretimi /settle aninda live hook (P0-07-b) ile otomatik yapilir;
 backfill icin `py -3.11 scripts/audit_reference_price.py --all --days 7`.
 """
+
 from __future__ import annotations
 
 import logging
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import escape as _esc
 
 from telegram import Update
@@ -31,12 +32,10 @@ logger = logging.getLogger("polypaper.telegram.ref_audit")
 
 
 def _ms_to_iso(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime(
-        "%Y-%m-%d %H:%M UTC")
+    return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
-async def ref_audit_command(update: Update,
-                             context: ContextTypes.DEFAULT_TYPE):
+async def ref_audit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/ref_audit (alias /ra) — last 7 days reference price audit summary."""
     db = context.bot_data.get("db")
     if db is None or db.conn is None:
@@ -51,7 +50,9 @@ async def ref_audit_command(update: Update,
             """SELECT data_quality, COUNT(*)
                FROM reference_price_audit
                WHERE settle_ts_ms >= ?
-               GROUP BY data_quality""", (cutoff_ms,)) as cur:
+               GROUP BY data_quality""",
+            (cutoff_ms,),
+        ) as cur:
             quality_counts = {q: n for q, n in await cur.fetchall()}
 
         total = sum(quality_counts.values())
@@ -64,7 +65,7 @@ async def ref_audit_command(update: Update,
                 "(<code>REFERENCE_PRICE_AUDIT_ENABLED=false</code>).\n\n"
                 "Backfill: <code>py -3.11 scripts/audit_reference_price.py "
                 "--all --days 7</code>",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return
 
@@ -73,7 +74,8 @@ async def ref_audit_command(update: Update,
             """SELECT asset, timeframe, dev_binance_bps, dev_chainlink_bps
                FROM reference_price_audit
                WHERE settle_ts_ms >= ? AND data_quality = 'ok'""",
-            (cutoff_ms,)) as cur:
+            (cutoff_ms,),
+        ) as cur:
             ok_rows = await cur.fetchall()
 
         groups: dict[tuple[str, str, str], list[float]] = {}
@@ -91,18 +93,16 @@ async def ref_audit_command(update: Update,
                       official_resolution_price
                FROM reference_price_audit
                WHERE settle_ts_ms >= ? AND data_quality = 'ok'""",
-            (cutoff_ms,)) as cur:
+            (cutoff_ms,),
+        ) as cur:
             audit_rows = await cur.fetchall()
 
         worst_candidates: list[tuple[float, tuple]] = []
         for r in audit_rows:
             ts, a, tf, slug, dev_b, dev_cl, ws_p, cl_p, off = r
-            for src, val, local in (("binance", dev_b, ws_p),
-                                     ("chainlink", dev_cl, cl_p)):
+            for src, val, local in (("binance", dev_b, ws_p), ("chainlink", dev_cl, cl_p)):
                 if val is not None:
-                    worst_candidates.append(
-                        (abs(val),
-                         (ts, a, tf, slug, src, val, local, off)))
+                    worst_candidates.append((abs(val), (ts, a, tf, slug, src, val, local, off)))
         worst_candidates.sort(key=lambda x: x[0], reverse=True)
         top3 = worst_candidates[:3]
 
@@ -115,17 +115,16 @@ async def ref_audit_command(update: Update,
         lines.append("<b>Data Quality:</b>")
         for q, n in sorted(quality_counts.items()):
             pct = 100 * n / total if total else 0
-            emoji = "OK" if q == "ok" else (
-                "WAIT" if q == "missing_resolution" else "MISS")
-            lines.append(
-                f"  [{emoji}] <code>{_esc(q)}</code>: {n} ({pct:.0f}%)")
+            emoji = "OK" if q == "ok" else ("WAIT" if q == "missing_resolution" else "MISS")
+            lines.append(f"  [{emoji}] <code>{_esc(q)}</code>: {n} ({pct:.0f}%)")
         lines.append("")
 
         if not groups:
-            lines.append("<i>Hicbir satirda full data quality yok. "
-                         "<code>--fetch-references</code> calistir.</i>")
-            await update.message.reply_text(
-                "\n".join(lines), parse_mode="HTML")
+            lines.append(
+                "<i>Hicbir satirda full data quality yok. "
+                "<code>--fetch-references</code> calistir.</i>"
+            )
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
             return
 
         # Bias table
@@ -145,8 +144,8 @@ async def ref_audit_command(update: Update,
             else:
                 tag = "GRN"
             lines.append(
-                f"  [{tag}] {asset}/{tf}/{src} (n={n}) "
-                f"mean=<code>{mean_bps:+.2f}</code> bps")
+                f"  [{tag}] {asset}/{tf}/{src} (n={n}) " f"mean=<code>{mean_bps:+.2f}</code> bps"
+            )
         lines.append("")
 
         # Worst 3
@@ -161,28 +160,27 @@ async def ref_audit_command(update: Update,
                     f"local=<code>{local_str}</code> vs "
                     f"official=<code>{off_str}</code>"
                 )
-                lines.append(
-                    f"    {_ms_to_iso(ts)}  "
-                    f"<code>{_esc(slug_disp)}</code>")
+                lines.append(f"    {_ms_to_iso(ts)}  " f"<code>{_esc(slug_disp)}</code>")
             lines.append("")
 
         # Alarms
         if alarms:
-            lines.append("<b>[!] EDGE ESTIMATE INVALID</b> "
-                         "(systematic bias > 5 bps):")
+            lines.append("<b>[!] EDGE ESTIMATE INVALID</b> " "(systematic bias > 5 bps):")
             for a in alarms:
                 lines.append(f"  - <code>{_esc(a)}</code>")
         else:
             lines.append("<b>[OK]</b> Hicbir grupta sistemik bias > 5 bps.")
 
         lines.append("")
-        lines.append("<i>Detayli markdown rapor: "
-                     "<code>scripts/audit_reference_price.py --report</code></i>")
+        lines.append(
+            "<i>Detayli markdown rapor: "
+            "<code>scripts/audit_reference_price.py --report</code></i>"
+        )
 
         msg = "\n".join(lines)
         await update.message.reply_text(msg, parse_mode="HTML")
 
     except Exception as e:  # noqa: BLE001
+        # T11.6 doctrine: exception details go to log only.
         logger.exception(f"/ref_audit failed: {e}")
-        await update.message.reply_text(
-            f"Audit panel uretilemedi: {type(e).__name__}: {e}")
+        await update.message.reply_text("Audit panel üretilemedi. Logları kontrol edin.")

@@ -17,6 +17,7 @@ Out-of-scope (→ T9.8):
     all DB-heavy async orchestration paths.
   * `_startup_auto_resume` — DB read/write.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -25,8 +26,8 @@ import pytest
 
 from core import auto_optimizer as ao
 
-
 # ═══ _get_pnl_pause_threshold ═══════════════════════════════════════════
+
 
 class TestPnlPauseThreshold:
     def test_default(self, monkeypatch):
@@ -51,6 +52,7 @@ class TestPnlPauseThreshold:
 
 
 # ═══ _get_rolling_wr_window / _get_rolling_wr_kill_threshold (T7.6 B8) ═══
+
 
 class TestRollingWrWindow:
     def test_default_20(self, monkeypatch):
@@ -88,6 +90,7 @@ class TestRollingWrKillThreshold:
 
 # ═══ _is_protected_type (Phase 82e hotfix) ═════════════════════════════
 
+
 class TestIsProtectedType:
     def test_classic_is_protected(self):
         """Default PROTECTED_STRATEGY_TYPES = {'classic'}."""
@@ -122,6 +125,7 @@ class TestIsProtectedType:
 
 
 # ═══ _adaptive_pnl_threshold (Phase 56 P1-05) ══════════════════════════
+
 
 class TestAdaptivePnlThreshold:
     """More trades → more lenient (looser) threshold.

@@ -1,4 +1,4 @@
-"""
+r"""
 Sprint 2 Karar Gate — 17 Mayıs 2026 Drift Hesaplama
 =====================================================
 Heddas direktifi: Sprint 2 SHADOW ACTIVE 14 gün, 17 Mayıs gate'te
@@ -21,12 +21,13 @@ Sprint 2 PASS kriterleri (5AI synthesis):
   - 0 critical bug
   - kill-switch tetiklemedi
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Project root path
@@ -36,13 +37,12 @@ sys.path.insert(0, str(ROOT))
 # pylint: disable=wrong-import-position
 import aiosqlite
 
-
 DB_PATH = os.getenv("DATABASE_URL", "data_store/polypaper.db").replace("sqlite:///", "")
 
 
 async def fetch_pnl_stats(days: int = 14) -> dict:
     """Son N gün için paper + live PnL + trade counts."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
     async with aiosqlite.connect(DB_PATH) as db:
         # Paper PnL (executions table)
@@ -57,8 +57,7 @@ async def fetch_pnl_stats(days: int = 14) -> dict:
 
         # Live PnL (live_trades table)
         async with db.execute(
-            "SELECT COUNT(*), COALESCE(SUM(pnl), 0) FROM live_trades "
-            "WHERE created_at > ?",
+            "SELECT COUNT(*), COALESCE(SUM(pnl), 0) FROM live_trades " "WHERE created_at > ?",
             (cutoff,),
         ) as cur:
             row = await cur.fetchone()
@@ -68,8 +67,7 @@ async def fetch_pnl_stats(days: int = 14) -> dict:
         # Kill-switch trigger count
         try:
             async with db.execute(
-                "SELECT COUNT(*) FROM changelog "
-                "WHERE event LIKE 'KILL%' AND ts > ?",
+                "SELECT COUNT(*) FROM changelog " "WHERE event LIKE 'KILL%' AND ts > ?",
                 (cutoff,),
             ) as cur:
                 row = await cur.fetchone()
@@ -80,8 +78,7 @@ async def fetch_pnl_stats(days: int = 14) -> dict:
         # Critical errors
         try:
             async with db.execute(
-                "SELECT COUNT(*) FROM changelog "
-                "WHERE event LIKE 'ERROR%' AND ts > ?",
+                "SELECT COUNT(*) FROM changelog " "WHERE event LIKE 'ERROR%' AND ts > ?",
                 (cutoff,),
             ) as cur:
                 row = await cur.fetchone()

@@ -34,9 +34,9 @@ Exit codes:
 """
 
 import asyncio
-import sys
 import os
-from datetime import datetime, timezone
+import sys
+from datetime import UTC, datetime
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -97,7 +97,7 @@ async def main():
         others = []
 
         for row in all_strats:
-            strat_id, label, status = row['id'], row['label'], row['status']
+            strat_id, label, status = row["id"], row["label"], row["status"]
 
             if label in LOSING_STRATS:
                 to_stop.append((strat_id, label, status))
@@ -115,7 +115,9 @@ async def main():
         if len(to_activate) != len(PROFITABLE_STRATS):
             missing = PROFITABLE_STRATS - {label for _, label, _ in to_activate}
             if missing:
-                print(f"WARNING: Expected {len(PROFITABLE_STRATS)} profitable strats, found {len(to_activate)}")
+                print(
+                    f"WARNING: Expected {len(PROFITABLE_STRATS)} profitable strats, found {len(to_activate)}"
+                )
                 print(f"  Missing: {missing}")
                 print()
 
@@ -149,7 +151,7 @@ async def main():
         print("Executing updates...")
         print()
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         # Update profitable strats to 'active'
         if to_activate:
@@ -158,7 +160,7 @@ async def main():
             await conn.execute(
                 f"UPDATE strategies SET status = 'active', updated_at = ? "
                 f"WHERE id IN ({placeholders})",
-                (now_iso, *ids_activate)
+                (now_iso, *ids_activate),
             )
             await conn.commit()
             print(f"✓ Activated {len(to_activate)} profitable strategies:")
@@ -173,7 +175,7 @@ async def main():
             await conn.execute(
                 f"UPDATE strategies SET status = 'stopped', updated_at = ? "
                 f"WHERE id IN ({placeholders})",
-                (now_iso, *ids_stop)
+                (now_iso, *ids_stop),
             )
             await conn.commit()
             print(f"✓ Stopped {len(to_stop)} losing strategies:")
@@ -191,6 +193,7 @@ async def main():
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return 1
 

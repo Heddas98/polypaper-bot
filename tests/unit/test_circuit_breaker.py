@@ -14,6 +14,7 @@ Avoids `pytest_asyncio` plugin dependency by manually managing an
 asyncio loop with `asyncio.new_event_loop` + `loop.run_until_complete`
 (T9.5 doctrine: DI + asyncio.run pattern).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,13 +22,13 @@ import time
 
 import pytest
 
+from core import circuit_breaker as cb_mod
 from core.circuit_breaker import (
     CircuitBreaker,
     CircuitOpen,
     all_breakers,
     get_breaker,
 )
-from core import circuit_breaker as cb_mod
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ class TestStateTransitions:
         async def use():
             async with b:
                 return 42
+
         result = run(use())
         assert result == 42
         assert b.state == "closed"

@@ -5,16 +5,19 @@ Tests: Trade Memory, Decision Explainer, Experiment Runner,
        Markov Estimator, Capital Allocator, BondingYield,
        DB migration, pipeline integration.
 """
+
 import asyncio
 import json
 import os
-import pytest
+
 import aiosqlite
+import pytest
 
 # Epic 9 T9.5: sandbox'ta python-telegram-bot kurulu değil.
 # PROD Windows ortamında yüklü (see feedback_local_pc.md).
 try:
     import telegram  # noqa: F401
+
     HAS_TELEGRAM = True
 except ImportError:
     HAS_TELEGRAM = False
@@ -23,8 +26,10 @@ except ImportError:
 # FIXTURES
 # ═══════════════════════════════════════
 
+
 class FakeDB:
     """Lightweight in-memory DB for testing."""
+
     def __init__(self):
         self.conn = None
 
@@ -76,9 +81,10 @@ def db(event_loop):
 # TRADE MEMORY TESTS
 # ═══════════════════════════════════════
 
+
 class TestTradeMemory:
     def test_helpers(self):
-        from core.trade_memory import _price_zone, _time_zone, _day_type, _asset_from_slug
+        from core.trade_memory import _asset_from_slug, _day_type, _price_zone, _time_zone
 
         assert _price_zone(0.0) == "0-10"
         assert _price_zone(0.15) == "10-20"
@@ -97,23 +103,28 @@ class TestTradeMemory:
 
     def test_singleton(self):
         from core.trade_memory import get_trade_memory
+
         a = get_trade_memory()
         b = get_trade_memory()
         assert a is b
 
     def test_initialize_creates_table(self, db, event_loop):
         from core.trade_memory import get_trade_memory
+
         tm = get_trade_memory()
         event_loop.run_until_complete(tm.initialize(db))
 
         # Verify table exists
         rows = event_loop.run_until_complete(
-            db.conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_memory'")
+            db.conn.execute_fetchall(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='trade_memory'"
+            )
         )
         assert len(rows) == 1
 
     def test_record_and_retrieve(self, db, event_loop):
         from core.trade_memory import TradeMemory
+
         tm = TradeMemory()
         event_loop.run_until_complete(tm.initialize(db))
 
@@ -122,8 +133,9 @@ class TestTradeMemory:
             result = "won" if i % 2 == 0 else "lost"
             pnl = 0.5 if result == "won" else -0.5
             event_loop.run_until_complete(
-                tm.record("strat1", "btc-usd-5m", "up", result, pnl,
-                          signal_score=0.6, entry_price=0.55)
+                tm.record(
+                    "strat1", "btc-usd-5m", "up", result, pnl, signal_score=0.6, entry_price=0.55
+                )
             )
 
         # Verify records in DB
@@ -134,6 +146,7 @@ class TestTradeMemory:
 
     def test_pattern_stats(self, db, event_loop):
         from core.trade_memory import TradeMemory
+
         tm = TradeMemory()
         event_loop.run_until_complete(tm.initialize(db))
 
@@ -142,14 +155,11 @@ class TestTradeMemory:
             result = "won" if i < 8 else "lost"
             pnl = 1.0 if result == "won" else -1.0
             event_loop.run_until_complete(
-                tm.record("strat1", "btc-usd-5m", "up", result, pnl,
-                          entry_price=0.55)
+                tm.record("strat1", "btc-usd-5m", "up", result, pnl, entry_price=0.55)
             )
 
         # Get pattern (same context)
-        pattern = event_loop.run_until_complete(
-            tm.get_pattern("strat1", "btc-usd-5m", 0.55)
-        )
+        pattern = event_loop.run_until_complete(tm.get_pattern("strat1", "btc-usd-5m", 0.55))
         assert pattern is not None
         assert pattern.total_trades == 10
         assert pattern.win_rate == 80.0
@@ -157,14 +167,14 @@ class TestTradeMemory:
 
     def test_worst_patterns(self, db, event_loop):
         from core.trade_memory import TradeMemory
+
         tm = TradeMemory()
         event_loop.run_until_complete(tm.initialize(db))
 
         # Record 6 losses for a bad pattern
         for i in range(6):
             event_loop.run_until_complete(
-                tm.record("bad_strat", "eth-usd-5m", "down", "lost", -1.0,
-                          entry_price=0.35)
+                tm.record("bad_strat", "eth-usd-5m", "down", "lost", -1.0, entry_price=0.35)
             )
 
         worst = event_loop.run_until_complete(tm.get_worst_patterns(5))
@@ -173,24 +183,33 @@ class TestTradeMemory:
 
     def test_mistakes_tracking(self, db, event_loop):
         from core.trade_memory import TradeMemory
+
         tm = TradeMemory()
         event_loop.run_until_complete(tm.initialize(db))
 
         # Record overconfident loss (signal > 0.5 but lost)
         event_loop.run_until_complete(
-            tm.record("strat1", "btc-usd-5m", "up", "lost", -2.0,
-                      signal_score=0.85, entry_price=0.60)
+            tm.record(
+                "strat1", "btc-usd-5m", "up", "lost", -2.0, signal_score=0.85, entry_price=0.60
+            )
         )
         assert len(tm._mistakes) == 1
         assert tm._mistakes[0]["score"] == 0.85
 
     def test_format_telegram(self):
-        from core.trade_memory import TradeMemory, PatternStats
+        from core.trade_memory import PatternStats, TradeMemory
+
         tm = TradeMemory()
         patterns = [
-            PatternStats(pattern_key="strat1:BTC:50-60:morning:weekday",
-                         total_trades=20, wins=14, losses=6,
-                         total_pnl=5.50, avg_pnl=0.275, win_rate=70.0),
+            PatternStats(
+                pattern_key="strat1:BTC:50-60:morning:weekday",
+                total_trades=20,
+                wins=14,
+                losses=6,
+                total_pnl=5.50,
+                avg_pnl=0.275,
+                win_rate=70.0,
+            ),
         ]
         text = tm.format_telegram(patterns, "Test")
         assert "🧠" in text
@@ -201,15 +220,18 @@ class TestTradeMemory:
 # DECISION EXPLAINER TESTS
 # ═══════════════════════════════════════
 
+
 class TestDecisionExplainer:
     def test_singleton(self):
         from core.decision_explainer import get_decision_explainer
+
         a = get_decision_explainer()
         b = get_decision_explainer()
         assert a is b
 
     def test_chain_lifecycle(self):
         from core.decision_explainer import DecisionExplainer
+
         de = DecisionExplainer()
 
         chain = de.new_chain("strat1", "btc-usd-5m")
@@ -231,9 +253,9 @@ class TestDecisionExplainer:
 
     def test_to_json(self):
         from core.decision_explainer import ReasoningChain
+
         chain = ReasoningChain(
-            strategy_id="s1", slug="btc", direction="up",
-            final_score=0.65, decision="trade"
+            strategy_id="s1", slug="btc", direction="up", final_score=0.65, decision="trade"
         )
         chain.add_step("test", "act", "val", "positive")
         j = chain.to_json()
@@ -243,6 +265,7 @@ class TestDecisionExplainer:
 
     def test_telegram_formats(self):
         from core.decision_explainer import DecisionExplainer
+
         de = DecisionExplainer()
         chain = de.new_chain("s1", "btc-5m")
         chain.direction = "up"
@@ -261,6 +284,7 @@ class TestDecisionExplainer:
 
     def test_recent_retrieval(self):
         from core.decision_explainer import DecisionExplainer
+
         de = DecisionExplainer()
 
         for i in range(5):
@@ -277,14 +301,17 @@ class TestDecisionExplainer:
 
     def test_db_persist_and_load(self, db, event_loop):
         from core.decision_explainer import DecisionExplainer
+
         de = DecisionExplainer()
         event_loop.run_until_complete(de.initialize(db))
 
         # Insert a dummy execution
-        event_loop.run_until_complete(db.conn.execute(
-            "INSERT INTO executions (id, user_id, wallet_id, strategy_id, event_slug, direction, trade_amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("ex1", "u1", "w1", "s1", "btc", "up", 5.0, "2026-01-01", "2026-01-01")
-        ))
+        event_loop.run_until_complete(
+            db.conn.execute(
+                "INSERT INTO executions (id, user_id, wallet_id, strategy_id, event_slug, direction, trade_amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("ex1", "u1", "w1", "s1", "btc", "up", 5.0, "2026-01-01", "2026-01-01"),
+            )
+        )
         event_loop.run_until_complete(db.conn.commit())
 
         chain = de.new_chain("s1", "btc")
@@ -306,27 +333,32 @@ class TestDecisionExplainer:
 # EXPERIMENT RUNNER TESTS
 # ═══════════════════════════════════════
 
+
 class TestExperimentRunner:
     def test_singleton(self):
         from core.experiment_runner import get_experiment_runner
+
         a = get_experiment_runner()
         b = get_experiment_runner()
         assert a is b
 
     def test_parse_params(self):
         from core.experiment_runner import ExperimentRunner
+
         er = ExperimentRunner()
         params = er.parse_params(["MIN_COMPOSITE=0.30", "EDGE_GATE=0.40", "bad"])
         assert params == {"MIN_COMPOSITE": "0.30", "EDGE_GATE": "0.40"}
 
     def test_parse_empty(self):
         from core.experiment_runner import ExperimentRunner
+
         er = ExperimentRunner()
         assert er.parse_params([]) == {}
         assert er.parse_params(["noequals"]) == {}
 
     def test_run_experiment(self, db, event_loop):
         from core.experiment_runner import ExperimentRunner
+
         er = ExperimentRunner()
         event_loop.run_until_complete(er.initialize(db))
 
@@ -334,29 +366,43 @@ class TestExperimentRunner:
         for i in range(20):
             result = "won" if i % 3 != 0 else "lost"
             pnl = 0.5 if result == "won" else -1.0
-            event_loop.run_until_complete(db.conn.execute(
-                "INSERT INTO executions (id, user_id, wallet_id, strategy_id, event_slug, direction, trade_amount, execution_price, status, pnl, result, signal_score, closed_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (f"ex{i}", "u1", "w1", "s1", "btc", "up", 5.0, 0.55,
-                 "claimed", pnl, result, 0.6, "2026-04-12T10:00:00", "2026-04-12", "2026-04-12")
-            ))
+            event_loop.run_until_complete(
+                db.conn.execute(
+                    "INSERT INTO executions (id, user_id, wallet_id, strategy_id, event_slug, direction, trade_amount, execution_price, status, pnl, result, signal_score, closed_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        f"ex{i}",
+                        "u1",
+                        "w1",
+                        "s1",
+                        "btc",
+                        "up",
+                        5.0,
+                        0.55,
+                        "claimed",
+                        pnl,
+                        result,
+                        0.6,
+                        "2026-04-12T10:00:00",
+                        "2026-04-12",
+                        "2026-04-12",
+                    ),
+                )
+            )
         event_loop.run_until_complete(db.conn.commit())
 
-        result = event_loop.run_until_complete(
-            er.run_experiment({"MIN_COMPOSITE": "0.40"})
-        )
+        result = event_loop.run_until_complete(er.run_experiment({"MIN_COMPOSITE": "0.40"}))
         assert result.baseline_trades == 20
         assert result.recommendation in ("apply", "discard", "neutral")
         assert er.has_pending
 
     def test_apply_discard(self, db, event_loop):
         from core.experiment_runner import ExperimentRunner
+
         er = ExperimentRunner()
         event_loop.run_until_complete(er.initialize(db))
 
         os.environ["TEST_PARAM_XYZ"] = "old_value"
-        event_loop.run_until_complete(
-            er.run_experiment({"TEST_PARAM_XYZ": "new_value"})
-        )
+        event_loop.run_until_complete(er.run_experiment({"TEST_PARAM_XYZ": "new_value"}))
         assert er.has_pending
 
         applied = er.apply_pending()
@@ -369,6 +415,7 @@ class TestExperimentRunner:
 
     def test_discard(self, db, event_loop):
         from core.experiment_runner import ExperimentRunner
+
         er = ExperimentRunner()
         event_loop.run_until_complete(er.initialize(db))
 
@@ -378,14 +425,20 @@ class TestExperimentRunner:
         assert not er.has_pending
 
     def test_format_telegram(self):
-        from core.experiment_runner import ExperimentRunner, ExperimentResult
+        from core.experiment_runner import ExperimentResult, ExperimentRunner
+
         er = ExperimentRunner()
         result = ExperimentResult(
             params_changed={"MIN_COMPOSITE": ("0.35", "0.30")},
-            baseline_trades=100, baseline_wr=58.0, baseline_pnl=12.50,
-            experiment_trades=110, experiment_wr=56.0, experiment_pnl=15.30,
-            improvement=22.4, recommendation="apply",
-            details="PnL artışı bekleniyor."
+            baseline_trades=100,
+            baseline_wr=58.0,
+            baseline_pnl=12.50,
+            experiment_trades=110,
+            experiment_wr=56.0,
+            experiment_pnl=15.30,
+            improvement=22.4,
+            recommendation="apply",
+            details="PnL artışı bekleniyor.",
         )
         text = er.format_result_telegram(result)
         assert "Experiment" in text
@@ -406,52 +459,63 @@ class TestExperimentRunner:
 # BONDING YIELD STRATEGY TESTS (Phase 76)
 # ═══════════════════════════════════════
 
+
 class TestBondingYield:
     def test_qualifying_trade(self):
-        from core.strategy_plugins import StrategyRegistry, MarketSnapshot
+        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
+
         reg = StrategyRegistry()
-        snap = MarketSnapshot(up_odds=0.95, down_odds=0.05, spread=0.01,
-                              minutes_remaining=2.0, total_minutes=5.0)
+        snap = MarketSnapshot(
+            up_odds=0.95, down_odds=0.05, spread=0.01, minutes_remaining=2.0, total_minutes=5.0
+        )
         sig = reg.evaluate("bonding_yield", snap)
         assert sig.should_trade
         assert sig.direction == "up"
         assert sig.confidence > 0.9
 
     def test_non_qualifying(self):
-        from core.strategy_plugins import StrategyRegistry, MarketSnapshot
+        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
+
         reg = StrategyRegistry()
-        snap = MarketSnapshot(up_odds=0.60, down_odds=0.40, spread=0.02,
-                              minutes_remaining=2.0, total_minutes=5.0)
+        snap = MarketSnapshot(
+            up_odds=0.60, down_odds=0.40, spread=0.02, minutes_remaining=2.0, total_minutes=5.0
+        )
         sig = reg.evaluate("bonding_yield", snap)
         assert not sig.should_trade
 
     def test_spread_too_wide(self):
-        from core.strategy_plugins import StrategyRegistry, MarketSnapshot
+        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
+
         reg = StrategyRegistry()
         # 95c contract with 5c spread → yield is ~3%, spread is too wide
-        snap = MarketSnapshot(up_odds=0.95, down_odds=0.05, spread=0.05,
-                              minutes_remaining=2.0, total_minutes=5.0)
+        snap = MarketSnapshot(
+            up_odds=0.95, down_odds=0.05, spread=0.05, minutes_remaining=2.0, total_minutes=5.0
+        )
         sig = reg.evaluate("bonding_yield", snap)
         assert not sig.should_trade
         assert "spread" in sig.reason.lower()
 
     def test_down_direction(self):
-        from core.strategy_plugins import StrategyRegistry, MarketSnapshot
+        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
+
         reg = StrategyRegistry()
-        snap = MarketSnapshot(up_odds=0.05, down_odds=0.95, spread=0.01,
-                              minutes_remaining=2.0, total_minutes=5.0)
+        snap = MarketSnapshot(
+            up_odds=0.05, down_odds=0.95, spread=0.01, minutes_remaining=2.0, total_minutes=5.0
+        )
         sig = reg.evaluate("bonding_yield", snap)
         assert sig.should_trade
         assert sig.direction == "down"
 
     def test_registry_has_11_strategies(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         assert len(reg.names) >= 11
         assert "bonding_yield" in reg.names
 
     def test_configurable(self):
         from core.strategy_plugins import StrategyRegistry
+
         reg = StrategyRegistry()
         assert "bonding_yield" in reg.CONFIGURABLE
         cfg = reg.get_config("bonding_yield")
@@ -461,6 +525,7 @@ class TestBondingYield:
 # ═══════════════════════════════════════
 # HANDLER IMPORT TESTS
 # ═══════════════════════════════════════
+
 
 class TestHandlerImports:
     # T1.3 Commit 7 (2026-04-20): test_phase76_handler silindi —
@@ -472,11 +537,18 @@ class TestHandlerImports:
     )
     def test_phase77_handler(self):
         from telegram_bot.handlers.phase77_handler import (
-            why_command, mistakes_command, patterns_command,
-            health_command, experiment_command,
-            experiment_apply_command, experiment_discard_command,
-            why_callback, patterns_callback, health_callback,
+            experiment_apply_command,
+            experiment_command,
+            experiment_discard_command,
+            health_callback,
+            health_command,
+            mistakes_command,
+            patterns_callback,
+            patterns_command,
+            why_callback,
+            why_command,
         )
+
         assert callable(why_command)
         assert callable(health_command)
         assert callable(experiment_command)

@@ -27,11 +27,11 @@ Usage:
             parse_mode="HTML",
         )
 """
+
 from __future__ import annotations
 
 import os
 from typing import Optional
-
 
 # HTML escape — use the same helper handlers already import.
 # We re-implement locally to avoid circular imports with escape_html
@@ -53,14 +53,10 @@ def _esc(text: str) -> str:
 def _debug_mode() -> bool:
     """Runtime re-read (T6.1 doctrine) so /envt DEBUG_SHOW_EXC flips
     behaviour without restart."""
-    return os.getenv("DEBUG_SHOW_EXC", "false").lower() in (
-        "true", "1", "yes", "on"
-    )
+    return os.getenv("DEBUG_SHOW_EXC", "false").lower() in ("true", "1", "yes", "on")
 
 
-def render_user_exception(
-    exc: BaseException, prefix: Optional[str] = None
-) -> str:
+def render_user_exception(exc: BaseException, prefix: Optional[str] = None) -> str:
     """Policy-compliant user-facing exception message.
 
     Args:

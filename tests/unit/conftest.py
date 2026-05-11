@@ -3,6 +3,7 @@
 Tüm test dosyalarına paylaşılan async DB stubs + telegram update/context
 helper'lar. Bu sayede her test dosyası kendi mock'unu yazmak zorunda kalmaz.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +14,7 @@ import pytest
 
 try:
     import pytest_asyncio
+
     _ASYNC_FIXTURE = pytest_asyncio.fixture
 except ImportError:
     _ASYNC_FIXTURE = pytest.fixture

@@ -13,6 +13,7 @@ Architecture:
   GATHER (DB + Binance) → BACKTEST (historical) → CLAUDE (JSON actions)
   → VALIDATE (safety rules) → EXECUTE → MEASURE (24h) → LEARN (feed back)
 """
+
 import asyncio
 import hashlib
 import json
@@ -20,7 +21,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import aiosqlite  # Epic 8 T8.1: narrow DB exception handling
@@ -32,6 +33,7 @@ logger = logging.getLogger("polypaper.core.ai_brain")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
 MAX_BUDGET = 15.0
+
 
 # Epic 8 T8.2: LLM rate-limit guard
 # -----------------------------------------------------------------
@@ -81,13 +83,14 @@ class LLMRateLimitError(RuntimeError):
         self.provider = provider
         self.retry_after = retry_after
 
+
 # Phase 32: Tighter safety + 10min cycle
 # Phase 75+: CHANGED to 6 hour cooldown + 50 trade minimum (GPT recommendation)
 MAX_ACTIONS = 8
-MAX_SCALE_HUMAN = 3.0     # Human strategies: max 3x
-MAX_SCALE_AI = 5.0        # AI strategies: max 5x (experimental)
+MAX_SCALE_HUMAN = 3.0  # Human strategies: max 3x
+MAX_SCALE_AI = 5.0  # AI strategies: max 5x (experimental)
 MAX_THR_DELTA_HUMAN = 0.05  # Human strategies: tight threshold protection
-MAX_THR_DELTA_AI = 0.15     # AI strategies: more freedom
+MAX_THR_DELTA_AI = 0.15  # AI strategies: more freedom
 MAX_TRADE_AMOUNT = 25.0
 # PROTECTED_STRATEGIES: label → preferred odds_threshold.
 # Purpose: shield against LLM-driven AI Brain mistakes (STOP + TUNE actions).
@@ -222,6 +225,7 @@ SADECE JSON ciktisi ver:
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
+
 class ModelRouter:
     """Phase 59→69: 4-tier model routing with OpenRouter fallback.
 
@@ -230,21 +234,22 @@ class ModelRouter:
     Tier 3: Claude (PAID) — complex reasoning
     Tier 4: OpenRouter premium — Claude/GPT-4o via OpenRouter as final fallback
     """
+
     TASK_MODEL_MAP = {
         # Tier 1: FREE — routine tasks (Groq Llama 70B)
-        "market_scan":       ("groq", "llama-3.3-70b-versatile"),
-        "data_summary":      ("groq", "llama-3.1-8b-instant"),
-        "alert_format":      ("groq", "llama-3.1-8b-instant"),
-        "trade_analysis":    ("groq", "llama-3.3-70b-versatile"),
-        "mistake_analysis":  ("groq", "llama-3.3-70b-versatile"),
+        "market_scan": ("groq", "llama-3.3-70b-versatile"),
+        "data_summary": ("groq", "llama-3.1-8b-instant"),
+        "alert_format": ("groq", "llama-3.1-8b-instant"),
+        "trade_analysis": ("groq", "llama-3.3-70b-versatile"),
+        "mistake_analysis": ("groq", "llama-3.3-70b-versatile"),
         # Phase 75: OpenRouter has no balance → route to Groq free
-        "optimist_agent":    ("groq", "llama-3.3-70b-versatile"),
-        "data_enrichment":   ("groq", "llama-3.1-8b-instant"),
+        "optimist_agent": ("groq", "llama-3.3-70b-versatile"),
+        "data_enrichment": ("groq", "llama-3.1-8b-instant"),
         # Tier 3: PAID — complex reasoning (Claude)
         "strategy_decision": ("claude", "claude-sonnet-4-6"),
-        "risk_assessment":   ("claude", "claude-sonnet-4-6"),
-        "brain_cycle":       ("claude", "claude-sonnet-4-6"),
-        "critic_agent":      ("claude", "claude-sonnet-4-6"),
+        "risk_assessment": ("claude", "claude-sonnet-4-6"),
+        "brain_cycle": ("claude", "claude-sonnet-4-6"),
+        "critic_agent": ("claude", "claude-sonnet-4-6"),
     }
 
     # Fallback chain: skip openrouter (no balance), groq→claude only
@@ -274,6 +279,7 @@ class AIBrain:
         self._brier_tracker = None
         try:
             from utils.brier_tracker import BrierTracker
+
             self._brier_tracker = BrierTracker(db)
         except (ImportError, AttributeError) as _bt_err:
             # Epic 8 T8.1: narrow — BrierTracker is optional; skip if module
@@ -288,8 +294,10 @@ class AIBrain:
         await self._load_budget()
         await self._ensure_tables()
         remaining = MAX_BUDGET - self._spent
-        logger.info(f"🧠 AI Brain v3: 10min cycle | ${self._spent:.2f}/{MAX_BUDGET:.2f} "
-                    f"(${remaining:.2f} remaining)")
+        logger.info(
+            f"🧠 AI Brain v3: 10min cycle | ${self._spent:.2f}/{MAX_BUDGET:.2f} "
+            f"(${remaining:.2f} remaining)"
+        )
         # Phase 82e Sprint 2.1: scheduler death = no 10min cycles = stale AI
         safe_create_task(self._scheduler(), name="ai_brain_scheduler")
 
@@ -323,8 +331,7 @@ class AIBrain:
             """)
             # Phase 59: reasoning_json column on executions (safe ALTER — ignores if exists)
             try:
-                await self.db.conn.execute(
-                    "ALTER TABLE executions ADD COLUMN reasoning_json TEXT")
+                await self.db.conn.execute("ALTER TABLE executions ADD COLUMN reasoning_json TEXT")
                 await self.db.conn.commit()
                 logger.info("🧠 Added reasoning_json column to executions")
             except aiosqlite.Error:
@@ -347,7 +354,7 @@ class AIBrain:
                     await asyncio.sleep(CYCLE_INTERVAL)
                     continue
 
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 cycle_key = f"{now.strftime('%Y-%m-%d-%H')}-{now.minute // 10}"
                 if self._last_run != cycle_key:
                     self._cycle_count += 1
@@ -372,7 +379,9 @@ class AIBrain:
         )
         recent_trades = trade_count[0][0] if trade_count else 0
         if recent_trades < MIN_TRADES_FOR_ACTION:
-            logger.info(f"🧠 Not enough trades for AI decision: {recent_trades}/{MIN_TRADES_FOR_ACTION}")
+            logger.info(
+                f"🧠 Not enough trades for AI decision: {recent_trades}/{MIN_TRADES_FOR_ACTION}"
+            )
             return f"Minimum trades not met: {recent_trades}/{MIN_TRADES_FOR_ACTION}"
 
         # Step 1: Measure past decisions
@@ -413,8 +422,12 @@ class AIBrain:
             if retry_response:
                 parsed = self._parse(retry_response)
             if not parsed:
-                logger.error(f"🧠 Parse failed after retry. Response preview: {(response or '')[:200]}")
-                await self._send("⚠️ <b>AI Brain Parse Hatasi</b>\n\nJSON parse 2 denemede de basarisiz. Bir sonraki cycle'da tekrar denenecek.")
+                logger.error(
+                    f"🧠 Parse failed after retry. Response preview: {(response or '')[:200]}"
+                )
+                await self._send(
+                    "⚠️ <b>AI Brain Parse Hatasi</b>\n\nJSON parse 2 denemede de basarisiz. Bir sonraki cycle'da tekrar denenecek."
+                )
                 return "Parse failed (notified)"
 
         actions = parsed.get("actions", [])[:MAX_ACTIONS]
@@ -445,8 +458,7 @@ class AIBrain:
         else:
             # Always queue for Telegram approval — manual-only doctrine.
             logger.info(
-                f"🧠 Queuing {len(actions)} actions for approval "
-                f"(conf={confidence:.0%})"
+                f"🧠 Queuing {len(actions)} actions for approval " f"(conf={confidence:.0%})"
             )
             await self._queue_for_approval(actions, parsed, data[:500])
 
@@ -480,8 +492,7 @@ class AIBrain:
             logger.info(f"🟢 Optimist: conv={optimist.get('conviction', '?')}")
 
         # Agent 2: Critic (Claude — paid, more careful)
-        critic_resp = await self._call_claude(
-            CRITIC_SYSTEM, data, "claude-sonnet-4-6")
+        critic_resp = await self._call_claude(CRITIC_SYSTEM, data, "claude-sonnet-4-6")
         critic = None
         if critic_resp:
             try:
@@ -525,7 +536,7 @@ CONSENSUS KURALI:
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            return text[start:end + 1]
+            return text[start : end + 1]
         return "{}"
 
     # ═══ DATA GATHERING ═══
@@ -539,18 +550,21 @@ CONSENSUS KURALI:
                     COALESCE(SUM(CASE WHEN e.pnl>0 AND e.result IS NOT NULL THEN 1 ELSE 0 END),0) as w,
                     COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl
                 FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
-                WHERE s.status='active' GROUP BY s.id ORDER BY pnl DESC""")
+                WHERE s.status='active' GROUP BY s.id ORDER BY pnl DESC"""
+            )
 
             stopped = await self.db.conn.execute_fetchall(
                 """SELECT s.label, s.strategy_type,
                     COUNT(CASE WHEN e.result IS NOT NULL THEN 1 END) as t,
                     COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl
                 FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
-                WHERE s.status='stopped' GROUP BY s.id HAVING t > 5 ORDER BY pnl DESC""")
+                WHERE s.status='stopped' GROUP BY s.id HAVING t > 5 ORDER BY pnl DESC"""
+            )
 
             bal = await self.db.conn.execute_fetchall("SELECT balance FROM wallets LIMIT 1")
             at = await self.db.conn.execute_fetchall(
-                "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL")
+                "SELECT COALESCE(SUM(pnl),0), COUNT(*) FROM executions WHERE result IS NOT NULL"
+            )
 
             # Binance
             market = await self._get_binance()
@@ -558,7 +572,8 @@ CONSENSUS KURALI:
             # AI decision history WITH outcomes
             history = await self.db.conn.execute_fetchall(
                 """SELECT ts, actions_executed, outcome_24h, was_correct, notes
-                FROM ai_decisions ORDER BY ts DESC LIMIT 10""")
+                FROM ai_decisions ORDER BY ts DESC LIMIT 10"""
+            )
 
             # AI strategies separate tracking
             ai_strats = await self.db.conn.execute_fetchall(
@@ -567,53 +582,71 @@ CONSENSUS KURALI:
                     COALESCE(SUM(CASE WHEN e.pnl>0 AND e.result IS NOT NULL THEN 1 ELSE 0 END),0) as w,
                     COALESCE(SUM(CASE WHEN e.result IS NOT NULL THEN e.pnl ELSE 0 END),0) as pnl
                 FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
-                WHERE s.label LIKE 'AI_%' GROUP BY s.id ORDER BY pnl DESC""")
+                WHERE s.label LIKE 'AI_%' GROUP BY s.id ORDER BY pnl DESC"""
+            )
 
             # Mini backtest: zone WR from real data
             zones = {}
-            for lo, hi, lbl in [(0,0.35,'0-35c'),(0.35,0.50,'35-50c'),(0.50,0.65,'50-65c'),(0.65,0.80,'65-80c'),(0.80,1.0,'80c+')]:
+            for lo, hi, lbl in [
+                (0, 0.35, "0-35c"),
+                (0.35, 0.50, "35-50c"),
+                (0.50, 0.65, "50-65c"),
+                (0.65, 0.80, "65-80c"),
+                (0.80, 1.0, "80c+"),
+            ]:
                 r = await self.db.conn.execute_fetchall(
-                    'SELECT COUNT(*),SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),SUM(pnl) FROM executions WHERE result IS NOT NULL AND execution_price>=? AND execution_price<?',(lo,hi))
+                    "SELECT COUNT(*),SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),SUM(pnl) FROM executions WHERE result IS NOT NULL AND execution_price>=? AND execution_price<?",
+                    (lo, hi),
+                )
                 if r and r[0][0] > 0:
-                    zones[lbl] = {"t": r[0][0], "wr": r[0][1]/r[0][0]*100, "pnl": r[0][2]}
+                    zones[lbl] = {"t": r[0][0], "wr": r[0][1] / r[0][0] * 100, "pnl": r[0][2]}
 
             # Build prompt
             lines = [
                 f"BAKIYE: ${bal[0][0]:.2f}" if bal else "?",
                 f"ALL-TIME: {at[0][0]:+.2f} / {at[0][1]} trade" if at else "",
                 f"CYCLE: #{self._cycle_count} | BUTCE: ${self._spent:.2f}/{MAX_BUDGET:.2f}",
-                "", "MARKET:", market or "  unavailable",
                 "",
-                "═══ AKTIF STRATEJILER (sadece bunlari degistir) ═══"
+                "MARKET:",
+                market or "  unavailable",
+                "",
+                "═══ AKTIF STRATEJILER (sadece bunlari degistir) ═══",
             ]
-            for s in (active or []):
-                wr = s[7]/s[6]*100 if s[6] > 0 else 0
-                ev = s[8]/s[6] if s[6] > 0 else 0
+            for s in active or []:
+                wr = s[7] / s[6] * 100 if s[6] > 0 else 0
+                ev = s[8] / s[6] if s[6] > 0 else 0
                 ai_tag = "[AI]" if "AI_" in (s[1] or "") else "[HUMAN]"
                 protected = " ⚠️KORUNMALI" if s[1] in PROTECTED_STRATEGIES else ""
-                lines.append(f"  id={s[0][:12]} {s[1]} {ai_tag} [{s[2]}] ${s[3]}@{s[4]} {s[5]} "
-                           f"{s[6]}t {wr:.0f}% PnL:{s[8]:+.2f} EV:{ev:+.3f}{protected}")
+                lines.append(
+                    f"  id={s[0][:12]} {s[1]} {ai_tag} [{s[2]}] ${s[3]}@{s[4]} {s[5]} "
+                    f"{s[6]}t {wr:.0f}% PnL:{s[8]:+.2f} EV:{ev:+.3f}{protected}"
+                )
 
             if ai_strats:
                 lines.append("\n═══ SENIN (AI) STRATEJILERIN — PERFORMANSIN ═══")
                 ai_total_pnl = 0
                 for s in ai_strats:
-                    wr = s[5]/s[4]*100 if s[4] > 0 else 0
+                    wr = s[5] / s[4] * 100 if s[4] > 0 else 0
                     ai_total_pnl += s[6]
-                    lines.append(f"  {s[0]} [{s[1]}] ${s[2]}@{s[3]} {s[4]}t {wr:.0f}% PnL:{s[6]:+.2f}")
+                    lines.append(
+                        f"  {s[0]} [{s[1]}] ${s[2]}@{s[3]} {s[4]}t {wr:.0f}% PnL:{s[6]:+.2f}"
+                    )
                 lines.append(f"  TOPLAM AI PnL: {ai_total_pnl:+.2f}")
                 if ai_total_pnl < 0:
-                    lines.append(f"  ⚠️ AI stratejileri KAYBEDIYOR! Daha temkinli ol.")
+                    lines.append("  ⚠️ AI stratejileri KAYBEDIYOR! Daha temkinli ol.")
 
             if stopped:
                 lines.append("\n═══ DURMUS STRATEJILER (bilgi icin — AKSIYON ALMA!) ═══")
                 for s in stopped:
-                    lines.append(f"  [STOPPED] {s[0]} [{s[1]}] {s[2]}t PnL:{s[3]:+.2f} — zaten kapali")
+                    lines.append(
+                        f"  [STOPPED] {s[0]} [{s[1]}] {s[2]}t PnL:{s[3]:+.2f} — zaten kapali"
+                    )
 
             # Phase 59: Mistakes feedback — last 20 lessons for learning
             mistakes = await self.db.conn.execute_fetchall(
                 """SELECT mistake_type, lesson_learned, strategy_label, created_at
-                FROM trade_mistakes ORDER BY created_at DESC LIMIT 20""")
+                FROM trade_mistakes ORDER BY created_at DESC LIMIT 20"""
+            )
             if mistakes:
                 lines.append("\n═══ GECMIS HATALAR VE DERSLER (OGREN VE TEKRARLAMA!) ═══")
                 type_counts = {}
@@ -635,7 +668,7 @@ CONSENSUS KURALI:
                 pending = sum(1 for h in history if h[3] is None)
                 lines.append(f"  Skor: {correct} dogru, {wrong} yanlis, {pending} bekliyor")
                 for h in history[:5]:
-                    icon = "✅" if h[3]==1 else ("❌" if h[3]==0 else "⏳")
+                    icon = "✅" if h[3] == 1 else ("❌" if h[3] == 0 else "⏳")
                     outcome = h[2] or "bekliyor"
                     executed = str(h[1] or "")[:80]
                     lines.append(f"  {str(h[0])[:16]} {icon} {outcome} | {executed}")
@@ -645,20 +678,25 @@ CONSENSUS KURALI:
             lines.append("  Paper trading botu. Gercek veri, simulasyon para.")
             lines.append("  Hedef: her strateji kendi basina kar etsin.")
             lines.append("  Her stratejinin lifecycle fazı var (exploration/evaluation/proven).")
-            lines.append("  Exploration: 0-20 trade, gevsek filtreler. Evaluation: 20-50. Proven: 50+.")
+            lines.append(
+                "  Exploration: 0-20 trade, gevsek filtreler. Evaluation: 20-50. Proven: 50+."
+            )
             lines.append("  Kaybeden strat = filtreler sikilasir. Kazanan = gevsesir + size artar.")
             lines.append("  Rakipler: diger botlar ve insanlar. Nis stratejiler gerekli.")
-            lines.append("  ONEMLI: paper modda zarardan korkmadan dene. Ama neden kaybettigini analiz et.")
+            lines.append(
+                "  ONEMLI: paper modda zarardan korkmadan dene. Ama neden kaybettigini analiz et."
+            )
 
             # Phase 75: Per-strategy lifecycle params
             try:
-                if hasattr(self.engine, 'lifecycle') and self.engine.lifecycle._cache:
+                if hasattr(self.engine, "lifecycle") and self.engine.lifecycle._cache:
                     lines.append("\n═══ STRATEJI LIFECYCLE DURUMLARI ═══")
                     for sid, p in self.engine.lifecycle._cache.items():
                         label = sid[:8]
                         try:
                             r = await self.db.conn.execute_fetchall(
-                                "SELECT label FROM strategies WHERE id=?", (sid,))
+                                "SELECT label FROM strategies WHERE id=?", (sid,)
+                            )
                             if r and r[0][0]:
                                 label = r[0][0]
                         except (aiosqlite.Error, IndexError, TypeError):
@@ -687,12 +725,15 @@ CONSENSUS KURALI:
                         e.signal_score, e.signal_reason, e.event_slug
                     FROM executions e JOIN strategies s ON s.id=e.strategy_id
                     WHERE e.result IS NOT NULL
-                    ORDER BY e.settled_at DESC LIMIT 30""")
+                    ORDER BY e.settled_at DESC LIMIT 30"""
+                )
                 if journal:
                     lines.append("\n═══ SON 30 TRADE ANALIZI ═══")
                     wins = sum(1 for j in journal if (j[2] or 0) > 0)
                     losses = len(journal) - wins
-                    lines.append(f"  Win: {wins} | Loss: {losses} | WR: {wins/len(journal)*100:.0f}%")
+                    lines.append(
+                        f"  Win: {wins} | Loss: {losses} | WR: {wins/len(journal)*100:.0f}%"
+                    )
                     for j in journal[:15]:
                         icon = "✅" if (j[2] or 0) > 0 else "❌"
                         label = j[0] or "?"
@@ -700,7 +741,9 @@ CONSENSUS KURALI:
                         price = j[3] or 0
                         sig = j[4] or 0
                         reason = (j[5] or "")[:60]
-                        lines.append(f"  {icon} {label} pnl={pnl:+.2f} @{price:.2f} sig={sig:.2f} {reason}")
+                        lines.append(
+                            f"  {icon} {label} pnl={pnl:+.2f} @{price:.2f} sig={sig:.2f} {reason}"
+                        )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: SQL + row iteration can raise aiosqlite.Error,
                 # TypeError (None arithmetic), IndexError (short rows).
@@ -710,6 +753,7 @@ CONSENSUS KURALI:
             # ═══ Phase 79b: STRATEJI DEGISIKLIK GECMISI ═══
             try:
                 from core.changelog import get_changelog_for_ai
+
                 changelog_lines = await get_changelog_for_ai(self.db)
                 if changelog_lines:
                     lines.extend(changelog_lines)
@@ -724,9 +768,9 @@ CONSENSUS KURALI:
             # ── BLOK 1: Anlık Market Durumu (son 5dk odds + spot momentum) ──
             try:
                 lines.append("\n═══ ANLIK MARKET DURUMU ═══")
-                if hasattr(self, 'engine') and self.engine:
-                    scanner = getattr(self.engine, 'scanner', None)
-                    ext_feed = getattr(self.engine, 'external_feed', None)
+                if hasattr(self, "engine") and self.engine:
+                    scanner = getattr(self.engine, "scanner", None)
+                    ext_feed = getattr(self.engine, "external_feed", None)
                     if scanner and scanner.active_markets:
                         for key, mkt in list(scanner.active_markets.items())[:8]:
                             slug = mkt.get("slug", "")
@@ -739,11 +783,14 @@ CONSENSUS KURALI:
                             if mom:
                                 lines.append(
                                     f"  {asset} spot 60sn: {mom['change_pct']:+.4f}% "
-                                    f"yon={mom['direction']} guc={mom['strength']:.2f}")
+                                    f"yon={mom['direction']} guc={mom['strength']:.2f}"
+                                )
                             else:
                                 price = ext_feed.get_price(asset)
                                 if price:
-                                    lines.append(f"  {asset} spot: ${price:,.0f} (momentum verisi yok)")
+                                    lines.append(
+                                        f"  {asset} spot: ${price:,.0f} (momentum verisi yok)"
+                                    )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: scanner/ext_feed shape is fluid across
                 # engine versions — AttributeError, KeyError, TypeError all
@@ -754,21 +801,31 @@ CONSENSUS KURALI:
             try:
                 lines.append("\n═══ BOT KONFIGURASYONU ═══")
                 lines.append(f"  MIN_COMPOSITE: {os.getenv('MIN_COMPOSITE', '0.30')}")
-                lines.append(f"  SINYAL AGIRLIKLARI: odds={os.getenv('SIGNAL_W_ODDS','0.05')} "
-                             f"ema={os.getenv('SIGNAL_W_EMA','0.25')} "
-                             f"momentum={os.getenv('SIGNAL_W_MOMENTUM','0.30')} "
-                             f"time={os.getenv('SIGNAL_W_TIME','0.10')} "
-                             f"orderbook={os.getenv('SIGNAL_W_ORDERBOOK','0.20')}")
-                lines.append(f"  KAPALI SINYALLER: whale={os.getenv('WHALE_SIGNAL_ENABLED','false')} "
-                             f"bayes={os.getenv('BAYESIAN_UPDATER_ENABLED','false')} "
-                             f"technical={os.getenv('TECHNICAL_INDICATORS_ENABLED','false')} "
-                             f"calendar={os.getenv('CALENDAR_MULT_ENABLED','false')}")
-                lines.append(f"  CONFLUENCE: K={os.getenv('CONFLUENCE_K','3')} "
-                             f"penalty={os.getenv('CONFLUENCE_PENALTY','0.3')}")
+                lines.append(
+                    f"  SINYAL AGIRLIKLARI: odds={os.getenv('SIGNAL_W_ODDS','0.05')} "
+                    f"ema={os.getenv('SIGNAL_W_EMA','0.25')} "
+                    f"momentum={os.getenv('SIGNAL_W_MOMENTUM','0.30')} "
+                    f"time={os.getenv('SIGNAL_W_TIME','0.10')} "
+                    f"orderbook={os.getenv('SIGNAL_W_ORDERBOOK','0.20')}"
+                )
+                lines.append(
+                    f"  KAPALI SINYALLER: whale={os.getenv('WHALE_SIGNAL_ENABLED','false')} "
+                    f"bayes={os.getenv('BAYESIAN_UPDATER_ENABLED','false')} "
+                    f"technical={os.getenv('TECHNICAL_INDICATORS_ENABLED','false')} "
+                    f"calendar={os.getenv('CALENDAR_MULT_ENABLED','false')}"
+                )
+                lines.append(
+                    f"  CONFLUENCE: K={os.getenv('CONFLUENCE_K','3')} "
+                    f"penalty={os.getenv('CONFLUENCE_PENALTY','0.3')}"
+                )
                 lines.append(f"  SMART_EXIT: {os.getenv('SMART_EXIT_ENABLED','true')}")
                 lines.append(f"  ALLOWED_ZONES: {os.getenv('ALLOWED_ZONES','(tumu)')}")
-                lines.append(f"  ADAPTIVE_MAX_THRESHOLD: {os.getenv('ADAPTIVE_MAX_THRESHOLD','0.85')}")
-                lines.append(f"  Regime: {self.engine.regime.regime if hasattr(self.engine, 'regime') else '?'}")
+                lines.append(
+                    f"  ADAPTIVE_MAX_THRESHOLD: {os.getenv('ADAPTIVE_MAX_THRESHOLD','0.85')}"
+                )
+                lines.append(
+                    f"  Regime: {self.engine.regime.regime if hasattr(self.engine, 'regime') else '?'}"
+                )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: os.getenv + self.engine.regime attr —
                 # AttributeError / TypeError possible. Block prints static
@@ -777,7 +834,7 @@ CONSENSUS KURALI:
 
             # ── BLOK 3: Skip Breakdown (neden trade acilmiyor) ──
             try:
-                if hasattr(self, 'engine') and hasattr(self.engine, 'skips'):
+                if hasattr(self, "engine") and hasattr(self.engine, "skips"):
                     skip_counts = self.engine.skips.get_counts()
                     if skip_counts:
                         lines.append("\n═══ SKIP ANALIZI (neden trade ACILMIYOR) ═══")
@@ -788,13 +845,19 @@ CONSENSUS KURALI:
                             lines.append(f"  {reason}: {count}x ({pct:.0f}%)")
                         # Specific advice
                         if skip_counts.get("SIG_WEAK", 0) > total * 0.5:
-                            lines.append("  ⚠️ SORUN: Cok fazla SIG_WEAK → sinyal gucunu artir veya threshold dusur")
+                            lines.append(
+                                "  ⚠️ SORUN: Cok fazla SIG_WEAK → sinyal gucunu artir veya threshold dusur"
+                            )
                         if skip_counts.get("REGIME", 0) > total * 0.3:
-                            lines.append("  ⚠️ SORUN: REGIME block → market ranging, momentum/trend stratejileri calismaz")
+                            lines.append(
+                                "  ⚠️ SORUN: REGIME block → market ranging, momentum/trend stratejileri calismaz"
+                            )
                         if skip_counts.get("EMA_BLOCK", 0) > total * 0.2:
                             lines.append("  ⚠️ SORUN: EMA_BLOCK → EMA yonu sinyal yonuyle uyusmuyor")
                         if skip_counts.get("ZONE_BLOCKED", 0) > total * 0.2:
-                            lines.append("  ⚠️ SORUN: ZONE_BLOCKED → fiyat izin verilen zone'da degil")
+                            lines.append(
+                                "  ⚠️ SORUN: ZONE_BLOCKED → fiyat izin verilen zone'da degil"
+                            )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: engine.skips API varies; AttributeError
                 # on missing methods, ZeroDivisionError on empty counts.
@@ -810,7 +873,8 @@ CONSENSUS KURALI:
                         e.event_slug, e.created_at
                     FROM executions e JOIN strategies s ON s.id=e.strategy_id
                     WHERE e.result IS NOT NULL
-                    ORDER BY e.closed_at DESC LIMIT 20""")
+                    ORDER BY e.closed_at DESC LIMIT 20"""
+                )
                 if detailed:
                     lines.append("\n═══ SON 20 TRADE DETAYI (entry/exit/fee/sure) ═══")
                     for d in detailed:
@@ -826,14 +890,17 @@ CONSENSUS KURALI:
                         max_fav = d[9]
                         max_adv = d[10]
                         icon = "✅" if pnl > 0 else "❌"
-                        dur_str = f"{dur}sn" if dur and dur < 120 else (f"{dur//60}dk" if dur else "?")
+                        dur_str = (
+                            f"{dur}sn" if dur and dur < 120 else (f"{dur//60}dk" if dur else "?")
+                        )
                         fav_str = f"max_fav={max_fav:+.4f}" if max_fav else ""
                         adv_str = f"max_adv={max_adv:+.4f}" if max_adv else ""
                         fee_pct = (fee / amount * 100) if amount > 0 else 0
                         lines.append(
                             f"  {icon} {label} {direction.upper()} @{entry:.3f} "
                             f"pnl={pnl:+.3f} fee=${fee:.3f}({fee_pct:.1f}%) "
-                            f"sig={sig:.2f} sure={dur_str} {fav_str} {adv_str}")
+                            f"sig={sig:.2f} sure={dur_str} {fav_str} {adv_str}"
+                        )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: SQL + tuple unpacking — aiosqlite.Error,
                 # TypeError (None formatting), IndexError all possible.
@@ -854,7 +921,8 @@ CONSENSUS KURALI:
                         SUM(CASE WHEN e.result IN ('sl_exit','smart_exit_stoploss','force_exit') THEN 1 ELSE 0 END) as sl_exits
                     FROM strategies s LEFT JOIN executions e ON e.strategy_id=s.id
                     GROUP BY s.id HAVING trades > 3
-                    ORDER BY total_pnl DESC""")
+                    ORDER BY total_pnl DESC"""
+                )
                 if strat_perf:
                     lines.append("\n═══ STRATEJI BAZLI PERFORMANS ═══")
                     for sp in strat_perf:
@@ -876,7 +944,8 @@ CONSENSUS KURALI:
                             f"  {status_icon} {label} [{stype}] {trades}t WR={wr:.0f}% PnL={pnl:+.2f} "
                             f"fees=${fees:.2f}({fee_ratio:.1f}%) "
                             f"settle_win={settle_w} tp={tp_exits} sl={sl_exits} "
-                            f"avg_dur={avg_dur:.0f}sn")
+                            f"avg_dur={avg_dur:.0f}sn"
+                        )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: heavy aggregate SQL — aiosqlite.Error,
                 # ZeroDivisionError on empty trades. Best-effort for LLM.
@@ -890,14 +959,19 @@ CONSENSUS KURALI:
                         SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
                         ROUND(SUM(pnl), 2) as pnl
                     FROM executions WHERE result IS NOT NULL
-                    GROUP BY hour ORDER BY hour""")
+                    GROUP BY hour ORDER BY hour"""
+                )
                 if hourly:
                     lines.append("\n═══ SAAT BAZLI PERFORMANS (UTC) ═══")
                     best_hour = max(hourly, key=lambda x: x[3] or 0)
                     worst_hour = min(hourly, key=lambda x: x[3] or 0)
                     for h in hourly:
                         wr = (h[2] / h[1] * 100) if h[1] > 0 else 0
-                        tag = " ← EN IYI" if h == best_hour else (" ← EN KOTU" if h == worst_hour else "")
+                        tag = (
+                            " ← EN IYI"
+                            if h == best_hour
+                            else (" ← EN KOTU" if h == worst_hour else "")
+                        )
                         lines.append(f"  {h[0]}:00 UTC: {h[1]}t WR={wr:.0f}% PnL={h[3]}{tag}")
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: strftime + aggregate — aiosqlite.Error,
@@ -913,15 +987,20 @@ CONSENSUS KURALI:
                         ROUND(AVG(fee_amount), 4) as avg_fee,
                         ROUND(SUM(pnl), 2) as total_pnl,
                         ROUND(SUM(fee_amount) / NULLIF(ABS(SUM(pnl)), 0) * 100, 1) as fee_to_pnl_ratio
-                    FROM executions WHERE result IS NOT NULL""")
+                    FROM executions WHERE result IS NOT NULL"""
+                )
                 if fee_stats and fee_stats[0][0] > 0:
                     f = fee_stats[0]
                     lines.append("\n═══ FEE ANALIZI ═══")
                     lines.append(f"  Toplam fee: ${f[1]} ({f[0]} trade)")
                     lines.append(f"  Ortalama fee/trade: ${f[2]}")
-                    lines.append(f"  Fee/PnL orani: {f[4]}% ← {'SORUNLU (>50%)' if (f[4] or 0) > 50 else 'kabul edilebilir'}")
+                    lines.append(
+                        f"  Fee/PnL orani: {f[4]}% ← {'SORUNLU (>50%)' if (f[4] or 0) > 50 else 'kabul edilebilir'}"
+                    )
                     if (f[4] or 0) > 100:
-                        lines.append("  ⚠️ KRITIK: Fee'ler kazanctan fazla! Daha yuksek edge gereken trade'ler ac.")
+                        lines.append(
+                            "  ⚠️ KRITIK: Fee'ler kazanctan fazla! Daha yuksek edge gereken trade'ler ac."
+                        )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: NULLIF + division — aiosqlite.Error,
                 # ZeroDivisionError, TypeError all possible. Best-effort.
@@ -933,21 +1012,27 @@ CONSENSUS KURALI:
                 # Active strategy count warning
                 active_count = len(active) if active else 0
                 if active_count < 4:
-                    lines.append(f"  🚨 SADECE {active_count} AKTIF STRATEJI! CREATE ile yeni ekle veya RESTART ile eskiyi canlandir.")
+                    lines.append(
+                        f"  🚨 SADECE {active_count} AKTIF STRATEJI! CREATE ile yeni ekle veya RESTART ile eskiyi canlandir."
+                    )
                 # Check if all strategies are same asset
                 if active:
                     assets = set(s[1].split("_")[1] if "_" in (s[1] or "") else "?" for s in active)
                     if len(assets) == 1:
-                        lines.append(f"  ⚠️ TUM STRATEJILER AYNI ASSET ({assets.pop()})! Diversifikasyon gerekli.")
+                        lines.append(
+                            f"  ⚠️ TUM STRATEJILER AYNI ASSET ({assets.pop()})! Diversifikasyon gerekli."
+                        )
                 # Check loss streak from risk
-                if hasattr(self, 'engine') and hasattr(self.engine, 'risk'):
-                    streak = getattr(self.engine.risk, '_loss_streak', 0)
+                if hasattr(self, "engine") and hasattr(self.engine, "risk"):
+                    streak = getattr(self.engine.risk, "_loss_streak", 0)
                     if streak >= 3:
                         lines.append(f"  ⚠️ KAYIP SERISI: {streak} ardisik kayip! Dikkatli ol.")
                 # Budget warning
                 remaining = MAX_BUDGET - self._spent
                 if remaining < 3:
-                    lines.append(f"  ⚠️ AI BUTCE AZALIYOR: ${remaining:.2f} kaldi (${MAX_BUDGET} toplam)")
+                    lines.append(
+                        f"  ⚠️ AI BUTCE AZALIYOR: ${remaining:.2f} kaldi (${MAX_BUDGET} toplam)"
+                    )
             except Exception:  # noqa: BLE001
                 # Epic 8 T8.1 audit: engine.risk + set comprehension —
                 # AttributeError, KeyError, TypeError possible. Best-effort.
@@ -967,11 +1052,19 @@ CONSENSUS KURALI:
     async def _get_binance(self) -> str:
         try:
             import httpx as _httpx
+
             lines = []
             async with _httpx.AsyncClient(timeout=5.0) as client:
-                for sym, name in [("BTCUSDT","BTC"),("ETHUSDT","ETH"),("SOLUSDT","SOL"),("XRPUSDT","XRP")]:
+                for sym, name in [
+                    ("BTCUSDT", "BTC"),
+                    ("ETHUSDT", "ETH"),
+                    ("SOLUSDT", "SOL"),
+                    ("XRPUSDT", "XRP"),
+                ]:
                     try:
-                        r = await client.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={sym}")
+                        r = await client.get(
+                            f"https://api.binance.com/api/v3/ticker/24hr?symbol={sym}"
+                        )
                         if r.status_code == 200:
                             d = r.json()
                             price = float(d.get("lastPrice", 0))
@@ -999,6 +1092,7 @@ CONSENSUS KURALI:
         4. Regex fallback for partial JSON
         """
         import re
+
         if not response:
             return None
 
@@ -1025,14 +1119,14 @@ CONSENSUS KURALI:
             depth = 0
             end_idx = len(clean) - 1
             for i, c in enumerate(clean):
-                if c == '{':
+                if c == "{":
                     depth += 1
-                elif c == '}':
+                elif c == "}":
                     depth -= 1
                 if depth == 0:
                     end_idx = i
                     break
-            clean = clean[:end_idx + 1]
+            clean = clean[: end_idx + 1]
 
             # Stage 2b: If braces never balanced, close them
             if depth > 0:
@@ -1058,7 +1152,7 @@ CONSENSUS KURALI:
                     break
 
             # 3b: Remove trailing commas before } or ]
-            repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+            repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
 
             # 3c: Fix unterminated strings by finding unmatched quotes
             # Strategy: remove the last incomplete key-value pair
@@ -1070,14 +1164,14 @@ CONSENSUS KURALI:
             # 3d: Aggressive truncation — find last valid closing brace
             # Walk backwards to find a position where JSON is valid
             for i in range(len(repaired) - 1, max(len(repaired) // 2, 50), -1):
-                if repaired[i] == '}':
-                    candidate = repaired[:i + 1]
+                if repaired[i] == "}":
+                    candidate = repaired[: i + 1]
                     # Ensure braces are balanced
                     d = 0
                     for c in candidate:
-                        if c == '{':
+                        if c == "{":
                             d += 1
-                        elif c == '}':
+                        elif c == "}":
                             d -= 1
                     if d == 0:
                         try:
@@ -1099,7 +1193,7 @@ CONSENSUS KURALI:
                 try:
                     actions_str = "[" + actions_match.group(1) + "]"
                     # Fix trailing commas in array
-                    actions_str = re.sub(r',\s*\]', ']', actions_str)
+                    actions_str = re.sub(r",\s*\]", "]", actions_str)
                     result["actions"] = json.loads(actions_str)
                 except Exception:  # noqa: BLE001
                     # Epic 8 T8.1 audit: regex-extracted JSON fragment may be
@@ -1138,19 +1232,21 @@ CONSENSUS KURALI:
     # ═══ EXECUTE WITH SAFETY ═══
     async def _execute(self, actions) -> list[str]:
         from core.changelog import log_change
+
         MAX_STOPS_PER_CYCLE = int(os.getenv("MAX_STOPS_PER_CYCLE", "2"))
         stop_count = 0
         results = []
         for action in actions:
             try:
-                atype = action.get("type","").upper()
-                sid = action.get("id","")
-                reason = action.get("reason","?")
+                atype = action.get("type", "").upper()
+                sid = action.get("id", "")
+                reason = action.get("reason", "?")
 
                 if atype == "DELETE" or atype == "STOP":
                     # SAFETY: Check if already stopped
                     cur = await self.db.conn.execute_fetchall(
-                        "SELECT status, label FROM strategies WHERE id LIKE ?", (f"{sid}%",))
+                        "SELECT status, label FROM strategies WHERE id LIKE ?", (f"{sid}%",)
+                    )
                     if not cur:
                         results.append(f"⚠️ {sid[:8]} bulunamadi")
                         continue
@@ -1164,18 +1260,28 @@ CONSENSUS KURALI:
                         continue
                     # SAFETY: Max STOP per cycle limiti (7-strateji-katliami onlemi)
                     if stop_count >= MAX_STOPS_PER_CYCLE:
-                        results.append(f"⏸ STOP LIMIT: {label} — cycle limiti ({MAX_STOPS_PER_CYCLE}) doldu, sonraki cycle'a ertelendi")
+                        results.append(
+                            f"⏸ STOP LIMIT: {label} — cycle limiti ({MAX_STOPS_PER_CYCLE}) doldu, sonraki cycle'a ertelendi"
+                        )
                         logger.warning(f"🧠 STOP BLOCKED (limit): {label} — {reason}")
                         continue
                     await self.db.conn.execute(
-                        "UPDATE strategies SET status='stopped' WHERE id LIKE ?", (f"{sid}%",))
+                        "UPDATE strategies SET status='stopped' WHERE id LIKE ?", (f"{sid}%",)
+                    )
                     await self.db.conn.commit()
                     stop_count += 1
                     results.append(f"🛑 STOP: {label} — {reason}")
                     logger.info(f"🧠 STOP: {label} ({stop_count}/{MAX_STOPS_PER_CYCLE})")
-                    await log_change(self.db, sid, "STOP", "ai_brain",
-                                     old={"status": "active"}, new={"status": "stopped"},
-                                     reason=reason, label=label)
+                    await log_change(
+                        self.db,
+                        sid,
+                        "STOP",
+                        "ai_brain",
+                        old={"status": "active"},
+                        new={"status": "stopped"},
+                        reason=reason,
+                        label=label,
+                    )
 
                 elif atype == "CREATE":
                     result = await self._create(action)
@@ -1183,40 +1289,56 @@ CONSENSUS KURALI:
 
                 elif atype == "SCALE" and sid:
                     cur = await self.db.conn.execute_fetchall(
-                        "SELECT trade_amount, label FROM strategies WHERE id LIKE ?", (f"{sid}%",))
-                    if not cur: continue
+                        "SELECT trade_amount, label FROM strategies WHERE id LIKE ?", (f"{sid}%",)
+                    )
+                    if not cur:
+                        continue
                     old_amt, label = cur[0][0], cur[0][1] or ""
                     is_ai = "AI_" in label
-                    new_amt = min(action.get("new_amount",old_amt), MAX_TRADE_AMOUNT)
+                    new_amt = min(action.get("new_amount", old_amt), MAX_TRADE_AMOUNT)
                     max_scale = MAX_SCALE_AI if is_ai else MAX_SCALE_HUMAN
 
                     # AI strategies need 20+ trades to scale
                     if is_ai:
                         trades = await self.db.conn.execute_fetchall(
-                            "SELECT COUNT(*) FROM executions WHERE strategy_id LIKE ? AND result IS NOT NULL", (f"{sid}%",))
+                            "SELECT COUNT(*) FROM executions WHERE strategy_id LIKE ? AND result IS NOT NULL",
+                            (f"{sid}%",),
+                        )
                         if trades and trades[0][0] < 20 and new_amt > 3:
                             results.append(f"⚠️ {label}: 20+ trade gerek (simdi {trades[0][0]}t)")
                             continue
 
                     if new_amt <= old_amt * max_scale:
                         await self.db.conn.execute(
-                            "UPDATE strategies SET trade_amount=? WHERE id LIKE ?", (new_amt, f"{sid}%"))
+                            "UPDATE strategies SET trade_amount=? WHERE id LIKE ?",
+                            (new_amt, f"{sid}%"),
+                        )
                         await self.db.conn.commit()
                         results.append(f"📈 SCALE: {label} ${old_amt}→${new_amt:.1f} — {reason}")
                         logger.info(f"🧠 SCALE: {label} ${old_amt}→${new_amt}")
-                        await log_change(self.db, sid, "SCALE", "ai_brain",
-                                         old={"trade_amount": old_amt}, new={"trade_amount": new_amt},
-                                         reason=reason, label=label)
+                        await log_change(
+                            self.db,
+                            sid,
+                            "SCALE",
+                            "ai_brain",
+                            old={"trade_amount": old_amt},
+                            new={"trade_amount": new_amt},
+                            reason=reason,
+                            label=label,
+                        )
                     else:
                         results.append(f"⚠️ SCALE RED: {label} ${new_amt}>${old_amt}×{max_scale}")
 
                 elif atype == "TUNE" and sid:
-                    field = action.get("field","odds_threshold")
+                    field = action.get("field", "odds_threshold")
                     value = action.get("value")
-                    if field != "odds_threshold" or value is None: continue
+                    if field != "odds_threshold" or value is None:
+                        continue
                     cur = await self.db.conn.execute_fetchall(
-                        "SELECT odds_threshold, label FROM strategies WHERE id LIKE ?", (f"{sid}%",))
-                    if not cur: continue
+                        "SELECT odds_threshold, label FROM strategies WHERE id LIKE ?", (f"{sid}%",)
+                    )
+                    if not cur:
+                        continue
                     old_thr, label = cur[0][0] or 0.5, cur[0][1] or ""
 
                     # SAFETY: Protected strategies
@@ -1227,28 +1349,48 @@ CONSENSUS KURALI:
                     max_delta = MAX_THR_DELTA_AI if is_ai else MAX_THR_DELTA_HUMAN
                     if abs(old_thr - value) <= max_delta:
                         await self.db.conn.execute(
-                            "UPDATE strategies SET odds_threshold=? WHERE id LIKE ?", (value, f"{sid}%"))
+                            "UPDATE strategies SET odds_threshold=? WHERE id LIKE ?",
+                            (value, f"{sid}%"),
+                        )
                         await self.db.conn.commit()
                         results.append(f"🎯 TUNE: {label} {old_thr}→{value} — {reason}")
                         logger.info(f"🧠 TUNE: {label} {old_thr}→{value}")
-                        await log_change(self.db, sid, "TUNE", "ai_brain",
-                                         old={"odds_threshold": old_thr}, new={"odds_threshold": value},
-                                         reason=reason, label=label)
+                        await log_change(
+                            self.db,
+                            sid,
+                            "TUNE",
+                            "ai_brain",
+                            old={"odds_threshold": old_thr},
+                            new={"odds_threshold": value},
+                            reason=reason,
+                            label=label,
+                        )
                     else:
-                        results.append(f"⚠️ TUNE RED: {label} delta {abs(old_thr-value):.2f}>{max_delta}")
+                        results.append(
+                            f"⚠️ TUNE RED: {label} delta {abs(old_thr-value):.2f}>{max_delta}"
+                        )
 
                 elif atype == "RESTART" and sid:
                     cur = await self.db.conn.execute_fetchall(
-                        "SELECT label FROM strategies WHERE id LIKE ?", (f"{sid}%",))
+                        "SELECT label FROM strategies WHERE id LIKE ?", (f"{sid}%",)
+                    )
                     label = cur[0][0] if cur else sid[:8]
                     await self.db.conn.execute(
-                        "UPDATE strategies SET status='active' WHERE id LIKE ?", (f"{sid}%",))
+                        "UPDATE strategies SET status='active' WHERE id LIKE ?", (f"{sid}%",)
+                    )
                     await self.db.conn.commit()
                     results.append(f"🔄 RESTART: {label} — {reason}")
                     logger.info(f"🧠 RESTART: {label}")
-                    await log_change(self.db, sid, "RESTART", "ai_brain",
-                                     old={"status": "stopped"}, new={"status": "active"},
-                                     reason=reason, label=label)
+                    await log_change(
+                        self.db,
+                        sid,
+                        "RESTART",
+                        "ai_brain",
+                        old={"status": "stopped"},
+                        new={"status": "active"},
+                        reason=reason,
+                        label=label,
+                    )
 
                 # INSIGHT removed 2026-05-05 (Heddas direktifi sadeleştirme):
                 # Sadece not yazıyordu, hiçbir şey yapmıyordu — LLM cost israfı.
@@ -1273,24 +1415,32 @@ CONSENSUS KURALI:
         try:
             user = await self.db.conn.execute_fetchall("SELECT id FROM users LIMIT 1")
             wallet = await self.db.conn.execute_fetchall("SELECT id FROM wallets LIMIT 1")
-            if not user or not wallet: return "❌ No user"
+            if not user or not wallet:
+                return "❌ No user"
 
-            stype = action.get("strategy_type","fusion")
-            asset = action.get("asset","BTC").upper()
-            direction = action.get("direction","any").lower()
+            stype = action.get("strategy_type", "fusion")
+            asset = action.get("asset", "BTC").upper()
+            direction = action.get("direction", "any").lower()
             amount = 1.0  # AI strategies ALWAYS start at $1
-            threshold = action.get("odds_threshold",0.50)
+            threshold = action.get("odds_threshold", 0.50)
             tp = action.get("take_profit_odds")
             sl = action.get("stop_loss_odds")
-            reason = action.get("reason","AI created")
+            reason = action.get("reason", "AI created")
 
-            type_short = {"fusion":"F","momentum":"M","contrarian":"C","scalper":"S",
-                         "sniper":"N","highthreshold":"HT"}.get(stype,"?")
+            type_short = {
+                "fusion": "F",
+                "momentum": "M",
+                "contrarian": "C",
+                "scalper": "S",
+                "sniper": "N",
+                "highthreshold": "HT",
+            }.get(stype, "?")
             label = f"AI_{type_short}_{asset}_5m_{direction}_{threshold}"
 
             # Check duplicate
             existing = await self.db.conn.execute_fetchall(
-                "SELECT id FROM strategies WHERE label=?", (label,))
+                "SELECT id FROM strategies WHERE label=?", (label,)
+            )
             if existing:
                 return f"⏭ {label} zaten var"
 
@@ -1300,22 +1450,48 @@ CONSENSUS KURALI:
             # doğrulama yok. wf label'ı (log+reason+return) da kaldırıldı.
 
             sid = str(uuid.uuid4())
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             await self.db.conn.execute(
                 """INSERT INTO strategies (id,user_id,wallet_id,label,asset,timeframe,
                     direction,trade_amount,odds_threshold,strategy_type,status,
                     take_profit_odds,stop_loss_odds,minutes_before_end,max_executions_per_event,
                     created_at,updated_at)
                 VALUES (?,?,?,?,?,'5m',?,?,?,?,'active',?,?,0.5,1,?,?)""",
-                (sid,user[0][0],wallet[0][0],label,asset,direction,amount,threshold,stype,
-                 tp,sl,now,now))
+                (
+                    sid,
+                    user[0][0],
+                    wallet[0][0],
+                    label,
+                    asset,
+                    direction,
+                    amount,
+                    threshold,
+                    stype,
+                    tp,
+                    sl,
+                    now,
+                    now,
+                ),
+            )
             await self.db.conn.commit()
             logger.info(f"🧠 CREATE: {label} [{stype}] ${amount}@{threshold}")
             from core.changelog import log_change
-            await log_change(self.db, sid, "CREATE", "ai_brain",
-                             new={"strategy_type": stype, "asset": asset, "direction": direction,
-                                  "odds_threshold": threshold, "trade_amount": amount},
-                             reason=reason, label=label)
+
+            await log_change(
+                self.db,
+                sid,
+                "CREATE",
+                "ai_brain",
+                new={
+                    "strategy_type": stype,
+                    "asset": asset,
+                    "direction": direction,
+                    "odds_threshold": threshold,
+                    "trade_amount": amount,
+                },
+                reason=reason,
+                label=label,
+            )
             return f"🆕 CREATE: {label} ${amount}@{threshold} — {reason}"
         except (aiosqlite.Error, ValueError, KeyError, TypeError, AttributeError) as e:
             # Epic 8 T8.1: narrow — DB insert + dict.get + UUID/strftime.
@@ -1329,19 +1505,22 @@ CONSENSUS KURALI:
         Phase 66: Also record Brier Scores for settled trades."""
         try:
             # Use timezone-naive ISO for SQLite string comparison
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+            cutoff = (datetime.now(UTC) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
             pending = await self.db.conn.execute_fetchall(
-                "SELECT id, ts FROM ai_decisions WHERE was_correct IS NULL AND ts < ?", (cutoff,))
-            for row in (pending or []):
+                "SELECT id, ts FROM ai_decisions WHERE was_correct IS NULL AND ts < ?", (cutoff,)
+            )
+            for row in pending or []:
                 # PnL since this decision
                 pnl_after = await self.db.conn.execute_fetchall(
                     "SELECT COALESCE(SUM(pnl),0) FROM executions WHERE result IS NOT NULL AND created_at>=?",
-                    (row[1],))
+                    (row[1],),
+                )
                 pnl = pnl_after[0][0] if pnl_after else 0
                 correct = 1 if pnl > 0 else 0
                 await self.db.conn.execute(
                     "UPDATE ai_decisions SET outcome_24h=?, was_correct=? WHERE id=?",
-                    (f"PnL:{pnl:+.2f}", correct, row[0]))
+                    (f"PnL:{pnl:+.2f}", correct, row[0]),
+                )
             await self.db.conn.commit()
             if pending:
                 logger.info(f"🧠 Measured {len(pending)} past decisions")
@@ -1365,7 +1544,7 @@ CONSENSUS KURALI:
             # Find recently settled trades not yet scored
             # Use a marker: we'll check for trades settled in last 25 hours
             # that haven't been Brier-scored yet (tracked via context_json)
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
             rows = await self.db.conn.execute_fetchall(
                 """SELECT e.id, e.execution_price, e.pnl, e.direction,
                           s.label, s.strategy_type
@@ -1375,7 +1554,8 @@ CONSENSUS KURALI:
                      AND e.closed_at >= ?
                      AND e.execution_price IS NOT NULL
                    ORDER BY e.closed_at DESC LIMIT 50""",
-                (cutoff,))
+                (cutoff,),
+            )
 
             if not rows:
                 return
@@ -1388,7 +1568,8 @@ CONSENSUS KURALI:
                 scored = await self.db.conn.execute_fetchall(
                     f"SELECT context_json FROM brier_scores "
                     f"WHERE context_json IN ({placeholders})",
-                    [json.dumps({"trade_id": tid}) for tid in trade_ids])
+                    [json.dumps({"trade_id": tid}) for tid in trade_ids],
+                )
                 # This won't work perfectly but is a safety check
             except aiosqlite.Error:
                 # Epic 8 T8.1: narrow — "no such table" until BrierTracker
@@ -1412,8 +1593,12 @@ CONSENSUS KURALI:
                     prediction=prediction,
                     outcome=outcome,
                     source="signal_fusion",
-                    context={"trade_id": eid, "label": label, "stype": stype,
-                             "direction": direction}
+                    context={
+                        "trade_id": eid,
+                        "label": label,
+                        "stype": stype,
+                        "direction": direction,
+                    },
                 )
                 scored_count += 1
 
@@ -1436,14 +1621,17 @@ CONSENSUS KURALI:
                 JOIN strategies s ON s.id = e.strategy_id
                 WHERE e.result IS NOT NULL AND e.pnl < 0
                 AND e.id NOT IN (SELECT trade_id FROM trade_mistakes WHERE trade_id IS NOT NULL)
-                ORDER BY e.created_at DESC LIMIT 5""")
+                ORDER BY e.created_at DESC LIMIT 5"""
+            )
             if not losses:
                 return
 
             for loss in losses:
                 eid, pnl, price, direction, sid, label, stype, threshold = loss
-                context = (f"Trade #{eid}: {label} [{stype}] {direction} @{price:.3f} "
-                           f"thr={threshold} pnl={pnl:+.2f}")
+                context = (
+                    f"Trade #{eid}: {label} [{stype}] {direction} @{price:.3f} "
+                    f"thr={threshold} pnl={pnl:+.2f}"
+                )
 
                 # Use Groq for routine analysis (FREE)
                 provider, model = ModelRouter.get("mistake_analysis")
@@ -1455,7 +1643,7 @@ CONSENSUS KURALI:
                 if not resp:
                     # Fallback: rule-based classification
                     if price and 0.48 <= price <= 0.65:
-                        mtype, lesson = "fee_trap", f"50-65c zone trade, fee %3.6 yedi"
+                        mtype, lesson = "fee_trap", "50-65c zone trade, fee %3.6 yedi"
                     elif pnl and pnl < -0.5:
                         mtype, lesson = "oversize", f"Buyuk kayip: {pnl:+.2f}"
                     else:
@@ -1474,7 +1662,8 @@ CONSENSUS KURALI:
                     """INSERT INTO trade_mistakes
                     (trade_id, strategy_label, mistake_type, market_context, lesson_learned, applied_fix)
                     VALUES (?,?,?,?,?,?)""",
-                    (eid, label, mtype, context, lesson, applied))
+                    (eid, label, mtype, context, lesson, applied),
+                )
             await self.db.conn.commit()
             if losses:
                 logger.info(f"🧠 Analyzed {len(losses)} losing trades for mistakes journal")
@@ -1486,11 +1675,18 @@ CONSENSUS KURALI:
 
     async def _save_decision(self, input_summary, actions, results):
         try:
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             await self.db.conn.execute(
                 "INSERT INTO ai_decisions (ts,input_hash,actions_proposed,actions_executed,cost,provider) VALUES (?,?,?,?,?,?)",
-                (now, hashlib.md5(input_summary.encode()).hexdigest()[:12],
-                 json.dumps(actions,default=str), json.dumps(results), 0.015, "claude-sonnet"))
+                (
+                    now,
+                    hashlib.md5(input_summary.encode()).hexdigest()[:12],
+                    json.dumps(actions, default=str),
+                    json.dumps(results),
+                    0.015,
+                    "claude-sonnet",
+                ),
+            )
             await self.db.conn.commit()
             self._spent += 0.015
             await self._save_budget()
@@ -1503,8 +1699,11 @@ CONSENSUS KURALI:
     # ═══ BUDGET ═══
     async def _load_budget(self):
         try:
-            r = await self.db.conn.execute_fetchall("SELECT value FROM bot_settings WHERE key='ai_brain.spent'")
-            if r: self._spent = float(r[0][0])
+            r = await self.db.conn.execute_fetchall(
+                "SELECT value FROM bot_settings WHERE key='ai_brain.spent'"
+            )
+            if r:
+                self._spent = float(r[0][0])
         except (aiosqlite.Error, ValueError, TypeError, IndexError) as _lb_err:
             # Epic 8 T8.1 ALARM fix: silent pass → logger.debug. If budget
             # load fails, _spent stays at __init__ default (0.0) which risks
@@ -1515,7 +1714,8 @@ CONSENSUS KURALI:
         try:
             await self.db.conn.execute(
                 "INSERT OR REPLACE INTO bot_settings (key,value,updated_at) VALUES ('ai_brain.spent',?,?)",
-                (str(self._spent), datetime.now(timezone.utc).isoformat()))
+                (str(self._spent), datetime.now(UTC).isoformat()),
+            )
             await self.db.conn.commit()
         except (aiosqlite.Error, ValueError, TypeError) as _sb_err:
             # Epic 8 T8.1 ALARM fix: silent pass → logger.debug. Budget
@@ -1564,21 +1764,28 @@ CONSENSUS KURALI:
         )
 
     async def _call_claude(self, system, user, model="claude-sonnet-4-6"):
-        if not ANTHROPIC_API_KEY: return None
+        if not ANTHROPIC_API_KEY:
+            return None
         # Epic 8 T8.2: short-circuit if still in cooldown.
         if self._rate_limit_active("claude"):
             return None
-        payload = json.dumps({
-            "model": model, "max_tokens": 2000,
-            "system": [{"type":"text","text":system,"cache_control":{"type":"ephemeral"}}],
-            "messages": [{"role":"user","content":user}]
-        })
+        payload = json.dumps(
+            {
+                "model": model,
+                "max_tokens": 2000,
+                "system": [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                ],
+                "messages": [{"role": "user", "content": user}],
+            }
+        )
         try:
             loop = asyncio.get_event_loop()
             r = await loop.run_in_executor(None, self._do_claude, payload)
             if r:
-                cost = {"sonnet":0.015,"haiku":0.004,"opus":0.06}.get(
-                    model.split("-")[1] if "-" in model else "sonnet", 0.015)
+                cost = {"sonnet": 0.015, "haiku": 0.004, "opus": 0.06}.get(
+                    model.split("-")[1] if "-" in model else "sonnet", 0.015
+                )
                 self._spent += cost
                 await self._save_budget()
                 logger.info(f"🧠 Claude OK (${self._spent:.3f}/{MAX_BUDGET})")
@@ -1595,12 +1802,18 @@ CONSENSUS KURALI:
 
     def _do_claude(self, payload):
         import httpx as _httpx
+
         try:
-            r = _httpx.post("https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": ANTHROPIC_API_KEY,
-                         "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-                content=payload, timeout=60.0)
+            r = _httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                content=payload,
+                timeout=60.0,
+            )
             # Epic 8 T8.2: detect 429 before json-parsing. Raising a typed
             # exception lets the async wrapper update cooldown state; any
             # non-429 error keeps the existing soft-None semantics.
@@ -1608,8 +1821,10 @@ CONSENSUS KURALI:
                 retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
                 raise LLMRateLimitError("claude", retry_after)
             d = r.json()
-            if "content" in d and d["content"]: return d["content"][0].get("text","")
-            if "error" in d: logger.warning(f"Claude: {d['error'].get('message','')[:100]}")
+            if "content" in d and d["content"]:
+                return d["content"][0].get("text", "")
+            if "error" in d:
+                logger.warning(f"Claude: {d['error'].get('message','')[:100]}")
             return None
         except LLMRateLimitError:
             # Epic 8 T8.2: re-raise typed rate-limit so async wrapper sees it.
@@ -1621,13 +1836,22 @@ CONSENSUS KURALI:
             return None
 
     async def _call_groq(self, system, user):
-        if not GROK_API_KEY: return None
+        if not GROK_API_KEY:
+            return None
         # Epic 8 T8.2: short-circuit if still in cooldown.
         if self._rate_limit_active("groq"):
             return None
-        payload = json.dumps({"model":"llama-3.3-70b-versatile",
-            "messages":[{"role":"system","content":system},{"role":"user","content":user}],
-            "max_tokens":1500,"temperature":0.3})
+        payload = json.dumps(
+            {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": 1500,
+                "temperature": 0.3,
+            }
+        )
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._do_groq, payload)
@@ -1643,18 +1867,24 @@ CONSENSUS KURALI:
 
     def _do_groq(self, payload):
         import httpx as _httpx
+
         try:
-            r = _httpx.post("https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROK_API_KEY}",
-                         "Content-Type": "application/json"},
-                content=payload, timeout=30.0)
+            r = _httpx.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                content=payload,
+                timeout=30.0,
+            )
             # Epic 8 T8.2: 429 — raise typed so wrapper records cooldown.
             if r.status_code == 429:
                 retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
                 raise LLMRateLimitError("groq", retry_after)
             d = r.json()
-            ch = d.get("choices",[])
-            return ch[0].get("message",{}).get("content","") if ch else None
+            ch = d.get("choices", [])
+            return ch[0].get("message", {}).get("content", "") if ch else None
         except LLMRateLimitError:
             raise
         except Exception:  # noqa: BLE001
@@ -1663,23 +1893,26 @@ CONSENSUS KURALI:
             return None
 
     # ═══ Phase 69: OpenRouter SDK ═══
-    async def _call_openrouter(self, system: str, user: str,
-                               model: str = "meta-llama/llama-3.3-70b-instruct:free"):
+    async def _call_openrouter(
+        self, system: str, user: str, model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    ):
         """Call OpenRouter API — supports 100+ models, free tier available."""
         if not OPENROUTER_API_KEY:
             return None
         # Epic 8 T8.2: short-circuit if still in cooldown.
         if self._rate_limit_active("openrouter"):
             return None
-        payload = json.dumps({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "max_tokens": 1500,
-            "temperature": 0.3,
-        })
+        payload = json.dumps(
+            {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": 1500,
+                "temperature": 0.3,
+            }
+        )
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._do_openrouter, payload)
@@ -1694,15 +1927,19 @@ CONSENSUS KURALI:
 
     def _do_openrouter(self, payload):
         import httpx as _httpx
+
         try:
-            r = _httpx.post("https://openrouter.ai/api/v1/chat/completions",
+            r = _httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",
                     "HTTP-Referer": "https://polypaper-bot.local",
                     "X-Title": "PolyPaper Bot",
                 },
-                content=payload, timeout=45.0)
+                content=payload,
+                timeout=45.0,
+            )
             # Epic 8 T8.2: 429 — raise typed so wrapper records cooldown.
             if r.status_code == 429:
                 retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
@@ -1719,8 +1956,10 @@ CONSENSUS KURALI:
 
     # ═══ PER-TRADE ═══
     async def analyze_trade(self, trade_data: dict):
-        prompt = (f"{trade_data.get('label','?')} {trade_data.get('direction','?')} "
-                  f"@{trade_data.get('price',0):.3f} pnl={trade_data.get('pnl',0):+.2f}")
+        prompt = (
+            f"{trade_data.get('label','?')} {trade_data.get('direction','?')} "
+            f"@{trade_data.get('price',0):.3f} pnl={trade_data.get('pnl',0):+.2f}"
+        )
         # Phase 59: Route to Groq (FREE) for per-trade analysis
         provider, model = ModelRouter.get("trade_analysis")
         if provider == "groq":
@@ -1736,7 +1975,9 @@ CONSENSUS KURALI:
         data = await self._gather_data()
         if not data:
             return None
-        response = await self._call_claude(BRAIN_SYSTEM, data) or await self._call_groq(BRAIN_SYSTEM, data)
+        response = await self._call_claude(BRAIN_SYSTEM, data) or await self._call_groq(
+            BRAIN_SYSTEM, data
+        )
         return response
 
     async def manual_analyze_parsed(self, mode="daily"):
@@ -1754,7 +1995,9 @@ CONSENSUS KURALI:
         data = await self._gather_data()
         if not data:
             return None, None
-        response = await self._call_claude(BRAIN_SYSTEM, data) or await self._call_groq(BRAIN_SYSTEM, data)
+        response = await self._call_claude(BRAIN_SYSTEM, data) or await self._call_groq(
+            BRAIN_SYSTEM, data
+        )
         if not response:
             return None, None
         parsed = self._parse(response)
@@ -1796,10 +2039,13 @@ CONSENSUS KURALI:
         ev = results.get("ev_per_trade", 0)
         zones = results.get("zones", {})
 
-        zone_lines = "\n".join(
-            f"  {z}: {d.get('trades',0)}t {d.get('wr',0):.0f}% WR PnL={d.get('pnl',0):+.2f}"
-            for z, d in zones.items()
-        ) or "  (zone verisi yok)"
+        zone_lines = (
+            "\n".join(
+                f"  {z}: {d.get('trades',0)}t {d.get('wr',0):.0f}% WR PnL={d.get('pnl',0):+.2f}"
+                for z, d in zones.items()
+            )
+            or "  (zone verisi yok)"
+        )
 
         prompt = (
             f"Strateji: {strategy_label}\n"
@@ -1828,14 +2074,16 @@ CONSENSUS KURALI:
     # ═══ NOTIFY ═══
     async def _notify(self, actions, results, parsed):
         remaining = MAX_BUDGET - self._spent
-        view = parsed.get("market_view","?")
-        reasoning = parsed.get("reasoning","?")
-        conf = parsed.get("confidence",0)
-        lessons = parsed.get("lessons_learned","")
+        view = parsed.get("market_view", "?")
+        reasoning = parsed.get("reasoning", "?")
+        conf = parsed.get("confidence", 0)
+        lessons = parsed.get("lessons_learned", "")
 
-        text = (f"🧠 <b>AI Brain #{self._cycle_count}</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📊 Market: <b>{view}</b> | Guven: {conf:.0%}\n"
-                f"💭 {reasoning}\n\n")
+        text = (
+            f"🧠 <b>AI Brain #{self._cycle_count}</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📊 Market: <b>{view}</b> | Guven: {conf:.0%}\n"
+            f"💭 {reasoning}\n\n"
+        )
         for r in results:
             text += f"{r}\n"
         if lessons:
@@ -1844,30 +2092,44 @@ CONSENSUS KURALI:
         await self._send(text)
 
     async def _send(self, text):
-        admin_id = getattr(self.settings,'ADMIN_TELEGRAM_ID',None) if self.settings else None
-        if not admin_id or not self.bot_app: return
+        admin_id = getattr(self.settings, "ADMIN_TELEGRAM_ID", None) if self.settings else None
+        if not admin_id or not self.bot_app:
+            return
         # Sanitize: escape < > that aren't valid HTML tags
         import re
-        safe = re.sub(r'<(?!/?(b|i|code|pre|a)\b)[^>]*>', lambda m: m.group().replace('<','&lt;').replace('>','&gt;'), text)
+
+        safe = re.sub(
+            r"<(?!/?(b|i|code|pre|a)\b)[^>]*>",
+            lambda m: m.group().replace("<", "&lt;").replace(">", "&gt;"),
+            text,
+        )
         try:
-            for i in range(0,len(safe),4000):
+            for i in range(0, len(safe), 4000):
                 try:
-                    await self.bot_app.bot.send_message(chat_id=admin_id,text=safe[i:i+4000],parse_mode="HTML")
+                    await self.bot_app.bot.send_message(
+                        chat_id=admin_id, text=safe[i : i + 4000], parse_mode="HTML"
+                    )
                 except Exception as _html_err:  # noqa: BLE001
                     # Epic 8 T8.1 ALARM fix: HTML parse failure fallback to
                     # plaintext; log first-chunk error so we can fix entity
                     # escaping instead of silently losing HTML formatting.
                     logger.debug(f"_send HTML fallback: {_html_err}")
-                    await self.bot_app.bot.send_message(chat_id=admin_id,text=text[i:i+4000])
+                    await self.bot_app.bot.send_message(chat_id=admin_id, text=text[i : i + 4000])
         except Exception as _send_err:  # noqa: BLE001
             # Epic 8 T8.1 audit: outer Telegram send — BadRequest / NetworkError
             # / chat blocked. Notification is best-effort; AI cycle continues.
             logger.debug(f"_send outer failed: {_send_err}")
 
     def get_status(self):
-        return {"active":self._running,"spent":self._spent,"budget":MAX_BUDGET,
-                "remaining":MAX_BUDGET-self._spent,"cycle":self._cycle_count,
-                "last_run":self._last_run,"providers":["claude-sonnet","groq"]}
+        return {
+            "active": self._running,
+            "spent": self._spent,
+            "budget": MAX_BUDGET,
+            "remaining": MAX_BUDGET - self._spent,
+            "cycle": self._cycle_count,
+            "last_run": self._last_run,
+            "providers": ["claude-sonnet", "groq"],
+        }
 
     # ═══ Sprint 3 S3-04: APPROVAL QUEUE ═══
     _pending_approval: dict = {}  # {msg_id: {"actions": [...], "parsed": {...}, "data": str}}
@@ -1875,36 +2137,46 @@ CONSENSUS KURALI:
     async def _queue_for_approval(self, actions, parsed, data_summary):
         """Send low-confidence AI actions to Telegram with Approve/Reject buttons."""
         try:
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
             confidence = parsed.get("confidence", 0)
             view = parsed.get("market_view", "?")
             reasoning = parsed.get("reasoning", "?")
 
-            text = (f"⚠️ <b>AI Brain — Onay Bekliyor</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"Guven: <b>{confidence:.0%}</b> (esik: {os.getenv('AI_AUTO_CONFIDENCE','0.70')})\n"
-                    f"Gorunum: {view}\n"
-                    f"Mantik: {reasoning[:200]}\n\n"
-                    f"<b>Onerilen aksiyonlar:</b>\n")
+            text = (
+                f"⚠️ <b>AI Brain — Onay Bekliyor</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Guven: <b>{confidence:.0%}</b> (esik: {os.getenv('AI_AUTO_CONFIDENCE','0.70')})\n"
+                f"Gorunum: {view}\n"
+                f"Mantik: {reasoning[:200]}\n\n"
+                f"<b>Onerilen aksiyonlar:</b>\n"
+            )
             for a in actions:
                 atype = a.get("type", "?")
                 sid = a.get("id", "?")[:8]
                 reason = a.get("reason", "")[:80]
                 text += f"  • {atype} {sid} — {reason}\n"
 
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Onayla", callback_data="ai_approve"),
-                 InlineKeyboardButton("❌ Reddet", callback_data="ai_reject")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("✅ Onayla", callback_data="ai_approve"),
+                        InlineKeyboardButton("❌ Reddet", callback_data="ai_reject"),
+                    ]
+                ]
+            )
 
-            admin_id = getattr(self.settings, 'ADMIN_TELEGRAM_ID', None) if self.settings else None
+            admin_id = getattr(self.settings, "ADMIN_TELEGRAM_ID", None) if self.settings else None
             if admin_id and self.bot_app:
                 msg = await self.bot_app.bot.send_message(
-                    chat_id=admin_id, text=text, parse_mode="HTML",
-                    reply_markup=keyboard)
+                    chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=keyboard
+                )
                 # Store pending actions keyed by a simple counter
                 self.__class__._pending_approval[str(msg.message_id)] = {
-                    "actions": actions, "parsed": parsed, "data": data_summary}
+                    "actions": actions,
+                    "parsed": parsed,
+                    "data": data_summary,
+                }
                 logger.info(f"🧠 Approval request sent (msg_id={msg.message_id})")
             else:
                 # P0-01 (2026-05-08): NO auto-execute fallback. If Telegram
@@ -1915,10 +2187,13 @@ CONSENSUS KURALI:
                 logger.error(
                     "🧠 P0-01: cannot queue %d actions for approval "
                     "(admin_id=%s bot_app=%s) — DISCARDING (no auto-execute)",
-                    len(actions), bool(admin_id), bool(self.bot_app),
+                    len(actions),
+                    bool(admin_id),
+                    bool(self.bot_app),
                 )
                 await self._save_decision(
-                    data_summary, actions,
+                    data_summary,
+                    actions,
                     ["❌ DISCARDED: Telegram approval channel unavailable"],
                 )
         except Exception as e:  # noqa: BLE001
@@ -1930,7 +2205,8 @@ CONSENSUS KURALI:
             # the catch-all is preserved purely to keep the cycle alive.
             logger.error(f"Approval queue: {e}", exc_info=True)
             await self._save_decision(
-                data_summary, actions,
+                data_summary,
+                actions,
                 [f"❌ DISCARDED: approval queue raised {type(e).__name__}"],
             )
 
@@ -1944,7 +2220,9 @@ CONSENSUS KURALI:
             await self._save_decision(pending["data"], pending["actions"], results)
             return "✅ AI aksiyonlari uygulandi:\n" + "\n".join(results)
         else:
-            await self._save_decision(pending["data"], pending["actions"], ["❌ Admin tarafindan REDDEDILDI"])
+            await self._save_decision(
+                pending["data"], pending["actions"], ["❌ Admin tarafindan REDDEDILDI"]
+            )
             return "❌ AI aksiyonlari reddedildi"
 
     def stop(self):

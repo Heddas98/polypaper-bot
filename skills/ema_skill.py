@@ -8,21 +8,22 @@ Provides:
     - ema_crossover(): Fast/slow EMA crossover detection
     - ema_direction(): UP/DOWN/FLAT based on EMA slope
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class EMACrossover:
     """EMA crossover result."""
+
     fast: float = 0.0
     slow: float = 0.0
-    crossed_up: bool = False      # Fast crossed above slow
-    crossed_down: bool = False    # Fast crossed below slow
-    spread: float = 0.0           # fast - slow
-    direction: str = "flat"       # "up", "down", "flat"
+    crossed_up: bool = False  # Fast crossed above slow
+    crossed_down: bool = False  # Fast crossed below slow
+    spread: float = 0.0  # fast - slow
+    direction: str = "flat"  # "up", "down", "flat"
 
 
 def ema(series: list[float], period: int = 14) -> list[float]:

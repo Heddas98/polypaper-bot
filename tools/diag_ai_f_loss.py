@@ -1,4 +1,4 @@
-"""
+r"""
 Phase 82c Task #15 — AI_F_* strategies -105% loss diagnosis
 ============================================================
 
@@ -12,6 +12,7 @@ to inspect AI_F_* strategy executions:
 Usage:
     py -3.11 tools\diag_ai_f_loss.py
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -34,8 +35,7 @@ def main() -> int:
         return 1
 
     # Read-only URI — bot-safe
-    conn = sqlite3.connect(
-        f"file:{DB_PATH}?mode=ro", uri=True, timeout=30)
+    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=30)
     conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
 
@@ -52,10 +52,12 @@ def main() -> int:
         ).fetchall()
         print(f"  Count: {len(rows)}")
         for r in rows:
-            print(f"  {r['label']:30s} status={r['status']:12s} "
-                  f"thr={r['odds_threshold']} amt=${r['trade_amount']:.2f} "
-                  f"tp={r['take_profit_odds']} sl={r['stop_loss_odds']} "
-                  f"created={r['created_at'][:19] if r['created_at'] else 'NULL'}")
+            print(
+                f"  {r['label']:30s} status={r['status']:12s} "
+                f"thr={r['odds_threshold']} amt=${r['trade_amount']:.2f} "
+                f"tp={r['take_profit_odds']} sl={r['stop_loss_odds']} "
+                f"created={r['created_at'][:19] if r['created_at'] else 'NULL'}"
+            )
 
         # 2. Executions summary per AI_F strategy
         print()
@@ -82,15 +84,19 @@ def main() -> int:
         if not rows:
             print("  (no settled AI_F_* executions)")
         else:
-            hdr = (f"  {'label':30s} {'N':>4s} {'W':>3s} {'L':>3s} "
-                   f"{'PnL':>8s} {'avg':>7s} {'entry':>6s} {'fee':>6s} {'sig':>5s}")
+            hdr = (
+                f"  {'label':30s} {'N':>4s} {'W':>3s} {'L':>3s} "
+                f"{'PnL':>8s} {'avg':>7s} {'entry':>6s} {'fee':>6s} {'sig':>5s}"
+            )
             print(hdr)
             for r in rows:
-                print(f"  {r['label']:30s} {r['total']:>4d} "
-                      f"{r['wins'] or 0:>3d} {r['losses'] or 0:>3d} "
-                      f"{r['total_pnl']:>+8.2f} {r['avg_pnl']:>+7.4f} "
-                      f"{r['avg_entry']:>6.4f} {r['avg_fee']:>6.4f} "
-                      f"{r['avg_sig'] or 0:>5.3f}")
+                print(
+                    f"  {r['label']:30s} {r['total']:>4d} "
+                    f"{r['wins'] or 0:>3d} {r['losses'] or 0:>3d} "
+                    f"{r['total_pnl']:>+8.2f} {r['avg_pnl']:>+7.4f} "
+                    f"{r['avg_entry']:>6.4f} {r['avg_fee']:>6.4f} "
+                    f"{r['avg_sig'] or 0:>5.3f}"
+                )
 
         # 3. Recent 15 AI_F trades full detail
         print()
@@ -112,13 +118,15 @@ def main() -> int:
             print("  (no recent AI_F_* trades)")
         else:
             for r in rows:
-                print(f"  {r['label'][:25]:25s} {r['direction']:4s} "
-                      f"@{r['execution_price']:.4f} ${r['trade_amount']:.2f} "
-                      f"fee={r['fee_amount']:.4f} pnl={r['pnl']:+.2f} "
-                      f"payout={r['payout']:.2f} {r['result']:4s} "
-                      f"sig={(r['signal_score'] or 0):.2f} "
-                      f"dur={r['duration_sec'] or 0}s "
-                      f"{r['event_slug'][:30]}")
+                print(
+                    f"  {r['label'][:25]:25s} {r['direction']:4s} "
+                    f"@{r['execution_price']:.4f} ${r['trade_amount']:.2f} "
+                    f"fee={r['fee_amount']:.4f} pnl={r['pnl']:+.2f} "
+                    f"payout={r['payout']:.2f} {r['result']:4s} "
+                    f"sig={(r['signal_score'] or 0):.2f} "
+                    f"dur={r['duration_sec'] or 0}s "
+                    f"{r['event_slug'][:30]}"
+                )
 
         # 4. Entry price distribution (won vs lost)
         print()
@@ -151,8 +159,10 @@ def main() -> int:
         else:
             print(f"  {'bucket':>8s} {'result':>8s} {'N':>4s} {'PnL':>8s}")
             for r in rows:
-                print(f"  {r['bucket']:>8s} {(r['result'] or '?'):>8s} "
-                      f"{r['n']:>4d} {r['pnl_sum']:>+8.2f}")
+                print(
+                    f"  {r['bucket']:>8s} {(r['result'] or '?'):>8s} "
+                    f"{r['n']:>4d} {r['pnl_sum']:>+8.2f}"
+                )
 
         # 5. Reason analysis — why did they lose?
         print()
@@ -160,8 +170,7 @@ def main() -> int:
         print(" [5] Reason field analysis (if populated)")
         print("=" * 70)
         # check if 'reason' / 'exit_reason' column exists
-        cols = [r[1] for r in conn.execute(
-            "PRAGMA table_info('executions')").fetchall()]
+        cols = [r[1] for r in conn.execute("PRAGMA table_info('executions')").fetchall()]
         reason_col = None
         for cand in ("exit_reason", "reason", "close_reason"):
             if cand in cols:
@@ -197,7 +206,9 @@ def main() -> int:
                ORDER BY n DESC"""
         ).fetchall()
         for r in rows:
-            print(f"    status={(r['status'] or '?'):15s} n={r['n']:>4d} pnl={r['pnl_sum'] or 0:>+8.2f}")
+            print(
+                f"    status={(r['status'] or '?'):15s} n={r['n']:>4d} pnl={r['pnl_sum'] or 0:>+8.2f}"
+            )
 
         print()
         print("=" * 70)

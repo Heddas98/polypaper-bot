@@ -16,16 +16,17 @@ Usage:
     from backtest.metrics import compute_metrics, PerformanceMetrics
     metrics = compute_metrics(pnl_series, risk_free_rate=0.05)
 """
+
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class PerformanceMetrics:
     """Comprehensive strategy performance metrics."""
+
     # Core
     total_pnl: float = 0.0
     total_trades: int = 0
@@ -34,32 +35,32 @@ class PerformanceMetrics:
     losses: int = 0
 
     # Risk-adjusted returns
-    sharpe_ratio: float = 0.0       # (mean_return - rf) / std_return
-    sortino_ratio: float = 0.0      # (mean_return - rf) / downside_std
-    calmar_ratio: float = 0.0       # annualized_return / max_drawdown
+    sharpe_ratio: float = 0.0  # (mean_return - rf) / std_return
+    sortino_ratio: float = 0.0  # (mean_return - rf) / downside_std
+    calmar_ratio: float = 0.0  # annualized_return / max_drawdown
 
     # Drawdown
-    max_drawdown: float = 0.0       # Maximum peak-to-trough decline
-    max_drawdown_pct: float = 0.0   # As percentage of peak
+    max_drawdown: float = 0.0  # Maximum peak-to-trough decline
+    max_drawdown_pct: float = 0.0  # As percentage of peak
     max_drawdown_duration: int = 0  # Trades in longest drawdown
 
     # Streaks
     max_win_streak: int = 0
     max_loss_streak: int = 0
-    current_streak: int = 0         # Positive = winning, negative = losing
+    current_streak: int = 0  # Positive = winning, negative = losing
 
     # Expectancy & profit factor
-    expectancy: float = 0.0         # E[PnL] per trade
-    profit_factor: float = 0.0      # gross_profit / gross_loss
+    expectancy: float = 0.0  # E[PnL] per trade
+    profit_factor: float = 0.0  # gross_profit / gross_loss
     avg_win: float = 0.0
     avg_loss: float = 0.0
-    win_loss_ratio: float = 0.0     # avg_win / avg_loss
+    win_loss_ratio: float = 0.0  # avg_win / avg_loss
 
     # Distribution
     mean_return: float = 0.0
     std_return: float = 0.0
-    skewness: float = 0.0           # Positive = right-tailed (good)
-    kurtosis: float = 0.0           # >3 = fat tails
+    skewness: float = 0.0  # Positive = right-tailed (good)
+    kurtosis: float = 0.0  # >3 = fat tails
 
 
 def compute_metrics(
@@ -97,9 +98,13 @@ def compute_metrics(
     # Average win/loss
     m.avg_win = round(sum(wins) / max(1, len(wins)), 4) if wins else 0.0
     m.avg_loss = round(sum(losses) / max(1, len(losses)), 4) if losses else 0.0
-    m.win_loss_ratio = round(
-        abs(m.avg_win / m.avg_loss), 4
-    ) if m.avg_loss != 0 else float("inf") if m.avg_win > 0 else 0.0
+    m.win_loss_ratio = (
+        round(abs(m.avg_win / m.avg_loss), 4)
+        if m.avg_loss != 0
+        else float("inf")
+        if m.avg_win > 0
+        else 0.0
+    )
 
     # Expectancy
     m.expectancy = round(m.total_pnl / max(1, n), 4)
@@ -107,9 +112,7 @@ def compute_metrics(
     # Profit factor
     gross_profit = sum(wins) if wins else 0.0
     gross_loss = abs(sum(losses)) if losses else 0.0
-    m.profit_factor = round(
-        gross_profit / max(0.001, gross_loss), 4
-    )
+    m.profit_factor = round(gross_profit / max(0.001, gross_loss), 4)
 
     # ── Returns statistics ──
     m.mean_return = round(sum(pnl_series) / n, 6)
@@ -123,8 +126,7 @@ def compute_metrics(
     rf_per_trade = risk_free_rate / annualize_factor
     if m.std_return > 0:
         m.sharpe_ratio = round(
-            (m.mean_return - rf_per_trade) / m.std_return * math.sqrt(annualize_factor),
-            4
+            (m.mean_return - rf_per_trade) / m.std_return * math.sqrt(annualize_factor), 4
         )
     else:
         m.sharpe_ratio = 0.0
@@ -132,12 +134,11 @@ def compute_metrics(
     # ── Sortino Ratio ──
     downside_returns = [p for p in pnl_series if p < 0]
     if downside_returns:
-        downside_variance = sum(p ** 2 for p in downside_returns) / len(downside_returns)
+        downside_variance = sum(p**2 for p in downside_returns) / len(downside_returns)
         downside_std = math.sqrt(downside_variance)
         if downside_std > 0:
             m.sortino_ratio = round(
-                (m.mean_return - rf_per_trade) / downside_std * math.sqrt(annualize_factor),
-                4
+                (m.mean_return - rf_per_trade) / downside_std * math.sqrt(annualize_factor), 4
             )
 
     # ── Max Drawdown ──
@@ -162,9 +163,7 @@ def compute_metrics(
             max_dd = dd
 
     m.max_drawdown = round(max_dd, 4)
-    m.max_drawdown_pct = round(
-        max_dd / max(0.001, abs(peak)) * 100, 2
-    ) if peak > 0 else 0.0
+    m.max_drawdown_pct = round(max_dd / max(0.001, abs(peak)) * 100, 2) if peak > 0 else 0.0
     m.max_drawdown_duration = max_dd_duration
 
     # ── Calmar Ratio ──
@@ -210,18 +209,14 @@ def format_metrics_telegram(m: PerformanceMetrics) -> str:
     """Format metrics for Telegram display."""
     lines = [
         "📈 <b>Performance Metrics</b>",
-        f"Total PnL: <b>${m.total_pnl:+.2f}</b> | "
-        f"Trades: {m.total_trades}",
-        f"WR: <b>{m.win_rate*100:.1f}%</b> | "
-        f"W:{m.wins} L:{m.losses}",
+        f"Total PnL: <b>${m.total_pnl:+.2f}</b> | " f"Trades: {m.total_trades}",
+        f"WR: <b>{m.win_rate*100:.1f}%</b> | " f"W:{m.wins} L:{m.losses}",
         "",
-        f"<b>Risk-Adjusted:</b>",
-        f"Sharpe: <b>{m.sharpe_ratio:.2f}</b> | "
-        f"Sortino: <b>{m.sortino_ratio:.2f}</b>",
-        f"Calmar: {m.calmar_ratio:.2f} | "
-        f"Profit Factor: {m.profit_factor:.2f}",
+        "<b>Risk-Adjusted:</b>",
+        f"Sharpe: <b>{m.sharpe_ratio:.2f}</b> | " f"Sortino: <b>{m.sortino_ratio:.2f}</b>",
+        f"Calmar: {m.calmar_ratio:.2f} | " f"Profit Factor: {m.profit_factor:.2f}",
         "",
-        f"<b>Drawdown:</b>",
+        "<b>Drawdown:</b>",
         f"Max DD: <b>${m.max_drawdown:.2f}</b> ({m.max_drawdown_pct:.1f}%)",
         f"DD Duration: {m.max_drawdown_duration} trades",
         "",

@@ -11,12 +11,13 @@ or schema drift should NOT crash the feed thread — the reconnect
 loop handles it. Wide catches at the orchestration layer are
 intentional and logged.
 """
+
 import asyncio
 import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
@@ -77,7 +78,7 @@ class PolymarketWebSocket:
         self._running = True
         # Phase 82e Sprint 2.1: WS loop death = no price data = trading halt
         self._task = safe_create_task(self._loop(), name="polymarket_ws_loop")
-        logger.info(f"🔌 WS starting")
+        logger.info("🔌 WS starting")
 
     async def stop(self):
         self._running = False
@@ -94,8 +95,7 @@ class PolymarketWebSocket:
                 pass
         self._connected = False
 
-    async def subscribe(self, token_ids: list[str],
-                        priority_first: Optional[list[str]] = None):
+    async def subscribe(self, token_ids: list[str], priority_first: Optional[list[str]] = None):
         """Subscribe tokens with deterministic cap-aware ordering.
 
         Phase 79b: Cap total subscriptions to prevent WS overload.
@@ -149,21 +149,28 @@ class PolymarketWebSocket:
             logger.warning(
                 f"  WS token cap reached ({len(self._subscribed)}/{_max}), "
                 f"skipping {len(ordered)} new "
-                f"(total skipped: {self._cap_skipped_total})")
+                f"(total skipped: {self._cap_skipped_total})"
+            )
             return
 
         if len(ordered) > avail:
             logger.warning(
                 f"  WS token cap partial ({len(self._subscribed)}/{_max}): "
                 f"admitting {avail}/{len(ordered)}, dropping "
-                f"{len(ordered) - avail} from tail")
+                f"{len(ordered) - avail} from tail"
+            )
             ordered = ordered[:avail]
 
         for tid in ordered:
-            await self._send(json.dumps({
-                "type": "market", "assets_ids": [tid],
-                "custom_feature_enabled": True,  # 2026-05-08 V2 meta events
-            }))
+            await self._send(
+                json.dumps(
+                    {
+                        "type": "market",
+                        "assets_ids": [tid],
+                        "custom_feature_enabled": True,  # 2026-05-08 V2 meta events
+                    }
+                )
+            )
             self._subscribed.add(tid)
         logger.info(f"  WS +{len(ordered)} tokens (total: {len(self._subscribed)})")
 
@@ -180,7 +187,9 @@ class PolymarketWebSocket:
             # Also clean live_prices cache
             for tid in stale:
                 self.live_prices.pop(tid, None)
-            logger.info(f"  WS pruned {len(stale)} stale tokens (remaining: {len(self._subscribed)})")
+            logger.info(
+                f"  WS pruned {len(stale)} stale tokens (remaining: {len(self._subscribed)})"
+            )
         return len(stale)
 
     async def _loop(self):
@@ -194,8 +203,7 @@ class PolymarketWebSocket:
 
             try:
                 async with websockets.connect(
-                    WS_URL, ping_interval=30, ping_timeout=10,
-                    close_timeout=5, max_size=2**20
+                    WS_URL, ping_interval=30, ping_timeout=10, close_timeout=5, max_size=2**20
                 ) as ws:
                     self._ws = ws
                     self._connected = True
@@ -218,8 +226,10 @@ class PolymarketWebSocket:
                         now = time.time()
                         # Phase 50 P1-10: tick-loss detector
                         # Phase 78-fix: force reconnect on persistent stale (>300s)
-                        if self._last_msg_ts and \
-                                (now - self._last_msg_ts) > self._tick_gap_threshold:
+                        if (
+                            self._last_msg_ts
+                            and (now - self._last_msg_ts) > self._tick_gap_threshold
+                        ):
                             self._tick_gaps += 1
                             gap_secs = now - self._last_msg_ts
                             if (now - self._last_tick_log_ts) > 60:
@@ -231,7 +241,9 @@ class PolymarketWebSocket:
                             # Force reconnect if gap exceeds threshold (Phase 79b: ENV-configurable)
                             _force_reconnect_sec = int(os.getenv("WS_FORCE_RECONNECT_SEC", "300"))
                             if gap_secs > _force_reconnect_sec:
-                                logger.warning(f"🔌 WS forcing reconnect: {gap_secs:.0f}s stale (thr={_force_reconnect_sec}s)")
+                                logger.warning(
+                                    f"🔌 WS forcing reconnect: {gap_secs:.0f}s stale (thr={_force_reconnect_sec}s)"
+                                )
                                 await ws.close()
                                 break
                         self._last_msg_ts = now
@@ -244,7 +256,9 @@ class PolymarketWebSocket:
                             # Phase 54 P0-03: log parse failures (was silent)
                             # Phase 57: reduced to every 100th after initial 5
                             if self._errors <= 5 or self._errors % 100 == 0:
-                                logger.warning(f"⚠️ WS parse error #{self._errors}: {type(_parse_err).__name__}: {_parse_err}")
+                                logger.warning(
+                                    f"⚠️ WS parse error #{self._errors}: {type(_parse_err).__name__}: {_parse_err}"
+                                )
 
             except asyncio.CancelledError:
                 break
@@ -252,7 +266,9 @@ class PolymarketWebSocket:
                 self._connected = False
                 self._reconnects += 1
                 if self._reconnects <= 3 or self._reconnects % 20 == 0:
-                    logger.warning(f"🔌 WS lost: {type(e).__name__}. #{self._reconnects} in {delay}s")
+                    logger.warning(
+                        f"🔌 WS lost: {type(e).__name__}. #{self._reconnects} in {delay}s"
+                    )
                 await asyncio.sleep(delay)
                 delay = min(delay * 1.5, 120)
         self._connected = False
@@ -281,7 +297,7 @@ class PolymarketWebSocket:
                         if isinstance(sub, dict):
                             events.append(sub)
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         for ev in events:
             try:
@@ -359,8 +375,13 @@ class PolymarketWebSocket:
                 fee_rate_bps = None
             safe_create_task(
                 self._persist_public_trade(
-                    ts_ms, asset_id, condition_id,
-                    side, price, size, fee_rate_bps,
+                    ts_ms,
+                    asset_id,
+                    condition_id,
+                    side,
+                    price,
+                    size,
+                    fee_rate_bps,
                 ),
                 name=f"persist_trade_{asset_id[:8]}",
             )
@@ -431,12 +452,8 @@ class PolymarketWebSocket:
             asset_id = str(ev.get("asset_id", "") or "")
             old_tick = ev.get("old_tick_size")
             new_tick = ev.get("new_tick_size")
-            logger.info(
-                f"📐 tick_size_change asset={asset_id[:12]}... "
-                f"{old_tick} → {new_tick}"
-            )
-            if hasattr(self, "_on_tick_change_callback") and \
-                    self._on_tick_change_callback:
+            logger.info(f"📐 tick_size_change asset={asset_id[:12]}... " f"{old_tick} → {new_tick}")
+            if hasattr(self, "_on_tick_change_callback") and self._on_tick_change_callback:
                 try:
                     self._on_tick_change_callback(asset_id, new_tick)
                 except Exception as _e:  # noqa: BLE001
@@ -452,10 +469,14 @@ class PolymarketWebSocket:
             # downstream decides what to do with it.
             slug_lc = str(slug).lower()
             crypto_keywords = (
-                "up-or-down", "updown",
-                "bitcoin", "btc-",
-                "ethereum", "eth-",
-                "solana", "sol-",
+                "up-or-down",
+                "updown",
+                "bitcoin",
+                "btc-",
+                "ethereum",
+                "eth-",
+                "solana",
+                "sol-",
                 "xrp",
             )
             is_crypto = any(kw in slug_lc for kw in crypto_keywords)
@@ -463,8 +484,7 @@ class PolymarketWebSocket:
                 logger.info(f"🆕 new_market detected: {slug}")
             else:
                 logger.debug(f"new_market (non-crypto, ignored): {slug}")
-            if hasattr(self, "_on_new_market_callback") and \
-                    self._on_new_market_callback:
+            if hasattr(self, "_on_new_market_callback") and self._on_new_market_callback:
                 try:
                     self._on_new_market_callback(ev)
                 except Exception as _e:  # noqa: BLE001
@@ -473,11 +493,8 @@ class PolymarketWebSocket:
         elif et == "market_resolved":
             cid = ev.get("condition_id") or ev.get("market", "?")
             outcome = ev.get("outcome") or ev.get("winner", "?")
-            logger.info(
-                f"🏁 market_resolved cid={str(cid)[:12]}... outcome={outcome}"
-            )
-            if hasattr(self, "_on_market_resolved_callback") and \
-                    self._on_market_resolved_callback:
+            logger.info(f"🏁 market_resolved cid={str(cid)[:12]}... outcome={outcome}")
+            if hasattr(self, "_on_market_resolved_callback") and self._on_market_resolved_callback:
                 try:
                     self._on_market_resolved_callback(ev)
                 except Exception as _e:  # noqa: BLE001
@@ -503,12 +520,16 @@ class PolymarketWebSocket:
         if not asset_id:
             return
         condition_id = str(ev.get("market", "") or "")
-        bids = [{"price": self._f(b.get("price")),
-                 "size": self._f(b.get("size"))}
-                for b in (ev.get("bids") or []) if isinstance(b, dict)]
-        asks = [{"price": self._f(a.get("price")),
-                 "size": self._f(a.get("size"))}
-                for a in (ev.get("asks") or []) if isinstance(a, dict)]
+        bids = [
+            {"price": self._f(b.get("price")), "size": self._f(b.get("size"))}
+            for b in (ev.get("bids") or [])
+            if isinstance(b, dict)
+        ]
+        asks = [
+            {"price": self._f(a.get("price")), "size": self._f(a.get("size"))}
+            for a in (ev.get("asks") or [])
+            if isinstance(a, dict)
+        ]
         bids = [b for b in bids if b["price"] and b["size"]]
         asks = [a for a in asks if a["price"] and a["size"]]
         if not bids and not asks:
@@ -523,9 +544,16 @@ class PolymarketWebSocket:
         hash_ = str(ev.get("hash", "") or "")[:64]
         safe_create_task(
             self._persist_book_snapshot(
-                ts_ms, asset_id, condition_id,
-                best_bid, best_ask, mid, spread,
-                bids[:5], asks[:5], hash_,
+                ts_ms,
+                asset_id,
+                condition_id,
+                best_bid,
+                best_ask,
+                mid,
+                spread,
+                bids[:5],
+                asks[:5],
+                hash_,
             ),
             name=f"persist_book_{asset_id[:8]}",
         )
@@ -541,7 +569,7 @@ class PolymarketWebSocket:
         condition_id = str(ev.get("market", "") or "")
         ts_ms = self._parse_ts_ms(ev.get("timestamp"))
         rows = []
-        for ch in (ev.get("price_changes") or []):
+        for ch in ev.get("price_changes") or []:
             if not isinstance(ch, dict):
                 continue
             asset_id = str(ch.get("asset_id", "") or "")
@@ -557,8 +585,9 @@ class PolymarketWebSocket:
             hash_ = str(ch.get("hash", "") or "")[:64]
             best_bid = self._f(ch.get("best_bid"))
             best_ask = self._f(ch.get("best_ask"))
-            rows.append((ts_ms, asset_id, condition_id, side,
-                         price, size, hash_, best_bid, best_ask))
+            rows.append(
+                (ts_ms, asset_id, condition_id, side, price, size, hash_, best_bid, best_ask)
+            )
         if rows:
             safe_create_task(
                 self._persist_deltas(rows),
@@ -575,9 +604,9 @@ class PolymarketWebSocket:
             t *= 1000
         return t
 
-    async def _persist_book_snapshot(self, ts_ms, asset_id, condition_id,
-                                     best_bid, best_ask, mid, spread,
-                                     bids, asks, hash_):
+    async def _persist_book_snapshot(
+        self, ts_ms, asset_id, condition_id, best_bid, best_ask, mid, spread, bids, asks, hash_
+    ):
         try:
             await self.db.conn.execute(
                 """INSERT OR REPLACE INTO ob_snapshots
@@ -585,9 +614,21 @@ class PolymarketWebSocket:
                     best_bid, best_ask, mid_price, spread,
                     bids_json, asks_json, hash)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (ts_ms, asset_id, condition_id, None, None, None,
-                 best_bid, best_ask, mid, spread,
-                 json.dumps(bids), json.dumps(asks), hash_),
+                (
+                    ts_ms,
+                    asset_id,
+                    condition_id,
+                    None,
+                    None,
+                    None,
+                    best_bid,
+                    best_ask,
+                    mid,
+                    spread,
+                    json.dumps(bids),
+                    json.dumps(asks),
+                    hash_,
+                ),
             )
             await self.db.conn.commit()
         except Exception as e:  # noqa: BLE001
@@ -606,8 +647,9 @@ class PolymarketWebSocket:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"persist_deltas: {e}")
 
-    async def _persist_public_trade(self, ts_ms, asset_id, condition_id,
-                                    taker_side, price, size, fee_rate_bps):
+    async def _persist_public_trade(
+        self, ts_ms, asset_id, condition_id, taker_side, price, size, fee_rate_bps
+    ):
         """P0-08-E5 (2026-05-08): public_trades insert.
 
         Polymarket last_trade_price field'larıyla 1:1: ts_ms, asset_id,
@@ -620,8 +662,7 @@ class PolymarketWebSocket:
                    (ts_ms, asset_id, condition_id,
                     taker_side, price, size, fee_rate_bps)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (ts_ms, asset_id, condition_id,
-                 taker_side, price, size, fee_rate_bps),
+                (ts_ms, asset_id, condition_id, taker_side, price, size, fee_rate_bps),
             )
             await self.db.conn.commit()
         except Exception as e:  # noqa: BLE001
@@ -656,7 +697,7 @@ class PolymarketWebSocket:
             # Epic 5 T5.4 Fix A: reconnect invalidation
             if self._connected_since and entry_dt.timestamp() < self._connected_since:
                 return None
-            age = (datetime.now(timezone.utc) - entry_dt).total_seconds()
+            age = (datetime.now(UTC) - entry_dt).total_seconds()
             # T11.2 [C]: unify with core/engine._is_ws_fresh env name.
             # Canonical: WS_STALE_THRESHOLD (whitelisted, /envt-tunable).
             # Fallback: WS_STALE_SEC kept for legacy .env backward-compat.
@@ -672,15 +713,18 @@ class PolymarketWebSocket:
             # missing on non-string. In all cases, None = safe fail
             # (fresh > stale doctrine).
             logger.debug(
-                "get_live_price malformed entry for %s: %s (%s); "
-                "returning None", token_id, type(e).__name__, e)
+                "get_live_price malformed entry for %s: %s (%s); " "returning None",
+                token_id,
+                type(e).__name__,
+                e,
+            )
             return None
         return data.get("price")
 
     def cleanup_stale_prices(self, max_age_seconds: int = 3600):
         """F-06: Remove stale token prices to prevent memory leak.
         Called periodically by engine or scanner."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale = []
         for tid, data in self.live_prices.items():
             try:
@@ -702,15 +746,17 @@ class PolymarketWebSocket:
             "errors": self._errors,
             "reconnects": self._reconnects,
             "cached_prices": len(self.live_prices),
-            "last_msg_age": round(time.time() - self._last_msg_ts, 1) if self._last_msg_ts else None,
+            "last_msg_age": round(time.time() - self._last_msg_ts, 1)
+            if self._last_msg_ts
+            else None,
             "trade_events": self._trade_count,  # Phase 39 (P1.1)
             "tick_gaps": self._tick_gaps,  # Phase 50 P1-10
             # Epic 5 T5.6 Fix C: cap overflow telemetry
             "cap_hits": self._cap_hit_count,
             "cap_skipped": self._cap_skipped_total,
             "last_cap_hit_age": (
-                round(time.time() - self._last_cap_hit_ts, 1)
-                if self._last_cap_hit_ts else None),
+                round(time.time() - self._last_cap_hit_ts, 1) if self._last_cap_hit_ts else None
+            ),
         }
 
     async def _send(self, msg):

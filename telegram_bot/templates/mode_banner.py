@@ -14,6 +14,7 @@ Banner her major Telegram handler'ının başına eklenir, böylece kullanıcı
 hangi modda olduğunu **anında** görür. Tutarlılık prensibi: mode bilgisi
 TEK kaynaktan (LIVE_ENABLED) her yere yayılır.
 """
+
 from __future__ import annotations
 
 import os
@@ -55,9 +56,7 @@ def format_banner(mode: Optional[str] = None, compact: bool = False) -> str:
     if compact:
         return "📋 <b>PAPER MODE</b> | "
     return (
-        "━━━━━━━━━━━━━━━━━━━━━\n"
-        "📋 <b>PAPER MODE</b> · Simülasyon\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n" "📋 <b>PAPER MODE</b> · Simülasyon\n" "━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
 

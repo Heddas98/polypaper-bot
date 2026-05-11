@@ -24,6 +24,7 @@ Usage (CI audit):
 
 Doctrine source: docs/security/T11_6_exception_render_policy.md
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,7 +33,6 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import List
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCAN_PREFIXES = ("telegram_bot/",)
@@ -117,7 +117,8 @@ def _list_handler_py() -> List[Path]:
     try:
         out = subprocess.check_output(
             ["git", "ls-files", "telegram_bot/handlers/*.py"],
-            text=True, cwd=str(REPO_ROOT),
+            text=True,
+            cwd=str(REPO_ROOT),
         )
     except subprocess.CalledProcessError:
         return []
@@ -126,10 +127,8 @@ def _list_handler_py() -> List[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="T11.6-B exc leak guard")
-    parser.add_argument("--all", action="store_true",
-                        help="scan all handler .py (CI mode)")
-    parser.add_argument("files", nargs="*",
-                        help="specific files (pre-commit mode)")
+    parser.add_argument("--all", action="store_true", help="scan all handler .py (CI mode)")
+    parser.add_argument("files", nargs="*", help="specific files (pre-commit mode)")
     args = parser.parse_args()
 
     if args.all:

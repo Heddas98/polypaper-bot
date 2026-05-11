@@ -27,11 +27,12 @@ Phase 68 Additions:
 
 Drift-aware: If DriftDetector reduces a signal's weight, fusion respects it.
 """
+
 import logging
 import math
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 logger = logging.getLogger("polypaper.core.signals")
@@ -55,6 +56,7 @@ class SignalWeights:
     - whale has zero data
     All weights are ENV-overridable: SIGNAL_W_ODDS, SIGNAL_W_EMA, etc.
     """
+
     odds_strength: float = float(os.getenv("SIGNAL_W_ODDS", "0.05"))
     ema_trend: float = float(os.getenv("SIGNAL_W_EMA", "0.25"))
     momentum: float = float(os.getenv("SIGNAL_W_MOMENTUM", "0.30"))
@@ -62,29 +64,30 @@ class SignalWeights:
     time_position: float = float(os.getenv("SIGNAL_W_TIME", "0.10"))
     orderbook: float = float(os.getenv("SIGNAL_W_ORDERBOOK", "0.20"))
     whale_flow: float = float(os.getenv("SIGNAL_W_WHALE", "0.00"))
-    min_composite: float = 0.18   # Phase 62: ENV override: MIN_COMPOSITE
+    min_composite: float = 0.18  # Phase 62: ENV override: MIN_COMPOSITE
 
 
 @dataclass
 class SignalResult:
     """Result of signal fusion evaluation."""
+
     direction: Optional[str] = None
     composite_score: float = 0.0
     signals: dict = field(default_factory=dict)
     should_trade: bool = False
     reason: str = ""
-    calendar_mult: float = 1.0       # Phase 60: weekend/time multiplier applied
-    round_number_adj: float = 0.0    # Phase 60: round number gravity adjustment
+    calendar_mult: float = 1.0  # Phase 60: weekend/time multiplier applied
+    round_number_adj: float = 0.0  # Phase 60: round number gravity adjustment
     bayesian_posterior: float = 0.0  # Phase 66: Bayesian updated probability
-    bayesian_edge: float = 0.0       # Phase 66: Edge vs market price
-    confluence_count: int = 0         # Phase 68: how many signals agree
-    confluence_required: int = 0      # Phase 68: how many required (K)
-    confluence_passed: bool = True    # Phase 68: did confluence gate pass?
-    technical_mult: float = 1.0       # Phase 68: RSI/MACD/BB confidence multiplier
-    bb_squeeze: bool = False          # Phase 68: Bollinger squeeze active?
-    mci_score: float = 1.0           # Phase 70: Market Coherence Index [0,1]
-    mci_size_mult: float = 1.0       # Phase 70: MCI-based size multiplier
-    whale_signal: float = 0.0        # Phase 60: Whale flow signal (new 7th signal)
+    bayesian_edge: float = 0.0  # Phase 66: Edge vs market price
+    confluence_count: int = 0  # Phase 68: how many signals agree
+    confluence_required: int = 0  # Phase 68: how many required (K)
+    confluence_passed: bool = True  # Phase 68: did confluence gate pass?
+    technical_mult: float = 1.0  # Phase 68: RSI/MACD/BB confidence multiplier
+    bb_squeeze: bool = False  # Phase 68: Bollinger squeeze active?
+    mci_score: float = 1.0  # Phase 70: Market Coherence Index [0,1]
+    mci_size_mult: float = 1.0  # Phase 70: MCI-based size multiplier
+    whale_signal: float = 0.0  # Phase 60: Whale flow signal (new 7th signal)
 
     def summary(self) -> str:
         parts = [f"{k}={v:+.2f}" for k, v in self.signals.items()]
@@ -109,8 +112,9 @@ class SignalResult:
 class SignalFusion:
     """7-signal fusion engine with drift-aware weighting (Phase 60: +whale_flow)."""
 
-    def __init__(self, weights: Optional[SignalWeights] = None, drift_detector=None,
-                 whale_flow_signal=None):
+    def __init__(
+        self, weights: Optional[SignalWeights] = None, drift_detector=None, whale_flow_signal=None
+    ):
         self.weights = weights or SignalWeights()
         # Phase 62: ENV override for min_composite
         _env_min = os.getenv("MIN_COMPOSITE")
@@ -129,20 +133,27 @@ class SignalFusion:
         self.drift = drift_detector  # Phase 33: DriftDetector reference
         self.whale_flow_signal = whale_flow_signal  # Phase 60: WhaleFlowSignal instance
 
-    def evaluate(self, up_odds: float, down_odds: float,
-                 threshold: float, direction: str,
-                 odds_series: list[float] = None,
-                 minutes_remaining: float = None,
-                 total_minutes: float = 5.0,
-                 orderbook: dict = None,
-                 whale_signal: float = 0.0) -> SignalResult:
+    def evaluate(
+        self,
+        up_odds: float,
+        down_odds: float,
+        threshold: float,
+        direction: str,
+        odds_series: list[float] = None,
+        minutes_remaining: float = None,
+        total_minutes: float = 5.0,
+        orderbook: dict = None,
+        whale_signal: float = 0.0,
+    ) -> SignalResult:
         result = SignalResult()
         odds_series = odds_series or []
 
         # Phase 79: Diagnostic logging for signal evaluation
         if len(odds_series) == 0:
-            logger.debug(f"[SIGNAL_DIAG] evaluate called with empty odds_series. "
-                        f"up={up_odds}, down={down_odds}, threshold={threshold}, direction={direction}")
+            logger.debug(
+                f"[SIGNAL_DIAG] evaluate called with empty odds_series. "
+                f"up={up_odds}, down={down_odds}, threshold={threshold}, direction={direction}"
+            )
 
         # Determine target direction (Phase 79: fixed — allow sub-threshold trades with reduced strength)
         target_dir = None
@@ -271,9 +282,7 @@ class SignalFusion:
             for k in raw_weights:
                 raw_weights[k] /= total_w
 
-        result.composite_score = sum(
-            raw_weights[k] * result.signals[k] for k in raw_weights
-        )
+        result.composite_score = sum(raw_weights[k] * result.signals[k] for k in raw_weights)
 
         # ═══ Phase 60 Signal 7: Calendar Multiplier (Weekend/Time Edge) ═══
         # MiroFish crowd behavior research: Sat 2.4x, Sun 2.1x, night 1.9x edge
@@ -314,8 +323,7 @@ class SignalFusion:
                 if abs(result.bayesian_edge) > 0.02:
                     _bayes_boost = result.bayesian_edge * 0.15  # 15% weight to Bayesian
                     result.composite_score += _bayes_boost
-            except (AttributeError, TypeError, ValueError, ArithmeticError,
-                    KeyError) as _be:
+            except (AttributeError, TypeError, ValueError, ArithmeticError, KeyError) as _be:
                 # T1.4 Faz 3: BayesianUpdater instantiation + .update/.posterior/
                 # .get_edge chain + abs/round + composite mutations.
                 # Realistic failure modes:
@@ -333,8 +341,7 @@ class SignalFusion:
         if _CONFLUENCE_ENABLED:
             core_signals = ["odds", "ema", "momentum", "volatility", "time", "orderbook"]
             positive_count = sum(
-                1 for s in core_signals
-                if result.signals.get(s, 0) > _CONFLUENCE_SIGNAL_THRESHOLD
+                1 for s in core_signals if result.signals.get(s, 0) > _CONFLUENCE_SIGNAL_THRESHOLD
             )
             result.confluence_count = positive_count
             result.confluence_required = _CONFLUENCE_K
@@ -349,6 +356,7 @@ class SignalFusion:
         if _TECHNICAL_ENABLED and odds_series and len(odds_series) >= 15:
             try:
                 from indicators.technical import compute_technicals
+
                 tech = compute_technicals(odds_series)
                 result.technical_mult = tech.confidence_mult
                 result.bb_squeeze = tech.bb.is_squeeze if tech.bb else False
@@ -366,8 +374,7 @@ class SignalFusion:
                         result.signals["bb_squeeze"] = round(tech.bb.squeeze_strength, 3)
                     if abs(tech.bb.signal) > 0.1:
                         result.signals["bb"] = round(tech.bb.signal, 3)
-            except (ImportError, AttributeError, TypeError, ValueError,
-                    ArithmeticError) as _te:
+            except (ImportError, AttributeError, TypeError, ValueError, ArithmeticError) as _te:
                 # T1.4 Faz 3: in-try `from indicators.technical import
                 # compute_technicals` + deep attribute chain (tech.rsi.signal,
                 # tech.macd.signal, tech.bb.is_squeeze/.signal/.squeeze_strength)
@@ -419,8 +426,8 @@ class SignalFusion:
             return 0.0
 
         # Depth-weighted dollar volume: closer levels count more
-        ask_vol = sum((p * s) * (decay ** i) for i, (p, s) in enumerate(asks))
-        bid_vol = sum((p * s) * (decay ** i) for i, (p, s) in enumerate(bids))
+        ask_vol = sum((p * s) * (decay**i) for i, (p, s) in enumerate(asks))
+        bid_vol = sum((p * s) * (decay**i) for i, (p, s) in enumerate(bids))
         total = ask_vol + bid_vol
 
         if total < 1.0:
@@ -464,7 +471,7 @@ class SignalFusion:
         Returns a multiplier applied to composite_score.
         Clamped to MAX_CALENDAR_MULT to prevent over-aggressive sizing.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         day = now.weekday()  # 0=Mon, 5=Sat, 6=Sun
         hour = now.hour
 
@@ -480,13 +487,13 @@ class SignalFusion:
         # Time-of-day factor (UTC)
         time_factor = 1.0
         if 2 <= hour < 6:
-            time_factor = 1.9    # Global minimum activity
+            time_factor = 1.9  # Global minimum activity
         elif 6 <= hour < 9:
-            time_factor = 1.2    # Early morning
+            time_factor = 1.2  # Early morning
         elif 9 <= hour < 16:
-            time_factor = 1.0    # US business hours
+            time_factor = 1.0  # US business hours
         elif 20 <= hour or hour < 2:
-            time_factor = 1.6    # Late evening
+            time_factor = 1.6  # Late evening
 
         # Combined: use the larger of the two (don't double-compound)
         # When weekend AND night overlap (Sat 3AM UTC): take max, not product
@@ -515,8 +522,7 @@ class SignalFusion:
         alpha = _ROUND_NUM_ALPHA
         beta = _ROUND_NUM_BETA
         # Key round numbers in prediction markets
-        round_numbers = [0.10, 0.20, 0.25, 0.30, 0.40, 0.50,
-                         0.60, 0.70, 0.75, 0.80, 0.90]
+        round_numbers = [0.10, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.70, 0.75, 0.80, 0.90]
 
         total_pull = 0.0
         for r in round_numbers:
@@ -548,9 +554,11 @@ _BAYESIAN_SIGNAL_ACCURACY = float(os.getenv("BAYESIAN_SIGNAL_ACCURACY", "0.60"))
 
 # ── Phase 68: Confluence Gate ──
 _CONFLUENCE_ENABLED = os.getenv("CONFLUENCE_MODE", "true").lower() == "true"
-_CONFLUENCE_K = int(os.getenv("CONFLUENCE_K", "4"))       # Need K of 6 signals positive
+_CONFLUENCE_K = int(os.getenv("CONFLUENCE_K", "4"))  # Need K of 6 signals positive
 _CONFLUENCE_SIGNAL_THRESHOLD = float(os.getenv("CONFLUENCE_SIGNAL_THRESHOLD", "0.05"))
-_CONFLUENCE_PENALTY = float(os.getenv("CONFLUENCE_PENALTY", "0.5"))  # Score multiplier when gate fails
+_CONFLUENCE_PENALTY = float(
+    os.getenv("CONFLUENCE_PENALTY", "0.5")
+)  # Score multiplier when gate fails
 
 # ── Phase 68: Technical Indicators (RSI + MACD + BB) ──
 _TECHNICAL_ENABLED = os.getenv("TECHNICAL_INDICATORS_ENABLED", "true").lower() == "true"
@@ -614,11 +622,13 @@ class BayesianUpdater:
         if denominator > 0:
             self.posterior = max(0.001, min(0.999, numerator / denominator))
 
-        self._updates.append({
-            "signal": signal_strength,
-            "accuracy": accuracy,
-            "posterior": self.posterior,
-        })
+        self._updates.append(
+            {
+                "signal": signal_strength,
+                "accuracy": accuracy,
+                "posterior": self.posterior,
+            }
+        )
         return self.posterior
 
     def get_edge(self, market_price: float) -> float:
@@ -646,5 +656,7 @@ class BayesianUpdater:
         return len(self._updates)
 
     def summary(self) -> str:
-        return (f"BayesPost={self.posterior:.3f} conf={self.confidence:.2f} "
-                f"updates={self.update_count}")
+        return (
+            f"BayesPost={self.posterior:.3f} conf={self.confidence:.2f} "
+            f"updates={self.update_count}"
+        )

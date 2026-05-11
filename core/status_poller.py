@@ -26,6 +26,7 @@ Usage:
     final = await poll_order_status(client, order_id, expected_terminal=True)
     # final = {"status": "confirmed", "transaction_hash": "0x...", ...}
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -118,11 +119,7 @@ async def poll_order_status(
         else:
             status = ""
             if isinstance(response, dict):
-                status = (
-                    response.get("status")
-                    or response.get("state")
-                    or ""
-                ).lower()
+                status = (response.get("status") or response.get("state") or "").lower()
             history.append({"ts": time.time(), "status": status, "attempt": attempt})
             last_status = status
 

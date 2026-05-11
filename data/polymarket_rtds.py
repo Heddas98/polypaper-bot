@@ -35,6 +35,7 @@ Usage:
     spot = rtds.get_price("BTC", source="binance")     # btcusdt low-latency
     rtds.stop()
 """
+
 import asyncio
 import json
 import logging
@@ -76,7 +77,7 @@ CHAINLINK_SYMBOLS = {
 RECONNECT_BACKOFF_INITIAL_S = 5
 RECONNECT_BACKOFF_MAX_S = 60
 HEARTBEAT_INTERVAL_S = 5
-PRICE_FRESHNESS_S = 30   # >30s stale → return None
+PRICE_FRESHNESS_S = 30  # >30s stale → return None
 MAX_CONSECUTIVE_FAILS = 10
 
 
@@ -141,9 +142,7 @@ class PolymarketRTDS:
                     logger.info(f"📡 RTDS: connected to {RTDS_WS_URL}")
                     await self._subscribe(ws)
                     # Spawn heartbeat sender
-                    hb_task = safe_create_task(
-                        self._heartbeat_loop(ws), name="rtds_heartbeat"
-                    )
+                    hb_task = safe_create_task(self._heartbeat_loop(ws), name="rtds_heartbeat")
                     try:
                         await self._receive_loop(ws)
                     finally:
@@ -152,11 +151,11 @@ class PolymarketRTDS:
                         except Exception:  # noqa: BLE001
                             pass
             except (
+                TimeoutError,
                 websockets.exceptions.ConnectionClosed,
                 websockets.exceptions.WebSocketException,
                 ConnectionError,
                 OSError,
-                asyncio.TimeoutError,
             ) as e:
                 self._consecutive_fails += 1
                 logger.warning(
@@ -191,11 +190,13 @@ class PolymarketRTDS:
         ]
         if self._enable_chainlink:
             for sym in CHAINLINK_SYMBOLS.values():
-                subs.append({
-                    "topic": CHAINLINK_TOPIC,
-                    "type": "*",
-                    "filters": json.dumps({"symbol": sym}),
-                })
+                subs.append(
+                    {
+                        "topic": CHAINLINK_TOPIC,
+                        "type": "*",
+                        "filters": json.dumps({"symbol": sym}),
+                    }
+                )
         msg = {"action": "subscribe", "subscriptions": subs}
         await ws.send(json.dumps(msg))
         logger.info(

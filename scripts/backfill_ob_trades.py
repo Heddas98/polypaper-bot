@@ -22,6 +22,7 @@ Env:
     POLYGON_PRIVATE_KEY + POLYGON_WALLET + POLYMARKET_API_KEY
         + POLYMARKET_API_SECRET + POLYMARKET_PASSPHRASE  (for L2 auth)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,14 +30,14 @@ import asyncio
 import logging
 import os
 import sys
-import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite
 
 # Load .env from project root so CLOB creds are available
 try:
     from dotenv import load_dotenv
+
     _here = os.path.dirname(os.path.abspath(__file__))
     _root = os.path.dirname(_here)
     load_dotenv(os.path.join(_root, ".env"))
@@ -63,24 +64,31 @@ def _build_clob_client():
     """
     pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
     wallet = os.getenv("POLYGON_WALLET", "").strip()
-    missing = [k for k, v in [
-        ("POLYGON_PRIVATE_KEY", pk), ("POLYGON_WALLET", wallet),
-    ] if not v]
+    missing = [
+        k
+        for k, v in [
+            ("POLYGON_PRIVATE_KEY", pk),
+            ("POLYGON_WALLET", wallet),
+        ]
+        if not v
+    ]
     if missing:
         logger.error(
             f"Missing wallet creds: {', '.join(missing)} — "
-            "cannot backfill (endpoint requires L2 auth)")
+            "cannot backfill (endpoint requires L2 auth)"
+        )
         return None
     try:
         # 2026-04-30 P0.11: V1 → V2 migration (Heddas direktifi "en güncel ol")
-        from py_clob_client_v2 import ClobClient, ApiCreds, TradeParams  # noqa: F401
+        from py_clob_client_v2 import ApiCreds, ClobClient, TradeParams  # noqa: F401
     except ImportError:
         logger.error("py-clob-client-v2 not installed or missing required types")
         return None
 
     client = ClobClient(
         "https://clob.polymarket.com",
-        key=pk, chain_id=137,
+        key=pk,
+        chain_id=137,
         signature_type=0,
         funder=wallet,
     )
@@ -92,7 +100,8 @@ def _build_clob_client():
         client.set_api_creds(derived)
         logger.info(
             f"derived L2 creds via wallet {wallet[:10]}... "
-            f"key={str(getattr(derived, 'api_key', ''))[:8]}...")
+            f"key={str(getattr(derived, 'api_key', ''))[:8]}..."
+        )
         return client
     except Exception as e:
         logger.warning(f"derive creds failed: {e} — falling back to stored triplet")
@@ -103,9 +112,13 @@ def _build_clob_client():
     if not all([api_key, api_secret, api_pass]):
         logger.error("fallback triplet also missing — abort")
         return None
-    client.set_api_creds(ApiCreds(
-        api_key=api_key, api_secret=api_secret, api_passphrase=api_pass,
-    ))
+    client.set_api_creds(
+        ApiCreds(
+            api_key=api_key,
+            api_secret=api_secret,
+            api_passphrase=api_pass,
+        )
+    )
     return client
 
 
@@ -119,6 +132,7 @@ def _fetch_trades_sync(client, market_id: str) -> list[dict]:
     try:
         # 2026-04-30 P0.11: V1 → V2 migration
         from py_clob_client_v2 import TradeParams
+
         params = TradeParams(market=market_id)
         trades = client.get_trades(params)
         if isinstance(trades, list):
@@ -131,21 +145,16 @@ def _fetch_trades_sync(client, market_id: str) -> list[dict]:
         return []
 
 
-async def _fetch_trades(client, market_id: str,
-                        before_ts: int | None = None) -> list[dict]:
+async def _fetch_trades(client, market_id: str, before_ts: int | None = None) -> list[dict]:
     """Async wrapper around the blocking py-clob-client call."""
     if client is None:
         return []
     return await asyncio.to_thread(_fetch_trades_sync, client, market_id)
 
 
-async def _get_target_markets(conn: aiosqlite.Connection,
-                              slug_filter: str | None) -> list[tuple]:
+async def _get_target_markets(conn: aiosqlite.Connection, slug_filter: str | None) -> list[tuple]:
     """Return [(slug, token_id)] for markets we want to backfill."""
-    query = (
-        "SELECT DISTINCT slug, token_id FROM ob_trades "
-        "WHERE token_id IS NOT NULL"
-    )
+    query = "SELECT DISTINCT slug, token_id FROM ob_trades " "WHERE token_id IS NOT NULL"
     params: tuple = ()
     if slug_filter:
         query += " AND slug = ?"
@@ -154,11 +163,9 @@ async def _get_target_markets(conn: aiosqlite.Connection,
         return await cur.fetchall()
 
 
-async def _latest_backfilled_ts(conn: aiosqlite.Connection,
-                                token_id: str) -> int:
+async def _latest_backfilled_ts(conn: aiosqlite.Connection, token_id: str) -> int:
     async with conn.execute(
-        "SELECT COALESCE(MAX(ts_ms), 0) FROM ob_trades "
-        "WHERE token_id=? AND event_type='trade'",
+        "SELECT COALESCE(MAX(ts_ms), 0) FROM ob_trades " "WHERE token_id=? AND event_type='trade'",
         (token_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -167,7 +174,7 @@ async def _latest_backfilled_ts(conn: aiosqlite.Connection,
 
 async def backfill(days: int, slug_filter: str | None) -> None:
     logger.info(f"ob_trades backfill start — days={days} slug={slug_filter or 'ALL'}")
-    cutoff_ms = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+    cutoff_ms = int((datetime.now(UTC) - timedelta(days=days)).timestamp() * 1000)
 
     clob_client = _build_clob_client()
     if clob_client is None:
@@ -204,16 +211,27 @@ async def backfill(days: int, slug_filter: str | None) -> None:
                         side = (t.get("side") or "").lower() or "unknown"
                         if price <= 0 or size <= 0:
                             continue
-                        ts_iso = datetime.fromtimestamp(
-                            ts_ms / 1000.0, tz=timezone.utc).isoformat()
+                        ts_iso = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).isoformat()
                         await conn.execute(
                             """INSERT INTO ob_trades
                                (slug, token_id, direction, price, prev_price,
                                 price_change, ts_ms, ts_iso, source,
                                 size, side, event_type)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (slug, token_id, "up", price, None, 0.0,
-                             ts_ms, ts_iso, "backfill", size, side, "trade"),
+                            (
+                                slug,
+                                token_id,
+                                "up",
+                                price,
+                                None,
+                                0.0,
+                                ts_ms,
+                                ts_iso,
+                                "backfill",
+                                size,
+                                side,
+                                "trade",
+                            ),
                         )
                         inserted += 1
                     except Exception as _ie:

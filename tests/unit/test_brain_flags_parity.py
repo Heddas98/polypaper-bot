@@ -21,6 +21,7 @@ T6.2 audit (2026-04-21) found:
 These tests fail under the pre-T6.3 code. They go GREEN only after
 T6.3b/c/d/e fixes land.
 """
+
 from __future__ import annotations
 
 import ast
@@ -28,7 +29,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENGINE_PY = REPO_ROOT / "core" / "engine.py"
@@ -38,6 +38,7 @@ AI_HANDLER_PY = REPO_ROOT / "telegram_bot" / "handlers" / "ai_handler.py"
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _extract_brain_flags_keys() -> set[str]:
     """Parse core/engine.py and return the set of keys in brain_flags init.
@@ -52,11 +53,13 @@ def _extract_brain_flags_keys() -> set[str]:
             continue
         # looking for self.brain_flags = { ... }
         for tgt in node.targets:
-            if (isinstance(tgt, ast.Attribute)
-                    and tgt.attr == "brain_flags"
-                    and isinstance(tgt.value, ast.Name)
-                    and tgt.value.id == "self"
-                    and isinstance(node.value, ast.Dict)):
+            if (
+                isinstance(tgt, ast.Attribute)
+                and tgt.attr == "brain_flags"
+                and isinstance(tgt.value, ast.Name)
+                and tgt.value.id == "self"
+                and isinstance(node.value, ast.Dict)
+            ):
                 keys: set[str] = set()
                 for k in node.value.keys:
                     if isinstance(k, ast.Constant) and isinstance(k.value, str):
@@ -76,16 +79,17 @@ def _extract_valid_features() -> set[str]:
         if not isinstance(node, ast.Assign):
             continue
         for tgt in node.targets:
-            if (isinstance(tgt, ast.Name)
-                    and tgt.id == "valid_features"
-                    and isinstance(node.value, ast.Set)):
+            if (
+                isinstance(tgt, ast.Name)
+                and tgt.id == "valid_features"
+                and isinstance(node.value, ast.Set)
+            ):
                 out: set[str] = set()
                 for elt in node.value.elts:
                     if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                         out.add(elt.value)
                 return out
-    raise AssertionError(
-        "Could not locate valid_features set in ai_handler.py")
+    raise AssertionError("Could not locate valid_features set in ai_handler.py")
 
 
 def _flag_is_consumed_in_engine(flag_key: str) -> list[str]:
@@ -129,17 +133,13 @@ def _flag_is_consumed_in_engine(flag_key: str) -> list[str]:
             continue
 
         # Is this the sibling-gate module for a sibling-enabled flag?
-        is_sibling_module = (
-            flag_key in sibling_enabled_flags
-            and py.stem == flag_key
-        )
+        is_sibling_module = flag_key in sibling_enabled_flags and py.stem == flag_key
 
         for lineno, line in enumerate(content.splitlines(), 1):
             # Skip the engine.py init dict line (where the dict is defined)
             if rel == "core/engine.py":
                 # Engine init block reads like:  "drift_monitor": True,
-                if re.match(rf'\s*["\']{flag_key}["\']\s*:\s*(True|False)',
-                            line):
+                if re.match(rf'\s*["\']{flag_key}["\']\s*:\s*(True|False)', line):
                     continue
 
             # Direct brain_flags usage — strongest signal
@@ -154,9 +154,9 @@ def _flag_is_consumed_in_engine(flag_key: str) -> list[str]:
                     # Match read-style: "self._enabled" appearing in a
                     # conditional or expression, but NOT as the LHS of an
                     # assignment (`self._enabled = ...`).
-                    if re.search(r"self\._enabled\b", line) and \
-                            not re.search(r"self\._enabled\s*=\s*[^=]",
-                                          line):
+                    if re.search(r"self\._enabled\b", line) and not re.search(
+                        r"self\._enabled\s*=\s*[^=]", line
+                    ):
                         hits.append(f"{rel}:{lineno} (sibling _enabled gate)")
     return hits
 
@@ -164,6 +164,7 @@ def _flag_is_consumed_in_engine(flag_key: str) -> list[str]:
 # ═══════════════════════════════════════════════════════════════════════
 # Source-of-truth tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def test_brain_flags_dict_parseable():
     """Sanity: AST extraction finds a non-empty brain_flags dict."""
@@ -183,6 +184,7 @@ def test_valid_features_set_parseable():
 # Reverse-ghost test — every engine flag must appear in UI valid_features
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def test_no_reverse_ghost_flags():
     """Every brain_flags key MUST be toggleable from the UI.
 
@@ -194,33 +196,42 @@ def test_no_reverse_ghost_flags():
     reverse_ghosts = engine_flags - ui_flags
     assert not reverse_ghosts, (
         f"Reverse ghosts — engine has these flags but UI doesn't expose "
-        f"them: {sorted(reverse_ghosts)}")
+        f"them: {sorted(reverse_ghosts)}"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # True-ghost tests — every UI flag must be consumed somewhere
 # ═══════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("flag", [
-    "ai_brain",
-    "thompson_sampling",
-    "regime_detection",
-    "candle_collector",
-    "market_recorder",
-])
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "ai_brain",
+        "thompson_sampling",
+        "regime_detection",
+        "candle_collector",
+        "market_recorder",
+    ],
+)
 def test_known_good_flag_has_engine_consumer(flag):
     """Regression anchor: flags that were wired correctly pre-T6.3."""
     hits = _flag_is_consumed_in_engine(flag)
     assert hits, (
         f"[REGRESSION] {flag} used to be consumed somewhere outside "
-        f"engine init + ai_handler UI — now it isn't.")
+        f"engine init + ai_handler UI — now it isn't."
+    )
 
 
-@pytest.mark.parametrize("flag", [
-    "drift_monitor",
-    "autopilot",
-    "kelly_sizing",
-])
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "drift_monitor",
+        "autopilot",
+        "kelly_sizing",
+    ],
+)
 def test_no_true_ghost_flags(flag):
     """Every flag in brain_flags must have at least one engine consumer.
 
@@ -244,12 +255,14 @@ def test_no_true_ghost_flags(flag):
         f"GHOST — brain_flags['{flag}'] is toggleable in the AI Brain UI "
         f"but nothing in the engine reads it. Either wire it to an engine "
         f"consumer (T6.3 Option A) or remove it from brain_flags + UI "
-        f"(T6.3 Option B).")
+        f"(T6.3 Option B)."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Whole-surface invariant (post-T6.3 shape)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def test_brain_flags_init_matches_expected_set():
     """Pin the post-T6.3 brain_flags shape.
@@ -273,4 +286,5 @@ def test_brain_flags_init_matches_expected_set():
     assert actual == expected, (
         f"brain_flags dict drifted from the T6.3 canonical set.\n"
         f"  Missing from expected: {expected - actual}\n"
-        f"  Unexpected extras:     {actual - expected}")
+        f"  Unexpected extras:     {actual - expected}"
+    )

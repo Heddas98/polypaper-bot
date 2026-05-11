@@ -4,10 +4,11 @@ Dual-write: JSONL (yedek) + DB (hizli sorgulama)
 DB trade_log tablosu = analytics icin aninda sorgulanabilir.
 JSONL = offline analiz + yedeklilik icin devam eder.
 """
+
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -43,7 +44,7 @@ def log_trade(event_type: str, data: dict):
     """Dual-write: JSONL file + DB trade_log table."""
     _ensure_dir()
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "event": event_type,
         **data,
     }
@@ -62,7 +63,8 @@ def log_trade(event_type: str, data: dict):
     if _db and _db.conn:
         try:
             import asyncio
-            loop = asyncio.get_running_loop()   # BUG-08 fix: get_event_loop() deprecated
+
+            loop = asyncio.get_running_loop()  # BUG-08 fix: get_event_loop() deprecated
             # T7.6 B1: keep strong ref so task is not GC'd mid-write.
             task = loop.create_task(_write_db(record))
             _pending_db_tasks.add(task)
@@ -89,19 +91,38 @@ async def _write_db(record: dict):
             """INSERT INTO trade_log (event, slug, direction, strategy_id,
                price, amount, pnl, fee, reason, metadata, ts)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (record.get("event", ""),
-             record.get("slug", ""),
-             record.get("direction", ""),
-             record.get("strategy_id", ""),
-             record.get("price") or record.get("entry_price") or record.get("fill_price"),
-             record.get("amount") or record.get("trade_amount"),
-             record.get("pnl"),
-             record.get("fee"),
-             record.get("reason", ""),
-             json.dumps({k: v for k, v in record.items()
-                        if k not in ("event", "slug", "direction", "strategy_id",
-                                     "price", "amount", "pnl", "fee", "reason", "ts")}),
-             record.get("ts", datetime.now(timezone.utc).isoformat())))
+            (
+                record.get("event", ""),
+                record.get("slug", ""),
+                record.get("direction", ""),
+                record.get("strategy_id", ""),
+                record.get("price") or record.get("entry_price") or record.get("fill_price"),
+                record.get("amount") or record.get("trade_amount"),
+                record.get("pnl"),
+                record.get("fee"),
+                record.get("reason", ""),
+                json.dumps(
+                    {
+                        k: v
+                        for k, v in record.items()
+                        if k
+                        not in (
+                            "event",
+                            "slug",
+                            "direction",
+                            "strategy_id",
+                            "price",
+                            "amount",
+                            "pnl",
+                            "fee",
+                            "reason",
+                            "ts",
+                        )
+                    }
+                ),
+                record.get("ts", datetime.now(UTC).isoformat()),
+            ),
+        )
         await _db.conn.commit()
     except (aiosqlite.Error, TypeError, ValueError, AttributeError) as e:
         # T1.4 Faz 3: INSERT + json.dumps(metadata). Realistic modes:
@@ -112,34 +133,63 @@ async def _write_db(record: dict):
 
 # ═══ CONVENIENCE FUNCTIONS ═══
 
+
 def log_entry(slug, direction, price, amount, shares, fee, strategy_id, token_id):
-    log_trade("ENTRY", {
-        "slug": slug, "direction": direction, "price": price,
-        "amount": amount, "shares": shares, "fee": fee,
-        "strategy_id": strategy_id, "token_id": token_id,
-    })
+    log_trade(
+        "ENTRY",
+        {
+            "slug": slug,
+            "direction": direction,
+            "price": price,
+            "amount": amount,
+            "shares": shares,
+            "fee": fee,
+            "strategy_id": strategy_id,
+            "token_id": token_id,
+        },
+    )
 
 
 def log_exit(slug, direction, reason, entry_price, exit_price, pnl, payout):
-    log_trade("EXIT", {
-        "slug": slug, "direction": direction, "reason": reason,
-        "entry_price": entry_price, "price": exit_price,
-        "pnl": pnl, "payout": payout,
-    })
+    log_trade(
+        "EXIT",
+        {
+            "slug": slug,
+            "direction": direction,
+            "reason": reason,
+            "entry_price": entry_price,
+            "price": exit_price,
+            "pnl": pnl,
+            "payout": payout,
+        },
+    )
 
 
 def log_settlement(slug, direction, resolution, won, pnl, payout, last_odds):
-    log_trade("SETTLEMENT", {
-        "slug": slug, "direction": direction, "resolution": resolution,
-        "won": won, "pnl": pnl, "payout": payout, "last_odds": last_odds,
-    })
+    log_trade(
+        "SETTLEMENT",
+        {
+            "slug": slug,
+            "direction": direction,
+            "resolution": resolution,
+            "won": won,
+            "pnl": pnl,
+            "payout": payout,
+            "last_odds": last_odds,
+        },
+    )
 
 
 def log_rejection(slug, reason, details, strategy_id=None):
-    log_trade("REJECTION", {
-        "slug": slug, "reason": reason, "details": details,
-        "strategy_id": strategy_id or "",
-    })
+    log_trade(
+        "REJECTION",
+        {
+            "slug": slug,
+            "reason": reason,
+            "details": details,
+            "strategy_id": strategy_id or "",
+        },
+    )
 
 
 def log_heartbeat(cycle, strats, positions, markets):
@@ -147,12 +197,19 @@ def log_heartbeat(cycle, strats, positions, markets):
     _ensure_dir()
     try:
         with open(DECISION_LOG, "a") as f:
-            f.write(json.dumps({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "event": "HEARTBEAT", "cycle": cycle,
-                "strategies": strats, "positions": positions,
-                "active_markets": len(markets) if isinstance(markets, list) else 0,
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "ts": datetime.now(UTC).isoformat(),
+                        "event": "HEARTBEAT",
+                        "cycle": cycle,
+                        "strategies": strats,
+                        "positions": positions,
+                        "active_markets": len(markets) if isinstance(markets, list) else 0,
+                    }
+                )
+                + "\n"
+            )
     except (OSError, TypeError, ValueError):
         # T1.4 Faz 3: decisions.jsonl append + json.dumps heartbeat.
         # Realistic: OSError (FS), TypeError/ValueError (json.dumps).
@@ -163,19 +220,28 @@ def log_heartbeat(cycle, strats, positions, markets):
 
 # "Important" skip reasons — these are near-trade events worth logging individually
 _IMPORTANT_SKIPS = {
-    "EDGE_GATE", "LOW_EDGE_VS_FEE", "RISK", "BRIER_ALARM",
-    "LOW_CONVICTION", "EV_NEGATIVE", "KELLY_NO_EDGE", "SLIPPAGE",
-    "CAPITAL_BUDGET", "UNSELLABLE", "TOKEN_CAP",
+    "EDGE_GATE",
+    "LOW_EDGE_VS_FEE",
+    "RISK",
+    "BRIER_ALARM",
+    "LOW_CONVICTION",
+    "EV_NEGATIVE",
+    "KELLY_NO_EDGE",
+    "SLIPPAGE",
+    "CAPITAL_BUDGET",
+    "UNSELLABLE",
+    "TOKEN_CAP",
 }
 
 
-def log_decision_open(strategy_id, slug, direction, signal_score,
-                      signal_reason, price, amount, fee, regime=None):
+def log_decision_open(
+    strategy_id, slug, direction, signal_score, signal_reason, price, amount, fee, regime=None
+):
     """Log trade OPEN decision to decisions.jsonl. Called when VirtualOrder is placed."""
     _ensure_dir()
     try:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "event": "OPEN",
             "strategy_id": strategy_id[:8] if strategy_id else "",
             "slug": slug,
@@ -197,15 +263,14 @@ def log_decision_open(strategy_id, slug, direction, signal_score,
         pass
 
 
-def log_decision_skip(strategy_id, slug, reason, signal_score=None,
-                      price=None, extra=None):
+def log_decision_skip(strategy_id, slug, reason, signal_score=None, price=None, extra=None):
     """Log important SKIP decision to decisions.jsonl. Only for near-trade events."""
     if reason not in _IMPORTANT_SKIPS:
         return  # noisy skips (MARKET_HALT, NO_LIQ etc.) only in cycle summary
     _ensure_dir()
     try:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "event": "SKIP",
             "strategy_id": strategy_id[:8] if strategy_id else "",
             "slug": slug or "",
@@ -230,7 +295,7 @@ def log_decision_close(strategy_id, slug, result, pnl, duration_sec=None):
     _ensure_dir()
     try:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "event": "CLOSE",
             "strategy_id": strategy_id[:8] if strategy_id else "",
             "slug": slug or "",
@@ -254,13 +319,18 @@ def log_decision_cycle_summary(cycle, skip_counts):
     _ensure_dir()
     try:
         with open(DECISION_LOG, "a") as f:
-            f.write(json.dumps({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "event": "CYCLE_SKIPS",
-                "cycle": cycle,
-                "skips": skip_counts,  # {"MARKET_HALT": 12, "NO_LIQ": 5, ...}
-                "total": sum(skip_counts.values()),
-            }) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "ts": datetime.now(UTC).isoformat(),
+                        "event": "CYCLE_SKIPS",
+                        "cycle": cycle,
+                        "skips": skip_counts,  # {"MARKET_HALT": 12, "NO_LIQ": 5, ...}
+                        "total": sum(skip_counts.values()),
+                    }
+                )
+                + "\n"
+            )
     except (OSError, TypeError, ValueError, AttributeError):
         # T1.4 Faz 3: cycle summary append + sum(dict.values()) + json.
         # Realistic: OSError (FS), TypeError/ValueError (sum non-numeric

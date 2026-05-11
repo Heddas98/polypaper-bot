@@ -26,14 +26,16 @@ Usage:
 
 Heddas yerel'de DB'den event akışı çekilir, sonra runner'a beslenir.
 """
+
 from __future__ import annotations
 
 import itertools
 import logging
 import math
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterable, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 logger = logging.getLogger("polypaper.backtest.walk_forward")
 
@@ -41,6 +43,7 @@ logger = logging.getLogger("polypaper.backtest.walk_forward")
 @dataclass
 class Window:
     """Single train+test window."""
+
     train_start: datetime
     train_end: datetime
     test_start: datetime
@@ -56,6 +59,7 @@ class Window:
 @dataclass
 class WalkForwardResult:
     """Aggregate outcome."""
+
     windows: list[Window] = field(default_factory=list)
     aggregate: dict = field(default_factory=dict)
     config: dict = field(default_factory=dict)
@@ -68,13 +72,21 @@ def _grid_product(grid: dict[str, list]) -> Iterable[dict]:
         return
     keys = list(grid.keys())
     for combo in itertools.product(*[grid[k] for k in keys]):
-        yield dict(zip(keys, combo))
+        yield dict(zip(keys, combo, strict=False))
 
 
 def _compute_metrics(pnls: list[float]) -> dict:
     """Standard metrics from a list of PnL values."""
     if not pnls:
-        return {"n": 0, "win_rate": 0, "expectancy": 0, "pf": 0, "sharpe": 0, "max_dd": 0, "total": 0}
+        return {
+            "n": 0,
+            "win_rate": 0,
+            "expectancy": 0,
+            "pf": 0,
+            "sharpe": 0,
+            "max_dd": 0,
+            "total": 0,
+        }
     n = len(pnls)
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
@@ -147,9 +159,7 @@ class WalkForwardRunner:
             yield (ts, te, es, ee)
             cur = cur + timedelta(days=self.step_days)
 
-    def _filter_events(
-        self, events: list[dict], start: datetime, end: datetime
-    ) -> list[dict]:
+    def _filter_events(self, events: list[dict], start: datetime, end: datetime) -> list[dict]:
         """Slice events by timestamp window. Events must have 'ts' key (Unix epoch)."""
         s = start.timestamp()
         e = end.timestamp()
@@ -177,14 +187,16 @@ class WalkForwardRunner:
         events_sorted = sorted(events, key=lambda e: e.get("ts", 0))
         first_ts = events_sorted[0]["ts"]
         last_ts = events_sorted[-1]["ts"]
-        start = datetime.fromtimestamp(first_ts, tz=timezone.utc)
-        end = datetime.fromtimestamp(last_ts, tz=timezone.utc)
+        start = datetime.fromtimestamp(first_ts, tz=UTC)
+        end = datetime.fromtimestamp(last_ts, tz=UTC)
 
         result = WalkForwardResult(config=self._config())
         all_test_pnls: list[float] = []
 
         windows = list(self._generate_windows(start, end))
-        logger.info(f"WalkForward: {len(windows)} windows ({self.train_days}d train + {self.test_days}d test, step={self.step_days}d)")
+        logger.info(
+            f"WalkForward: {len(windows)} windows ({self.train_days}d train + {self.test_days}d test, step={self.step_days}d)"
+        )
 
         for ts, te, es, ee in windows:
             train_evs = self._filter_events(events_sorted, ts, te)
@@ -210,8 +222,10 @@ class WalkForwardRunner:
             test_metrics = _compute_metrics(test_pnls)
 
             window = Window(
-                train_start=ts, train_end=te,
-                test_start=es, test_end=ee,
+                train_start=ts,
+                train_end=te,
+                test_start=es,
+                test_end=ee,
                 best_params=best_params,
                 train_pnl=best_train_metrics.get("total", 0),
                 test_pnl=test_metrics.get("total", 0),

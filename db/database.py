@@ -16,18 +16,27 @@ Tablolar:
 ~30 public async metod. WAL modu eş zamanlı okuma/yazma sağlar.
 Atomik bakiye düşme için get_and_deduct_balance() kullan.
 """
+
 import asyncio
-import aiosqlite
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
+import aiosqlite
+
+from db.migrations import grandfather_deploy_stage, run_migrations
 from db.models import (
-    User, Wallet, Strategy, Execution,
-    StrategyStatus, ExecutionStatus, Asset, Timeframe, Direction,
+    Asset,
+    Direction,
+    Execution,
+    ExecutionStatus,
+    Strategy,
+    StrategyStatus,
+    Timeframe,
+    User,
+    Wallet,
 )
-from db.migrations import run_migrations, grandfather_deploy_stage
 
 logger = logging.getLogger("polypaper.db")
 
@@ -44,9 +53,13 @@ class Database:
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA foreign_keys=ON")
         # Phase 57: WAL optimization — prevent "database is locked" errors
-        await self._conn.execute("PRAGMA busy_timeout=10000")      # Phase 62: 5s→10s to prevent lock during concurrent jobs
-        await self._conn.execute("PRAGMA synchronous=NORMAL")      # safe with WAL, faster writes
-        await self._conn.execute("PRAGMA wal_autocheckpoint=5000") # Phase 65: 1000→5000 prevent WAL bloat
+        await self._conn.execute(
+            "PRAGMA busy_timeout=10000"
+        )  # Phase 62: 5s→10s to prevent lock during concurrent jobs
+        await self._conn.execute("PRAGMA synchronous=NORMAL")  # safe with WAL, faster writes
+        await self._conn.execute(
+            "PRAGMA wal_autocheckpoint=5000"
+        )  # Phase 65: 1000→5000 prevent WAL bloat
         await self._create_tables()
         await run_migrations(self.conn)
         await grandfather_deploy_stage(self.conn)
@@ -158,7 +171,9 @@ class Database:
 
     # ── USER ──
     async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
-        async with self.conn.execute("SELECT * FROM users WHERE telegram_id=?", (telegram_id,)) as c:
+        async with self.conn.execute(
+            "SELECT * FROM users WHERE telegram_id=?", (telegram_id,)
+        ) as c:
             row = await c.fetchone()
             return self._row_to_user(row) if row else None
 
@@ -172,11 +187,21 @@ class Database:
             """INSERT INTO users (id,telegram_id,username,first_name,accepted_terms,
                default_wallet_id,notify_buy,notify_stop_loss,notify_take_profit,
                notify_claim,notify_no_buy,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (user.id, user.telegram_id, user.username, user.first_name,
-             int(user.accepted_terms), user.default_wallet_id,
-             int(user.notify_buy), int(user.notify_stop_loss),
-             int(user.notify_take_profit), int(user.notify_claim),
-             int(user.notify_no_buy), user.created_at.isoformat()))
+            (
+                user.id,
+                user.telegram_id,
+                user.username,
+                user.first_name,
+                int(user.accepted_terms),
+                user.default_wallet_id,
+                int(user.notify_buy),
+                int(user.notify_stop_loss),
+                int(user.notify_take_profit),
+                int(user.notify_claim),
+                int(user.notify_no_buy),
+                user.created_at.isoformat(),
+            ),
+        )
         await self.conn.commit()
         return user
 
@@ -185,25 +210,42 @@ class Database:
             """UPDATE users SET username=?,first_name=?,accepted_terms=?,
                default_wallet_id=?,notify_buy=?,notify_stop_loss=?,
                notify_take_profit=?,notify_claim=?,notify_no_buy=? WHERE id=?""",
-            (user.username, user.first_name, int(user.accepted_terms),
-             user.default_wallet_id, int(user.notify_buy), int(user.notify_stop_loss),
-             int(user.notify_take_profit), int(user.notify_claim),
-             int(user.notify_no_buy), user.id))
+            (
+                user.username,
+                user.first_name,
+                int(user.accepted_terms),
+                user.default_wallet_id,
+                int(user.notify_buy),
+                int(user.notify_stop_loss),
+                int(user.notify_take_profit),
+                int(user.notify_claim),
+                int(user.notify_no_buy),
+                user.id,
+            ),
+        )
         await self.conn.commit()
 
     # ── WALLET ──
     async def create_wallet(self, wallet: Wallet) -> Wallet:
         await self.conn.execute(
             "INSERT INTO wallets (id,user_id,label,balance,is_primary,created_at) VALUES (?,?,?,?,?,?)",
-            (wallet.id, wallet.user_id, wallet.label, wallet.balance,
-             int(wallet.is_primary), wallet.created_at.isoformat()))
+            (
+                wallet.id,
+                wallet.user_id,
+                wallet.label,
+                wallet.balance,
+                int(wallet.is_primary),
+                wallet.created_at.isoformat(),
+            ),
+        )
         await self.conn.commit()
         return wallet
 
     async def get_wallets_by_user(self, user_id: str) -> list[Wallet]:
         ws = []
         async with self.conn.execute(
-            "SELECT * FROM wallets WHERE user_id=? ORDER BY is_primary DESC", (user_id,)) as c:
+            "SELECT * FROM wallets WHERE user_id=? ORDER BY is_primary DESC", (user_id,)
+        ) as c:
             async for row in c:
                 ws.append(self._row_to_wallet(row))
         return ws
@@ -221,17 +263,18 @@ class Database:
                 return w
         async with self.conn.execute(
             "SELECT * FROM wallets WHERE user_id=? ORDER BY is_primary DESC, created_at LIMIT 1",
-            (user_id,)) as c:
+            (user_id,),
+        ) as c:
             row = await c.fetchone()
             return self._row_to_wallet(row) if row else None
 
     async def update_wallet_balance(self, wallet_id: str, new_balance: float):
         """Legacy method — still used by non-engine code (add_funds, withdraw)."""
-        await self._db_write(
-            "UPDATE wallets SET balance=? WHERE id=?", (new_balance, wallet_id))
+        await self._db_write("UPDATE wallets SET balance=? WHERE id=?", (new_balance, wallet_id))
 
-    async def atomic_deduct_balance(self, wallet_id: str, amount: float,
-                                    max_retries: int = 3) -> bool:
+    async def atomic_deduct_balance(
+        self, wallet_id: str, amount: float, max_retries: int = 3
+    ) -> bool:
         """F-02: Atomic deduction. Returns True if successful, False if insufficient.
         Single SQL with WHERE balance >= amount prevents race conditions.
 
@@ -244,7 +287,8 @@ class Database:
             try:
                 cursor = await self.conn.execute(
                     "UPDATE wallets SET balance = balance - ? WHERE id = ? AND balance >= ?",
-                    (amount, wallet_id, amount))
+                    (amount, wallet_id, amount),
+                )
                 await self.conn.commit()
                 return cursor.rowcount > 0  # True if row was updated
             except aiosqlite.Error as e:
@@ -255,7 +299,8 @@ class Database:
                 if "locked" in str(e).lower() and attempt < max_retries - 1:
                     logger.warning(
                         f"atomic_deduct locked, retry {attempt+1}/{max_retries} "
-                        f"(wallet={wallet_id[:8]}, amount=${amount:.2f})")
+                        f"(wallet={wallet_id[:8]}, amount=${amount:.2f})"
+                    )
                     await asyncio.sleep(0.1 * (attempt + 1))
                 else:
                     logger.error(f"Atomic deduct failed: {e}")
@@ -289,21 +334,41 @@ class Database:
                max_executions_per_event,max_losses_per_event,max_entry_slippage,
                ma_filter_enabled,min_volatility,strategy_type,status,started_at,created_at,updated_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (strategy.id, strategy.user_id, strategy.wallet_id, strategy.label,
-             strategy.asset.value, strategy.timeframe.value, strategy.direction.value,
-             strategy.trade_amount, strategy.odds_threshold, strategy.price_difference,
-             strategy.minutes_before_end, strategy.minutes_after_start,
-             strategy.stop_loss_percent, strategy.stop_loss_odds,
-             strategy.take_profit_percent, strategy.take_profit_odds,
-             strategy.max_executions_per_event, strategy.max_losses_per_event,
-             strategy.max_entry_slippage, int(strategy.ma_filter_enabled),
-             strategy.min_volatility, strategy.strategy_type, strategy.status.value,
-             strategy.started_at.isoformat() if strategy.started_at else None,
-             strategy.created_at.isoformat(), strategy.updated_at.isoformat()))
+            (
+                strategy.id,
+                strategy.user_id,
+                strategy.wallet_id,
+                strategy.label,
+                strategy.asset.value,
+                strategy.timeframe.value,
+                strategy.direction.value,
+                strategy.trade_amount,
+                strategy.odds_threshold,
+                strategy.price_difference,
+                strategy.minutes_before_end,
+                strategy.minutes_after_start,
+                strategy.stop_loss_percent,
+                strategy.stop_loss_odds,
+                strategy.take_profit_percent,
+                strategy.take_profit_odds,
+                strategy.max_executions_per_event,
+                strategy.max_losses_per_event,
+                strategy.max_entry_slippage,
+                int(strategy.ma_filter_enabled),
+                strategy.min_volatility,
+                strategy.strategy_type,
+                strategy.status.value,
+                strategy.started_at.isoformat() if strategy.started_at else None,
+                strategy.created_at.isoformat(),
+                strategy.updated_at.isoformat(),
+            ),
+        )
         await self.conn.commit()
         return strategy
 
-    async def get_strategies_by_user(self, user_id: str, wallet_id: Optional[str] = None) -> list[Strategy]:
+    async def get_strategies_by_user(
+        self, user_id: str, wallet_id: Optional[str] = None
+    ) -> list[Strategy]:
         # Phase 52 ÖNERİ #5 — newest strategies first so /quick_strategy
         # creations surface at the top of /strategies instead of burying
         # them at the bottom of a long list.
@@ -327,28 +392,45 @@ class Database:
     async def update_strategy_status(self, sid: str, status: StrategyStatus):
         now = datetime.utcnow().isoformat()
         started = now if status == StrategyStatus.ACTIVE else None
-        await self.conn.execute("UPDATE strategies SET status=?,started_at=?,updated_at=? WHERE id=?",
-                                (status.value, started, now, sid))
+        await self.conn.execute(
+            "UPDATE strategies SET status=?,started_at=?,updated_at=? WHERE id=?",
+            (status.value, started, now, sid),
+        )
         await self.conn.commit()
 
     async def update_strategy_field(self, sid: str, field: str, value):
         """Phase 19: Update a single strategy field safely."""
-        allowed = {"label", "trade_amount", "odds_threshold", "direction",
-                   "price_difference", "minutes_before_end", "minutes_after_start",
-                   "stop_loss_percent", "stop_loss_odds", "take_profit_percent",
-                   "take_profit_odds", "max_executions_per_event", "max_losses_per_event",
-                   "max_entry_slippage", "ma_filter_enabled", "min_volatility", "strategy_type"}
+        allowed = {
+            "label",
+            "trade_amount",
+            "odds_threshold",
+            "direction",
+            "price_difference",
+            "minutes_before_end",
+            "minutes_after_start",
+            "stop_loss_percent",
+            "stop_loss_odds",
+            "take_profit_percent",
+            "take_profit_odds",
+            "max_executions_per_event",
+            "max_losses_per_event",
+            "max_entry_slippage",
+            "ma_filter_enabled",
+            "min_volatility",
+            "strategy_type",
+        }
         if field not in allowed:
             return False
         # P2-04 FIX: Defense-in-depth — reject field names with non-alphanumeric chars
         # even if they somehow pass the whitelist (e.g. via future code changes)
         import re
-        if not re.match(r'^[a-z_]+$', field):
+
+        if not re.match(r"^[a-z_]+$", field):
             return False
-        now = datetime.now(timezone.utc).isoformat()  # P3-02 FIX: was utcnow()
+        now = datetime.now(UTC).isoformat()  # P3-02 FIX: was utcnow()
         await self.conn.execute(
-            f"UPDATE strategies SET {field}=?, updated_at=? WHERE id=?",
-            (value, now, sid))
+            f"UPDATE strategies SET {field}=?, updated_at=? WHERE id=?", (value, now, sid)
+        )
         await self.conn.commit()
         return True
 
@@ -356,7 +438,8 @@ class Database:
         """Soft-delete: stop strategy and nullify FK references, keep data."""
         # First nullify any execution references to avoid FK constraint
         await self.conn.execute(
-            "UPDATE executions SET strategy_id=NULL WHERE strategy_id=?", (sid,))
+            "UPDATE executions SET strategy_id=NULL WHERE strategy_id=?", (sid,)
+        )
         # Then delete the strategy
         await self.conn.execute("DELETE FROM strategies WHERE id=?", (sid,))
         await self.conn.commit()
@@ -389,7 +472,8 @@ class Database:
                    WHERE s.user_id = ?
                    GROUP BY s.id
                    ORDER BY s.created_at DESC""",
-                (user_id,)) as c:
+                (user_id,),
+            ) as c:
                 async for row in c:
                     results.append(dict(row))
         except (aiosqlite.Error, TypeError, ValueError) as e:
@@ -411,27 +495,48 @@ class Database:
                take_profit_percent,take_profit_odds,pnl,payout,result,closed_at,
                error_message,created_at,updated_at,signal_score,regime_at_entry)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (execution.id, execution.user_id, execution.wallet_id,
-             execution.strategy_id, execution.event_slug,
-             execution.market_token_id, execution.direction.value,
-             execution.trade_amount, execution.fee_amount,
-             execution.odds_threshold, execution.execution_price,
-             execution.status.value, execution.stop_loss_percent,
-             execution.stop_loss_odds, execution.take_profit_percent,
-             execution.take_profit_odds, execution.pnl, execution.payout,
-             execution.result,
-             execution.closed_at.isoformat() if execution.closed_at else None,
-             execution.error_message,
-             execution.created_at.isoformat(), execution.updated_at.isoformat(),
-             execution.signal_score,
-             execution.regime_at_entry))
+            (
+                execution.id,
+                execution.user_id,
+                execution.wallet_id,
+                execution.strategy_id,
+                execution.event_slug,
+                execution.market_token_id,
+                execution.direction.value,
+                execution.trade_amount,
+                execution.fee_amount,
+                execution.odds_threshold,
+                execution.execution_price,
+                execution.status.value,
+                execution.stop_loss_percent,
+                execution.stop_loss_odds,
+                execution.take_profit_percent,
+                execution.take_profit_odds,
+                execution.pnl,
+                execution.payout,
+                execution.result,
+                execution.closed_at.isoformat() if execution.closed_at else None,
+                execution.error_message,
+                execution.created_at.isoformat(),
+                execution.updated_at.isoformat(),
+                execution.signal_score,
+                execution.regime_at_entry,
+            ),
+        )
         await self.conn.commit()
         return execution
 
     # ── STATS (FIXED: counts ALL trades) ──
     async def get_user_stats(self, user_id: str) -> dict:
-        stats = {"total_pnl": 0.0, "total_trades": 0, "open_trades": 0,
-                 "wins": 0, "losses": 0, "total_volume": 0.0, "win_rate": 0.0}
+        stats = {
+            "total_pnl": 0.0,
+            "total_trades": 0,
+            "open_trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "total_volume": 0.0,
+            "win_rate": 0.0,
+        }
         try:
             # Completed trades
             async with self.conn.execute(
@@ -440,7 +545,8 @@ class Database:
                           COALESCE(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) as wins,
                           COALESCE(SUM(CASE WHEN pnl<=0 THEN 1 ELSE 0 END),0) as losses
                    FROM executions WHERE user_id=? AND result IS NOT NULL""",
-                (user_id,)) as c:
+                (user_id,),
+            ) as c:
                 row = await c.fetchone()
                 if row:
                     stats["total_trades"] = row["total"]
@@ -453,7 +559,8 @@ class Database:
             # Open trades
             async with self.conn.execute(
                 "SELECT COUNT(*) FROM executions WHERE user_id=? AND status='bet_placed'",
-                (user_id,)) as c:
+                (user_id,),
+            ) as c:
                 row = await c.fetchone()
                 stats["open_trades"] = row[0] if row else 0
         except (aiosqlite.Error, IndexError, TypeError) as e:
@@ -470,7 +577,9 @@ class Database:
             """SELECT e.*, s.label as strategy_label, s.strategy_type
                FROM executions e LEFT JOIN strategies s ON e.strategy_id=s.id
                WHERE e.user_id=? AND e.status='bet_placed'
-               ORDER BY e.created_at DESC""", (user_id,)) as c:
+               ORDER BY e.created_at DESC""",
+            (user_id,),
+        ) as c:
             async for row in c:
                 rows.append(dict(row))
         return rows
@@ -480,7 +589,9 @@ class Database:
         exs = []
         async with self.conn.execute(
             """SELECT * FROM executions WHERE user_id=? AND result IS NOT NULL
-               ORDER BY closed_at DESC LIMIT ?""", (user_id, limit)) as c:
+               ORDER BY closed_at DESC LIMIT ?""",
+            (user_id, limit),
+        ) as c:
             async for row in c:
                 exs.append(self._row_to_execution(row))
         return exs
@@ -490,7 +601,8 @@ class Database:
         rows = []
         async with self.conn.execute(
             "SELECT * FROM executions WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
-            (user_id, limit)) as c:
+            (user_id, limit),
+        ) as c:
             async for row in c:
                 rows.append(dict(row))
         return rows
@@ -499,62 +611,94 @@ class Database:
     @staticmethod
     def _row_to_user(row) -> User:
         return User(
-            id=row["id"], telegram_id=row["telegram_id"],
-            username=row["username"], first_name=row["first_name"],
+            id=row["id"],
+            telegram_id=row["telegram_id"],
+            username=row["username"],
+            first_name=row["first_name"],
             accepted_terms=bool(row["accepted_terms"]),
             default_wallet_id=row["default_wallet_id"],
-            notify_buy=bool(row["notify_buy"]), notify_stop_loss=bool(row["notify_stop_loss"]),
+            notify_buy=bool(row["notify_buy"]),
+            notify_stop_loss=bool(row["notify_stop_loss"]),
             notify_take_profit=bool(row["notify_take_profit"]),
-            notify_claim=bool(row["notify_claim"]), notify_no_buy=bool(row["notify_no_buy"]),
-            created_at=datetime.fromisoformat(row["created_at"]))
+            notify_claim=bool(row["notify_claim"]),
+            notify_no_buy=bool(row["notify_no_buy"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
 
     @staticmethod
     def _row_to_wallet(row) -> Wallet:
         return Wallet(
-            id=row["id"], user_id=row["user_id"], label=row["label"],
-            balance=row["balance"], is_primary=bool(row["is_primary"]),
-            created_at=datetime.fromisoformat(row["created_at"]))
+            id=row["id"],
+            user_id=row["user_id"],
+            label=row["label"],
+            balance=row["balance"],
+            is_primary=bool(row["is_primary"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
 
     @staticmethod
     def _row_to_strategy(row) -> Strategy:
         return Strategy(
-            id=row["id"], user_id=row["user_id"], wallet_id=row["wallet_id"],
-            label=row["label"], asset=Asset(row["asset"]),
-            timeframe=Timeframe(row["timeframe"]), direction=Direction(row["direction"]),
-            trade_amount=row["trade_amount"], odds_threshold=row["odds_threshold"],
+            id=row["id"],
+            user_id=row["user_id"],
+            wallet_id=row["wallet_id"],
+            label=row["label"],
+            asset=Asset(row["asset"]),
+            timeframe=Timeframe(row["timeframe"]),
+            direction=Direction(row["direction"]),
+            trade_amount=row["trade_amount"],
+            odds_threshold=row["odds_threshold"],
             price_difference=row["price_difference"],
             minutes_before_end=row["minutes_before_end"],
             minutes_after_start=row["minutes_after_start"],
-            stop_loss_percent=row["stop_loss_percent"], stop_loss_odds=row["stop_loss_odds"],
-            take_profit_percent=row["take_profit_percent"], take_profit_odds=row["take_profit_odds"],
+            stop_loss_percent=row["stop_loss_percent"],
+            stop_loss_odds=row["stop_loss_odds"],
+            take_profit_percent=row["take_profit_percent"],
+            take_profit_odds=row["take_profit_odds"],
             max_executions_per_event=row["max_executions_per_event"],
             max_losses_per_event=row["max_losses_per_event"],
             max_entry_slippage=row["max_entry_slippage"],
             ma_filter_enabled=bool(row["ma_filter_enabled"]),
             min_volatility=row["min_volatility"],
             strategy_type=row["strategy_type"] if "strategy_type" in row.keys() else "fusion",
-            deploy_stage=(row["deploy_stage"] if "deploy_stage" in row.keys() and row["deploy_stage"] else "canary"),
+            deploy_stage=(
+                row["deploy_stage"]
+                if "deploy_stage" in row.keys() and row["deploy_stage"]
+                else "canary"
+            ),
             status=StrategyStatus(row["status"]),
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
             created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]))
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
 
     @staticmethod
     def _row_to_execution(row) -> Execution:
         return Execution(
-            id=row["id"], user_id=row["user_id"], wallet_id=row["wallet_id"],
-            strategy_id=row["strategy_id"], event_slug=row["event_slug"],
-            market_token_id=row["market_token_id"], direction=Direction(row["direction"]),
-            trade_amount=row["trade_amount"], fee_amount=row["fee_amount"],
-            odds_threshold=row["odds_threshold"], execution_price=row["execution_price"],
+            id=row["id"],
+            user_id=row["user_id"],
+            wallet_id=row["wallet_id"],
+            strategy_id=row["strategy_id"],
+            event_slug=row["event_slug"],
+            market_token_id=row["market_token_id"],
+            direction=Direction(row["direction"]),
+            trade_amount=row["trade_amount"],
+            fee_amount=row["fee_amount"],
+            odds_threshold=row["odds_threshold"],
+            execution_price=row["execution_price"],
             status=ExecutionStatus(row["status"]),
-            stop_loss_percent=row["stop_loss_percent"], stop_loss_odds=row["stop_loss_odds"],
-            take_profit_percent=row["take_profit_percent"], take_profit_odds=row["take_profit_odds"],
-            pnl=row["pnl"], payout=row["payout"], result=row["result"],
+            stop_loss_percent=row["stop_loss_percent"],
+            stop_loss_odds=row["stop_loss_odds"],
+            take_profit_percent=row["take_profit_percent"],
+            take_profit_odds=row["take_profit_odds"],
+            pnl=row["pnl"],
+            payout=row["payout"],
+            result=row["result"],
             closed_at=datetime.fromisoformat(row["closed_at"]) if row["closed_at"] else None,
             error_message=row["error_message"],
             created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]))
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
 
     # ═══ Phase 22: Persistent Settings ═══
 
@@ -562,7 +706,8 @@ class Database:
         """Get a persistent setting by key."""
         try:
             row = await self.conn.execute_fetchall(
-                "SELECT value FROM bot_settings WHERE key=?", (key,))
+                "SELECT value FROM bot_settings WHERE key=?", (key,)
+            )
             return row[0][0] if row else default
         except (aiosqlite.Error, IndexError):
             # T11.8-B (2026-04-24): narrow from bare Exception. bot_settings
@@ -572,19 +717,21 @@ class Database:
 
     async def set_setting(self, key: str, value: str):
         """Set a persistent setting (upsert)."""
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
+        from datetime import datetime
+
+        now = datetime.now(UTC).isoformat()
         await self.conn.execute(
             "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, ?)",
-            (key, value, now))
+            (key, value, now),
+        )
         await self.conn.commit()
 
     async def get_all_settings(self, prefix: str = "") -> dict:
         """Get all settings matching prefix."""
         try:
             rows = await self.conn.execute_fetchall(
-                "SELECT key, value FROM bot_settings WHERE key LIKE ?",
-                (prefix + "%",))
+                "SELECT key, value FROM bot_settings WHERE key LIKE ?", (prefix + "%",)
+            )
             return {r[0]: r[1] for r in rows}
         except (aiosqlite.Error, IndexError):
             # T11.8-B (2026-04-24): narrow from bare Exception. Same surface

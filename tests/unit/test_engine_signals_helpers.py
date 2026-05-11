@@ -18,6 +18,7 @@ Out-of-scope (→ T9.8):
   * `_load_brier_calibration_cache`, `_check_brier_alarm` — DB reads
   * `_get_ob_cached` — network call
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -26,8 +27,8 @@ import pytest
 
 from core.engine_signals import EngineSignalsMixin
 
-
 # ═══ _parse_zones — static ═════════════════════════════════════════════
+
 
 class TestParseZones:
     """'0-35,50-55' → [(0.0, 0.35), (0.50, 0.55)] (cents → fraction)."""
@@ -59,6 +60,7 @@ class TestParseZones:
 
 # ═══ _in_allowed_zone — static ════════════════════════════════════════
 
+
 class TestInAllowedZone:
     def test_empty_zones_allows_everything(self):
         assert EngineSignalsMixin._in_allowed_zone(0.01, []) is True
@@ -85,6 +87,7 @@ class TestInAllowedZone:
 
 
 # ═══ _classic_free_mode — static, Phase 82e hotfix ═════════════════════
+
 
 class TestClassicFreeMode:
     """Classic stype + CLASSIC_BYPASS_ALL_GATES != "false" → True.
@@ -137,6 +140,7 @@ class TestClassicFreeMode:
 
 # ═══ _compute_pending_reserved — instance method ═══════════════════════
 
+
 class _PendingHarness(EngineSignalsMixin):
     """Minimal stub with `_pending` list — only attr touched."""
 
@@ -179,6 +183,7 @@ class TestComputePendingReserved:
 
 
 # ═══ _get_brier_bin — instance method, pure ════════════════════════════
+
 
 class _BrierHarness(EngineSignalsMixin):
     def __init__(self):

@@ -12,6 +12,7 @@ relies on:
 We don't test the TelegramContext-wrapped job itself (that would need
 asyncio application mocks); we pin the SQLite contract the job depends on.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,8 +37,7 @@ async def wal_db():
     await conn.execute("PRAGMA synchronous=NORMAL")
     # Very low autocheckpoint so tiny test inserts don't auto-flush
     await conn.execute("PRAGMA wal_autocheckpoint=100000")
-    await conn.execute(
-        "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+    await conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
     await conn.commit()
 
     yield conn, db_path
@@ -90,11 +90,9 @@ async def test_truncate_shrinks_wal_after_writes(wal_db):
 
     size_after = _wal_size(db_path)
     # TRUNCATE either zeroes the WAL or shrinks it significantly
-    assert size_after < size_before, (
-        f"WAL did not shrink: {size_before} → {size_after}")
+    assert size_after < size_before, f"WAL did not shrink: {size_before} → {size_after}"
     # On most SQLite builds TRUNCATE zeroes it
-    assert size_after == 0, (
-        f"TRUNCATE expected size=0, got {size_after}")
+    assert size_after == 0, f"TRUNCATE expected size=0, got {size_after}"
 
 
 @pytest.mark.asyncio
