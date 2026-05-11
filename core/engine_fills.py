@@ -77,7 +77,7 @@ class EngineFillsMixin:
             try:
                 if isinstance(lvl, dict):
                     return float(lvl.get("price", 0) or 0), float(lvl.get("size", 0) or 0)
-                if isinstance(lvl, (list, tuple)) and len(lvl) >= 2:
+                if isinstance(lvl, list | tuple) and len(lvl) >= 2:
                     return float(lvl[0] or 0), float(lvl[1] or 0)
             except (TypeError, ValueError):
                 pass

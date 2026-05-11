@@ -179,7 +179,7 @@ def render_console(run_a: Dict[str, Any], run_b: Dict[str, Any], delta: Dict[str
     ]:
         a_v = run_a.get(k, "-")
         b_v = run_b.get(k, "-")
-        if isinstance(a_v, (int, float)) and isinstance(b_v, (int, float)):
+        if isinstance(a_v, int | float) and isinstance(b_v, int | float):
             d = b_v - a_v
             lines.append(f"{k_pretty:<20} {a_v:>15.4f} {b_v:>15.4f} {d:>+15.4f}")
         else:

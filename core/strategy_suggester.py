@@ -343,8 +343,8 @@ class StrategySuggester:
         """
         asset = strat.get("asset", "BTC")
         tf = strat.get("timeframe", "5m")
-        direction = strat.get("direction", "any")
-        threshold = strat.get("odds_threshold", 0.50)
+        strat.get("direction", "any")
+        strat.get("odds_threshold", 0.50)
         stype = strat.get("strategy_type", "momentum")
 
         # ── Phase 81: Gerçek ReplayEngine backtest ──

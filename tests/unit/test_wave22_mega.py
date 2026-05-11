@@ -215,7 +215,7 @@ def test_module_imports_and_attrs(module_name):
         try:
             obj = getattr(mod, name)
             # Module-level constants — tetiklenir
-            if isinstance(obj, (str, int, float, bool, list, dict, tuple)):
+            if isinstance(obj, str | int | float | bool | list | dict | tuple):
                 _ = obj
             # Class — try multiple ctors with default args
             elif isinstance(obj, type) and not name.startswith("_"):

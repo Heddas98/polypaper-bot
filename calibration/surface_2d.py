@@ -448,7 +448,7 @@ class SurfaceBuilder:
         edges = DEFAULT_TIME_EDGES
         parts = []
         for i in range(len(edges) - 1):
-            low = edges[i]
+            edges[i]
             high = edges[i + 1]
             if math.isinf(high):
                 parts.append(f"ELSE {i}")

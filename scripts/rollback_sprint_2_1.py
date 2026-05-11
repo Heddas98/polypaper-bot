@@ -124,7 +124,6 @@ def revert_file(path: Path) -> Tuple[bool, List[str]]:
     for ln in lines:
         stripped = ln.strip()
         if skip_until_close_paren:
-            new_lines_drop = True  # placeholder no-op
             if ")" in stripped:
                 skip_until_close_paren = False
             removed += 1

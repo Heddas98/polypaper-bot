@@ -44,7 +44,7 @@ def _is_bool(v: Any) -> bool:
 
 
 def _is_number(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, int | float) and not isinstance(v, bool)
 
 
 def _in_range(lo: float, hi: float) -> Callable[[Any], bool]:

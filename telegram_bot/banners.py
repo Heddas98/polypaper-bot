@@ -47,7 +47,7 @@ def create_banner(
 
     # Draw faded watermark copies
     watermark_color = (BG_COLOR[0] + 15, BG_COLOR[1] + 15, min(255, BG_COLOR[2] + 15))
-    for i, offset_y in enumerate([50, 80, 110, 140]):
+    for _i, offset_y in enumerate([50, 80, 110, 140]):
         draw.text((30, offset_y), title, fill=watermark_color, font=font_watermark)
 
     # Main title

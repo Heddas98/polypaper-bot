@@ -313,7 +313,7 @@ async def _test_with_recorder(db: Database, strategy: Strategy) -> dict:
                 "zone_breakdown": {},
             }
 
-        snap_count = row[0]
+        row[0]
         market_count = row[1]
 
         # Simplified: return mock stats for now
@@ -363,19 +363,19 @@ async def test_strategy_callback(update: Update, context: ContextTypes.DEFAULT_T
             return
 
         if data.startswith("test_start_"):
-            strategy_id = data[11:]
+            data[11:]
             await query.answer("Strateji başlatılıyor...")
             # TODO: Call strategy start handler
             return
 
         if data.startswith("test_edit_"):
-            strategy_id = data[10:]
+            data[10:]
             await query.answer("Editör açılıyor...")
             # TODO: Call strategy edit handler
             return
 
         if data.startswith("test_ai_"):
-            strategy_id = data[8:]
+            data[8:]
             await query.answer("AI analizi başlatılıyor...")
             # TODO: Call AI brain analysis
             return

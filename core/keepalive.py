@@ -306,13 +306,13 @@ async function load(){
     const r=await fetch('/api/data');
     const d=await r.json();
     if(d.error){document.getElementById('status').textContent='Error: '+d.error;return}
-    
+
     const wr=d.total_trades>0?(d.total_wins/d.total_trades*100).toFixed(0):0;
     const regime=d.regime||{regime:'?',confidence:0};
     const rc='regime-'+(regime.regime||'ranging');
     const ai=d.ai_brain||{spent:0,budget:15,cycle:0};
     const btc=d.btc_price?'$'+d.btc_price.toLocaleString():'--';
-    
+
     document.getElementById('top-cards').innerHTML=`
       <div class="card">
         <h2>💰 Hesap</h2>
@@ -336,7 +336,7 @@ async function load(){
         <div class="bar"><div class="bar-fill" style="width:${((ai.spent||0)/(ai.budget||15)*100)}%;background:${ai.spent>12?'#ff5252':ai.spent>8?'#ffd740':'#00e676'}"></div></div>
       </div>
     `;
-    
+
     // Strategies table
     const strats=d.strategies||[];
     let sh='<table><tr><th>Strateji</th><th>Tip</th><th>$</th><th>Trade</th><th>WR</th><th>PnL</th><th>Durum</th></tr>';
@@ -351,7 +351,7 @@ async function load(){
     });
     sh+='</table>';
     document.getElementById('strat-table').innerHTML=sh;
-    
+
     // Thompson Sampling
     const ts=d.ts_rankings||[];
     let th='<table><tr><th>#</th><th>ID</th><th>α</th><th>β</th><th>WR</th><th>PnL</th></tr>';
@@ -363,7 +363,7 @@ async function load(){
     });
     th+='</table>';
     document.getElementById('ts-table').innerHTML=th;
-    
+
     // Drift
     const drift=d.drift||{};
     let dh='<table><tr><th>Sinyal</th><th>Accuracy</th><th>Weight</th><th>Durum</th></tr>';
@@ -376,7 +376,7 @@ async function load(){
     if(!Object.keys(drift).length) dh+='<tr><td colspan="4" style="color:#8892a4">Henuz veri yok</td></tr>';
     dh+='</table>';
     document.getElementById('drift-table').innerHTML=dh;
-    
+
     // Recent trades
     const trades=d.recent_trades||[];
     let rh='<table><tr><th>Saat</th><th>Strateji</th><th>Yon</th><th>$</th><th>PnL</th></tr>';
@@ -387,7 +387,7 @@ async function load(){
     });
     rh+='</table>';
     document.getElementById('recent-table').innerHTML=rh;
-    
+
     // AI decisions
     const ais=d.ai_decisions||[];
     let ah='';
@@ -398,7 +398,7 @@ async function load(){
     });
     if(!ais.length) ah='<div class="metric"><span class="label" style="color:#8892a4">Henuz karar yok</span></div>';
     document.getElementById('ai-table').innerHTML=ah;
-    
+
     document.getElementById('status').textContent='🟢 Live';
     document.getElementById('status').style.color='#00e676';
     document.getElementById('last-update').textContent=new Date().toLocaleTimeString();

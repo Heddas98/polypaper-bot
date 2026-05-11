@@ -122,7 +122,7 @@ async def _query_strategy_ab(db, strategy_type: str, cutoff: datetime) -> dict:
         created_at_raw = r["created_at"]
 
         # Handle epoch (int) or ISO string
-        if isinstance(created_at_raw, (int, float)):
+        if isinstance(created_at_raw, int | float):
             try:
                 ts = datetime.fromtimestamp(created_at_raw, tz=UTC)
             except (ValueError, OSError):

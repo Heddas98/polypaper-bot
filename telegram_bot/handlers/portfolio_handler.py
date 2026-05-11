@@ -196,7 +196,7 @@ def _render_positions(snap: dict, fetched_at: str) -> str:
         "",
     ]
     total_pnl = 0.0
-    for i, p in enumerate(positions[:10], 1):
+    for _i, p in enumerate(positions[:10], 1):
         slug = str(p.get("market_slug", ""))[:32]
         outcome = str(p.get("outcome", ""))[:8]
         shares = float(p.get("shares", 0))

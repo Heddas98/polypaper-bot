@@ -879,7 +879,7 @@ CONSENSUS KURALI:
                     lines.append("\n═══ SON 20 TRADE DETAYI (entry/exit/fee/sure) ═══")
                     for d in detailed:
                         label = d[0] or "?"
-                        result = d[1] or "?"
+                        d[1] or "?"
                         pnl = d[2] or 0
                         entry = d[3] or 0
                         direction = d[4] or "?"
@@ -1562,10 +1562,9 @@ CONSENSUS KURALI:
 
             # Check which trade IDs are already scored
             trade_ids = [str(r[0]) for r in rows]
-            existing = set()
             try:
                 placeholders = ",".join("?" * len(trade_ids))
-                scored = await self.db.conn.execute_fetchall(
+                await self.db.conn.execute_fetchall(
                     f"SELECT context_json FROM brier_scores "
                     f"WHERE context_json IN ({placeholders})",
                     [json.dumps({"trade_id": tid}) for tid in trade_ids],

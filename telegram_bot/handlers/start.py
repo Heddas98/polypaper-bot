@@ -19,7 +19,7 @@ logger = logging.getLogger("polypaper.handlers.start")
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - show terms and conditions."""
     db: Database = context.bot_data["db"]
-    settings: Settings = context.bot_data["settings"]
+    context.bot_data["settings"]
     tg_user = update.effective_user
 
     # Check if user already exists
@@ -27,9 +27,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user and user.accepted_terms:
         # Returning user - show welcome back
-        wallet = await db.get_active_wallet(user.id)
-        balance = f"{wallet.balance:.4f}" if wallet else "0.0000"
-        wallet_label = wallet.label if wallet else "N/A"
+        await db.get_active_wallet(user.id)
 
         text = (
             f"Good to have you here.\n\n"
@@ -254,7 +252,7 @@ async def new_wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     db: Database = context.bot_data["db"]
-    settings = context.bot_data["settings"]
+    context.bot_data["settings"]
     tg_user = update.effective_user
     user = await db.get_user_by_telegram_id(tg_user.id)
     if not user:

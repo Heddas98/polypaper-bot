@@ -61,16 +61,12 @@ async def ev_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Color emoji based on quality
             if edge_real >= 0.9:
                 emoji = "✅"
-                quality = "excellent"
             elif edge_real >= 0.75:
                 emoji = "✅"
-                quality = "good"
             elif edge_real >= 0.6:
                 emoji = "⚠️"
-                quality = "acceptable"
             else:
                 emoji = "❌"
-                quality = "bad"
 
             lines.append(
                 f"{emoji} <code>{label:30s}</code> "

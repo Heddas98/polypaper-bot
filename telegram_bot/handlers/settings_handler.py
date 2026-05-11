@@ -46,8 +46,12 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _send_settings(message, db, user):
     """Render settings view like Polyscout."""
-    on = lambda v: "ON" if v else "OFF"
-    check = lambda v: "✅" if v else "❌"
+
+    def on(v):
+        return "ON" if v else "OFF"
+
+    def check(v):
+        return "✅" if v else "❌"
 
     text = (
         f"⚙️ <b>Notification Settings</b>\n\n"
@@ -123,8 +127,11 @@ async def toggle_notification_callback(update: Update, context: ContextTypes.DEF
         await db.update_user(user)
 
     # Refresh settings view
-    on = lambda v: "ON" if v else "OFF"
-    check = lambda v: "✅" if v else "❌"
+    def on(v):
+        return "ON" if v else "OFF"
+
+    def check(v):
+        return "✅" if v else "❌"
 
     text = (
         f"⚙️ <b>Notification Settings</b>\n\n"
@@ -232,7 +239,7 @@ async def plugin_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     args = context.args or []
     if len(args) < 1:
         text = "⚙️ <b>Plugin Parametreleri</b>\n\n"
-        for pname, params in engine.plugins.CONFIGURABLE.items():
+        for pname, _params in engine.plugins.CONFIGURABLE.items():
             cfg = engine.plugins.get_config(pname)
             text += f"<b>{pname}</b>:\n"
             for k, v in cfg.items():

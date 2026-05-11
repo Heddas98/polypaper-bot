@@ -156,7 +156,7 @@ class ChartGenerator:
         bars = ax.bar(hours, wr, color=colors, alpha=0.8, edgecolor="white")
 
         # Add trade count labels
-        for i, (bar, cnt) in enumerate(zip(bars, counts, strict=False)):
+        for _i, (bar, cnt) in enumerate(zip(bars, counts, strict=False)):
             if cnt > 0:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,

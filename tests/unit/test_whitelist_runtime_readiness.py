@@ -88,7 +88,7 @@ def _find_env_sites(key: str):
         # Build a set of line numbers that fall inside function/method bodies
         runtime_line_set = set()
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 start = node.lineno
                 end = getattr(node, "end_lineno", None) or start
                 for ln in range(start, end + 1):

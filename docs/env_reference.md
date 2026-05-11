@@ -31,7 +31,7 @@
 | `ADAPTIVE_PNL_TRADES_PER_STEP` | `'20'` |  | ✅ | `core/auto_optimizer.py:114` |
 | `ADMIN_CHAT_ID` | `None` |  |  | `core/engine.py:724`, `core/engine.py:1015`, `core/engine_settlement.py:337` (+7 more) |
 | `ADMIN_TELEGRAM_ID` | `'0'` |  | ✅ | `core/auto_optimizer.py:635`, `core/engine.py:724`, `core/engine.py:1015` (+16 more) |
-| `AI_AUTO_CONFIDENCE` | `'0.70'` |  | ✅ | `core/ai_brain.py:447`, `core/ai_brain.py:2149` |
+| `AI_AUTO_CONFIDENCE` | `'0.70'` |  | ✅ | `core/ai_brain.py:447`, `core/ai_brain.py:2148` |
 | `AI_BRAIN_CYCLE` | `'3600'` |  | ✅ | `core/ai_brain.py:112` |
 | `AI_BRAIN_FALLBACK_CHAIN` | `'groq,claude'` |  | ✅ | `core/ai_brain.py:256` |
 | `AI_MIN_TRADES` | `'15'` |  | ✅ | `core/ai_brain.py:114` |
@@ -61,11 +61,11 @@
 | `BG_TASK_HISTORY_SIZE` | `'50'` |  |  | `core/bg_task.py:58` |
 | `BG_TASK_NOTIFY_COOLDOWN_SEC` | `'300'` |  |  | `core/bg_task.py:98` |
 | `BG_TASK_NOTIFY_ENABLED` | `'1'` |  |  | `core/bg_task.py:61` |
-| `BONDING_CONFIDENCE_BASE` | `'0.80'` |  | ✅ | `backtest/strategies/bonding_yield.py:30`, `core/strategy_plugins.py:755` |
-| `BONDING_MAX_HOURS_LEFT` | `'48'` |  | ✅ | `backtest/strategies/bonding_yield.py:29`, `core/strategy_plugins.py:754` |
-| `BONDING_MAX_PRICE` | `'0.99'` |  | ✅ | `backtest/strategies/bonding_yield.py:26`, `core/strategy_plugins.py:752` |
-| `BONDING_MIN_PRICE` | `'0.90'` |  | ✅ | `backtest/strategies/bonding_yield.py:25`, `core/strategy_plugins.py:751` |
-| `BONDING_MIN_YIELD` | `'0.01'` |  | ✅ | `backtest/strategies/bonding_yield.py:27`, `core/strategy_plugins.py:753` |
+| `BONDING_CONFIDENCE_BASE` | `'0.80'` |  | ✅ | `backtest/strategies/bonding_yield.py:30`, `core/strategy_plugins.py:752` |
+| `BONDING_MAX_HOURS_LEFT` | `'48'` |  | ✅ | `backtest/strategies/bonding_yield.py:29`, `core/strategy_plugins.py:751` |
+| `BONDING_MAX_PRICE` | `'0.99'` |  | ✅ | `backtest/strategies/bonding_yield.py:26`, `core/strategy_plugins.py:749` |
+| `BONDING_MIN_PRICE` | `'0.90'` |  | ✅ | `backtest/strategies/bonding_yield.py:25`, `core/strategy_plugins.py:748` |
+| `BONDING_MIN_YIELD` | `'0.01'` |  | ✅ | `backtest/strategies/bonding_yield.py:27`, `core/strategy_plugins.py:750` |
 | `BONDING_TIME_WEIGHT` | `'true'` |  | ✅ | `backtest/strategies/bonding_yield.py:28` |
 | `BRIER_ALARM_ENABLED` | `'true'` | ✅ |  | `core/engine_signals.py:1231` |
 | `BRIER_GAP_MAX` | `'0.30'` |  | ✅ | `core/engine_signals.py:66` |
@@ -200,11 +200,11 @@
 | `PATTERN_DISCOVERY_ENABLED` | `'1'` |  |  | `telegram_bot/bot.py:1146` |
 | `PATTERN_DISCOVERY_FIRST_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:1153` |
 | `PATTERN_DISCOVERY_INTERVAL_SEC` | `'604800'` |  |  | `telegram_bot/bot.py:1150` |
-| `PENNY_ZONE_ENABLED` | `'true'` |  | ✅ | `core/strategy_plugins.py:655` |
-| `PENNY_ZONE_MAX_CONFIDENCE` | `'0.70'` |  |  | `core/strategy_plugins.py:659` |
-| `PENNY_ZONE_MAX_PRICE` | `'0.05'` |  |  | `core/strategy_plugins.py:656` |
-| `PENNY_ZONE_MIN_HIGH_PRICE` | `'0.95'` |  |  | `core/strategy_plugins.py:657` |
-| `PENNY_ZONE_MIN_SPREAD` | `'0.01'` |  |  | `core/strategy_plugins.py:658` |
+| `PENNY_ZONE_ENABLED` | `'true'` |  | ✅ | `core/strategy_plugins.py:653` |
+| `PENNY_ZONE_MAX_CONFIDENCE` | `'0.70'` |  |  | `core/strategy_plugins.py:657` |
+| `PENNY_ZONE_MAX_PRICE` | `'0.05'` |  |  | `core/strategy_plugins.py:654` |
+| `PENNY_ZONE_MIN_HIGH_PRICE` | `'0.95'` |  |  | `core/strategy_plugins.py:655` |
+| `PENNY_ZONE_MIN_SPREAD` | `'0.01'` |  |  | `core/strategy_plugins.py:656` |
 | `PNL_DIVERGENCE_ALERT_PCT` | `'5.0'` | ✅ |  | `telegram_bot/handlers/live_guards_handler.py:188`, `telegram_bot/jobs/pnl_divergence_job.py:57` |
 | `PNL_DIVERGENCE_ENABLED` | `'true'` | ✅ |  | `telegram_bot/bot.py:1107`, `telegram_bot/handlers/live_guards_handler.py:186`, `telegram_bot/jobs/pnl_divergence_job.py:47` |
 | `PNL_DIVERGENCE_FIRST_SEC` | `'3600'` |  |  | `telegram_bot/bot.py:1112` |
@@ -243,9 +243,9 @@
 | `REALITY_GAP_WINDOW_H` | `'168'` |  |  | `telegram_bot/handlers/reality_gap_handler.py:38` |
 | `RECON_ENABLED` | `''` |  |  | `core/reconciliation/onchain_sync.py:201` |
 | `REFERENCE_PRICE_AUDIT_ENABLED` | `'true'` |  |  | `core/engine_settlement.py:184` |
-| `RELAYER_API_KEY` | `''` |  | ✅ | `data/polymarket_actions.py:187`, `data/polymarket_actions.py:471`, `telegram_bot/jobs/auto_redeem_job.py:45` |
-| `RELAYER_API_KEY_ADDRESS` | `''` |  | ✅ | `data/polymarket_actions.py:188`, `data/polymarket_actions.py:472` |
-| `RELAYER_HOST` | `'https://relayer-v2.polymarket.com'` |  | ✅ | `data/polymarket_actions.py:189`, `data/polymarket_actions.py:473` |
+| `RELAYER_API_KEY` | `''` |  | ✅ | `data/polymarket_actions.py:187`, `data/polymarket_actions.py:470`, `telegram_bot/jobs/auto_redeem_job.py:45` |
+| `RELAYER_API_KEY_ADDRESS` | `''` |  | ✅ | `data/polymarket_actions.py:188`, `data/polymarket_actions.py:471` |
+| `RELAYER_HOST` | `'https://relayer-v2.polymarket.com'` |  | ✅ | `data/polymarket_actions.py:189`, `data/polymarket_actions.py:472` |
 | `REMAINING_EDGE_MIN` | `'0.05'` |  | ✅ | `core/engine_monitor.py:45` |
 | `REPLIT_DEV_DOMAIN` | `''` |  |  | `core/keepalive.py:48`, `core/keepalive.py:233` |
 | `REPLIT_DOMAINS` | `''` |  |  | `core/keepalive.py:47` |

@@ -1116,7 +1116,7 @@ class TradingEngine(
                     f"Engine cycle {self._cycle}: {type(e).__name__}: {e}\n"
                     f"{traceback.format_exc()}"
                 )
-                if isinstance(e, (MemoryError, SystemExit, KeyboardInterrupt)):
+                if isinstance(e, MemoryError | SystemExit | KeyboardInterrupt):
                     logger.critical(f"Fatal exception in cycle {self._cycle} — re-raising to exit")
                     raise
             try:

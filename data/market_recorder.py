@@ -207,7 +207,7 @@ class MarketRecorder:
         await self.db.conn.commit()
 
         # Phase 39 (P1.1): migrate ob_trades for existing DBs
-        for col, ddl in (
+        for _col, ddl in (
             ("size", "ALTER TABLE ob_trades ADD COLUMN size REAL"),
             ("side", "ALTER TABLE ob_trades ADD COLUMN side TEXT"),
             ("event_type", "ALTER TABLE ob_trades ADD COLUMN event_type TEXT DEFAULT 'price_tick'"),
@@ -742,10 +742,8 @@ class MarketRecorder:
         """Remove data older than CLEANUP_DAYS."""
         try:
             cutoff_ms = int((time.time() - CLEANUP_DAYS * 86400) * 1000)
-            r1 = await self.db.conn.execute(
-                "DELETE FROM ob_snapshots WHERE ts_ms < ?", (cutoff_ms,)
-            )
-            r2 = await self.db.conn.execute("DELETE FROM ob_trades WHERE ts_ms < ?", (cutoff_ms,))
+            await self.db.conn.execute("DELETE FROM ob_snapshots WHERE ts_ms < ?", (cutoff_ms,))
+            await self.db.conn.execute("DELETE FROM ob_trades WHERE ts_ms < ?", (cutoff_ms,))
             await self.db.conn.commit()
             logger.info(f"📸 Cleanup: removed old data before {CLEANUP_DAYS}d")
         except Exception as e:  # noqa: BLE001

@@ -909,7 +909,7 @@ class EngineSignalsMixin:
         sid = ctx["sid"]
         asset = ctx["asset"]
         slug = ctx["slug"]
-        cached = ctx["cached"]
+        ctx["cached"]
         trade_direction = ctx["trade_direction"]
         signal_score = ctx["signal_score"]
         signal_reason = ctx["signal_reason"]

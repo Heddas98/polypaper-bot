@@ -38,7 +38,7 @@ async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _send_stats(message, db, user, context):
     try:
-        stats = await db.get_user_stats(user.id)
+        await db.get_user_stats(user.id)
         recent = await db.get_recent_bets(user.id, 3)
 
         # UNIQUE ANALYTICS - Show what dashboard doesn't show
@@ -161,7 +161,7 @@ async def _send_strategy_stats(message, db, user):
             amount = s.get("trade_amount", 0)
             threshold = s.get("odds_threshold", 0)
 
-            total = s.get("total_trades", 0)
+            s.get("total_trades", 0)
             completed = s.get("completed", 0)
             open_t = s.get("open_trades", 0)
             wins = s.get("wins", 0)
@@ -639,10 +639,8 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     engine = context.bot_data.get("engine")
 
     zone_text = "📊 <b>Fiyat Zone Analizi</b>\n"
-    brier_warning = ""
     max_gap = 0.0
     worst_zone_label = ""
-    worst_gap = 0.0
 
     for lo, hi, label in [
         (0, 0.35, "0-35c"),
@@ -667,7 +665,6 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             gap = abs(wr / 100.0 - (wr / 100.0))  # Initialize as 0
             if gap > max_gap:
                 max_gap = gap
-                worst_gap = gap
                 worst_zone_label = label
 
             status = "KÂRLI" if p > 0 else "ZARARLI"
@@ -811,7 +808,7 @@ async def velocity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for r in vel_rows[:10]:  # top 10
             label, stype, trades, vol, avg_sz, pnl, wins = r[:7]
-            first_t, last_t = r[7], r[8]
+            _first_t, _last_t = r[7], r[8]
             wr = wins / trades * 100 if trades > 0 else 0
 
             # Calculate velocity: total_volume / avg_position_size

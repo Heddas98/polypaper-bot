@@ -643,7 +643,7 @@ async def monitor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             GROUP BY s.id HAVING t>0 ORDER BY pnl DESC LIMIT 5"""
         )
         text += "<b>🏆 Top 5</b>\n"
-        for i, s in enumerate(strats or []):
+        for _i, s in enumerate(strats or []):
             wr_s = s[3] / s[2] * 100 if s[2] > 0 else 0
             st = "✅" if s[1] == "active" else "⚫"
             ai_tag = "🤖" if "AI_" in (s[0] or "") else ""

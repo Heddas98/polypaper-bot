@@ -76,7 +76,7 @@ class SlippageModel:
         out = []
         for level in raw:
             try:
-                if isinstance(level, (list, tuple)) and len(level) >= 2:
+                if isinstance(level, list | tuple) and len(level) >= 2:
                     p, s = float(level[0]), float(level[1])
                 elif isinstance(level, dict):
                     p, s = float(level.get("price", 0)), float(level.get("size", 0))

@@ -91,11 +91,11 @@ def _orderbook_spread_ticks(orderbook: dict, tick_size: float = 0.01) -> Optiona
     if not asks or not bids:
         return None
     try:
-        if isinstance(asks[0], (list, tuple)):
+        if isinstance(asks[0], list | tuple):
             best_ask = float(asks[0][0])
         else:
             best_ask = float(asks[0].get("price", 0))
-        if isinstance(bids[0], (list, tuple)):
+        if isinstance(bids[0], list | tuple):
             best_bid = float(bids[0][0])
         else:
             best_bid = float(bids[0].get("price", 0))

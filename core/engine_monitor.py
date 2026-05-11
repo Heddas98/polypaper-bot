@@ -345,7 +345,7 @@ class EngineMonitorMixin:
             if r:
                 old_max = safe_float(r[0]) if r[0] is not None else None
 
-            direction = row["direction"]
+            row["direction"]
             # For UP positions: higher cur = better unrealized
             # For DOWN positions: lower cur = better (we hold down token, its price going up = win)
             if old_max is None or cur > old_max:

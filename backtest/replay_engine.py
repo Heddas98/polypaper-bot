@@ -602,7 +602,7 @@ class ReplayEngine:
         if not snapshots:
             return "UP"
 
-        first = snapshots[0]
+        snapshots[0]
         last = snapshots[-1]
 
         # Use mid prices from last snapshot
@@ -615,7 +615,7 @@ class ReplayEngine:
 
         # Fallback: use best_ask
         up_ask = last.get("up_best_ask", 0.5)
-        down_ask = last.get("down_best_ask", 0.5)
+        last.get("down_best_ask", 0.5)
 
         if up_ask > 0 and up_ask < 1:
             # UP token price > 0.5 means UP is winning

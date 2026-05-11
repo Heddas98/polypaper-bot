@@ -172,7 +172,7 @@ class TestTradeMemory:
         event_loop.run_until_complete(tm.initialize(db))
 
         # Record 6 losses for a bad pattern
-        for i in range(6):
+        for _i in range(6):
             event_loop.run_until_complete(
                 tm.record("bad_strat", "eth-usd-5m", "down", "lost", -1.0, entry_price=0.35)
             )

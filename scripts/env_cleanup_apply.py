@@ -85,7 +85,6 @@ def main():
     lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
     out_lines = []
     removed_count = 0
-    in_dead_block = False
 
     for line in lines:
         stripped = line.strip()

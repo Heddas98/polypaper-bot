@@ -36,7 +36,7 @@ def _find_func(src: str, name: str):
     """Return the AsyncFunctionDef or FunctionDef named `name`."""
     tree = ast.parse(src)
     for node in ast.walk(tree):
-        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and node.name == name:
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef) and node.name == name:
             return node
     raise AssertionError(f"{name} not found")
 

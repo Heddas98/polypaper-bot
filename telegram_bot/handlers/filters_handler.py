@@ -373,7 +373,7 @@ async def _load_persisted_filters(db: Database):
 
 async def filters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /filters command — show filter toggle panel."""
-    db: Database = context.bot_data["db"]
+    context.bot_data["db"]
     admin_id = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_CHAT_ID")
     if admin_id and str(update.effective_user.id) != str(admin_id):
         await update.message.reply_text("⛔ Bu komut sadece admin için.")

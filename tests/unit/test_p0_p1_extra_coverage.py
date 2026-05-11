@@ -203,7 +203,7 @@ class TestFillHeuristicRecalibrate:
         )
 
         deltas = evaluate_recalibration(RECOMMENDED_VALUES, RECOMMENDED_VALUES)
-        for key, d in deltas.items():
+        for _key, d in deltas.items():
             assert d["delta_pct"] == 0.0
 
     def test_format_alert_no_alert(self):
@@ -2734,7 +2734,7 @@ class TestChainlinkOracle:
         assert "ETH" in AGGREGATORS
         assert "SOL" in AGGREGATORS
         assert "XRP" in AGGREGATORS
-        for a, info in AGGREGATORS.items():
+        for _a, info in AGGREGATORS.items():
             assert info["addr"].startswith("0x")
             assert info["decimals"] == 8
 
@@ -3827,7 +3827,7 @@ class TestOddsFeed:
         from data.odds_feed import OddsFeed
 
         f = OddsFeed(window_size=5)
-        for i in range(10):
+        for _i in range(10):
             f.record_odds("x", 0.5)
         # Deque caps at 5 (count untouched, deque rolls)
         assert f.get_data_count("x") == 5
@@ -7766,7 +7766,7 @@ class TestAiBrainModelRouterFull:
         from core.ai_brain import ModelRouter
 
         # Each task in TASK_MODEL_MAP should have valid provider+model
-        for task_type, (provider, model) in ModelRouter.TASK_MODEL_MAP.items():
+        for _task_type, (provider, model) in ModelRouter.TASK_MODEL_MAP.items():
             assert isinstance(provider, str)
             assert provider in ("claude", "groq", "openrouter")
             assert isinstance(model, str)
@@ -9567,7 +9567,7 @@ class TestSignalFusionEvaluate:
         for attr in dir(sw):
             if not attr.startswith("_") and not callable(getattr(sw, attr, None)):
                 v = getattr(sw, attr, None)
-                if isinstance(v, (int, float)):
+                if isinstance(v, int | float):
                     assert v >= 0
 
     def test_signal_fusion_basic_init(self):
@@ -12860,7 +12860,7 @@ class TestPolymarketRtdsFlow:
             try:
                 p = rtds.get_price(asset, timeframe="5m")
                 # No data → None
-                assert p is None or isinstance(p, (int, float))
+                assert p is None or isinstance(p, int | float)
             except (TypeError, AttributeError):
                 pass
 
@@ -14194,7 +14194,7 @@ class TestSignalFusionEvaluateFlow:
             if not attr.startswith("_"):
                 try:
                     v = getattr(sw, attr)
-                    if isinstance(v, (int, float)):
+                    if isinstance(v, int | float):
                         assert v >= 0
                 except Exception:
                     pass
@@ -18048,7 +18048,7 @@ class TestGammaHistWave14:
                 if name.startswith("_"):
                     continue
                 obj = getattr(gh, name)
-                if isinstance(obj, (str, int, float, dict, list, tuple)):
+                if isinstance(obj, str | int | float | dict | list | tuple):
                     assert obj is not None or obj == 0 or obj == "" or obj == [] or obj == {}
         except ImportError:
             pytest.skip("not present")
@@ -18147,7 +18147,7 @@ def _module_smoke_blast(module_path: str):
         try:
             obj = getattr(mod, name)
             # Constants — just access
-            if isinstance(obj, (str, int, float, dict, list, tuple, bool)):
+            if isinstance(obj, str | int | float | dict | list | tuple | bool):
                 _ = obj
             # Sync callable — try with no args, dict, MagicMock
             elif callable(obj) and not asyncio.iscoroutinefunction(obj):
@@ -19089,7 +19089,7 @@ class TestBotDeepWave16:
                     continue
                 try:
                     obj = getattr(bot_mod, name)
-                    if isinstance(obj, (str, int, float, bool, list, dict, tuple)):
+                    if isinstance(obj, str | int | float | bool | list | dict | tuple):
                         _ = obj
                 except Exception:
                     pass
@@ -20317,7 +20317,7 @@ class TestEvTrackerRealWave18:
                 pytest.skip()
 
         # Add EV samples
-        for i in range(20):
+        for _i in range(20):
             for method in ["add", "update", "track", "record", "add_sample", "log_trade"]:
                 m = getattr(tracker, method, None)
                 if m and callable(m):
@@ -21977,7 +21977,7 @@ class TestBotPyHandlersRegisterWave20:
             try:
                 obj = getattr(bot_mod, name)
                 # Touch module-level constants
-                if isinstance(obj, (str, int, float, bool, list, dict, tuple)):
+                if isinstance(obj, str | int | float | bool | list | dict | tuple):
                     _ = obj
                 # Try class instantiation
                 elif isinstance(obj, type):
@@ -22904,7 +22904,7 @@ class TestBacktestDataSourcesWave21:
             try:
                 obj = getattr(mod, name)
                 # Constants
-                if isinstance(obj, (str, int, float, bool, list, dict, tuple)):
+                if isinstance(obj, str | int | float | bool | list | dict | tuple):
                     _ = obj
                 # Class — try multiple ctors
                 elif isinstance(obj, type):
@@ -22968,7 +22968,7 @@ class TestBacktestSimulationWave21:
                 continue
             try:
                 obj = getattr(mod, name)
-                if isinstance(obj, (str, int, float, bool)):
+                if isinstance(obj, str | int | float | bool):
                     _ = obj
                 elif isinstance(obj, type):
                     for ctor in [(), (MagicMock(),), (1.0,), ({},)]:

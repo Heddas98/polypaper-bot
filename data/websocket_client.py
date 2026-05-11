@@ -276,7 +276,7 @@ class PolymarketWebSocket:
     def _parse(self, raw):
         """Parse ANY message format. Never raises."""
         # Phase 57: guard against empty/whitespace-only messages from Polymarket
-        if not raw or (isinstance(raw, (str, bytes)) and not raw.strip()):
+        if not raw or (isinstance(raw, str | bytes) and not raw.strip()):
             return
         try:
             data = json.loads(raw)

@@ -85,7 +85,7 @@ def _parse_end_date(market: dict[str, Any]) -> int | None:
     # Try epoch fields first (cheap)
     for key in ("endDateTs", "closeTime", "end_time"):
         v = market.get(key)
-        if isinstance(v, (int, float)) and v > 0:
+        if isinstance(v, int | float) and v > 0:
             return int(v)
 
     # Try ISO8601 strings

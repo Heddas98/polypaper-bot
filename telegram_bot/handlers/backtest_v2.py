@@ -429,13 +429,13 @@ async def _run_backtest(
                 keyboard = InlineKeyboardMarkup(
                     [[InlineKeyboardButton("❌ İptal", callback_data="cancel_backtest")]]
                 )
-                msg = await _reply(
+                await _reply(
                     source, "⏳ Backtest çalışıyor... (arka planda)", reply_markup=keyboard
                 )
                 split_result = await asyncio.to_thread(
                     engine.run_split, markets, snapshots_by_market, 0.70
                 )
-                stats = split_result["test"] or split_result["train"]
+                split_result["test"] or split_result["train"]
                 div = split_result.get("divergence") or {}
                 overfit = split_result.get("overfit", False)
                 verdict = "🔴 <b>OVERFIT</b>" if overfit else "🟢 <b>GENERALIZES</b>"
@@ -454,10 +454,10 @@ async def _run_backtest(
                 keyboard = InlineKeyboardMarkup(
                     [[InlineKeyboardButton("❌ İptal", callback_data="cancel_backtest")]]
                 )
-                msg = await _reply(
+                await _reply(
                     source, "⏳ Backtest çalışıyor... (arka planda)", reply_markup=keyboard
                 )
-                stats = await asyncio.to_thread(engine.run, markets, snapshots_by_market)
+                await asyncio.to_thread(engine.run, markets, snapshots_by_market)
         finally:
             # Clean up cancel event
             _cancel_events.pop(chat_id, None)
@@ -684,7 +684,7 @@ async def _show_all_strategies(message, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(strat_items), 2):
         row = []
         for key, (label, _) in strat_items[i : i + 2]:
-            check = "✅" if key == config["strategy"] else ""
+            "✅" if key == config["strategy"] else ""
             row.append(
                 InlineKeyboardButton(f"{esc(label)}", callback_data=f"bt2c_strat_{esc(key)}")
             )

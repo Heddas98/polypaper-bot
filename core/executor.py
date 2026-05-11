@@ -185,7 +185,7 @@ class PaperExecutor(Executor):
                     try:
                         best_ask = (
                             float(asks[0][0])
-                            if isinstance(asks[0], (list, tuple))
+                            if isinstance(asks[0], list | tuple)
                             else float(asks[0].get("price", 0))
                         )
                         if req.price and best_ask > req.price:

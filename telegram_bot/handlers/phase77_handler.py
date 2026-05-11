@@ -261,7 +261,7 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 val = getattr(mod, attr, None)
                 if isinstance(val, bool):
                     detail = "on" if val else "off"
-                elif isinstance(val, (int, float)):
+                elif isinstance(val, int | float):
                     detail = str(val)
                 elif isinstance(val, dict):
                     detail = f"{len(val)} items"

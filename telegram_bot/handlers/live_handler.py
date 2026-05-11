@@ -756,7 +756,7 @@ async def _show_market_amount_picker(q, engine, side: str, asset: str, tf: str):
 async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount_str: str):
     """Onay ekranı — fiyat + hisse + fee + slippage. LIVE-only."""
     side_emoji = "🟢" if side == "BUY" else "🔴"
-    asset_label = asset.replace("_", " ")
+    asset.replace("_", " ")
     amount = float(amount_str)
     coin, direction = asset.split("_")
 
@@ -923,13 +923,13 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
                     if asks:
                         out["best_ask"] = (
                             float(asks[0][0])
-                            if isinstance(asks[0], (list, tuple))
+                            if isinstance(asks[0], list | tuple)
                             else float(asks[0].get("price", 0))
                         )
                     if bids:
                         out["best_bid"] = (
                             float(bids[0][0])
-                            if isinstance(bids[0], (list, tuple))
+                            if isinstance(bids[0], list | tuple)
                             else float(bids[0].get("price", 0))
                         )
     except Exception as _ob_e:  # noqa: BLE001

@@ -70,9 +70,9 @@ def build_fixture_db() -> sqlite3.Connection:
         ("candles_poly", "t"),
         ("candles_ext", "t"),
     ]:
-        for i in range(5):
+        for _i in range(5):
             cur.execute(f"INSERT INTO {table} ({ts_col}) VALUES (?)", (_iso(1),))  # fresh
-        for i in range(5):
+        for _i in range(5):
             cur.execute(f"INSERT INTO {table} ({ts_col}) VALUES (?)", (_iso(60),))  # stale
     con.commit()
     return con

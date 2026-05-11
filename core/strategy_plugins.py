@@ -244,13 +244,11 @@ class SniperStrategy(BaseStrategy):
             checks_passed += 1
 
         # Check 2: Trend alignment
-        trend_ok = False
         if len(series) >= 6:
             recent = sum(series[-3:]) / 3
             older = sum(series[-6:-3]) / 3
             trend = recent - older
             if (odds_strength > 0 and trend > 0.02) or (odds_strength < 0 and trend < -0.02):
-                trend_ok = True
                 checks_passed += 1
 
         # Check 3: Good timing (not too early, not too late)
@@ -674,7 +672,6 @@ class PennyContractStrategy(BaseStrategy):
             return result
 
         up_odds = s.up_odds
-        down_odds = s.down_odds
 
         # Check if we're in the penny zone
         in_low_zone = up_odds <= self._MAX_LOW  # UP at 1-5¢

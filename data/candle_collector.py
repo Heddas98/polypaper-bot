@@ -290,7 +290,7 @@ class CandleCollector:
         if not self._httpx_client:
             return
 
-        for coin, symbol in BINANCE_SYMBOLS.items():
+        for _coin, symbol in BINANCE_SYMBOLS.items():
             try:
                 url = f"{BINANCE_BASE}/klines"
                 params = {"symbol": symbol, "interval": "5m", "limit": 2}
@@ -338,7 +338,7 @@ class CandleCollector:
         start_ms = end_ms - (hours * 3600 * 1000)
         total = 0
 
-        for coin, symbol in BINANCE_SYMBOLS.items():
+        for _coin, symbol in BINANCE_SYMBOLS.items():
             try:
                 url = f"{BINANCE_BASE}/klines"
                 params = {

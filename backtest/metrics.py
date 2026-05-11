@@ -145,11 +145,10 @@ def compute_metrics(
     cumulative = 0.0
     peak = 0.0
     max_dd = 0.0
-    dd_start = 0
     current_dd_duration = 0
     max_dd_duration = 0
 
-    for i, pnl in enumerate(pnl_series):
+    for _i, pnl in enumerate(pnl_series):
         cumulative += pnl
         if cumulative > peak:
             peak = cumulative

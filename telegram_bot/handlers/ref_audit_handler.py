@@ -151,7 +151,7 @@ async def ref_audit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Worst 3
         if top3:
             lines.append("<b>Worst 3 deviations:</b>")
-            for abs_v, (ts, a, tf, slug, src, val, local, off) in top3:
+            for _abs_v, (ts, a, tf, slug, src, val, local, off) in top3:
                 slug_disp = (slug or "")[:36]
                 local_str = f"{local:.4f}" if local is not None else "?"
                 off_str = f"{off:.4f}" if off is not None else "?"

@@ -114,7 +114,7 @@ class ExternalFeed:
 
     def _curl_fetch(self) -> dict:
         prices = {}
-        for asset, symbol in BINANCE_SYMBOLS.items():
+        for _asset, symbol in BINANCE_SYMBOLS.items():
             try:
                 r = subprocess.run(
                     [

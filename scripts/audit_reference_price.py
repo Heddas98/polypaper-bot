@@ -460,7 +460,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     lines.append("")
     lines.append("| When (UTC) | Asset/TF | Source | dev_bps | " "Local | Official | Slug |")
     lines.append("|------------|---------|--------|--------:|" "-------:|---------:|------|")
-    for abs_v, r, src in worst[:10]:
+    for _abs_v, r, src in worst[:10]:
         when = _ms_to_iso(r["settle_ts_ms"])
         local = (
             r["bot_binance_ws_price"]

@@ -285,7 +285,6 @@ async def approve_allowance() -> tuple[bool, str]:
                 # ── 2a: Safe deployed mu kontrol ──
                 # Polymarket Gnosis Safe Proxy, ilk işlemde otomatik deploy edilir
                 # Ama deploy gerekiyorsa farklı endpoint kullanmak lazım.
-                expected_safe = wallet  # POLYGON_WALLET = Safe Proxy
 
                 # ── 2b: Nonce çek ──
                 nonce_url = (
@@ -492,7 +491,7 @@ async def redeem_position(condition_id: str) -> tuple[bool, str]:
 
     CTF = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
     PUSD = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
-    PARENT_ZERO = "0x" + "00" * 32
+    "0x" + "00" * 32
 
     try:
         import requests as _requests
