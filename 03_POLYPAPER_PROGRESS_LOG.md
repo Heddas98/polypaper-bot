@@ -1157,4 +1157,92 @@ Bu dosya canlı olarak güncellenir. Her görev başlatıldığında, tamamland�
 
 ---
 
+## 2026-05-11 — Task #14 — P1-02: AI Brain microservice (Wave 1 scaffold) — **completed (this session)**
+
+- **Heddas direktifi:** "sırayla gidelim madem" + "olur devam et" — roadmap sırasına göre P1-02'ye geç.
+
+- **Yapılanlar (Wave 1 — 5 sub-task, scaffolding seviye):**
+
+  **P1-02-a — `services/ai_advisor/` (NEW):**
+  - `services/__init__.py` (out-of-process services namespace).
+  - `services/ai_advisor/__init__.py` (Wave 1-2-3 plan docstring).
+  - `services/ai_advisor/models.py` (NEW, 94 satır) — Pydantic schemas:
+    - `MarketContext` (slug + asset + tf + odds + spread + time remaining)
+    - `StrategyContext` (label + threshold + recent trades/wins/pnl)
+    - `SuggestRequest` (market + strategy + correlation_id + cycle)
+    - `Suggestion` (action HOLD/TUNE/SCALE/STOP/RESTART/CREATE + confidence + reason + payload)
+    - `SuggestResponse` (suggestions list + model_used + latency_ms + stub_mode)
+    - `HealthResponse` (status + uptime + llm_clients map + wave + started_utc)
+  - `services/ai_advisor/app.py` (NEW, 135 satır) — FastAPI app:
+    - `GET /health` — service liveness + LLM client env detection (anthropic/groq/openrouter "configured"/"missing", no actual API call)
+    - `POST /suggest` — Wave 1 stub: deterministic HOLD response with reason `[stub Wave 1] received slug=... ... AI Brain logic not yet extracted`.
+    - `GET /stats` — request counter + uptime.
+
+  **P1-02-c — `core/ai_brain_client.py` (NEW, 111 satır):**
+  - httpx async client. 3 helper:
+    - `is_enabled()` — runtime ENV `AI_ADVISOR_ENABLED` read (default false).
+    - `health_check()` — GET /health, returns dict or None on any failure.
+    - `suggest_via_service(market, strategy, correlation_id, cycle)` — POST /suggest, returns response dict or None (caller falls back).
+  - Defansif: HTTPError/TimeoutError catch → log + None return. httpx missing → log + None. 5xx/422 → log + None.
+  - Wave 2 (core/ai_brain.py kullanımı):
+    ```python
+    if is_enabled():
+        result = await suggest_via_service(market_ctx, strategy_ctx, correlation_id=cid)
+        if result is not None:
+            return result  # service-side
+    # otherwise fall through to in-process path (current behavior)
+    ```
+
+  **P1-02-d — Windows bat helpers (3 NEW):**
+  - `scripts/start_ai_advisor.bat` — uvicorn ayrı pencere (title "PolyPaper AI Advisor"), default port 8001, AI_ADVISOR_PORT/HOST override.
+  - `scripts/stop_ai_advisor.bat` — netstat port-based PID kill + window-title fallback.
+  - `scripts/ai_advisor_smoke.bat` — curl ile /health + /suggest + /stats, expected 200×3.
+
+  **P1-02-e — `tests/integration/test_ai_advisor_service.py` (NEW, 95 satır, 6 test):**
+  - fastapi.TestClient ile in-process exercise (uvicorn process gerekmez).
+  - `pytestmark = pytest.mark.integration` → sandbox-default run'dan filtreli.
+  - Test'ler:
+    1. `test_health_returns_200_with_expected_keys` — /health response shape.
+    2. `test_stats_returns_200` — /stats response shape.
+    3. `test_suggest_stub_returns_hold` — sample payload → HOLD + stub_mode=true + correlation_id round-trip.
+    4. `test_suggest_validates_slug_required` — empty slug → 422.
+    5. `test_suggest_invalid_odds_rejected` — odds >1.0 → 422.
+    6. `test_request_counter_increments` — 2 ardışık call → counter +1.
+
+  **P1-02-f — `requirements-dev.txt` extended:**
+  - `fastapi==0.115.0` (>=0.110 yeterli; pinned)
+  - `uvicorn[standard]==0.31.0` (standard extras = websockets + httptools)
+  - `httpx==0.27.2` (transitively pulled via py-clob-client; explicit pin)
+
+- **Davranış değişikliği:**
+  - **Default: SIFIR** — `AI_ADVISOR_ENABLED=false` ve service başlatılmamış. Bot eski davranışı.
+  - Heddas opt-in için: `set AI_ADVISOR_ENABLED=true` + `scripts\start_ai_advisor.bat` → bot HTTP'a delege.
+  - Trade davranışı sıfır değişiklik (Wave 1 stub HOLD döner; Wave 2'ye kadar in-process AI Brain ana karar mercii).
+  - Yeni 4 dosya `services/`, 1 dosya `core/`, 3 .bat, 1 test = 9 yeni dosya.
+
+- **Kabul kriteri durumu (Wave 1):**
+  - ✅ Service scaffold ayakta (`/health` 200, `/suggest` stub).
+  - ✅ HTTP client defansif fallback yapısı.
+  - ⏸ AI Brain logic Wave 2'de extract edilecek (`core/ai_brain.py` 990 stmt).
+  - ⏸ Approval queue flow Wave 3.
+  - ⏸ docker-compose Wave 4 (P1-05 ertelenmedikçe).
+
+- **Heddas kullanımı (Wave 1 doğrulama):**
+  ```powershell
+  # Bir kerelik (dev deps install)
+  py -3.11 -m pip install -r requirements-dev.txt
+
+  # Smoke test (TestClient in-process)
+  py -3.11 -m pytest tests/integration/test_ai_advisor_service.py -v
+
+  # Real service standalone
+  scripts\start_ai_advisor.bat
+  scripts\ai_advisor_smoke.bat
+  scripts\stop_ai_advisor.bat
+  ```
+
+- **Sonraki adım:** P1-02 Wave 2 (AI Brain logic extraction) sonraki seans. ~%50 effort (`brain_core.py` taşı + tests/unit/test_brain_core.py + core/ai_brain.py thin wrapper). Önce P1-08 (PostgreSQL) veya P1-01-followup wave 1'e geçilebilir.
+
+---
+
 ## (Sıradaki entry'ler buraya eklenecek)

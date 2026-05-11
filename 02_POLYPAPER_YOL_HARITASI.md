@@ -127,11 +127,34 @@
   - ⏸ Sentetik refactor — priority listesi hazır, parça parça yapılacak.
   - ⏸ CI hard-fail — `.coveragerc fail_under` lokal pytest'te aktif; CI workflow ayrı iş.
 
-### P1-02 [!] AI Brain'i microservice'e ayır — **XL**
-- **Bekliyor:** P0-01
-- **Dosya:** `services/ai_advisor/`, `core/ai_brain.py`, `docker-compose.yml`
-- **Hedef:** HTTP POST /advise → JSON suggestion list; engine pollar, action SQL'e gitmez.
-- **Kabul kriteri:** `docker-compose up` ile ai_advisor servisi ayrı port; engine 5xx'te kendi karar moduna düşer.
+### P1-02 [~] AI Brain'i microservice'e ayır — **XL** PARTIAL ✅ 2026-05-11 (Wave 1 scaffold)
+- **Dosya:** `services/__init__.py` + `services/ai_advisor/{__init__.py, app.py, models.py}` NEW, `core/ai_brain_client.py` NEW, `scripts/{start,stop,smoke}_ai_advisor.bat` NEW, `tests/integration/test_ai_advisor_service.py` NEW, `requirements-dev.txt` (fastapi+uvicorn+httpx)
+- **Bekliyor:** P0-01 ✅ tamam (approval queue mevcut)
+- **Hedef:** HTTP POST /suggest → JSON suggestion list; engine pollar, action SQL'e gitmez.
+- **Yapılanlar (Wave 1 — bu seans):**
+  - **a) FastAPI scaffold** — `services/ai_advisor/app.py`: GET /health, POST /suggest (stub HOLD), GET /stats. Pydantic schemas `models.py` (MarketContext + StrategyContext + Suggestion + SuggestResponse + HealthResponse).
+  - **c) HTTP client `core/ai_brain_client.py`** — httpx async wrapper. ENV `AI_ADVISOR_ENABLED` (default **false** → bot in-process fallback), `AI_ADVISOR_URL` (default `http://127.0.0.1:8001`), `AI_ADVISOR_TIMEOUT_S` (default 8.0). Defansif (timeout/5xx → None → caller fallback).
+  - **d) Windows bat helpers** — `start_ai_advisor.bat` (uvicorn ayrı pencere), `stop_ai_advisor.bat` (port-based PID kill + window-title), `ai_advisor_smoke.bat` (curl /health + /suggest + /stats).
+  - **e) Smoke test** — `tests/integration/test_ai_advisor_service.py` 6 test: /health keys + /stats + /suggest stub + slug validation + odds range + request counter.
+  - **f) `requirements-dev.txt`** — fastapi==0.115.0, uvicorn[standard]==0.31.0, httpx==0.27.2.
+- **Davranış değişikliği:**
+  - **Şu an sıfır.** AI_ADVISOR_ENABLED=false default → bot eski davranışı (in-process AI Brain).
+  - Heddas isterse `set AI_ADVISOR_ENABLED=true` + `scripts\start_ai_advisor.bat` → bot HTTP'a delege eder (Wave 1 stub HOLD döner).
+- **Kapsam dışı (Wave 2+):**
+  - **Wave 2** — `core/ai_brain.py` 990 stmt LLM logic'i `services/ai_advisor/brain_core.py`'a taşı. BRAIN_SYSTEM prompt + ModelRouter + optimist/critic chain. core/ai_brain.py thin wrapper.
+  - **Wave 3** — approval-queue flow service üzerinden. Action gönderim + Telegram approval round-trip.
+  - **Wave 4** — docker-compose.yml (P1-05 Linux/Docker ertelenmedikçe).
+- **Acceptance kriteri (revize):**
+  - ✅ Servis scaffold ayağa kalkar (`/health` 200, `/suggest` stub).
+  - ⏸ "engine pollar, action SQL'e gitmez" — Wave 3 hedefi (P0-01 approval queue zaten doğru pattern; service Wave 3'te entegre).
+  - ⏸ "docker-compose up" — Wave 4 (P1-05 ertelendiği için backlog).
+  - ✅ "engine 5xx'te kendi karar moduna düşer" — `core/ai_brain_client.py` defansif fallback yapısı hazır.
+- **Heddas kullanımı:**
+  - `py -3.11 -m pip install -r requirements-dev.txt` (bir kerelik).
+  - `scripts\start_ai_advisor.bat` → service ayrı pencerede.
+  - `scripts\ai_advisor_smoke.bat` → curl ile /health + /suggest test.
+  - `scripts\stop_ai_advisor.bat` → temizle.
+  - `py -3.11 -m pytest tests/integration/test_ai_advisor_service.py -v` → 6/6 smoke PASS beklenir.
 
 ### P1-03 [x] Reality gap nightly raporu — **L** ✅ 2026-05-09
 - **Dosya:** `telegram_bot/jobs/reality_gap_job.py` (NEW), `telegram_bot/handlers/reality_gap_handler.py` (NEW), `telegram_bot/bot.py` wire
