@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 import aiosqlite
 
 from core.engine_support import _slug_end
+from core.slug_utils import infer_tf_from_slug
 from data.polymarket_client import safe_float
 
 logger = logging.getLogger("polypaper.core.engine")
@@ -202,8 +203,11 @@ class EngineMonitorMixin:
             # 5m/15m markets resolve fast; 2-hour UMA wait is absurd — stuck
             # positions pile up. Short-TF markets get 15min window + 10min
             # extreme-odds window so oracle gets priority but we don't hang.
-            _tf_parts = slug.split("-")
-            _tf = _tf_parts[2] if len(_tf_parts) > 2 else "15m"
+            # P0-08-D (2026-05-08): TF inference via slug_utils helper.
+            # Eski slug.split("-")[2] eski btc-updown-5m-{epoch} formatına
+            # kilitliydi; yeni 1h/24h slug'larında "or" döndürüyordu. Şimdi
+            # 4 TF pattern-aware (5m/15m/1h/24h).
+            _tf = infer_tf_from_slug(slug)
             if _tf in ("5m", "15m"):
                 force_after = getattr(
                     self.settings, "UMA_FORCE_SETTLE_SHORT_SEC", 900)

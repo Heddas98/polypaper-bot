@@ -63,9 +63,11 @@ POLL_INTERVAL_S = 60
 class ChainlinkOracle:
     """Periodic Chainlink price refresh + parity check helper."""
 
-    def __init__(self, parity_bps: float = 20.0, rpc_url: str = DEFAULT_RPC):
+    def __init__(self, parity_bps: float = 20.0, rpc_url: str = DEFAULT_RPC, db=None):
         self.parity_bps = parity_bps
         self.rpc_url = rpc_url
+        # P0-08-E6 (2026-05-08): db reference for external_prices persist
+        self.db = db
         self._prices: dict[str, dict] = {}
         self._task: Optional[asyncio.Task] = None
         self._running = False
@@ -133,6 +135,11 @@ class ChainlinkOracle:
             except Exception as e:  # noqa: BLE001
                 self._fails += 1
                 logger.debug(f"chainlink {asset} fetch failed: {e}")
+        # P0-08-E6: persist to external_prices
+        try:
+            self._persist_to_db()
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _eth_call_latest(self, addr: str, decimals: int) -> Optional[float]:
         if not self._client:
@@ -194,3 +201,31 @@ class ChainlinkOracle:
             "rpc": self.rpc_url,
             "prices": {k: round(v["price"], 4) for k, v in self._prices.items()},
         }
+
+    def _persist_to_db(self):
+        """P0-08-E6 (2026-05-08): chainlink prices → external_prices."""
+        if self.db is None or self.db.conn is None:
+            return
+        if not self._prices:
+            return
+        rows = []
+        ts_ms_now = int(__import__("time").time() * 1000)
+        for asset, info in self._prices.items():
+            price = info.get("price", 0)
+            if price > 0:
+                symbol = asset.upper() + "USD"
+                rows.append((ts_ms_now, symbol, "chainlink", price))
+        if rows:
+            safe_create_task(self._persist_async(rows), name="persist_chainlink")
+
+    async def _persist_async(self, rows):
+        try:
+            await self.db.conn.executemany(
+                "INSERT OR REPLACE INTO external_prices "
+                "(ts_ms, symbol, source, price) VALUES (?, ?, ?, ?)",
+                rows,
+            )
+            await self.db.conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+

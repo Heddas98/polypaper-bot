@@ -125,16 +125,23 @@ class JsonFormatter(logging.Formatter):
 def setup_structured_logging(
     log_file: Optional[str] = None,
     enable_scrub: bool = True,
-    max_bytes: int = 10 * 1024 * 1024,  # 10 MB
-    backup_count: int = 5,
+    max_bytes: int = 100 * 1024 * 1024,  # 100 MB (P1-06 roadmap target)
+    backup_count: int = 10,                # × 10 = ~1 GB total cap
 ) -> Optional[RotatingFileHandler]:
     """Wire JSON file handler + secret scrub filter to root logger.
 
     Idempotent: safe to call multiple times.
 
+    P1-06 (2026-05-09): default flipped to ENABLED. Disable with explicit
+    `STRUCTURED_LOG_ENABLED=false`. Default rotation 100MB × 10 = ~1 GB cap
+    matches roadmap acceptance criteria.
+
     Returns: RotatingFileHandler veya None (disabled).
     """
-    enabled = os.getenv("STRUCTURED_LOG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+    # P1-06 (2026-05-09): default true (was false for backward compat).
+    # Override with STRUCTURED_LOG_ENABLED=false to disable.
+    enabled = os.getenv(
+        "STRUCTURED_LOG_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
     if not enabled:
         return None
 

@@ -72,6 +72,37 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("websockets").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)  # HOTFIX: suppress WS task_wakeup spam
 
+
+# Heddas 2026-05-09 LogCleanup-c: py_clob_client_v2 transient "Server
+# disconnected" HTTP/2 drops are recoverable (caught + retried by the
+# library). The library logs them at ERROR level which pollutes INFO log
+# scans. Filter drops the specific transient message; real errors still pass.
+class _PyClobTransientFilter(logging.Filter):
+    """Drop transient HTTP/2 noise from py_clob_client_v2."""
+    _NOISE_PATTERNS = (
+        "Server disconnected",
+        "RemoteProtocolError",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Return False to drop, True to keep
+        if record.name.startswith("py_clob_client_v2"):
+            msg = record.getMessage()
+            for pat in self._NOISE_PATTERNS:
+                if pat in msg:
+                    return False
+        return True
+
+
+# NOTE: A logger-level filter only intercepts records logged DIRECTLY on
+# that logger; records from child loggers (e.g. py_clob_client_v2.http_helpers
+# .helpers — where the "Server disconnected" line actually originates) bypass
+# parent filters. So attach the filter to the ROOT HANDLERS instead, which
+# every record passes through on its way out.
+_pyclob_transient_filter = _PyClobTransientFilter()
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_pyclob_transient_filter)
+
 # Phase 48: install correlation-id filter on every root handler
 try:
     from core.observability import CorrelationFilter
@@ -89,6 +120,25 @@ except Exception as _e:
         _h.addFilter(_DefaultCidFilter())
 
 logger = logging.getLogger("polypaper")
+
+# ═══ P1-06 (2026-05-09) — Structured JSON logging ═══
+# Default ON. Writes data_store/structured.jsonl (100MB × 10 backup, ~1GB cap).
+# Each line is a valid JSON object with secret scrubbing (PK, API keys, tokens).
+# Console logs continue in human-readable format alongside.
+# Disable: STRUCTURED_LOG_ENABLED=false
+# Custom path: STRUCTURED_LOG_FILE=path/to/file.jsonl
+# Disable scrub (NOT recommended): LOG_SECRET_SCRUB=false
+try:
+    from core.structured_logging import setup_structured_logging
+    _jsonl_handler = setup_structured_logging()
+    if _jsonl_handler is not None:
+        logger.info("📝 Structured JSON logging active "
+                    "(data_store/structured.jsonl, 100MB×10 rotate)")
+except Exception as _slog_err:  # noqa: BLE001
+    # Defensive: never let logging setup crash the bot. Existing console
+    # logs continue to work even if structured layer fails.
+    logger.warning(f"structured_logging setup failed: "
+                   f"{type(_slog_err).__name__}: {_slog_err}")
 
 # ═══ Phase 48 — Sentry (env-gated, optional) ═══
 # Set SENTRY_DSN in .env to enable. Without it, Sentry is fully no-op.
@@ -209,7 +259,9 @@ async def main():
     await db.initialize()
 
     # WebSocket client (optional, graceful fallback)
-    ws_client = PolymarketWebSocket()
+    # P0-08-E4 (2026-05-08): db reference geçilir → ob_deltas + ob_snapshots
+    # event-driven persist (price_change + book event handler'ları aktif).
+    ws_client = PolymarketWebSocket(db=db)
     ws_available = True
     try:
         import websockets
@@ -228,8 +280,8 @@ async def main():
 
     await odds_feed.load_from_db(db)
 
-    # Phase 24: External price feed (Binance REST)
-    external_feed = ExternalFeed()
+    # Phase 24 + P0-08-E6 (2026-05-08): External price feed → external_prices DB persist
+    external_feed = ExternalFeed(db=db)
 
     # Phase 44a: Binance multi-stream microstructure feed (depth+aggTrade+funding)
     binance_ms = None
@@ -237,6 +289,7 @@ async def main():
         binance_ms = BinanceMultiStream(
             trade_window_seconds=getattr(settings, "BINANCE_TRADE_WINDOW_SECONDS", 60.0),
             enable_funding=getattr(settings, "BINANCE_FUTURES_FUNDING", True),
+            db=db,  # P0-08-E6: external_prices persist (1s throttle)
         )
 
     # Phase 44b: Chainlink oracle parity check
@@ -244,6 +297,7 @@ async def main():
     if getattr(settings, "CHAINLINK_ORACLE_ENABLED", False):
         chainlink_oracle = ChainlinkOracle(
             parity_bps=getattr(settings, "CHAINLINK_PARITY_BPS", 20.0),
+            db=db,  # P0-08-E6: external_prices persist (60s)
         )
 
     scanner = MarketScanner(settings, poly_client, db, ws_client=ws_client, odds_feed=odds_feed)
@@ -251,13 +305,16 @@ async def main():
     engine.binance_multistream = binance_ms  # Phase 44a — engine reads features()
     engine.chainlink_oracle = chainlink_oracle  # Phase 44b — engine reads parity_break()
 
-    # Phase 35: Continuous 5m candle collection
+    # Phase 35 + P0-08-E3 (2026-05-08): multi-TF candle collection.
+    # `scanner` attaches scanner.active_markets — per-(asset, tf) market list,
+    # candle_collector uses it to record per-market odds candles in their own TF.
     candle_collector = CandleCollector(
         db=db,
         odds_feed=odds_feed,
         ws_client=ws_client,
         external_feed=external_feed,
         httpx_client=poly_client._client,
+        scanner=scanner,
     )
 
     # Attach candle_collector to engine for bot access

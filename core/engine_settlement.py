@@ -30,6 +30,7 @@ from core.fees_v2 import (
 )
 from core.trade_journal import log_exit, log_settlement
 from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
+from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
 
 logger = logging.getLogger("polypaper.core.engine")
 
@@ -165,6 +166,131 @@ class EngineSettlementMixin:
                     row, won, pnl, payout, fee, rebate, last_odds, _entry_px,
                     resolution),
                 name="classic_resolve_notify")
+
+        # P0-07-b (2026-05-09): reference price audit — settle anında bot'un
+        # local Binance/Chainlink reference feed'i ile Polymarket'in resolved
+        # boundary fiyatı arasındaki sapmayı snapshot et. Fire-and-forget;
+        # audit task asla settle path'ini bloklamaz. Resolution price NULL
+        # bırakılır (data_quality='missing_resolution') — backfill job veya
+        # report generator daha sonra Polymarket Gamma'dan doldurur.
+        if os.getenv("REFERENCE_PRICE_AUDIT_ENABLED", "true").lower() != "false":
+            safe_create_task(
+                self._record_reference_audit(row, resolution),
+                name="reference_price_audit")
+
+    async def _record_reference_audit(self, row, resolution):
+        """P0-07-b: Per-settle reference price audit row.
+
+        Strategy:
+          1. settle_ts_ms = current epoch ms (close to Polymarket boundary —
+             actual boundary may be 0-60s earlier; backfill job can refine
+             from market metadata.endDate later).
+          2. external_prices ±5s lookup for each source:
+              - source='binance_spot_ws' (preferred — sub-second freshness)
+              - source='binance' (REST fallback)
+              - source='chainlink' (separate oracle for cross-check)
+          3. Compute deviation in basis points if ALSO have an
+             official_resolution_price. Initially NULL →
+             data_quality='missing_resolution'. Report generator (P0-07-d)
+             back-fills via Gamma `/markets/{condition_id}` boundary field.
+          4. Insert idempotent — same (condition_id, settle_ts_ms) replaces
+             so re-runs after backfill update existing row, not duplicate.
+
+        Defensive: every step wrapped in try/except. Settlement path NEVER
+        sees a failure here.
+        """
+        try:
+            import time
+            settle_ts_ms = int(time.time() * 1000)
+            slug = row.get("event_slug", "") or ""
+            asset_id = row.get("market_token_id") or ""
+            asset = infer_asset_from_slug(slug) or ""
+            tf = infer_tf_from_slug(slug) or ""
+
+            # Slug = canonical market identifier in bot codebase.
+            # condition_id field stores it for the audit table primary key.
+            condition_id = slug
+
+            # ±5s lookup window in external_prices
+            window_start = settle_ts_ms - 5000
+            window_end = settle_ts_ms + 5000
+
+            symbol = f"{asset}USD" if asset else None
+            bot_binance_ws_price = None
+            bot_binance_rest_price = None
+            bot_chainlink_price = None
+            data_quality = "ok"
+
+            if symbol:
+                # Look up the closest tick per source within ±5s
+                async with self.db.conn.execute(
+                    """SELECT source, price, ts_ms
+                       FROM external_prices
+                       WHERE symbol=? AND ts_ms BETWEEN ? AND ?
+                       ORDER BY ABS(ts_ms - ?) ASC""",
+                    (symbol, window_start, window_end, settle_ts_ms)
+                ) as c:
+                    seen = set()
+                    async for src, price, _ts in c:
+                        if src in seen:
+                            continue
+                        seen.add(src)
+                        if src == "binance_spot_ws":
+                            bot_binance_ws_price = float(price)
+                        elif src == "binance":
+                            bot_binance_rest_price = float(price)
+                        elif src == "chainlink":
+                            bot_chainlink_price = float(price)
+                        # Stop early if all 3 sources captured
+                        if len(seen) >= 3:
+                            break
+
+                if (bot_binance_ws_price is None
+                        and bot_binance_rest_price is None
+                        and bot_chainlink_price is None):
+                    data_quality = "missing_external"
+            else:
+                data_quality = "missing_external"
+
+            # Resolution price not fetched at settle time (kept off the hot
+            # path). Report/backfill job fills via Gamma API. Mark accordingly.
+            if data_quality == "ok":
+                data_quality = "missing_resolution"
+
+            created_at = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ")
+
+            # INSERT OR REPLACE — backfill can later UPDATE official price
+            # without losing this baseline; same (condition_id, settle_ts_ms)
+            # idempotent.
+            await self.db.conn.execute(
+                """INSERT OR REPLACE INTO reference_price_audit
+                   (settle_ts_ms, condition_id, asset_id, slug, asset,
+                    timeframe, official_resolution_price,
+                    bot_binance_rest_price, bot_binance_ws_price,
+                    bot_chainlink_price, dev_binance_bps, dev_chainlink_bps,
+                    settle_outcome, data_quality, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (settle_ts_ms, condition_id, asset_id, slug, asset, tf,
+                 None,  # official_resolution_price (backfill later)
+                 bot_binance_rest_price, bot_binance_ws_price,
+                 bot_chainlink_price,
+                 None, None,  # dev bps (computed when official is known)
+                 str(resolution) if resolution is not None else None,
+                 data_quality, created_at)
+            )
+            await self.db.conn.commit()
+            logger.info(
+                f"  📊 ref_audit: {slug[:40]} src=ws/rest/cl="
+                f"{bot_binance_ws_price}/{bot_binance_rest_price}/"
+                f"{bot_chainlink_price} q={data_quality}"
+            )
+        except (aiosqlite.Error, KeyError, TypeError, ValueError,
+                AttributeError) as e:
+            # Audit is best-effort. Settlement path already succeeded.
+            logger.warning(
+                f"reference_price_audit failed ({type(e).__name__}): {e}"
+            )
 
     async def _classic_exit_notify(self, row, pnl, payout, exit_price,
                                      reason, exit_fee, slip):
@@ -560,10 +686,13 @@ class EngineSettlementMixin:
         except aiosqlite.Error:
             # T1.4 Faz 1: narrowed — only DB errors expected.
             _label = row.get("strategy_id", "?")[:8]
-        # Parse asset/tf from slug
-        _parts = row["event_slug"].split("-")
-        _asset = _parts[0].upper() if _parts else "?"
-        _tf = _parts[2] if len(_parts) > 2 else "?"
+        # P0-08-D (2026-05-08): slug_utils ile TF/asset inference (4 TF).
+        # Eski `_parts = row["event_slug"].split("-")` + `_parts[0/2]` indexing
+        # btc-updown-{tf}-{epoch} formatına kilitliydi; bitcoin-up-or-down-on-*
+        # (24h) ve bitcoin-up-or-down-*-Hpm-et (1h) slug'larında "or" döndürürdü.
+        _slug = row.get("event_slug") or ""
+        _asset = infer_asset_from_slug(_slug)
+        _tf = infer_tf_from_slug(_slug)
         # ROI calculation
         _roi_str = ""
         if _amount > 0:

@@ -106,10 +106,11 @@ def _build_keyboard(active_tab: str = "summary") -> InlineKeyboardMarkup:
             InlineKeyboardButton("🔓 Allowance", callback_data="pf_act_approve"),
             InlineKeyboardButton("📂 Wallet Yönet", callback_data="pf_act_wallet"),
         ],
-        # Row 5: Refresh + danger zone
+        # Row 5: Refresh
+        # P0-03 (2026-05-08): "🔑 PK Export" button removed — exposed full
+        # private key over Telegram. PK access now via OS keychain (P0-02).
         [
             InlineKeyboardButton("🔄 Yenile", callback_data="pf_refresh"),
-            InlineKeyboardButton("🔑 PK Export", callback_data="pf_act_pk"),
         ],
     ])
 
@@ -381,7 +382,7 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
     """A1-A5 inline action handler."""
     from data.polymarket_actions import (
         approve_allowance, deposit_info, withdraw_info,
-        wallet_import_steps, export_private_key,
+        wallet_import_steps,
     )
 
     # A2 — Deposit info
@@ -481,40 +482,17 @@ async def _handle_action(q, context: ContextTypes.DEFAULT_TYPE, action: str) -> 
         )
         return
 
-    # A5 — PK Export (no rate limit, no confirm, no auto-delete — Heddas direktifi)
+    # A5 — PK Export REMOVED 2026-05-08 (P0-03 security fix). If a stale
+    # callback arrives ("pf_act_pk"), respond with a polite error so old
+    # message keyboards in chat history don't crash silently.
     if action == "pk":
-        await q.answer()
-        info = export_private_key()
-        if info.get("error"):
-            await q.edit_message_text(
-                f"❌ PK export hatası: {esc(info['error'])}",
-                parse_mode="HTML",
-                reply_markup=_back_keyboard(),
-            )
-            return
-        warnings = "\n".join(f"• {esc(w)}" for w in info.get("risk_warnings", []))
-        derive_status = (
-            f"<b>Derived EOA:</b> <code>{esc(info['derived_eoa'])}</code>"
-            if info.get("derived_eoa") else
-            f"⚠ <b>Derive hatası:</b> <code>{esc(info.get('derive_error', ''))}</code>"
+        await q.answer(
+            "Private Key export güvenlik nedeniyle kaldırıldı (P0-03).",
+            show_alert=True,
         )
-        text = (
-            "<b>🔑 Private Key Export</b>\n\n"
-            f"<b>Polymarket Proxy:</b>\n<code>{esc(info['polymarket_proxy'])}</code>\n\n"
-            f"<b>Private Key (Rabby owner):</b>\n<code>{esc(info['private_key'])}</code>\n\n"
-            f"{derive_status}\n\n"
-            "<b>⚠ GÜVENLİK UYARILARI:</b>\n"
-            f"{warnings}\n\n"
-            "<i>Heddas direktifi: rate limit + double confirm + auto-delete yok. "
-            "Bot kapalı dünya — kendi sorumluluğunda paylaş.</i>"
-        )
-        await q.edit_message_text(
-            text, parse_mode="HTML",
-            reply_markup=_back_keyboard(),
-        )
-        # Audit log — operatöre PK export'un yapıldığı görünsün
         logger.warning(
-            f"🔑 PK_EXPORT: user_id={q.from_user.id} username={q.from_user.username}"
+            "PK_EXPORT_BLOCKED: user_id=%s username=%s — feature deleted",
+            q.from_user.id, q.from_user.username,
         )
         return
 

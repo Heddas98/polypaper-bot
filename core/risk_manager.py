@@ -26,6 +26,8 @@ Günlük sıfırlama: UTC 00:00, halt otomatik kaldırılır.
 """
 import json
 import logging
+
+from core.slug_utils import infer_asset_from_slug
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -169,9 +171,11 @@ class RiskManager:
         self.per_asset_exposure: Dict[str, float] = {}  # asset → total $ exposure
 
     def _extract_asset_from_slug(self, market_slug: str) -> str:
-        """Extract asset (BTC, ETH, SOL, XRP) from slug like 'BTC-USDC-15m'."""
-        parts = market_slug.split("-")
-        return parts[0].upper() if parts else "?"
+        """Extract asset (BTC, ETH, SOL, XRP) from slug.
+
+        P0-08-D (2026-05-08): slug_utils helper — 5m/15m/1h/24h pattern-aware.
+        """
+        return infer_asset_from_slug(market_slug)
 
     def check_asset_limit(self, asset: str, pending_amount: float) -> tuple[bool, str]:
         """

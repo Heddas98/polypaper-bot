@@ -1,8 +1,0 @@
-{
-  "audit": "FAZ 0.2 — live/paper drift",
-  "date": "2026-04-29T11:05:20.779426+00:00",
-  "window_days": 14,
-  "trade_count": 0,
-  "verdict": "INSUFFICIENT_DATA",
-  "note": "Son 14 gün içinde settled live trade yok. Bot mainnet'e geçmeden önce en az 10-20 gerçek trade ile drift ölçülmeli."
-}

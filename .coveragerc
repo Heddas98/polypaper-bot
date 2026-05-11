@@ -1,11 +1,23 @@
 [run]
-source = core
+# P1-01-a (2026-05-09): genişletildi — core/ tek başına ölçüm bütünü vermiyor.
+# data/ (Polymarket WSS, external feeds, scanner), telegram_bot/ (handlers,
+# jobs), backtest/ (replay, calibration) bot davranışının yarıdan fazlasını
+# kapsıyor. Bunlar olmadan "%X kapsam" rakamı yanıltıcı.
+source =
+    core
+    data
+    telegram_bot
+    backtest
 branch = True
 omit =
     */tests/*
     */_archive/*
     */__pycache__/*
     */dead_code_nuke/*
+    # Scratch / one-off scripts that shouldn't count toward production coverage
+    */scripts/*
+    # Calibration sweep outputs (data files masquerading as .py won't exist;
+    # but if backtest/calibration/ contains result modules, we still measure)
 
 [report]
 exclude_lines =
@@ -20,6 +32,22 @@ show_missing = False
 sort = Cover
 skip_empty = True
 
+# P1-01-c3 / Step 1 (2026-05-09): coverage threshold (ratchet ladder).
+# Baseline 2026-05-09 morning: 42.5% (14 fail).
+# After handler smoke tests + 14 fail fix (afternoon): 43.4%, 0 fail.
+# Step 1: gate 42 → 43 (regression catches anything sub-43).
+# Roadmap acceptance is 60%; achieved iteratively as synthetic tests are
+# refactored to real-behavior tests (P1-01 follow-up).
+#
+# Ratchet plan (each step closes after sustained 1-2 weeks green):
+#   42 → 2026-05-09 morning baseline
+#   43 → 2026-05-09 afternoon (handler smoke + fail fix) ← CURRENT
+#   45 → after CandleBuilder multi-TF re-write + engine_signals smoke
+#   50 → after engine_settlement + auto_optimizer real-behavior
+#   55 → after backtest/* data_sources coverage
+#   60 → roadmap target (synthetic test silinir, real-behavior kalır)
+fail_under = 43
+
 [html]
 directory = htmlcov
-title = PolyPaper Bot — core/ Coverage (T9.2)
+title = PolyPaper Bot — Multi-module Coverage (P1-01 2026-05-09)

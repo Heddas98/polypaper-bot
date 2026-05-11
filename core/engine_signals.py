@@ -627,6 +627,10 @@ class EngineSignalsMixin:
                 odds_series=odds_series,
                 minutes_remaining=minutes_remaining or 2.5,
                 total_minutes=total_minutes,
+                # P0-08-F (2026-05-09 hotfix): _eval_signal scope'unda tf
+                # değişkeni yoktu (P0-08-F'de yanlış yere `timeframe=tf` eklendi).
+                # Strategy modelinden direkt al.
+                timeframe=s.timeframe.value,
                 spread=cached.get("spread") or 0.02,
                 best_ask=real_best_ask,
                 best_bid=real_best_bid,

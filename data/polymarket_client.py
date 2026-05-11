@@ -166,10 +166,73 @@ class PolymarketClient:
 
     # ═══ MARKET DISCOVERY ═══
 
-    async def discover_active_markets(self, asset="BTC", timeframe="15m"):
+    async def discover_active_markets(self, asset="BTC", timeframe="15m",
+                                       series_id: int | None = None):
+        """Discover active Up/Down markets for asset+timeframe.
+
+        Three discovery paths:
+          - series_id given (P0-08-A matrix) → fast /events?series_id={id}
+            filter, slug pattern agnostic. Used for 1h/24h.
+          - 5m/15m → legacy slug-prefix probe (btc-updown-5m-{epoch}).
+          - else → legacy events-cache probe (kept for 4h/long-tail backcompat).
+        """
+        if series_id is not None:
+            return await self._discover_by_series_id(asset, timeframe, series_id)
         if timeframe in ("5m", "15m"):
             return await self._discover_by_slug(asset, timeframe)
         return await self._discover_by_events(asset, timeframe)
+
+    # ── P0-08-B (2026-05-08): Polymarket Series-ID discovery ──
+    async def _discover_by_series_id(self, asset, tf, series_id: int):
+        """Fetch first ~10 active future events for a Polymarket series."""
+        try:
+            r = await self._get_with_retry(
+                f"{self.GAMMA_BASE}/events",
+                params={
+                    "series_id": series_id,
+                    "active": "true",
+                    "closed": "false",
+                    "limit": 10,
+                    "order": "endDate",
+                    "ascending": "true",
+                },
+                timeout=5.0,
+                label="gamma.events.series",
+            )
+        except (httpx.HTTPError, asyncio.TimeoutError):
+            return []
+        if not r or r.status_code != 200:
+            return []
+        try:
+            data = r.json()
+        except (json.JSONDecodeError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        now = datetime.now(timezone.utc)
+        found = []
+        for ev in data:
+            for m in (ev.get("markets") or []):
+                if m.get("closed"):
+                    continue
+                end = self._parse_dt(m.get("endDate") or ev.get("endDate"))
+                if end and end <= now:
+                    continue
+                found.append(m)
+                break
+        found.sort(key=lambda m: m.get("endDate", "z"))
+        # Heddas 2026-05-09: log empty results too so we can distinguish
+        # "discovery ran, no active markets right now" from "discovery
+        # silently failed / not running". 1h was suspected missing in a
+        # log snippet where only series_id=41 (24h) showed up.
+        if found:
+            logger.info(
+                f"Series: {len(found)} {asset} {tf} (series_id={series_id})")
+        else:
+            logger.info(
+                f"Series: 0 {asset} {tf} (series_id={series_id}) "
+                f"— no active markets")
+        return found
 
     async def _discover_by_slug(self, asset, tf):
         prefix = self.SLUG_PREFIXES.get(asset.upper())
@@ -188,8 +251,11 @@ class PolymarketClient:
                     continue
                 found.append(m)
         found.sort(key=lambda m: m.get("endDate", "z"))
+        # Heddas 2026-05-09: empty-case log parity with _discover_by_series_id.
         if found:
             logger.info(f"Slug: {len(found)} {asset} {tf}")
+        else:
+            logger.info(f"Slug: 0 {asset} {tf} — no active markets")
         return found
 
     async def _query_slug(self, slug):

@@ -190,9 +190,12 @@ class BinanceMultiStream:
     """Single-task combined websocket subscription for all 4 assets."""
 
     def __init__(self, trade_window_seconds: float = 60.0,
-                 enable_funding: bool = True):
+                 enable_funding: bool = True, db=None):
         self.trade_window = trade_window_seconds
         self.enable_funding = enable_funding
+        # P0-08-E6 (2026-05-08): db ref + 1s throttle for external_prices persist
+        self.db = db
+        self._last_persist_ts: dict[str, float] = {a: 0.0 for a in SPOT_SYMBOLS}
         self._states: dict[str, _AssetState] = {a: _AssetState(a) for a in SPOT_SYMBOLS}
         self._spot_task: Optional[asyncio.Task] = None
         self._fut_task: Optional[asyncio.Task] = None
@@ -344,3 +347,29 @@ class BinanceMultiStream:
             "uptime_s": int(time.time() - self._connected_at) if self._connected_at else 0,
             "assets": {a: bool(st.last_update_ts) for a, st in self._states.items()},
         }
+
+    def _maybe_persist_spot(self, asset: str, price: float, ts: float):
+        """P0-08-E6 (2026-05-08): 1s throttle external_prices persist."""
+        if self.db is None or self.db.conn is None:
+            return
+        if ts - self._last_persist_ts.get(asset, 0) < 1.0:
+            return  # throttle to ~1 row/sec
+        self._last_persist_ts[asset] = ts
+        symbol = SPOT_SYMBOLS.get(asset, asset.lower()).upper()
+        ts_ms = int(ts * 1000)
+        safe_create_task(
+            self._persist_async(ts_ms, symbol, "binance_spot_ws", price),
+            name=f"persist_bms_{asset}",
+        )
+
+    async def _persist_async(self, ts_ms: int, symbol: str, source: str, price: float):
+        try:
+            await self.db.conn.execute(
+                "INSERT OR REPLACE INTO external_prices "
+                "(ts_ms, symbol, source, price) VALUES (?, ?, ?, ?)",
+                (ts_ms, symbol, source, price),
+            )
+            await self.db.conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+

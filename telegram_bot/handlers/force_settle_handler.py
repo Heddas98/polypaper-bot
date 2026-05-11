@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
+from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
 from datetime import datetime, timezone
 
 import aiosqlite
@@ -171,8 +173,9 @@ def _format_stuck_list(rows, now: datetime) -> str:
         else:
             elapsed_s = f"{elapsed/60:.1f}m past close"
         parts = r["event_slug"].split("-")
-        asset = parts[0].upper() if parts else "?"
-        tf = parts[2] if len(parts) > 2 else "?"
+        # P0-08-D (2026-05-08): slug_utils — 4 TF aware
+        asset = infer_asset_from_slug(slug)
+        tf = infer_tf_from_slug(slug)
         lines.append(
             f"• <code>{esc(r['id'][:8])}</code> {esc(asset)} {esc(tf)} "
             f"{r['direction'].upper()} @ {fmt_usd(r['trade_amount'])} "
@@ -192,8 +195,9 @@ def _format_settle_result(res: dict) -> str:
                 f"slug: <code>{esc(res.get('slug', '?'))}</code>\n"
                 f"err: <code>{esc(res.get('error', '?'))[:200]}</code>")
     parts = res.get("slug", "").split("-")
-    asset = parts[0].upper() if parts else "?"
-    tf = parts[2] if len(parts) > 2 else "?"
+    # P0-08-D (2026-05-08): slug_utils — 4 TF aware
+    asset = infer_asset_from_slug(slug)
+    tf = infer_tf_from_slug(slug)
     price_str = f" @ {res['price']:.3f}" if res.get("price") is not None else ""
     return (f"⚖️ <b>Force-settled</b>\n"
             f"exec: <code>{esc(res['exec_id'][:8])}</code>\n"

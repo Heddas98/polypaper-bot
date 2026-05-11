@@ -2,6 +2,7 @@
 PolyPaper Bot - /positions Handler (NEW)
 Shows all open positions with real-time unrealized PnL.
 """
+from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from db.database import Database
@@ -75,9 +76,9 @@ async def _show(message, db, user, context):
             shares = amount / entry if entry > 0 else 0
             total_invested += amount
 
-            parts = slug.split("-")
-            asset = parts[0].upper() if parts else "?"
-            tf = parts[2] if len(parts) > 2 else "?"
+            # P0-08-D (2026-05-08): slug_utils — 4 TF aware
+            asset = infer_asset_from_slug(slug)
+            tf = infer_tf_from_slug(slug)
             strat_label = pos.get("strategy_label") or f"{esc(asset)} {tf}"
             stype = pos.get("strategy_type") or "fusion"
             te = {"fusion": "🔬", "contrarian": "🔄", "sniper": "🎯",

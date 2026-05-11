@@ -32,7 +32,22 @@ logger = logging.getLogger("polypaper.core.kelly")
 
 MIN_TRADES_FOR_KELLY = 15  # Need at least 15 trades for reliable WR
 MIN_BET = 1.0              # Polymarket minimum ~$1
-MAX_BET_PCT = 0.15         # Never risk more than 15% of bankroll
+
+# P0-09 (2026-05-08): single-source-of-truth for KELLY_MAX_BET_PCT.
+# Previously this was a hardcoded 0.15 here while config/settings.py defaulted
+# to 0.05 — the same number existed in two places with different values, a
+# classic ghost-config that depended on which import path you traced. Now we
+# read the same env var Settings reads. Override in .env if you want the old
+# 0.15 cap (KELLY_MAX_BET_PCT=0.15).
+def _max_bet_pct() -> float:
+    """Runtime-read of KELLY_MAX_BET_PCT (parity with Settings)."""
+    try:
+        return float(os.getenv("KELLY_MAX_BET_PCT", "0.05"))
+    except (TypeError, ValueError):
+        return 0.05
+
+
+MAX_BET_PCT = _max_bet_pct()  # Module-level snapshot for back-compat
 KELLY_FRACTION = 0.25      # Quarter Kelly — retains 51% of full Kelly growth with only 9% of variance
 
 # ── Phase 73: Kelly Decay (Regime-Based) ──
@@ -163,7 +178,7 @@ def calculate_kelly_size(
     bet_size = bankroll * quarter_kelly
 
     # Apply bounds
-    max_bet = bankroll * MAX_BET_PCT
+    max_bet = bankroll * _max_bet_pct()  # P0-09: read-through
     bet_size = max(MIN_BET, min(bet_size, max_bet))
     bet_size = round(bet_size, 2)
 
@@ -246,7 +261,7 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
                 # EV-based sizing: bet = EV / max_loss × bankroll × 0.25
                 ev_fraction = (ev_per_trade / avg_loss) * 0.25
                 bet_size = effective_bankroll * ev_fraction
-                bet_size = max(MIN_BET, min(bet_size, effective_bankroll * MAX_BET_PCT))
+                bet_size = max(MIN_BET, min(bet_size, effective_bankroll * _max_bet_pct()))
                 bet_size = round(bet_size, 2)
                 confidence = "medium" if t >= 20 and wr >= 0.80 else "low"
                 return {
@@ -264,7 +279,7 @@ async def get_strategy_kelly(db, strategy_id: str, bankroll: float,
         # Phase 73: use regime-aware fraction instead of fixed KELLY_FRACTION
         regime_kelly = full_kelly * fraction
         bet_size = effective_bankroll * regime_kelly
-        max_bet = effective_bankroll * MAX_BET_PCT
+        max_bet = effective_bankroll * _max_bet_pct()
         bet_size = max(MIN_BET, min(bet_size, max_bet))
         bet_size = round(bet_size, 2)
 

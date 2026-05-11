@@ -1,0 +1,116 @@
+# P1-07 (2026-05-09) — Lint + type-check config.
+#
+# This is a config-only file (no [project] section yet — the bot doesn't get
+# packaged via pip install, it's run directly with `py -3.11 main.py`).
+# pyproject.toml is the canonical home for ruff/mypy/etc.
+#
+# Tools live in requirements-dev.txt. Local helper: scripts/run_lint.bat.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "_archive",
+    "dead_code_nuke",
+    "htmlcov",
+    "data_store/audits",
+    "data_store/backups",
+]
+
+[tool.ruff.lint]
+# Conservative starter rule set — focus on real bugs + obvious style.
+# Expand later as the codebase tolerates more rules.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (unused imports/vars, undefined names)
+    "B",    # flake8-bugbear (likely bugs)
+    "I",    # isort (import order)
+    "UP",   # pyupgrade (py3.11 modernization)
+]
+ignore = [
+    "E501",  # line too long — line-length already set to 100, but many existing
+             # lines are 100-120; ignore until a dedicated wrap-pass is done.
+    "E402",  # module-level import not at top — main.py + bot.py have ordered
+             # imports after env setup for logging config reasons.
+    "B008",  # function call in default arg — used in some asyncio defaults.
+    "UP006", # PEP 585 list[X] over List[X] — gradual migration, keep as backlog.
+    "UP007", # PEP 604 X | Y over Union[X, Y] — same.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "E741",  # ambiguous variable names (l, I, O) — common in test parameterization
+    "F401",  # unused imports — some tests intentionally import-loop
+    "F841",  # unused local — fixture-side effects
+    "B011",  # assert False — used in skip/xfail patterns
+]
+"_archive/**" = ["ALL"]
+"scripts/**" = [
+    "E402",  # script-style imports after argparse setup
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "data", "telegram_bot", "backtest", "db"]
+combine-as-imports = true
+
+# ────────────────────────────────────────────────────────────────────────
+# mypy — gradual strict adoption.
+# Stage 1 (P1-07): check core/ with relaxed rules, baseline current errors.
+# Stage 2 (P1-07 follow-up): tighten rules per-module, expand to data/.
+# Stage 3 (P1-07 final): strict = true on core/ + data/.
+# ────────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+# Start permissive — full strict mode generates 1000+ errors on legacy code.
+# These flags get tightened in P1-07 follow-up after baseline review.
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_ignores = false
+warn_return_any = false
+warn_unreachable = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+no_implicit_optional = true
+strict_optional = false
+exclude = [
+    "_archive/",
+    "dead_code_nuke/",
+    "tests/",
+    "htmlcov/",
+    "data_store/",
+    "scripts/_smoke_.*\\.py",
+]
+
+# Per-module strictness (gradual ratchet — start with smallest/cleanest modules)
+[[tool.mypy.overrides]]
+module = "core.fees_v2"
+disallow_untyped_defs = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = "core.indicators"
+disallow_untyped_defs = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = "core.stats_utils"
+disallow_untyped_defs = true
+warn_return_any = true
+
+# 3rd-party libs without stubs
+[[tool.mypy.overrides]]
+module = [
+    "telegram.*",
+    "aiosqlite",
+    "py_clob_client_v2.*",
+    "web3.*",
+    "apscheduler.*",
+    "matplotlib.*",
+    "scipy.*",
+    "sklearn.*",
+    "optuna.*",
+    "tabulate",
+    "yfinance",
+]
+ignore_missing_imports = true

@@ -128,7 +128,27 @@ class TestMakerTakerDecision:
 
 class TestReconciliationTask:
     def test_disabled_by_default(self, monkeypatch):
+        # P1-09-a (2026-05-09): smart enable. Both RECON_ENABLED and
+        # LIVE_ENABLED must be unset (or false) to default-disable.
         monkeypatch.delenv("RECON_ENABLED", raising=False)
+        monkeypatch.delenv("LIVE_ENABLED", raising=False)
+        from core.reconciliation.onchain_sync import ReconciliationTask
+        task = ReconciliationTask(db=None, wallet="0xA7e75855")
+        assert task.enabled is False
+
+    def test_auto_on_in_live_mode(self, monkeypatch):
+        # P1-09-a (2026-05-09): LIVE_ENABLED=true auto-enables reconciliation
+        # when no explicit RECON_ENABLED override is set.
+        monkeypatch.delenv("RECON_ENABLED", raising=False)
+        monkeypatch.setenv("LIVE_ENABLED", "true")
+        from core.reconciliation.onchain_sync import ReconciliationTask
+        task = ReconciliationTask(db=None, wallet="0xA7e75855")
+        assert task.enabled is True
+
+    def test_explicit_disable_wins_over_live(self, monkeypatch):
+        # Explicit RECON_ENABLED=false overrides live mode auto-on.
+        monkeypatch.setenv("RECON_ENABLED", "false")
+        monkeypatch.setenv("LIVE_ENABLED", "true")
         from core.reconciliation.onchain_sync import ReconciliationTask
         task = ReconciliationTask(db=None, wallet="0xA7e75855")
         assert task.enabled is False

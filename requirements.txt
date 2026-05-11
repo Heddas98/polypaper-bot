@@ -33,7 +33,10 @@ Pillow==12.2.0
 # Aynı kalan: ApiCreds, OrderArgs, OrderType, BalanceAllowanceParams, AssetType
 py-clob-client-v2==1.0.0
 # Relayer client gasless txns için (allowance + token approval + redeem):
-py-builder-relayer-client
+# P0-06 (2026-05-08): pinned to 0.0.1 (only stable). 0.0.2rc1 is a release
+# candidate and ignored by default; previously this line was unpinned which
+# meant a future stable would silently upgrade and could break the V2 cutover.
+py-builder-relayer-client==0.0.1
 
 # Environment
 # Epic 10 T10.3: 1.0.1 → 1.2.2 — CVE-2026-28684 (set_key/unset_key

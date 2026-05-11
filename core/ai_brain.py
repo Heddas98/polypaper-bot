@@ -137,7 +137,19 @@ CIKTI (JSON): {"bearish_case": "neden girilmemeli", "risk_score": 0.0-1.0,
 
 BRAIN_SYSTEM = """Sen PolyPaper Bot'un otonom trading beynisin. GERCEK OGRENME yapiyorsun.
 
-PROJE: Polymarket 5dk Up/Down kripto paper trading. BTC/ETH/SOL/XRP.
+PROJE: Polymarket multi-timeframe Up/Down kripto paper + live trading.
+TF MATRIX (P0-08-A 2026-05-08 — Heddas direktifi):
+  - 5m  → BTC sadece (high-frekans microstructure)
+  - 15m → BTC, ETH, SOL, XRP (kisa vadeli momentum)
+  - 1h  → BTC sadece (trend + news cycle, series_id=10114)
+  - 24h → BTC sadece (macro positioning + daily close, series_id=41)
+
+TF-SPECIFIC JUDGMENT (P0-08-G 2026-05-08):
+  - 5m  : ordbook imbalance, taker flow, queue dynamics on
+  - 15m : short-term momentum + momentum-following
+  - 1h  : trend continuation, intraday reversion, news propagation
+  - 24h : macro narrative, daily close behavior, cross-asset correlation
+  Action.timeframe field MUTLAKA dogru TF degerini icermeli (5m/15m/1h/24h).
 
 KRITIK KURALLAR (IHLAL ETME):
 1. M_BTC_5m_any_0.92 threshold'u ASLA degistirme (0.92 sabit, bu stratejinin gucu)
@@ -410,19 +422,32 @@ class AIBrain:
         if lessons:
             logger.info(f"🧠 LESSONS: {lessons[:100]}")
 
-        # Sprint 3 S3-04: Confidence gate — low confidence actions need approval
+        # P0-01 (2026-05-08): manual-approval-only. Previously a confidence
+        # gate (AI_AUTO_CONFIDENCE >= 0.70 by default) let the LLM auto-execute
+        # CREATE/STOP/TUNE/SCALE actions on the strategy SQL. The LLM also
+        # supplied the `confidence` field itself — so a single jailbreak,
+        # prompt injection or hallucinated parse could rewrite the whole
+        # strategy book. All actions now go to the approval queue; no
+        # auto-execute path remains. AI_AUTO_CONFIDENCE env is honored as a
+        # legacy diagnostic only (logged for observability, never executed).
         confidence = parsed.get("confidence", 0.5)
-        _auto_threshold = float(os.getenv("AI_AUTO_CONFIDENCE", "0.70"))
+        _legacy_threshold = float(os.getenv("AI_AUTO_CONFIDENCE", "0.70"))
+        if confidence >= _legacy_threshold:
+            logger.info(
+                f"🧠 P0-01: would-have-auto-executed under legacy gate "
+                f"(conf={confidence:.0%} >= {_legacy_threshold:.0%}) — "
+                f"now requires manual approval"
+            )
 
-        if confidence >= _auto_threshold or not actions:
-            # High confidence → auto-execute
-            results = await self._execute(actions)
-            await self._save_decision(data[:500], actions, results)
-            await self._notify(actions, results, parsed)
+        if not actions:
+            # No actions to take — record the decision (for audit) and exit.
+            await self._save_decision(data[:500], [], [])
         else:
-            # Low confidence → queue for Telegram approval
-            logger.info(f"🧠 Low confidence {confidence:.0%} < {_auto_threshold:.0%} — "
-                        f"queuing {len(actions)} actions for approval")
+            # Always queue for Telegram approval — manual-only doctrine.
+            logger.info(
+                f"🧠 Queuing {len(actions)} actions for approval "
+                f"(conf={confidence:.0%})"
+            )
             await self._queue_for_approval(actions, parsed, data[:500])
 
         return f"Cycle #{self._cycle_count}: {len(actions)} actions (conf={confidence:.0%})"
@@ -1721,7 +1746,11 @@ CONSENSUS KURALI:
         """
         if mode == "brain":
             result = await self.run_brain_cycle()
-            return result, None  # brain cycle auto-executes
+            # P0-01 (2026-05-08): brain cycle is now manual-approval-only;
+            # actions queue to Telegram via _queue_for_approval and run only
+            # after admin taps ✅. The cycle returns a status string but no
+            # parsed actions to apply here.
+            return result, None
         data = await self._gather_data()
         if not data:
             return None, None
@@ -1878,18 +1907,32 @@ CONSENSUS KURALI:
                     "actions": actions, "parsed": parsed, "data": data_summary}
                 logger.info(f"🧠 Approval request sent (msg_id={msg.message_id})")
             else:
-                # No Telegram → auto-execute as fallback
-                results = await self._execute(actions)
-                await self._save_decision(data_summary, actions, results)
+                # P0-01 (2026-05-08): NO auto-execute fallback. If Telegram
+                # admin is missing the actions are dropped — never silently
+                # applied. The previous fallback violated the manual-approval
+                # doctrine: a misconfigured ADMIN_TELEGRAM_ID was enough to
+                # promote the LLM to autonomous trader.
+                logger.error(
+                    "🧠 P0-01: cannot queue %d actions for approval "
+                    "(admin_id=%s bot_app=%s) — DISCARDING (no auto-execute)",
+                    len(actions), bool(admin_id), bool(self.bot_app),
+                )
+                await self._save_decision(
+                    data_summary, actions,
+                    ["❌ DISCARDED: Telegram approval channel unavailable"],
+                )
         except Exception as e:  # noqa: BLE001
-            # Epic 8 T8.1 audit: Telegram keyboard + send_message + pending
-            # dict mutation — any failure falls back to auto-execute so we
-            # never drop low-confidence actions silently. Catch-all preserves
-            # this safety net across PTB API changes.
+            # P0-01 (2026-05-08): NO auto-execute fallback. The previous
+            # "Fallback: execute anyway" branch was a security hole — any
+            # PTB API change or transient network blip would silently
+            # promote the LLM to autonomous trader. Now we log + discard.
+            # Telegram + keyboard + pending-dict mutation can each raise;
+            # the catch-all is preserved purely to keep the cycle alive.
             logger.error(f"Approval queue: {e}", exc_info=True)
-            # Fallback: execute anyway
-            results = await self._execute(actions)
-            await self._save_decision(data_summary, actions, results)
+            await self._save_decision(
+                data_summary, actions,
+                [f"❌ DISCARDED: approval queue raised {type(e).__name__}"],
+            )
 
     async def handle_approval(self, approved: bool, msg_id: str) -> str:
         """Called by Telegram callback handler when user approves/rejects."""

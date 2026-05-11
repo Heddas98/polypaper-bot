@@ -1,8 +1,73 @@
 """
 PolyPaper Bot - Configuration Settings (Phase 34: Signal Fusion & Kelly Tuning)
 """
+import json
+import logging
 import os
 from dataclasses import dataclass, field
+
+logger = logging.getLogger("polypaper.config.settings")
+
+
+# ════════════════════════════════════════════════════════════════════════
+# P0-08-A (2026-05-08): Polymarket Up/Down crypto market discovery matrix.
+#
+# Bot 4 timeframe için iki farklı discovery yöntemi kullanır:
+#   - 5m / 15m  → slug-prefix (e.g. btc-updown-5m-{epoch})
+#   - 1h / 24h  → series_id (Polymarket /series/{id} endpoint, daily/hourly
+#                  Up/Down series'leri farklı slug pattern kullanıyor — örn.
+#                  bitcoin-up-or-down-on-may-9-2026, bitcoin-up-or-down-may-8-2026-12pm-et)
+#
+# Heddas direktifi 2026-05-08:
+#   5m  → BTC only (high-freq, BTC most liquid)
+#   15m → BTC, ETH, SOL, XRP (full asset coverage)
+#   1h  → BTC only (series_id=10114, btc-up-or-down-hourly)
+#   24h → BTC only (series_id=41, btc-up-or-down-daily)
+#
+# Override via env: TF_DISCOVERY_MATRIX_JSON='{...}' (single-line JSON)
+# Reference: memory/reference_polymarket_updown_discovery.md
+# ════════════════════════════════════════════════════════════════════════
+_DEFAULT_TF_DISCOVERY_MATRIX = {
+    "5m":  {"method": "slug_prefix", "assets": ["BTC"]},
+    "15m": {"method": "slug_prefix", "assets": ["BTC", "ETH", "SOL", "XRP"]},
+    "1h":  {"method": "series_id",   "series_map": {"BTC": 10114}},
+    "24h": {"method": "series_id",   "series_map": {"BTC": 41}},
+}
+
+
+def _load_tf_discovery_matrix() -> dict:
+    """Read TF_DISCOVERY_MATRIX_JSON env override; fall back to defaults."""
+    raw = os.environ.get("TF_DISCOVERY_MATRIX_JSON", "").strip()
+    if not raw:
+        return dict(_DEFAULT_TF_DISCOVERY_MATRIX)
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("TF_DISCOVERY_MATRIX_JSON must be a JSON object")
+        return parsed
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(
+            "TF_DISCOVERY_MATRIX_JSON parse failed (%s); using defaults", e
+        )
+        return dict(_DEFAULT_TF_DISCOVERY_MATRIX)
+
+
+def _derive_supported_assets(matrix: dict) -> list:
+    """Union of assets across all TF entries (preserves first-seen order)."""
+    seen: list = []
+    for cfg in matrix.values():
+        if not isinstance(cfg, dict):
+            continue
+        method = cfg.get("method")
+        if method == "slug_prefix":
+            for a in cfg.get("assets", []):
+                if a not in seen:
+                    seen.append(a)
+        elif method == "series_id":
+            for a in (cfg.get("series_map") or {}).keys():
+                if a not in seen:
+                    seen.append(a)
+    return seen
 
 
 @dataclass
@@ -33,8 +98,21 @@ class Settings:
     DEFAULT_BALANCE: float = 10000.0
     TRADE_FEE_PERCENT: float = 0.01
     MIN_TRADE_AMOUNT: float = 1.0
-    SUPPORTED_ASSETS: list = field(default_factory=lambda: ["BTC", "ETH", "SOL", "XRP"])
-    SUPPORTED_TIMEFRAMES: list = field(default_factory=lambda: ["5m", "15m"])
+    # P0-08-A (2026-05-08): TF × asset matrix-driven. Bu field'lar geri
+    # uyumluluk için korunuyor (market_scanner.py iki listeyi cartesian
+    # iterate ediyor); P0-08-B refactor'unda scanner matrix'i doğrudan
+    # okuyacak. Override için TF_DISCOVERY_MATRIX_JSON env'i kullanılır.
+    TF_DISCOVERY_MATRIX: dict = field(
+        default_factory=_load_tf_discovery_matrix
+    )
+    SUPPORTED_TIMEFRAMES: list = field(
+        default_factory=lambda: list(_load_tf_discovery_matrix().keys())
+    )
+    SUPPORTED_ASSETS: list = field(
+        default_factory=lambda: _derive_supported_assets(
+            _load_tf_discovery_matrix()
+        )
+    )
     SUPPORTED_DIRECTIONS: list = field(default_factory=lambda: ["up", "down", "any"])
     ODDS_POLL_INTERVAL: int = 10
     STRATEGY_EVAL_INTERVAL: int = 1

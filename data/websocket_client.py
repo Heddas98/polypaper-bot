@@ -27,7 +27,10 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 
 class PolymarketWebSocket:
-    def __init__(self):
+    def __init__(self, db=None):
+        # P0-08-E4/E5 (2026-05-08): db reference for ob_deltas + ob_snapshots
+        # + public_trades event-driven persist. None = no DB persist (test mode).
+        self.db = db
         self._ws = None
         self._running = False
         self._task = None
@@ -297,6 +300,16 @@ class PolymarketWebSocket:
                 self._handle_meta_event(ev)
             except Exception as _me_err:  # noqa: BLE001
                 logger.debug(f"WS _handle_meta_event: {type(_me_err).__name__}: {_me_err}")
+            # P0-08-E4 (2026-05-08): full L2 book snapshot → ob_snapshots
+            try:
+                self._handle_book_event(ev)
+            except Exception as _bk_err:  # noqa: BLE001
+                logger.debug(f"WS _handle_book_event: {type(_bk_err).__name__}: {_bk_err}")
+            # P0-08-E4 (2026-05-08): price_change deltas → ob_deltas
+            try:
+                self._handle_price_change_event(ev)
+            except Exception as _pc_err:  # noqa: BLE001
+                logger.debug(f"WS _handle_price_change_event: {type(_pc_err).__name__}: {_pc_err}")
 
     def _extract_trade(self, ev):
         """Phase 39 (P1.1): Extract real trade fills from `last_trade_price`
@@ -333,6 +346,24 @@ class PolymarketWebSocket:
                 self._on_trade_callback(asset_id, price, size, side, ts_ms)
             except Exception as _cb_err:  # noqa: BLE001
                 logger.warning(f"⚠️ WS trade callback failed: {type(_cb_err).__name__}: {_cb_err}")
+
+        # P0-08-E5 (2026-05-08): public_trades tablosuna persist.
+        # Polymarket spec field: fee_rate_bps (taker fee bps cinsinden).
+        # Callback chain'inden bağımsız — paralel async write.
+        if self.db is not None and self.db.conn is not None:
+            condition_id = str(ev.get("market", "") or "")
+            fee_rate_bps_raw = ev.get("fee_rate_bps")
+            try:
+                fee_rate_bps = float(fee_rate_bps_raw) if fee_rate_bps_raw is not None else None
+            except (TypeError, ValueError):
+                fee_rate_bps = None
+            safe_create_task(
+                self._persist_public_trade(
+                    ts_ms, asset_id, condition_id,
+                    side, price, size, fee_rate_bps,
+                ),
+                name=f"persist_trade_{asset_id[:8]}",
+            )
 
     def _extract_price(self, ev, now_iso: str):
         """Extract price from any known Polymarket WS format."""
@@ -413,7 +444,25 @@ class PolymarketWebSocket:
 
         elif et == "new_market":
             slug = ev.get("slug") or ev.get("market", "?")
-            logger.info(f"🆕 new_market detected: {slug}")
+            # Heddas 2026-05-09: new_market is a Polymarket WSS GLOBAL
+            # broadcast — every client receives every new market (Spotify,
+            # sports, election, crypto…). Bot only trades crypto Up/Down,
+            # so filter the log: INFO if slug matches crypto patterns, else
+            # DEBUG (silent default). Callback still fires regardless;
+            # downstream decides what to do with it.
+            slug_lc = str(slug).lower()
+            crypto_keywords = (
+                "up-or-down", "updown",
+                "bitcoin", "btc-",
+                "ethereum", "eth-",
+                "solana", "sol-",
+                "xrp",
+            )
+            is_crypto = any(kw in slug_lc for kw in crypto_keywords)
+            if is_crypto:
+                logger.info(f"🆕 new_market detected: {slug}")
+            else:
+                logger.debug(f"new_market (non-crypto, ignored): {slug}")
             if hasattr(self, "_on_new_market_callback") and \
                     self._on_new_market_callback:
                 try:
@@ -433,6 +482,150 @@ class PolymarketWebSocket:
                     self._on_market_resolved_callback(ev)
                 except Exception as _e:  # noqa: BLE001
                     logger.warning(f"market_resolved cb: {_e}")
+
+    # ════════════════════════════════════════════════════════════════════
+    # P0-08-E4 + E5 (2026-05-08): Polymarket V2 market channel persist.
+    #   - book event       → ob_snapshots (full L2 recovery anchor)
+    #   - price_change     → ob_deltas (per-level delta)
+    #   - last_trade_price → public_trades (handled in _extract_trade)
+    #
+    # Spec: docs.polymarket.com/market-data/websocket/market-channel
+    # ════════════════════════════════════════════════════════════════════
+    def _handle_book_event(self, ev):
+        if not isinstance(ev, dict):
+            return
+        et = (ev.get("event_type") or ev.get("type") or "").lower()
+        if et != "book":
+            return
+        if self.db is None or self.db.conn is None:
+            return
+        asset_id = str(ev.get("asset_id", "") or "")
+        if not asset_id:
+            return
+        condition_id = str(ev.get("market", "") or "")
+        bids = [{"price": self._f(b.get("price")),
+                 "size": self._f(b.get("size"))}
+                for b in (ev.get("bids") or []) if isinstance(b, dict)]
+        asks = [{"price": self._f(a.get("price")),
+                 "size": self._f(a.get("size"))}
+                for a in (ev.get("asks") or []) if isinstance(a, dict)]
+        bids = [b for b in bids if b["price"] and b["size"]]
+        asks = [a for a in asks if a["price"] and a["size"]]
+        if not bids and not asks:
+            return
+        bids.sort(key=lambda x: -x["price"])
+        asks.sort(key=lambda x: x["price"])
+        best_bid = bids[0]["price"] if bids else None
+        best_ask = asks[0]["price"] if asks else None
+        mid = (best_bid + best_ask) / 2 if best_bid and best_ask else None
+        spread = (best_ask - best_bid) if best_bid and best_ask else None
+        ts_ms = self._parse_ts_ms(ev.get("timestamp"))
+        hash_ = str(ev.get("hash", "") or "")[:64]
+        safe_create_task(
+            self._persist_book_snapshot(
+                ts_ms, asset_id, condition_id,
+                best_bid, best_ask, mid, spread,
+                bids[:5], asks[:5], hash_,
+            ),
+            name=f"persist_book_{asset_id[:8]}",
+        )
+
+    def _handle_price_change_event(self, ev):
+        if not isinstance(ev, dict):
+            return
+        et = (ev.get("event_type") or ev.get("type") or "").lower()
+        if et != "price_change":
+            return
+        if self.db is None or self.db.conn is None:
+            return
+        condition_id = str(ev.get("market", "") or "")
+        ts_ms = self._parse_ts_ms(ev.get("timestamp"))
+        rows = []
+        for ch in (ev.get("price_changes") or []):
+            if not isinstance(ch, dict):
+                continue
+            asset_id = str(ch.get("asset_id", "") or "")
+            if not asset_id:
+                continue
+            price = self._f(ch.get("price"))
+            size = self._f(ch.get("size"))
+            if price is None or size is None:
+                continue
+            side = str(ch.get("side", "") or "").upper()
+            if side not in ("BUY", "SELL"):
+                continue
+            hash_ = str(ch.get("hash", "") or "")[:64]
+            best_bid = self._f(ch.get("best_bid"))
+            best_ask = self._f(ch.get("best_ask"))
+            rows.append((ts_ms, asset_id, condition_id, side,
+                         price, size, hash_, best_bid, best_ask))
+        if rows:
+            safe_create_task(
+                self._persist_deltas(rows),
+                name=f"persist_deltas_{condition_id[:8]}",
+            )
+
+    @staticmethod
+    def _parse_ts_ms(ts) -> int:
+        try:
+            t = int(float(ts)) if ts else int(time.time() * 1000)
+        except (TypeError, ValueError):
+            t = int(time.time() * 1000)
+        if t < 10_000_000_000:
+            t *= 1000
+        return t
+
+    async def _persist_book_snapshot(self, ts_ms, asset_id, condition_id,
+                                     best_bid, best_ask, mid, spread,
+                                     bids, asks, hash_):
+        try:
+            await self.db.conn.execute(
+                """INSERT OR REPLACE INTO ob_snapshots
+                   (ts_ms, asset_id, condition_id, asset, timeframe, slug,
+                    best_bid, best_ask, mid_price, spread,
+                    bids_json, asks_json, hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ts_ms, asset_id, condition_id, None, None, None,
+                 best_bid, best_ask, mid, spread,
+                 json.dumps(bids), json.dumps(asks), hash_),
+            )
+            await self.db.conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"persist_book_snapshot: {e}")
+
+    async def _persist_deltas(self, rows):
+        try:
+            await self.db.conn.executemany(
+                """INSERT OR REPLACE INTO ob_deltas
+                   (ts_ms, asset_id, condition_id, side, price, size,
+                    hash, best_bid, best_ask)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            await self.db.conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"persist_deltas: {e}")
+
+    async def _persist_public_trade(self, ts_ms, asset_id, condition_id,
+                                    taker_side, price, size, fee_rate_bps):
+        """P0-08-E5 (2026-05-08): public_trades insert.
+
+        Polymarket last_trade_price field'larıyla 1:1: ts_ms, asset_id,
+        condition_id (market), taker_side ('BUY'/'SELL'), price, size,
+        fee_rate_bps.
+        """
+        try:
+            await self.db.conn.execute(
+                """INSERT OR REPLACE INTO public_trades
+                   (ts_ms, asset_id, condition_id,
+                    taker_side, price, size, fee_rate_bps)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (ts_ms, asset_id, condition_id,
+                 taker_side, price, size, fee_rate_bps),
+            )
+            await self.db.conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"persist_public_trade: {e}")
 
     def get_live_price(self, token_id: str) -> Optional[float]:
         """Get cached price. Returns None if stale (>WS_STALE_THRESHOLD, default 60s).

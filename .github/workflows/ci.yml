@@ -27,16 +27,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-asyncio ruff
+          pip install -r requirements-dev.txt
 
       - name: Syntax check (py_compile)
         run: |
           python -m py_compile $(git ls-files '*.py' | grep -v '^_archive/')
 
-      - name: Ruff lint (non-blocking for now)
+      # P1-07-d (2026-05-09): ruff is now HARD FAIL.
+      # Config lives in pyproject.toml [tool.ruff].
+      - name: Ruff lint (hard fail)
+        run: |
+          ruff check .
+
+      # P1-07-d (2026-05-09): mypy soft-fail until baseline established.
+      # Tightening per-module via [tool.mypy.overrides] in pyproject.toml.
+      # Flip to hard-fail after P1-07 follow-up clears the long tail.
+      - name: mypy core/ (soft fail until baseline clean)
         continue-on-error: true
         run: |
-          ruff check . --exclude _archive,tests/fixtures --statistics
+          mypy core/
 
       - name: T11.8 bare except guard (core/ strict zone)
         run: |
@@ -50,17 +59,20 @@ jobs:
         run: |
           python scripts/check_exc_leak.py --all
 
-      - name: Run unit tests with coverage gate (T11.4)
+      # P1-07-d / P1-01 (2026-05-09): coverage source expanded to
+      # core + data + telegram_bot + backtest (via .coveragerc).
+      # fail_under = 43 (ratcheted from 21 baseline; configured in .coveragerc).
+      # Scope: all tests/, integration filtered out (Windows-only deps).
+      - name: Run tests with coverage gate
         env:
           TELEGRAM_BOT_TOKEN: test-token
           ADMIN_TELEGRAM_ID: "1"
           DATABASE_PATH: ":memory:"
         run: |
-          python -m pytest tests/unit -v --tb=short \
-            --cov=core \
+          python -m pytest tests/ -m "not integration" -v --tb=short \
+            --cov --cov-config=.coveragerc \
             --cov-report=term \
-            --cov-report=xml \
-            --cov-fail-under=21
+            --cov-report=xml
 
       - name: Upload coverage artifact
         if: always()

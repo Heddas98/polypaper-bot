@@ -232,6 +232,258 @@ MIGRATIONS = [
             "ON polymarket_portfolio_cache(fetched_at)",
         ],
     },
+
+    # ════════════════════════════════════════════════════════════════════
+    # P0-08-E2 (2026-05-08): Event-driven multi-TF data layer.
+    #
+    # Polymarket WSS market channel event payload'larıyla 1:1 hizalı schema:
+    #   - book event       → ob_snapshots (full L2, 60s recovery anchor)
+    #   - price_change     → ob_deltas (delta-driven, fill simulation kaynağı)
+    #   - last_trade_price → public_trades (taker tape + fee_rate_bps)
+    #   - external feed    → external_prices (Binance/Chainlink reference)
+    #   - candles_ext      → 5m base only (15m/1h/24h runtime aggregation)
+    #   - candles_poly     → per-market, TF-aware
+    #
+    # Field naming Polymarket convention (asset_id, condition_id, fee_rate_bps).
+    # Reference: docs.polymarket.com/market-data/websocket/market-channel
+    # ════════════════════════════════════════════════════════════════════
+    {
+        "version": 18,
+        "name": "p0_08_e2_event_driven_data_layer",
+        "sql": [
+            "CREATE TABLE IF NOT EXISTS ob_deltas ("
+            "ts_ms INTEGER NOT NULL,"
+            "asset_id TEXT NOT NULL,"
+            "condition_id TEXT,"
+            "side TEXT NOT NULL,"
+            "price REAL NOT NULL,"
+            "size REAL NOT NULL,"
+            "hash TEXT,"
+            "best_bid REAL,"
+            "best_ask REAL,"
+            "PRIMARY KEY (ts_ms, asset_id, side, price))",
+            "CREATE INDEX IF NOT EXISTS idx_ob_deltas_asset_ts "
+            "ON ob_deltas(asset_id, ts_ms)",
+            "CREATE INDEX IF NOT EXISTS idx_ob_deltas_condition_ts "
+            "ON ob_deltas(condition_id, ts_ms)",
+
+            "CREATE TABLE IF NOT EXISTS public_trades ("
+            "ts_ms INTEGER NOT NULL,"
+            "asset_id TEXT NOT NULL,"
+            "condition_id TEXT,"
+            "taker_side TEXT NOT NULL,"
+            "price REAL NOT NULL,"
+            "size REAL NOT NULL,"
+            "fee_rate_bps REAL,"
+            "PRIMARY KEY (ts_ms, asset_id))",
+            "CREATE INDEX IF NOT EXISTS idx_public_trades_asset_ts "
+            "ON public_trades(asset_id, ts_ms)",
+            "CREATE INDEX IF NOT EXISTS idx_public_trades_condition_ts "
+            "ON public_trades(condition_id, ts_ms)",
+
+            "CREATE TABLE IF NOT EXISTS ob_snapshots ("
+            "ts_ms INTEGER NOT NULL,"
+            "asset_id TEXT NOT NULL,"
+            "condition_id TEXT,"
+            "asset TEXT,"
+            "timeframe TEXT,"
+            "slug TEXT,"
+            "best_bid REAL,"
+            "best_ask REAL,"
+            "mid_price REAL,"
+            "spread REAL,"
+            "bids_json TEXT,"
+            "asks_json TEXT,"
+            "hash TEXT,"
+            "PRIMARY KEY (ts_ms, asset_id))",
+            "CREATE INDEX IF NOT EXISTS idx_ob_snapshots_asset_ts "
+            "ON ob_snapshots(asset_id, ts_ms)",
+            "CREATE INDEX IF NOT EXISTS idx_ob_snapshots_atf "
+            "ON ob_snapshots(asset, timeframe, ts_ms)",
+
+            "CREATE TABLE IF NOT EXISTS external_prices ("
+            "ts_ms INTEGER NOT NULL,"
+            "symbol TEXT NOT NULL,"
+            "source TEXT NOT NULL,"
+            "price REAL NOT NULL,"
+            "PRIMARY KEY (ts_ms, symbol, source))",
+            "CREATE INDEX IF NOT EXISTS idx_external_prices_symbol_ts "
+            "ON external_prices(symbol, ts_ms)",
+            "CREATE INDEX IF NOT EXISTS idx_external_prices_source_ts "
+            "ON external_prices(source, ts_ms)",
+
+            "CREATE TABLE IF NOT EXISTS candles_ext ("
+            "symbol TEXT NOT NULL,"
+            "interval TEXT NOT NULL DEFAULT '5m',"
+            "open_ts INTEGER NOT NULL,"
+            "open REAL,"
+            "high REAL,"
+            "low REAL,"
+            "close REAL,"
+            "volume REAL,"
+            "PRIMARY KEY (symbol, interval, open_ts))",
+
+            "CREATE TABLE IF NOT EXISTS candles_poly ("
+            "asset_id TEXT NOT NULL,"
+            "slug TEXT,"
+            "asset TEXT,"
+            "timeframe TEXT NOT NULL,"
+            "open_ts INTEGER NOT NULL,"
+            "open REAL,"
+            "high REAL,"
+            "low REAL,"
+            "close REAL,"
+            "volume REAL,"
+            "PRIMARY KEY (asset_id, timeframe, open_ts))",
+            "CREATE INDEX IF NOT EXISTS idx_candles_poly_tf_ts "
+            "ON candles_poly(timeframe, open_ts)",
+            "CREATE INDEX IF NOT EXISTS idx_candles_poly_asset_tf "
+            "ON candles_poly(asset, timeframe, open_ts)",
+        ],
+    },
+
+    # ════════════════════════════════════════════════════════════════════
+    # P0-08-E1 hotfix (2026-05-09): polymarket_portfolio_cache tablosu
+    # E1 cleanup'ında DROP edildi ama schema_version v17 zaten "applied"
+    # işaretli olduğu için v17 IF NOT EXISTS migration'ı tekrar koşmadı.
+    # Bu hotfix tabloyu yeniden create eder; idempotent.
+    # ════════════════════════════════════════════════════════════════════
+    {
+        "version": 19,
+        "name": "p0_08_e1_hotfix_portfolio_cache",
+        "sql": [
+            "CREATE TABLE IF NOT EXISTS polymarket_portfolio_cache ("
+            "id INTEGER PRIMARY KEY,"
+            "user_address TEXT NOT NULL,"
+            "snapshot_json TEXT NOT NULL,"
+            "fetched_at TEXT NOT NULL,"
+            "fetch_latency_ms INTEGER DEFAULT 0,"
+            "error_count INTEGER DEFAULT 0)",
+            "CREATE INDEX IF NOT EXISTS idx_pm_portfolio_fetched "
+            "ON polymarket_portfolio_cache(fetched_at)",
+        ],
+    },
+
+    # ════════════════════════════════════════════════════════════════════
+    # P0-08-E1 hotfix #2 (2026-05-09): executions tablosu eksik column'lar
+    # E1 cleanup'ında executions DROP edildi, bot startup'ta minimal
+    # _create_tables tablosu yarattı (sadece base column'lar). v3-v15'teki
+    # ALTER TABLE ADD COLUMN migration'ları schema_version'da ZATEN "applied"
+    # işaretli olduğu için tekrar koşmadı. Live trade engine_fills.create_execution()
+    # `signal_score` column'a INSERT yapmaya çalışınca patlıyordu.
+    #
+    # Çözüm: executions DROP + CREATE full schema (v1-v15 ALTER'larının union'u).
+    # Tablo zaten boş (live trade kayıt edilemediği için), data kaybı yok.
+    # ════════════════════════════════════════════════════════════════════
+    {
+        "version": 20,
+        "name": "p0_08_e1_hotfix_executions_full_schema",
+        "sql": [
+            "DROP TABLE IF EXISTS executions",
+            "CREATE TABLE executions ("
+            "id TEXT PRIMARY KEY,"
+            "user_id TEXT NOT NULL REFERENCES users(id),"
+            "wallet_id TEXT NOT NULL REFERENCES wallets(id),"
+            "strategy_id TEXT REFERENCES strategies(id),"
+            "event_slug TEXT NOT NULL,"
+            "market_token_id TEXT,"
+            "direction TEXT NOT NULL,"
+            "trade_amount REAL NOT NULL,"
+            "fee_amount REAL DEFAULT 0.0,"
+            "odds_threshold REAL,"
+            "execution_price REAL,"
+            "status TEXT NOT NULL DEFAULT 'pending',"
+            "stop_loss_percent REAL,"
+            "stop_loss_odds REAL,"
+            "take_profit_percent REAL,"
+            "take_profit_odds REAL,"
+            "pnl REAL DEFAULT 0.0,"
+            "payout REAL DEFAULT 0.0,"
+            "result TEXT,"
+            "closed_at TEXT,"
+            "error_message TEXT,"
+            "created_at TEXT NOT NULL,"
+            "updated_at TEXT NOT NULL,"
+            # v3-v15 ALTER columns:
+            "realized_slippage REAL DEFAULT 0.0,"
+            "is_maker INTEGER DEFAULT 0,"
+            "max_unrealized_price REAL DEFAULT NULL,"
+            "expected_ev REAL DEFAULT 0.0,"
+            "win_probability REAL DEFAULT 0.5,"
+            "signal_score REAL DEFAULT NULL,"
+            "conviction REAL DEFAULT NULL,"
+            "duration_sec INTEGER DEFAULT NULL,"
+            "max_favorable_move REAL DEFAULT NULL,"
+            "max_adverse_move REAL DEFAULT NULL,"
+            "regime_at_entry TEXT DEFAULT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status)",
+            "CREATE INDEX IF NOT EXISTS idx_executions_user ON executions(user_id)",
+        ],
+    },
+
+    # ════════════════════════════════════════════════════════════════════
+    # P0-07 (2026-05-09): reference_price_audit
+    # Polymarket binary Up/Down market'lerin official resolution price'ı
+    # ile bot'un local Binance/Chainlink reference feed'i arasındaki
+    # sapmayı settle anında snapshot eder. >5 bps sistematik bias →
+    # edge tahmini geçersizlik alarmı. Acceptance kriteri:
+    # 7 günlük markdown rapor + 10 worst deviation örneği.
+    #
+    # Tablo schema'sı:
+    #   - settle_ts_ms INTEGER NOT NULL — settle moment epoch ms (boundary)
+    #   - condition_id TEXT NOT NULL    — Polymarket market id
+    #   - asset_id TEXT                 — ERC1155 token id (UP outcome)
+    #   - slug TEXT                     — event slug (debug/UI)
+    #   - asset TEXT                    — BTC/ETH/SOL/XRP
+    #   - timeframe TEXT                — 5m/15m/1h/24h
+    #   - official_resolution_price REAL — Polymarket'in resolved boundary price
+    #   - bot_binance_rest_price REAL   — external_prices source='binance' nearest
+    #   - bot_binance_ws_price REAL     — external_prices source='binance_spot_ws'
+    #   - bot_chainlink_price REAL      — external_prices source='chainlink'
+    #   - dev_binance_bps REAL          — basis-point sapma (WS tercih, REST fallback)
+    #   - dev_chainlink_bps REAL        — basis-point sapma
+    #   - settle_outcome TEXT           — UP / DOWN / INVALID
+    #   - data_quality TEXT             — ok / missing_external / missing_resolution
+    #   - created_at TEXT NOT NULL
+    #
+    # PRIMARY KEY (condition_id, settle_ts_ms) — aynı market aynı boundary
+    # için birden fazla audit yazılmaz; backfill + live re-run idempotent.
+    # ════════════════════════════════════════════════════════════════════
+    {
+        "version": 21,
+        "name": "p0_07_reference_price_audit",
+        "sql": [
+            "CREATE TABLE IF NOT EXISTS reference_price_audit ("
+            "settle_ts_ms INTEGER NOT NULL,"
+            "condition_id TEXT NOT NULL,"
+            "asset_id TEXT,"
+            "slug TEXT,"
+            "asset TEXT,"
+            "timeframe TEXT,"
+            "official_resolution_price REAL,"
+            "bot_binance_rest_price REAL,"
+            "bot_binance_ws_price REAL,"
+            "bot_chainlink_price REAL,"
+            "dev_binance_bps REAL,"
+            "dev_chainlink_bps REAL,"
+            "settle_outcome TEXT,"
+            "data_quality TEXT NOT NULL DEFAULT 'ok',"
+            "created_at TEXT NOT NULL,"
+            "PRIMARY KEY (condition_id, settle_ts_ms))",
+            # Index for "show me last 7 days" reports (most common query)
+            "CREATE INDEX IF NOT EXISTS idx_ref_audit_ts "
+            "ON reference_price_audit(settle_ts_ms)",
+            # Index for "per-asset/tf statistics" reports
+            "CREATE INDEX IF NOT EXISTS idx_ref_audit_asset_tf "
+            "ON reference_price_audit(asset, timeframe, settle_ts_ms)",
+            # Index for "find pending re-fetches" (data_quality != 'ok')
+            "CREATE INDEX IF NOT EXISTS idx_ref_audit_quality "
+            "ON reference_price_audit(data_quality, settle_ts_ms)",
+            # Index for "worst deviations leaderboard"
+            "CREATE INDEX IF NOT EXISTS idx_ref_audit_dev_binance "
+            "ON reference_price_audit(dev_binance_bps)",
+        ],
+    },
 ]
 
 

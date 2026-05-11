@@ -593,19 +593,28 @@ class TradingEngine(
             except Exception as _hb_err:  # noqa: BLE001
                 logger.debug(f"P1.6.1 heartbeat wire: {_hb_err}")
 
-        # P1.4 — Reconciliation loop (ENV: RECON_ENABLED)
-        if os.getenv("RECON_ENABLED", "false").lower() in {"1", "true", "yes"}:
-            try:
-                from core.reconciliation.onchain_sync import ReconciliationTask
-                self.recon_task = ReconciliationTask(
-                    db=self.db,
-                    wallet=os.getenv("POLYGON_WALLET", ""),
-                    alert_callback=getattr(self, "_notify_admin_html", None),
-                )
-                await self.recon_task.start()
-                logger.info("🔁 P1.4 Reconciliation task started")
-            except Exception as _rc_err:  # noqa: BLE001
-                logger.debug(f"P1.4 reconciliation wire: {_rc_err}")
+        # P1.4 / P1-09 — Reconciliation loop.
+        # P1-09-b (2026-05-09): single source of truth for the on/off
+        # decision lives on `ReconciliationTask.enabled` (smart: explicit
+        # RECON_ENABLED env wins; otherwise auto-on if LIVE_ENABLED=true).
+        # We always instantiate + call start(); start() is a no-op when
+        # disabled. This way the /recon panel can always inspect stats
+        # instead of seeing a None task.
+        try:
+            from core.reconciliation.onchain_sync import ReconciliationTask
+            self.recon_task = ReconciliationTask(
+                db=self.db,
+                wallet=os.getenv("POLYGON_WALLET", ""),
+                alert_callback=getattr(self, "_notify_admin_html", None),
+            )
+            await self.recon_task.start()
+            if self.recon_task.enabled:
+                logger.info(
+                    "🔁 Reconciliation task started "
+                    f"(interval={self.recon_task.interval_s}s)")
+        except Exception as _rc_err:  # noqa: BLE001
+            logger.debug(f"reconciliation wire: {_rc_err}")
+            self.recon_task = None
 
         # ═══ Sprint 3 P1 WIRE END ════════════════════════════════════════
 

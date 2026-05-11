@@ -10,8 +10,11 @@ Aksiyonlar:
   A3 — withdraw_url(): Polymarket UI deeplink (direct on-chain withdraw
        Gnosis Safe execTransaction gerektiriyor — Aşama 3 backlog)
   A4 — wallet_import_steps(): .env edit talimatı
-  A5 — export_private_key(): .env'den POLYGON_PRIVATE_KEY oku & döndür
-       (no rate limit, no confirm, no auto-delete — Heddas direktifi)
+
+NOT (P0-03 — 2026-05-08): A5 export_private_key() removed for security.
+Telegram chat history → 3rd party leak risk; single-PC compromise =
+total wallet drain. Yerine OS keychain / HW wallet entegrasyonu (P0-02)
+gelecek.
 
 Polymarket docs uyumlu:
   - https://docs.polymarket.com/trading/clients/l2#updatebalanceallowance
@@ -743,50 +746,10 @@ def wallet_import_steps() -> dict:
 
 
 # ════════════════════════════════════════════════════════════════════════
-# A5 — Private Key Export
+# A5 — Private Key Export — REMOVED 2026-05-08 (P0-03 security fix)
 # ════════════════════════════════════════════════════════════════════════
-def export_private_key() -> dict:
-    """`.env`'den POLYGON_PRIVATE_KEY oku ve döndür.
-
-    Heddas 2026-04-29 direktifi: rate limit yok, double confirm yok,
-    auto-delete yok. Bot dış dünyaya kapalı varsayılıyor — full PK görünür.
-
-    Returns dict with pk + risk warnings + derived address (sanity check).
-    """
-    pk = os.getenv("POLYGON_PRIVATE_KEY", "").strip()
-    wallet = os.getenv("POLYGON_WALLET", "").strip()
-
-    if not pk:
-        return {
-            "private_key": "",
-            "error": "POLYGON_PRIVATE_KEY env var empty",
-        }
-
-    # Derive EOA address from PK (sanity check vs Rabby's actual address)
-    derived_eoa = ""
-    derive_error = ""
-    try:
-        from eth_account import Account
-        acct = Account.from_key(pk)
-        derived_eoa = acct.address
-    except (ValueError, TypeError, ImportError) as e:
-        derive_error = f"eth_account derive: {type(e).__name__}: {e}"
-    except Exception as e:  # noqa: BLE001
-        derive_error = f"derive unexpected: {type(e).__name__}: {e}"
-
-    return {
-        "private_key": pk,                # Full PK, 64 hex with 0x prefix
-        "polymarket_proxy": wallet,       # Gnosis Safe Proxy (funder)
-        "derived_eoa": derived_eoa,       # Should match Rabby's EOA address
-        "derive_error": derive_error,
-        "risk_warnings": [
-            "Bu private key Polymarket Proxy'nin OWNER'ı. Eline geçen herkes "
-            "Polymarket bakiyene erişebilir.",
-            "Telegram mesaj geçmişine kaydolur — bot'un mesaj log'u veya "
-            "Telegram cloud backup'ında görünür.",
-            "Screenshot alıp kimseyle paylaşma — özellikle 'PolyPaper Bot "
-            "support' diyenlerle.",
-            "Eğer PK sızdı şüphesi varsa: yeni Rabby wallet oluştur, "
-            "Polymarket'a yeni login, fonları yeni proxy'e taşı, .env güncelle.",
-        ],
-    }
+# Telegram chat history persists in third-party servers (Telegram Cloud +
+# bot message logs); a single-PC compromise was sufficient to drain the
+# wallet. The function has been deleted intentionally and must not be
+# reintroduced. PK access is delegated to OS keychain / HW wallet via the
+# upcoming `core.secrets` module (P0-02).

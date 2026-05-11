@@ -164,10 +164,36 @@ class MarketScanner:
         #   - scanner._token_slug (prevents stale mapping buildup)
         live_token_ids: set[str] = set()
 
-        for asset in self.settings.SUPPORTED_ASSETS:
-            for tf in self.settings.SUPPORTED_TIMEFRAMES:
+        # P0-08-B (2026-05-08): matrix-dispatch loop. Each TF uses its own
+        # discovery method per `Settings.TF_DISCOVERY_MATRIX`:
+        #   - method="slug_prefix" → assets list, legacy probe (5m/15m)
+        #   - method="series_id"   → series_map {ASSET: id} (1h/24h)
+        # Reference: memory/reference_polymarket_updown_discovery.md
+        matrix = getattr(self.settings, "TF_DISCOVERY_MATRIX", None) or {}
+        if not matrix:
+            # Backward-compat: legacy cartesian if matrix missing
+            iter_pairs = [
+                (a, tf, None)
+                for a in self.settings.SUPPORTED_ASSETS
+                for tf in self.settings.SUPPORTED_TIMEFRAMES
+            ]
+        else:
+            iter_pairs = []
+            for tf, cfg in matrix.items():
+                if not isinstance(cfg, dict):
+                    continue
+                method = cfg.get("method")
+                if method == "slug_prefix":
+                    for asset in cfg.get("assets") or []:
+                        iter_pairs.append((asset, tf, None))
+                elif method == "series_id":
+                    for asset, sid in (cfg.get("series_map") or {}).items():
+                        iter_pairs.append((asset, tf, sid))
+
+        for asset, tf, series_id in iter_pairs:
                 key = f"{asset}_{tf}"
-                mkts = await self.client.discover_active_markets(asset, tf)
+                mkts = await self.client.discover_active_markets(
+                    asset, tf, series_id=series_id)
                 if mkts:
                     self.active_markets[key] = mkts
                     for m in mkts[:2]:

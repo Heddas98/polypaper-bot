@@ -178,7 +178,26 @@ class ReconciliationTask:
 
     @property
     def enabled(self) -> bool:
-        return _env_bool("RECON_ENABLED", False)
+        """P1-09-a (2026-05-09): Smart enable.
+
+        Resolution order:
+          1. Explicit RECON_ENABLED env (true/false) → wins both ways.
+          2. No explicit env → auto-on if LIVE_ENABLED=true (mainnet shadow
+             active = real wallet balance to protect). Auto-off in paper mode
+             (DB paper-balance ≠ on-chain real-balance → spam alarms).
+
+        Heddas direktifi 2026-05-09: "tam ne işe yarayacak bu iş" → reconcile
+        DB-vs-onchain divergence (revert / exploit / drift). Mainnet sermaye
+        varken default ON, paper'da default OFF.
+        """
+        # Explicit env override (handles "true", "false", "1", "0", etc.)
+        explicit = os.getenv("RECON_ENABLED", "").strip().lower()
+        if explicit in {"1", "true", "yes", "on"}:
+            return True
+        if explicit in {"0", "false", "no", "off"}:
+            return False
+        # No explicit override → auto-derive from live mode
+        return _env_bool("LIVE_ENABLED", False)
 
     @property
     def interval_s(self) -> int:
@@ -202,7 +221,10 @@ class ReconciliationTask:
 
     async def start(self) -> None:
         if not self.enabled:
-            logger.info("🔗 Reconciliation: DISABLED (RECON_ENABLED=false)")
+            logger.info(
+                "🔗 Reconciliation: DISABLED "
+                "(RECON_ENABLED unset/false AND LIVE_ENABLED=false). "
+                "Auto-on activates when bot enters live mode.")
             return
         if not self.wallet:
             logger.warning("🔗 Reconciliation: wallet missing, cannot start")

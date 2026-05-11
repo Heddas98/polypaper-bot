@@ -24,6 +24,7 @@ from typing import Optional
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
 from core.engine_support import _slug_end
+from core.slug_utils import infer_tf_from_slug, infer_asset_from_slug
 # Phase 65: fees.py v1 removed — only v2 active
 from core.fees_v2 import polymarket_taker_fee_v2
 from core.trade_journal import log_entry
@@ -489,9 +490,9 @@ class EngineFillsMixin:
                 # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
                 logger.exception(f"Live mirror failed [{type(e).__name__}]: {e}")
 
-        parts = o.slug.split("-")
-        asset = parts[0].upper() if parts else "?"
-        tf = parts[2] if len(parts) > 2 else "?"
+        # P0-08-D (2026-05-08): slug_utils ile asset+TF inference (4 TF aware).
+        asset = infer_asset_from_slug(o.slug)
+        tf = infer_tf_from_slug(o.slug)
         notif_partial = f" ({fill_amount_usd/o.amount*100:.0f}%)" if fill_amount_usd < o.amount else ""
         # Phase 79b: Enriched fill notification
         _dir_emoji = "📈" if o.direction.lower() == "up" else "📉"

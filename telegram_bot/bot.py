@@ -144,6 +144,7 @@ from telegram_bot.handlers.ai_handler import (  # Phase 51 P51-03 Faz-2 Cluster 
 # Phase 47f.7+ in-bot shadow report job (replaces broken sandbox scheduled task)
 from telegram_bot.jobs.shadow_report_job import shadow_report_job
 from telegram_bot.jobs.shadow_vs_paper_job import shadow_vs_paper_job  # Phase 47f.10 P5#22
+from telegram_bot.jobs.reality_gap_job import reality_gap_job  # P1-03-b (2026-05-09)
 from telegram_bot.jobs.pnl_divergence_job import pnl_divergence_job  # Phase 66
 # Tournament job removed 2026-04-28 (Heddas direktifi: Hyperopt tam silme,
 # tournament_job ana işi hyperopt subprocess çalıştırmaktı).
@@ -160,6 +161,14 @@ from telegram_bot.handlers.lifecycle_handler import lifecycle_command  # Phase 7
 from telegram_bot.handlers.portfolio_handler import (
     portfolio_command, portfolio_callback,
 )
+# P0-08-E7 (2026-05-08): backtest data storage panel
+from telegram_bot.handlers.data_status_handler import data_status_command
+# P0-07-f (2026-05-09): reference price audit panel
+from telegram_bot.handlers.ref_audit_handler import ref_audit_command
+# P1-09-c (2026-05-09): on-chain reconciliation status panel
+from telegram_bot.handlers.recon_handler import recon_command
+# P1-03-c (2026-05-09): reality gap (paper-vs-live drift) panel
+from telegram_bot.handlers.reality_gap_handler import reality_gap_command
 from telegram_bot.jobs.polymarket_portfolio_job import polymarket_portfolio_job
 # 2026-04-29 Aşama 3.B: top-level mode toggle (Paper vs Real)
 from telegram_bot.handlers.mode_handler import mode_command, mode_callback
@@ -362,6 +371,11 @@ class PolyPaperBot:
             # Becker recal commands removed 2026-04-28 (Heddas direktifi)
             # 2026-04-29 Polymarket gerçek cüzdan view (Aşama 1)
             ("portfolio", portfolio_command), ("pf", portfolio_command),
+            # P0-08-E7 (2026-05-08): backtest data storage panel
+            ("data_status", data_status_command), ("ds", data_status_command),
+            ("ref_audit", ref_audit_command), ("ra", ref_audit_command),
+            ("recon", recon_command), ("rc", recon_command),
+            ("reality_gap", reality_gap_command), ("rg", reality_gap_command),
             # 2026-04-29 Aşama 3.B: top-level mode toggle (Paper/Real)
             ("mode", mode_command), ("m", mode_command),
             # Phase 74b: Per-strategy lifecycle
@@ -566,8 +580,12 @@ class PolyPaperBot:
         # mode_set_<paper|real>, mode_refresh, mode_nav_<live|portfolio>
         self.app.add_handler(CallbackQueryHandler(mode_callback, pattern="^mode_(set_|refresh|nav_)"))
 
+        # P0-03 (2026-05-08): "wallet_key_" pattern removed alongside the
+        # corresponding inline button in start.py. The placeholder handler
+        # never returned a real private key, but the registration kept the
+        # surface area alive for typo-based or stale-keyboard callbacks.
         for pat in ["show_api", "share_pnl", "import_wallet", "wallet_info_",
-                     "wallet_key_", "wallet_delete_", "select_wallet_"]:
+                     "wallet_delete_", "select_wallet_"]:
             self.app.add_handler(CallbackQueryHandler(self._ph(pat), pattern=f"^{pat}"))
 
         # Parameter info callbacks
@@ -659,6 +677,10 @@ class PolyPaperBot:
         admin_extra_commands = [
             BotCommand("shadow_report", "Shadow monitor raporu (alias: /sr)"),
             BotCommand("db_health", "DB saglik + tablo boyutlari (/dbh)"),
+            BotCommand("data_status", "Backtest data storage paneli (alias /ds)"),
+            BotCommand("ref_audit", "Reference price feed audit (alias /ra)"),
+            BotCommand("recon", "On-chain reconciliation status (alias /rc)"),
+            BotCommand("reality_gap", "Paper-vs-live drift report (alias /rg)"),
             BotCommand("db_cleanup", "DB cleanup (manuel, /dbc)"),
             BotCommand("db_archive", "OB arsiv (nightly, /dba)"),
             BotCommand("health_check", "Eski health check (job durumu, /hc)"),
@@ -767,6 +789,19 @@ class PolyPaperBot:
                 jq.run_repeating(shadow_vs_paper_job, interval=svp_interval,
                                  first=svp_first, name="shadow_vs_paper")
                 logger.info(f"✅ shadow_vs_paper job scheduled (every {svp_interval}s, first in {svp_first}s)")
+
+                # P1-03-b (2026-05-09): nightly reality gap. Daily 24h interval.
+                # First run 5 min after boot (so first report is fresh after a
+                # bot restart); subsequent runs every 86400s. ENV-gated.
+                if os.getenv("REALITY_GAP_ENABLED", "true").lower() == "true":
+                    rg_interval = int(os.getenv("REALITY_GAP_INTERVAL_SEC", "86400"))
+                    rg_first = int(os.getenv("REALITY_GAP_FIRST_SEC", "300"))
+                    jq.run_repeating(reality_gap_job, interval=rg_interval,
+                                     first=rg_first, name="reality_gap")
+                    logger.info(
+                        f"✅ reality_gap job scheduled "
+                        f"(every {rg_interval}s, first in {rg_first}s)"
+                    )
 
                 # 2026-04-29 Polymarket Portfolio refresh (Aşama 1)
                 if os.getenv("PORTFOLIO_REFRESH_ENABLED", "true").lower() == "true":

@@ -882,12 +882,14 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str,
     # Execute via live_trader
     try:
         if hasattr(engine.live, "execute_market_order"):
+            # P0-08-C (2026-05-08): tf parametresi geçir
             result = await engine.live.execute_market_order(
-                side=side, coin=coin, direction=direction, amount=amount,
+                side=side, coin=coin, direction=direction,
+                amount=amount, tf=tf,
             )
         else:
             result = await _fallback_market_execute(
-                engine, side, coin, direction, amount,
+                engine, side, coin, direction, amount, tf=tf,
             )
     except Exception as e:  # noqa: BLE001
         result = {"status": "error", "error": str(e)[:200]}
@@ -1015,13 +1017,33 @@ async def allowance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, parse_mode="HTML")
 
 
+def _matrix_supports(settings, coin: str, tf: str) -> bool:
+    """P0-08-C (2026-05-08): TF/asset kombinasyonu Polymarket'ta destekleniyor mu?"""
+    matrix = getattr(settings, "TF_DISCOVERY_MATRIX", None) or {}
+    cfg = matrix.get(tf)
+    if not isinstance(cfg, dict):
+        return False
+    method = cfg.get("method")
+    if method == "slug_prefix":
+        return coin in (cfg.get("assets") or [])
+    if method == "series_id":
+        return coin in (cfg.get("series_map") or {})
+    return False
+
+
 async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, side: str):
-    """Custom amount handler — /buy /sell ortak. Direkt LIVE moda gönderir."""
+    """Custom amount handler — /buy /sell ortak. Direkt LIVE moda gönderir.
+
+    P0-08-C (2026-05-08): 4. opsiyonel arg olarak TF kabul edilir
+    (5m / 15m / 1h / 24h). Verilmezse default 5m. Matrix'te asset+tf
+    kombinasyonu desteklenmiyorsa hata mesajı + matrix önerisi.
+    """
     args = context.args or []
     if len(args) < 3:
         await update.message.reply_text(
-            f"Kullanım: <code>/{side.lower()} &lt;coin&gt; &lt;UP/DOWN&gt; &lt;tutar&gt;</code>\n"
-            f"Örnek: <code>/{side.lower()} BTC UP 3.50</code>",
+            f"Kullanım: <code>/{side.lower()} &lt;coin&gt; &lt;UP/DOWN&gt; &lt;tutar&gt; [tf]</code>\n"
+            f"Örnek: <code>/{side.lower()} BTC UP 3.50</code>\n"
+            f"Örnek (1h): <code>/{side.lower()} BTC UP 3.50 1h</code>",
             parse_mode="HTML",
         )
         return
@@ -1042,14 +1064,34 @@ async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, si
         await update.message.reply_text("❌ Tutar pozitif olmalı.")
         return
 
+    # P0-08-C: opsiyonel TF arg (4. position). Default 5m geri uyumluluk için.
+    tf = (args[3].lower() if len(args) >= 4 else "5m")
+    valid_tfs = ("5m", "15m", "1h", "24h")
+    if tf not in valid_tfs:
+        await update.message.reply_text(
+            f"❌ TF geçersiz: '{tf}'. Geçerli: {', '.join(valid_tfs)}"
+        )
+        return
+
     engine = context.bot_data.get("engine")
     if not engine:
         await update.message.reply_text("❌ Engine bulunamadı.")
         return
 
+    # Matrix support check — Polymarket'ta {coin} {tf} kombinasyonu var mı?
+    settings = getattr(engine, "settings", None)
+    if settings is not None and not _matrix_supports(settings, coin, tf):
+        await update.message.reply_text(
+            f"❌ <b>{coin} {tf} kombinasyonu desteklenmiyor</b>\n\n"
+            f"Polymarket'ta {coin}'in {tf} Up/Down market'i yok.\n"
+            f"<i>Konfigürasyonu görüntülemek için: /diagnose</i>",
+            parse_mode="HTML",
+        )
+        return
+
     asset = f"{coin}_{direction}"
     fake_q = _MagicQueryStub(update)
-    await _show_market_confirm(fake_q, engine, side, asset, "5m", str(amount))
+    await _show_market_confirm(fake_q, engine, side, asset, tf, str(amount))
 
 
 class _MagicQueryStub:
@@ -1065,21 +1107,25 @@ class _MagicQueryStub:
         )
 
 
-async def _fallback_market_execute(engine, side: str, coin: str,
-                                    direction: str, amount: float) -> dict:
+async def _fallback_market_execute(
+    engine, side: str, coin: str, direction: str, amount: float,
+    tf: str = "5m",
+) -> dict:
     """Fallback: scanner → token_id → live_trader._execute_clob.
 
     live_trader.execute_market_order() yoksa kullanılır. Aktif market'ten
     güncel token_id alır, FOK ile mid-price'a yakın limit gönderir.
+
+    P0-08-C (2026-05-08): tf parametresi eklendi; 5m/15m/1h/24h destekler.
     """
     # Find current market for coin
     if not hasattr(engine, "scanner"):
         return {"status": "error", "error": "scanner unavailable"}
 
-    market = engine.scanner.get_current_market(coin, "5m") if hasattr(
+    market = engine.scanner.get_current_market(coin, tf) if hasattr(
         engine.scanner, "get_current_market") else None
     if not market:
-        return {"status": "error", "error": f"{coin} 5m market not found"}
+        return {"status": "error", "error": f"{coin} {tf} market not found"}
 
     slug = market.get("slug", "")
     token_ids = market.get("clobTokenIds", [])
@@ -1092,7 +1138,8 @@ async def _fallback_market_execute(engine, side: str, coin: str,
     if len(token_ids) < 2:
         return {"status": "error", "error": "tokens not found"}
 
-    # UP=index 0, DOWN=index 1 (Polymarket convention)
+    # UP=index 0, DOWN=index 1 (Polymarket convention — 4 TF için aynı,
+    # P0-08-C 2026-05-08 canlı doğrulandı).
     token_id = token_ids[0] if direction == "UP" else token_ids[1]
 
     # Get current price

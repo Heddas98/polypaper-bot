@@ -6,9 +6,11 @@ Daily DB snapshot + 10-min heartbeat ping. Wired in bot.py via JobQueue.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from telegram.error import TelegramError
@@ -20,7 +22,84 @@ logger = logging.getLogger("polypaper.maintenance")
 
 DB_PATH = Path("data_store/polypaper.db")
 BACKUP_DIR = Path("data_store/backups")
+MANIFEST_PATH = BACKUP_DIR / "manifest.json"
 MAX_BACKUPS = 7  # keep last 7 daily snapshots
+HASH_CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for SHA256 streaming
+
+
+def _sha256_file(path: Path) -> str:
+    """P0-05a (2026-05-09): Compute SHA256 of a file, streaming 1 MB chunks.
+
+    Sync I/O — caller wraps in `asyncio.to_thread` to keep event loop free.
+    For 8 GB DB ~30-60s on local SSD; we accept this cost on the snapshot
+    boundary (already on a slow path) for tamper-evidence + corruption
+    detection beyond what atomic-rename gives us.
+    """
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while True:
+            chunk = f.read(HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _load_manifest() -> dict:
+    """P0-05b (2026-05-09): Load manifest.json or return empty skeleton.
+
+    Schema:
+      {
+        "version": 1,
+        "snapshots": [
+          {
+            "filename": "polypaper_2026-05-09.db",
+            "sha256": "abc123...",
+            "size_bytes": 12345678,
+            "created_utc": "2026-05-09T12:34:56Z",
+            "schema_version": 20
+          }
+        ]
+      }
+    """
+    if not MANIFEST_PATH.exists():
+        return {"version": 1, "snapshots": []}
+    try:
+        with MANIFEST_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "snapshots" not in data:
+            logger.warning("[manifest] malformed — re-initializing")
+            return {"version": 1, "snapshots": []}
+        return data
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(f"[manifest] load failed ({type(e).__name__}: {e}) "
+                       "— re-initializing")
+        return {"version": 1, "snapshots": []}
+
+
+def _save_manifest(data: dict) -> None:
+    """P0-05b: Atomic write of manifest.json via .tmp + os.replace."""
+    tmp = MANIFEST_PATH.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=False)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(MANIFEST_PATH)
+
+
+def _read_schema_version() -> int | None:
+    """P0-05b: Read current schema_version from DB without aiosqlite."""
+    try:
+        import sqlite3
+        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True,
+                             timeout=5.0) as conn:
+            cur = conn.execute("SELECT MAX(version) FROM schema_version")
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else None
+    except (sqlite3.Error, OSError, ValueError) as e:
+        logger.warning(f"[manifest] schema_version read failed: "
+                       f"{type(e).__name__}: {e}")
+        return None
 
 
 async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -96,6 +175,18 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 # Sleep asenkron event loop'a yield fırsatı verir;
                 # engine'in DB query'leri bu boşluklarda işlenir.
                 await source.backup(target, pages=200, sleep=0.050)
+            # P0-05a (2026-05-09): SHA256 verification BEFORE atomic rename.
+            # Read back the bytes we just wrote, hash them, capture file size.
+            # If the read itself fails (disk error, truncation, corruption)
+            # the exception propagates and the `finally` block cleans dest_tmp
+            # — dest is never created. Atomic rename below only happens on
+            # successful hash, so dest is guaranteed to be hash-verified.
+            #
+            # Run sync I/O in to_thread so the event loop stays free during
+            # the ~30-60s hash on multi-GB DBs.
+            sha256_hex = await asyncio.to_thread(_sha256_file, dest_tmp)
+            size_bytes = dest_tmp.stat().st_size
+            schema_v = await asyncio.to_thread(_read_schema_version)
             # Atomic rename: tmp -> dest. POSIX + Windows'ta tek syscall,
             # yarim-rename olmaz. Backup icin DURUM BURADA KESINLESIR.
             dest_tmp.replace(dest)
@@ -126,9 +217,44 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 # effort, missing/locked old snapshot can be retried tomorrow.
                 pass
 
-        size_mb = dest.stat().st_size / (1024 * 1024)
+        # P0-05b (2026-05-09): manifest.json update.
+        # Append the just-renamed snapshot's metadata (sha256, size, ts,
+        # schema_version), then prune any entries whose underlying file no
+        # longer exists (matches the file-prune above + handles manual
+        # deletions). Atomic write via _save_manifest's .tmp+replace.
+        try:
+            manifest = _load_manifest()
+            entry = {
+                "filename": dest.name,
+                "sha256": sha256_hex,
+                "size_bytes": size_bytes,
+                "created_utc": datetime.now(timezone.utc)
+                .strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "schema_version": schema_v,
+            }
+            # Replace any existing entry with same filename (re-run on same
+            # day overwrites). Then append new entry.
+            manifest["snapshots"] = [
+                e for e in manifest.get("snapshots", [])
+                if e.get("filename") != dest.name
+            ]
+            manifest["snapshots"].append(entry)
+            # Prune entries for files that no longer exist on disk
+            extant = {p.name for p in BACKUP_DIR.glob("polypaper_*.db")}
+            manifest["snapshots"] = [
+                e for e in manifest["snapshots"]
+                if e.get("filename") in extant
+            ]
+            _save_manifest(manifest)
+        except (OSError, KeyError, TypeError) as e:
+            # Manifest update failure is non-fatal: snapshot file itself is
+            # already on disk (atomic rename succeeded above). Log + continue.
+            logger.warning(f"[manifest] update failed: "
+                           f"{type(e).__name__}: {e}")
+
+        size_mb = size_bytes / (1024 * 1024)
         logger.info(f"[snapshot] {dest.name} ({size_mb:.1f} MB) created "
-                    f"in {elapsed:.1f}s")
+                    f"in {elapsed:.1f}s sha256={sha256_hex[:12]}…")
 
         admin_id = resolve_admin_chat_id()
         if admin_id:
@@ -140,6 +266,7 @@ async def daily_db_snapshot_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                         f"<code>{dest.name}</code>\n"
                         f"size: <code>{size_mb:.1f} MB</code>\n"
                         f"süre: <code>{elapsed:.1f}s</code>\n"
+                        f"sha256: <code>{sha256_hex[:16]}…</code>\n"
                         f"kept: <code>{min(len(snaps) + 1, MAX_BACKUPS)}</code>"
                     ),
                     parse_mode="HTML",

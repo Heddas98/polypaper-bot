@@ -210,10 +210,12 @@ async def _send_wallets(message, db: "Database", user):
     for w in wallets:
         active = "✅" if w.is_primary else "•"
         text += f"{active} <b>{w.label}</b> – Balance: {w.balance:.4f} USDC.e\n"
+        # P0-03 (2026-05-08): "🔑" wallet_key_ button removed — even though
+        # the underlying handler was a placeholder, the icon misled users
+        # into thinking they could surface a private key from the bot.
         buttons.append([
             InlineKeyboardButton(f"{'✅ ' if w.is_primary else '👜 '}{w.label}", callback_data=f"select_wallet_{w.id}"),
             InlineKeyboardButton("ℹ", callback_data=f"wallet_info_{w.id}"),
-            InlineKeyboardButton("🔑", callback_data=f"wallet_key_{w.id}"),
             InlineKeyboardButton("🗑", callback_data=f"wallet_delete_{w.id}"),
         ])
     text += "\nYou can create or import more wallets with the buttons below."

@@ -837,11 +837,19 @@ async def backtest_replay_command(update: Update,
 async def _show_replay_panel(update: Update, db, snap_count: int,
                               market_count: int):
     """Show interactive replay config panel."""
-    # Get data range
+    # P0-08-E2 (2026-05-09): ob_snapshots v18 schema artık `ts_ms` (INTEGER)
+    # kullanıyor, eski `ts_iso` (TEXT) kaldırıldı. Burası ms epoch'tan ISO'ya
+    # dönüştürerek panel'de göstersin.
+    from datetime import datetime, timezone
     r = await db.conn.execute_fetchall(
-        "SELECT MIN(ts_iso), MAX(ts_iso) FROM ob_snapshots")
-    oldest = r[0][0][:16] if r and r[0][0] else "N/A"
-    newest = r[0][1][:16] if r and r[0][1] else "N/A"
+        "SELECT MIN(ts_ms), MAX(ts_ms) FROM ob_snapshots")
+    def _ms_to_iso(ts_ms):
+        if not ts_ms:
+            return "N/A"
+        return datetime.fromtimestamp(int(ts_ms) / 1000,
+                                      tz=timezone.utc).isoformat()[:16]
+    oldest = _ms_to_iso(r[0][0]) if r else "N/A"
+    newest = _ms_to_iso(r[0][1]) if r else "N/A"
 
     # Get asset breakdown
     r = await db.conn.execute_fetchall(

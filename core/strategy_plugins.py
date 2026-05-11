@@ -32,7 +32,12 @@ class StrategySignal:
 
 @dataclass
 class MarketSnapshot:
-    """Input data for strategy evaluation."""
+    """Input data for strategy evaluation.
+
+    P0-08-F (2026-05-08): `timeframe` field eklendi. Plugin'ler
+    TF-adaptive logic için kullanabilir (örn. 5m'de "son 1 dk" mantıklı,
+    24h'de değil; ratio-based `minutes_remaining/total_minutes` tercih).
+    """
     up_odds: float = 0.5
     down_odds: float = 0.5
     threshold: float = 0.50
@@ -40,10 +45,11 @@ class MarketSnapshot:
     odds_series: list = field(default_factory=list)  # Historical up_odds
     minutes_remaining: float = 2.5
     total_minutes: float = 5.0
+    timeframe: str = "5m"            # P0-08-F: TF context (5m/15m/1h/24h)
     spread: float = 0.02
     best_ask: float = 0.5
     best_bid: float = 0.48
-    metadata: dict = field(default_factory=dict)  # Phase 18.5: extra state (loss_streak, etc)
+    metadata: dict = field(default_factory=dict)
 
 
 class BaseStrategy(ABC):
@@ -666,8 +672,10 @@ class PennyContractStrategy(BaseStrategy):
             result.reason = f"spread_too_tight({s.spread:.3f}<{self._MIN_SPREAD})"
             return result
 
-        # Need some time remaining (avoid last-minute penny trades)
-        if s.minutes_remaining < 1.0:
+        # Need some time remaining (avoid last-minute penny trades).
+        # P0-08-F (2026-05-08): ratio-based (son %20 zaman) → TF-adaptive.
+        # 5m: <1.0 dk, 15m: <3.0 dk, 1h: <12 dk, 24h: <4.8 saat eşdeğeri.
+        if s.total_minutes > 0 and s.minutes_remaining < 0.2 * s.total_minutes:
             result.reason = "too_close_to_close"
             return result
 

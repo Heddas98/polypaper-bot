@@ -132,6 +132,21 @@ LIVE_STRATEGIES = {
     "M_BTC_5m_any_0.92",       # 35t 89% WR +$139 EV:+3.98  [PROTECTED]
     "BTC High-Threshold Pure",  # 30t 93% WR +$73  EV:+2.43  [PROTECTED]
     "AI_F_BTC_5m_up_0.38",     # 21t 86% WR +$104 EV:+4.93  [experimental]
+    # ── P0-08-H placeholders (2026-05-08) ──────────────────────────────
+    # Yeni TF/asset kombinasyonları için strategy ID convention:
+    #   M_{ASSET}_{TF}_any_0.NN   — Manual baseline (threshold=0.NN)
+    #   AI_F_{ASSET}_{TF}_up_0.NN  — AI fusion (autopilot suggests)
+    # Lifecycle: yeni strategy 0 trade ile exploration phase başlar.
+    # >=20 trade + WR>=55% + PnL>0 → evaluation; >=50t + WR>=60% → proven.
+    # **Live para için 100+ paper trade + Heddas manuel onayı gerekir.**
+    # Şu an aşağıdaki kombinasyonlar paper-only (LIVE whitelist'e EKLENMEDI):
+    #   - M_BTC_15m_any_0.92    (BTC 15m)
+    #   - M_ETH_15m_any_0.92    (ETH 15m)
+    #   - M_SOL_15m_any_0.92    (SOL 15m)
+    #   - M_XRP_15m_any_0.92    (XRP 15m)
+    #   - M_BTC_1h_any_0.92     (BTC 1h, series_id=10114)
+    #   - M_BTC_24h_any_0.92    (BTC 24h, series_id=41)
+    # Heddas onayıyla LIVE'a geçirilince yukarıya whitelist'e eklenecek.
 }
 
 
@@ -506,6 +521,7 @@ class LiveTrader:
 
     async def execute_market_order(
         self, side: str, coin: str, direction: str, amount: float,
+        tf: str = "5m",
     ) -> dict:
         """Manuel market BUY/SELL — Heddas 2026-05-05 direktifi.
 
@@ -517,6 +533,9 @@ class LiveTrader:
             coin: "BTC" / "ETH" / "SOL" / "XRP"
             direction: "UP" or "DOWN"
             amount: USDC tutarı
+            tf: "5m" / "15m" / "1h" / "24h" — P0-08-C (2026-05-08): 1h ve 24h
+                Polymarket'ta sadece BTC için Up/Down market sunulur, scanner
+                matrix bunu yansıtır. Geçersiz TF → market not found döner.
 
         Returns:
             {"status": "placed/filled/mock/error", "order_id": str,
@@ -546,12 +565,14 @@ class LiveTrader:
             return {"status": "error", "detail": "scanner not wired (engine ref missing)"}
 
         try:
-            market = scanner.get_current_market(coin, "5m")
+            market = scanner.get_current_market(coin, tf)
         except Exception as e:  # noqa: BLE001
             return {"status": "error", "detail": f"scanner: {type(e).__name__}: {e}"}
 
         if not market:
-            return {"status": "error", "detail": f"{coin} 5m active market not found"}
+            return {"status": "error",
+                    "detail": f"{coin} {tf} active market not found "
+                              f"(matrix support: {coin} {tf} kombinasyonu Polymarket'ta var mı?)"}
 
         slug = market.get("slug", "")
         token_ids = market.get("clobTokenIds")
@@ -563,7 +584,9 @@ class LiveTrader:
         if not token_ids or len(token_ids) < 2:
             return {"status": "error", "detail": "tokens not parseable"}
 
-        # UP=index 0, DOWN=index 1 (Polymarket 5m kripto convention)
+        # P0-08-C (2026-05-08): UP=token[0], DOWN=token[1] convention
+        # 5m, 15m, 1h, 24h Up/Down market'lerinin tümünde aynı (canlı doğrulandı:
+        # outcomes=["Up","Down"] sırası deterministik, clobTokenIds aynı sırayla).
         token_id = token_ids[0] if direction.upper() == "UP" else token_ids[1]
 
         # ── Get current price ────────────────────────────────────
@@ -596,7 +619,7 @@ class LiveTrader:
             self._trade_count += 1
             await self._save_state()
             logger.info(
-                f"💰 MANUAL {side} {coin} {direction} ${amount:.2f} "
+                f"💰 MANUAL {side} {coin} {direction} {tf} ${amount:.2f} "
                 f"@{price:.3f} → {status} (id={oid[:12]})"
             )
 

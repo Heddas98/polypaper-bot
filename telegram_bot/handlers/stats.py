@@ -4,6 +4,7 @@ Per-strategy win rate, PnL, trade count breakdown.
 """
 import asyncio
 import logging
+from core.slug_utils import infer_asset_from_slug
 
 import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -83,8 +84,8 @@ async def _send_stats(message, db, user, context):
         if recent:
             for r in recent:
                 e = "🟢" if r.pnl > 0 else "🔴"
-                p = r.event_slug.split("-")
-                a = p[0].upper() if p else "?"
+                # P0-08-D (2026-05-08): slug_utils
+                a = infer_asset_from_slug(r.event_slug)
                 text += f"{esc(e)} {a} {r.direction.value.upper()} {r.pnl:+.2f}\n"
         else:
             text += "Henuz islem yok.\n"
@@ -291,7 +292,9 @@ async def _send_trades(message, db, user, page=0, edit=False):
             created_at = trade.get("created_at", "")
 
             # Extract asset from slug (e.g., "BTC-2026-04-11" → "BTC")
-            asset = slug.split("-")[0].upper() if "-" in slug else slug.upper()
+            asset = infer_asset_from_slug(slug)
+            if asset == "?":
+                asset = slug.upper()  # fallback
 
             # Status emoji
             status_emoji = "✅" if status == "closed" else "🟡" if status == "open" else "⚪"

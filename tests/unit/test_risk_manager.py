@@ -90,8 +90,10 @@ class TestAssetLimits:
     def test_extract_asset_from_slug(self, rm):
         assert rm._extract_asset_from_slug("BTC-UP-DOWN-5m") == "BTC"
         assert rm._extract_asset_from_slug("eth-15m") == "ETH"
-        # Empty string → empty first segment (not "?", since split returns [""])
-        assert rm._extract_asset_from_slug("") == ""
+        # P0-08-D refactor (2026-05-08): slug parser delegates to
+        # core.slug_utils.infer_asset_from_slug, which returns "?" for
+        # empty / unparseable inputs (was "" pre-refactor).
+        assert rm._extract_asset_from_slug("") == "?"
 
 
 class TestRecordTradeOpened:

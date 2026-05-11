@@ -34,7 +34,9 @@ BINANCE_BASE = "https://api.binance.com/api/v3"
 
 
 class ExternalFeed:
-    def __init__(self):
+    def __init__(self, db=None):
+        # P0-08-E6 (2026-05-08): db reference for external_prices persist
+        self.db = db
         self._prices: dict[str, dict] = {}
         self._open_prices: dict[str, float] = {}  # slug → price at market open
         self._price_history: dict[str, list[tuple[float, float]]] = {}  # Phase 79b: asset → [(ts, price), ...]
@@ -100,6 +102,7 @@ class ExternalFeed:
                 if price and price > 0:
                     self._prices[asset] = {"price": price, "ts": now}
                     self._record_history(asset, now, price)
+                    self._persist_to_db(asset, price, now)
         else:
             await self._fetch_httpx()
 
@@ -135,6 +138,7 @@ class ExternalFeed:
                         self._prices[asset] = {"price": price, "ts": now}
                         # Phase 79b: Record price history for momentum calc
                         self._record_history(asset, now, price)
+                        self._persist_to_db(asset, price, now)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -227,3 +231,26 @@ class ExternalFeed:
             "prices": {k: round(v["price"], 2) for k, v in self._prices.items()},
             "open_prices": {k: round(v, 2) for k, v in self._open_prices.items()},
         }
+
+    def _persist_to_db(self, asset: str, price: float, ts: float):
+        """P0-08-E6 (2026-05-08): external_prices DB persist (Binance spot)."""
+        if self.db is None or self.db.conn is None:
+            return
+        symbol = asset.upper() + "USDT"
+        ts_ms = int(ts * 1000)
+        safe_create_task(
+            self._persist_async(ts_ms, symbol, "binance", price),
+            name=f"persist_ext_{asset}",
+        )
+
+    async def _persist_async(self, ts_ms: int, symbol: str, source: str, price: float):
+        try:
+            await self.db.conn.execute(
+                "INSERT OR REPLACE INTO external_prices "
+                "(ts_ms, symbol, source, price) VALUES (?, ?, ?, ?)",
+                (ts_ms, symbol, source, price),
+            )
+            await self.db.conn.commit()
+        except Exception as e:  # noqa: BLE001
+            pass  # external_prices yazımı non-critical
+
