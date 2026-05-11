@@ -28,7 +28,7 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Optional
 
 import aiosqlite
 
@@ -134,10 +134,10 @@ class TradeMemory:
 
     def __init__(self):
         self.db = None
-        self._cache: Dict[str, PatternStats] = {}
+        self._cache: dict[str, PatternStats] = {}
         self._last_refresh = 0.0
         self._refresh_interval = 300  # 5 min cache
-        self._mistakes: List[dict] = []  # recent mistakes for /mistakes command
+        self._mistakes: list[dict] = []  # recent mistakes for /mistakes command
 
     async def initialize(self, db):
         """Initialize with DB reference and ensure table exists."""
@@ -321,7 +321,7 @@ class TradeMemory:
             logger.debug(f"trade_memory.get_pattern: {e}")
             return None
 
-    async def get_worst_patterns(self, limit: int = 10) -> List[PatternStats]:
+    async def get_worst_patterns(self, limit: int = 10) -> list[PatternStats]:
         """Get worst-performing patterns (mistakes to avoid)."""
         if not MEMORY_ENABLED or self.db is None:
             return []
@@ -369,7 +369,7 @@ class TradeMemory:
             logger.debug(f"trade_memory.get_worst: {e}")
             return []
 
-    async def get_best_patterns(self, limit: int = 10) -> List[PatternStats]:
+    async def get_best_patterns(self, limit: int = 10) -> list[PatternStats]:
         """Get best-performing patterns (strengths to exploit)."""
         if not MEMORY_ENABLED or self.db is None:
             return []
@@ -412,7 +412,7 @@ class TradeMemory:
             logger.debug(f"trade_memory.get_best: {e}")
             return []
 
-    def format_telegram(self, patterns: List[PatternStats], title: str = "Patterns") -> str:
+    def format_telegram(self, patterns: list[PatternStats], title: str = "Patterns") -> str:
         """Format pattern list for Telegram."""
         if not patterns:
             return f"<i>Henüz yeterli {esc(title.lower())} verisi yok.</i>"

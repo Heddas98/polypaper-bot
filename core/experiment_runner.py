@@ -19,7 +19,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Dict, List, Optional
+from typing import Optional
 
 import aiosqlite
 
@@ -33,7 +33,7 @@ MAX_PARAMS = int(os.getenv("EXPERIMENT_MAX_PARAMS", "5"))
 class ExperimentResult:
     """Result of an experiment run."""
 
-    params_changed: Dict[str, tuple] = field(default_factory=dict)  # param → (old, new)
+    params_changed: dict[str, tuple] = field(default_factory=dict)  # param → (old, new)
     baseline_wr: float = 0.0
     experiment_wr: float = 0.0
     baseline_pnl: float = 0.0
@@ -61,13 +61,13 @@ class ExperimentRunner:
     def __init__(self):
         self.db = None
         self._pending: Optional[ExperimentResult] = None
-        self._history: List[ExperimentResult] = []
+        self._history: list[ExperimentResult] = []
 
     async def initialize(self, db):
         self.db = db
         logger.info("🧪 Phase 77: Experiment Runner initialized")
 
-    def parse_params(self, args: List[str]) -> Dict[str, str]:
+    def parse_params(self, args: list[str]) -> dict[str, str]:
         """Parse KEY=VALUE pairs from command args."""
         params = {}
         for arg in args:
@@ -76,7 +76,7 @@ class ExperimentRunner:
                 params[key.strip().upper()] = val.strip()
         return params
 
-    async def run_experiment(self, params: Dict[str, str]) -> ExperimentResult:
+    async def run_experiment(self, params: dict[str, str]) -> ExperimentResult:
         """Run an experiment comparing current vs proposed params."""
         if not EXPERIMENT_ENABLED:
             return ExperimentResult(recommendation="disabled")
@@ -177,7 +177,7 @@ class ExperimentRunner:
 
     def _estimate_impact(
         self, key: str, old_val: str, new_val: str, trades: list
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Heuristic estimate of parameter change impact."""
         impact = {"wr_delta": 0.0, "pnl_delta": 0.0, "trade_delta": 0}
 
@@ -224,7 +224,7 @@ class ExperimentRunner:
 
         return impact
 
-    def apply_pending(self) -> Optional[Dict[str, tuple]]:
+    def apply_pending(self) -> Optional[dict[str, tuple]]:
         """Apply pending experiment's params to os.environ."""
         if self._pending is None:
             return None

@@ -276,7 +276,7 @@ async def main():
     ws_client = PolymarketWebSocket(db=db)
     ws_available = True
     try:
-        import websockets
+        import websockets  # noqa: F401 — availability probe via ImportError catch
 
         logger.info("✅ websockets package found → dual-source mode")
     except ImportError:

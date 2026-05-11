@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Sequence
-from typing import Optional, Tuple
+from typing import Optional
 
 
 def pearson_like(
-    pairs: Sequence[Tuple[float, float]] | Iterable[Tuple[float, float]],
+    pairs: Sequence[tuple[float, float]] | Iterable[tuple[float, float]],
 ) -> Optional[float]:
     """Pearson correlation for a sequence of ``(x, y)`` pairs.
 

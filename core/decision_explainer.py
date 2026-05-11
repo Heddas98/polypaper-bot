@@ -19,7 +19,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import List, Optional
+from typing import Optional
 
 import aiosqlite
 
@@ -50,7 +50,7 @@ class ReasoningChain:
     direction: str = ""
     final_score: float = 0.0
     trade_amount: float = 0.0
-    steps: List[ReasoningStep] = field(default_factory=list)
+    steps: list[ReasoningStep] = field(default_factory=list)
     summary_tr: str = ""  # Turkish summary for Telegram
     summary_en: str = ""  # English summary for logs
     created_at: str = ""
@@ -154,7 +154,7 @@ class DecisionExplainer:
     """
 
     def __init__(self):
-        self._recent: List[ReasoningChain] = []  # last N decisions
+        self._recent: list[ReasoningChain] = []  # last N decisions
         self._max_recent = 100
         self.db = None
 
@@ -214,7 +214,7 @@ class DecisionExplainer:
             # enforces str, but shield against future additions).
             logger.debug(f"reasoning persist: {e}")
 
-    def get_recent(self, n: int = 5, trades_only: bool = True) -> List[ReasoningChain]:
+    def get_recent(self, n: int = 5, trades_only: bool = True) -> list[ReasoningChain]:
         """Get recent reasoning chains."""
         if trades_only:
             chains = [c for c in self._recent if c.decision == "trade"]

@@ -28,8 +28,6 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict
-
 logger = logging.getLogger("polypaper.circuit_breaker")
 
 
@@ -101,7 +99,7 @@ class CircuitBreaker:
 
 
 # ── Registry ────────────────────────────────────────────────────
-_registry: Dict[str, CircuitBreaker] = {}
+_registry: dict[str, CircuitBreaker] = {}
 
 
 def get_breaker(

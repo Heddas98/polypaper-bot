@@ -30,7 +30,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Dict, Optional
+from typing import Optional
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
@@ -174,7 +174,7 @@ class RiskManager:
     def __init__(self, limits: Optional[RiskLimits] = None):
         self.limits = limits or RiskLimits()
         self.state = RiskState()
-        self.per_asset_exposure: Dict[str, float] = {}  # asset → total $ exposure
+        self.per_asset_exposure: dict[str, float] = {}  # asset → total $ exposure
 
     def _extract_asset_from_slug(self, market_slug: str) -> str:
         """Extract asset (BTC, ETH, SOL, XRP) from slug.
@@ -298,7 +298,7 @@ class RiskManager:
                 else:
                     # No last_loss_ts recorded (pre-Phase49 state): stamp now
                     # so future cooldowns work, and keep the gate closed for now.
-                    from datetime import datetime as _dt, timezone as _tz
+                    from datetime import datetime as _dt
 
                     self.state.last_loss_ts = _dt.now(UTC).isoformat()
             except (ValueError, TypeError, AttributeError) as _e:

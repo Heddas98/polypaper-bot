@@ -49,13 +49,13 @@ import time
 import traceback
 from collections import deque
 from collections.abc import Awaitable, Callable
-from typing import Any, Deque, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("polypaper.bg_task")
 
 # ── Module-level state ────────────────────────────────────────────────
 _BG_TASK_REGISTRY: dict[str, dict] = {}
-_RECENT_ERRORS: Deque[dict] = deque(maxlen=int(os.getenv("BG_TASK_HISTORY_SIZE", "50")))
+_RECENT_ERRORS: deque[dict] = deque(maxlen=int(os.getenv("BG_TASK_HISTORY_SIZE", "50")))
 _NOTIFY_COOLDOWN: dict[str, float] = {}
 _NOTIFY_HANDLER: Optional[Callable[[str, str, str], Awaitable[None]]] = None
 _NOTIFY_ENABLED = os.getenv("BG_TASK_NOTIFY_ENABLED", "1") in ("1", "true", "True", "yes", "on")

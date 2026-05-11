@@ -25,7 +25,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ class NewsEntry:
     published: float = 0.0  # Unix timestamp
     source: str = ""
     sentiment_score: float = 0.0  # -1.0 to 1.0
-    assets: List[str] = field(default_factory=list)
+    assets: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -148,7 +148,7 @@ class NewsSentiment:
 class NewsSnapshot:
     """Full news state."""
 
-    sentiments: Dict[str, NewsSentiment] = field(default_factory=dict)
+    sentiments: dict[str, NewsSentiment] = field(default_factory=dict)
     total_entries: int = 0
     last_poll: float = 0.0
     feeds_ok: int = 0
@@ -163,8 +163,8 @@ class NewsScanner:
     """
 
     def __init__(self):
-        self._entries: List[NewsEntry] = []
-        self._sentiments: Dict[str, NewsSentiment] = {}
+        self._entries: list[NewsEntry] = []
+        self._sentiments: dict[str, NewsSentiment] = {}
         self._last_poll: float = 0.0
         self._feeds_ok: int = 0
         self._feeds_failed: int = 0
@@ -245,7 +245,7 @@ class NewsScanner:
             f"assets: {list(self._sentiments.keys())}"
         )
 
-    def _parse_rss(self, xml_text: str, source_url: str) -> List[NewsEntry]:
+    def _parse_rss(self, xml_text: str, source_url: str) -> list[NewsEntry]:
         """Parse RSS XML into NewsEntry list."""
         entries = []
         try:
@@ -340,7 +340,7 @@ class NewsScanner:
         normalized = score / max(matches, 1)
         return max(-1.0, min(1.0, normalized))
 
-    def _detect_assets(self, text: str) -> List[str]:
+    def _detect_assets(self, text: str) -> list[str]:
         """Detect which assets are mentioned in text."""
         text_lower = text.lower()
         found = []
@@ -362,8 +362,8 @@ class NewsScanner:
 
     def _aggregate_sentiments(self):
         """Aggregate per-entry scores into per-asset sentiments."""
-        asset_scores: Dict[str, List[float]] = {}
-        asset_headlines: Dict[str, str] = {}
+        asset_scores: dict[str, list[float]] = {}
+        asset_headlines: dict[str, str] = {}
 
         for entry in self._entries:
             for asset in entry.assets:

@@ -421,7 +421,7 @@ class StrategySuggester:
             total_pnl = 0.0
             market_list = list(markets.items())[-50:]
 
-            for slug, snapshots in market_list:
+            for _slug, snapshots in market_list:
                 if len(snapshots) < 3:
                     continue
 
