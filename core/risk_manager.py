@@ -283,7 +283,7 @@ class RiskManager:
             cooled_down = False
             try:
                 if self.state.last_loss_ts:
-                    from datetime import datetime as _dt, timezone as _tz
+                    from datetime import datetime as _dt
 
                     last_dt = _dt.fromisoformat(self.state.last_loss_ts)
                     delta_h = (_dt.now(UTC) - last_dt).total_seconds() / 3600.0
