@@ -2,7 +2,7 @@
 
 > **Polymarket'te kripto Up/Down piyasalarında otomatik kâğıt + canlı işlem yapan Telegram botu.**
 >
-> Polyscout.io klonu · Python 3.11 · Polymarket V2 SDK · Tek bir Telegram penceresinden tam kontrol
+ Python 3.11 · Polymarket V2 SDK · Tek bir Telegram penceresinden tam kontrol
 
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Polymarket SDK](https://img.shields.io/badge/polymarket-V2-success.svg)](https://docs.polymarket.com)
