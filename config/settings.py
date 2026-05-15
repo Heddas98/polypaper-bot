@@ -279,13 +279,49 @@ class Settings:
     WEBSITE_URL: str = "https://polyscout.io"
 
     def validate(self) -> list[str]:
+        """Boot-time config validation. Returns list of error strings (empty = OK).
+
+        C-01 (2026-05-15 ultra-audit): LIVE mode requires explicit secrets +
+        explicit ADMIN_TELEGRAM_ID. The previous version only checked
+        TELEGRAM_BOT_TOKEN; with empty .env on a mainnet-LIVE bot, the
+        `is_admin()` fallback "ADMIN_TELEGRAM_ID==0 → everyone admin" would
+        grant any incoming Telegram user full admin (env_toggle, force_settle,
+        live buy/sell). Mainnet pUSD theft window.
+        """
         errors = []
         if not self.TELEGRAM_BOT_TOKEN:
             errors.append("TELEGRAM_BOT_TOKEN is not set")
+        # C-01: defense-in-depth — LIVE mode requires real admin + signer.
+        if self.LIVE_ENABLED:
+            if self.ADMIN_TELEGRAM_ID == 0:
+                errors.append(
+                    "LIVE_ENABLED=true but ADMIN_TELEGRAM_ID is unset/0 — "
+                    "is_admin() would grant admin to every Telegram user "
+                    "(backdoor C-01, audit 2026-05-15)"
+                )
+            if not self.POLYGON_PRIVATE_KEY:
+                errors.append("LIVE_ENABLED=true but POLYGON_PRIVATE_KEY missing")
+            if not self.POLYGON_WALLET:
+                errors.append("LIVE_ENABLED=true but POLYGON_WALLET missing")
         return errors
 
     def is_admin(self, telegram_id: int) -> bool:
-        """Phase 17: Check admin. If ADMIN_TELEGRAM_ID=0, first user is admin."""
+        """Phase 17 + C-01 (2026-05-15 ultra-audit): strict admin check.
+
+        Previous behavior: ``ADMIN_TELEGRAM_ID==0`` granted admin to ALL
+        Telegram users (intended "single-user dev mode" fallback). Audit
+        C-01 flagged this as a mainnet backdoor — an empty/corrupted .env
+        on a LIVE bot would silently grant the first incoming user full
+        admin (env_toggle, force_settle, live buy/sell). Fixed: in LIVE
+        mode the fallback is disabled (deny by default). Paper mode keeps
+        the single-user fallback for local dev ergonomics.
+        """
         if self.ADMIN_TELEGRAM_ID == 0:
-            return True  # No admin set = single-user mode
+            # LIVE mode: deny by default (no admin set = no admin grants).
+            # validate() already raises a boot-time error, but we double-gate
+            # here in case validate() is bypassed by a future code path.
+            if self.LIVE_ENABLED:
+                return False
+            # Paper mode: keep single-user dev fallback (matches old behavior).
+            return True
         return telegram_id == self.ADMIN_TELEGRAM_ID
