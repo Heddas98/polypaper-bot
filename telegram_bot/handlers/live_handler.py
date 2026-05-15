@@ -1150,13 +1150,30 @@ async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, si
     if direction not in ("UP", "DOWN"):
         await update.message.reply_text(f"❌ Direction UP veya DOWN olmalı, '{direction}' verildi.")
         return
+    # H-03 (2026-05-15 ultra-audit): float() accepts 'inf', '-inf', 'nan' —
+    # these pass `<=0` check, then downstream math (Kelly sizing, fee calc,
+    # CLOB order) produce undefined behaviour. Reject non-finite + cap upper
+    # bound. Hard cap 100$ is well above LIVE_BUDGET default (1.49) but
+    # gives margin if Heddas hot-tunes LIVE_BUDGET for testing.
+    import math as _math
     try:
         amount = float(args[2])
     except ValueError:
         await update.message.reply_text(f"❌ Tutar sayı olmalı: '{args[2]}'")
         return
+    if not _math.isfinite(amount):
+        await update.message.reply_text(
+            f"❌ Tutar sonlu sayı olmalı (inf/nan kabul edilmez): '{args[2]}'"
+        )
+        return
     if amount <= 0:
         await update.message.reply_text("❌ Tutar pozitif olmalı.")
+        return
+    if amount > 100.0:
+        await update.message.reply_text(
+            f"❌ Tutar 100$ ile sınırlı (verilen: {amount:.2f}). "
+            f"Daha yüksek için /envt LIVE_BUDGET ve UI guard'ı bypass et."
+        )
         return
 
     # P0-08-C: opsiyonel TF arg (4. position). Default 5m geri uyumluluk için.
