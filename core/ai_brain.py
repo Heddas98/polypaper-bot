@@ -7,7 +7,8 @@ FIXES from Phase 31:
 - AI strategies tracked SEPARATELY in prompt
 - Mini-backtest before CREATE
 - Real learning: outcome measurement + explicit feedback to Claude
-- 10-minute cycle (was 5min)
+- Cycle: 5min (Phase 31) → 10min (Phase 32) → 1h default (Sprint 3 S3-01,
+  ENV-configurable via AI_BRAIN_CYCLE)
 
 Architecture:
   GATHER (DB + Binance) → BACKTEST (historical) → CLAUDE (JSON actions)
@@ -76,7 +77,7 @@ def _get_llm_ratelimit_min_cost() -> float:
 # keep working with zero source changes.
 from services.ai_advisor.llm_clients import LLMRateLimitError  # noqa: E402,F401
 
-# Phase 32: Tighter safety + 10min cycle
+# Phase 32: Tighter safety + 10min cycle (historical — now 1h default; see L104)
 # Phase 75+: CHANGED to 6 hour cooldown + 50 trade minimum (GPT recommendation)
 MAX_ACTIONS = 8
 MAX_SCALE_HUMAN = 3.0  # Human strategies: max 3x
