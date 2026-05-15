@@ -1,8 +1,8 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-15 (post-commit-chain konsolide + push'a hazır).
-> Audit dosyası: `docs/audits/2026_05_13_ultra_audit.md`.
+> Son güncelleme: 2026-05-15 (post-ultra-audit Wave 1 closure).
+> Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
 
@@ -20,15 +20,17 @@
 
 ## Mevcut Faz
 
-**P1 sprint** (P0 = **6/9 done** — 2026-05-13 audit gerçek sayım; P1-01 + P1-02 wave'lar aktif).
-- P1-01: Coverage source genişletme (%42 → %60 ratchet, şu an %44.06).
+**P1 sprint** + 2026-05-15 ultra-audit Wave 1 closure.
+- P1-01: Coverage source genişletme (%42 → %60 ratchet, şu an %44.06 toplam ama kritik path <%30).
 - P1-02: AI Brain microservice (Wave 1+2a+2b+2c kapalı, Wave 3 approval queue backlog).
-- Açık P0: P0-02 (keyring), P0-04 (LIVE_BUDGET 2FA), P0-08 (5m default OFF) — hiçbiri mainnet blocker değil.
-- Yeni P0 öneri (audit 2026-05-13): P0-10..P0-15 (precision, AI advisor auth, docs drift guard, PROTECTED_STRATEGIES, log fix, dashboard track).
+- Açık P0 eski: P0-02 (keyring), P0-04 (LIVE_BUDGET 2FA), P0-08 (5m default OFF) — mainnet blocker değil.
+- Audit 2026-05-13: P0-10 (fees precision) ✅, P0-14 (1h cycle log) ✅ kapalı; P0-11..P0-13, P0-15 backlog.
+- **Audit 2026-05-15 Wave 1 ✅ kapalı** (4 fix): C-01 is_admin backdoor, C-02 slug prompt-injection sanitize, H-03 /buy inf/nan reject, L-01 ruff F401 2 violations.
+- Audit 2026-05-15 Wave 2-3 backlog: H-01 (AI Advisor auth default OFF), H-02 (budget race), H-04..H-06, M-01..M-08, C-03 critical-path tests.
 
-**Test baseline:** 3,569 PASS / 0 FAIL / 42 skip · Coverage %44.06 · mypy strict 0 hata · ruff 0 violation (memory iddiası — Heddas yerelde son full regression koştursun).
+**Test baseline (2026-05-15 doğrulanmış):** 3,645 collected · Ruff 0 violation (Wave 1 sonrası) · Coverage %44.06 toplam (kritik path <%30, C-03 hâlâ açık) · mypy strict baseline corrupted (M-07, regen gerekiyor).
 
-**✅ Commit zinciri konsolide (2026-05-15):** Önceki "39 modified + 18 untracked" CLOSED. 8-commit duplikat zincir (v1 21:39 + v2 21:49) tek temiz 4-thematic + 3 follow-up commit'e indirgendi: `fd79c77` fix(fees) · `4fc5121` feat(p1-02+p2-04) · `e650172` test(p1-01) · `057090c` docs(memory+audit) + drift fix + P0-14 + P0-10. Origin'e push'lanıyor.
+**✅ Commit zinciri (2026-05-15):** Önceki "39 modified + 18 untracked" CLOSED. 8 duplikat → 4 thematic + 3 follow-up commit (push edildi: `1de180c..3289636`). Sonra ultra-audit + Wave 1: `6e4b9ba` docs(audit-2026-05-15) · `93136c6` fix(c-01) · `bda186a` fix(c-02) · `9c01bca` fix(h-03) · `47c7e25` fix(l-01).
 
 ## Tech Stack
 

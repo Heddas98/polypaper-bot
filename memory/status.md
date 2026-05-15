@@ -1,8 +1,9 @@
-# Project Status — 2026-05-15 Snapshot (post-commit-chain konsolide)
+# Project Status — 2026-05-15 Snapshot (post-ultra-audit Wave 1)
 
 > Bu dosya canlı durumun özetidir. Detay için `02_POLYPAPER_YOL_HARITASI.md` + `03_POLYPAPER_PROGRESS_LOG.md`.
 > **2026-05-13 ultra-audit**: `docs/audits/2026_05_13_ultra_audit.md` — memory stale fix.
 > **2026-05-15 commit zinciri**: 8 duplikat commit (v1+v2) → 4 thematic + 3 follow-up commit + push.
+> **2026-05-15 ultra-audit Wave 1**: `docs/audits/2026_05_15_ultra_audit.md` — 22 bulgu (3 Critical, 6 High, 8 Medium, 5 Low); Wave 1 (C-01 + C-02 + H-03 + L-01) kapalı, Wave 2-3 backlog.
 
 ## TL;DR
 
