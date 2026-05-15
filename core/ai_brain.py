@@ -661,7 +661,14 @@ CONSENSUS KURALI:
                             slug = mkt.get("slug", "")
                             up = mkt.get("up_odds", 0.5)
                             down = mkt.get("down_odds", 0.5)
-                            lines.append(f"  {key}: UP={up:.2f} DOWN={down:.2f} slug={slug[:40]}")
+                            # C-02 (2026-05-15 ultra-audit): Polymarket slug is
+                            # user-controlled content. Escape via json.dumps so
+                            # newlines/quotes/control chars cannot smuggle pseudo
+                            # instructions into the LLM context window.
+                            safe_slug = json.dumps(slug[:40] if slug else "")
+                            lines.append(
+                                f"  {key}: UP={up:.2f} DOWN={down:.2f} slug={safe_slug}"
+                            )
                     if ext_feed and ext_feed.is_available:
                         for asset in ("BTC", "ETH", "SOL", "XRP"):
                             mom = ext_feed.get_spot_momentum(asset, lookback_seconds=60)
