@@ -97,7 +97,7 @@
 
 ## P1 — Yüksek (3 ay hedef)
 
-### P1-01 [~] Coverage source genişlet, eşik %60 — **XL** PARTIAL ✅ 2026-05-09
+### P1-01 [~] Coverage source genişlet, eşik %60 — **XL** PARTIAL ✅ 2026-05-09 / Wave 1 ilerleme 2026-05-11
 - **Dosya:** `.coveragerc`, `pytest.ini`, `tests/unit/test_p1_handlers_smoke.py` (NEW), `data_store/audits/synthetic_test_priority.md` (NEW)
 - **Yapılan (bu seans):**
   - **P1-01-a:** `.coveragerc` source = core → core + data + telegram_bot + backtest. omit'e scripts/ eklendi.
@@ -114,9 +114,22 @@
     - Beklenen: handler coverage 7-10% → 50-60%.
   - **P1-01-c3:** `.coveragerc` `[report] fail_under = 42` baseline lock → **2. ölçüm sonrası 43'e bumplandı** (handler smoke testleri %43.4 baseline'ı verdi, 0 fail). Ratchet ladder: 42 → **43** ← CURRENT → 45 → 50 → 55 → 60.
   - **P1-01-c4:** `data_store/audits/synthetic_test_priority.md` NEW — sentetik refactor priority listesi (Wave 1-4 plan, modül-modül ROI tablosu, deferred items).
-- **Sonraki adım (P1-01 follow-up — sonraki seans):**
-  - Re-run baseline (Heddas Windows): yeni handler smoke'larla coverage rakamı %43-45 beklenir → eşiği güncelle.
-  - Wave 1 (kolay): TestCandleBuilder re-write (`test_candle_builder_multi_tf.py`).
+- **P1-01 Follow-up Wave 1 (2026-05-11):**
+  - **Wave 1 kolay — DONE:** TestCandleBuilder + TestCandleBuilderEdgeFlow re-write tamamlandı (`tests/unit/test_p0_p1_extra_coverage.py`). 10 + 5 = 15 yeni test method, P0-08-E3 multi-TF API'sine uyumlu. Eski 2 sınıftaki `@pytest.mark.skip(P1-01-c1)` decorator'ları kaldırıldı. Yeni testler: init/state, invalid_price, first_candle, high_low_close, accumulate_volume, flush_all_list, flush_all_empty, active_count, multi_tf_same_asset_separate_slots (P0-08-E3 contract), default_ts_uses_time, concurrent_asset_tf_building, oscillating_prices, flush_all_preserves_metadata, invalid_price_no_slot, active_count_decreases_after_flush.
+  - **Wave 1b — DONE (2026-05-11 ikinci batch):** CandleCollector aggregation + EngineSettlement helpers.
+    - `TestCandleCollectorAggregationWave1b` 9 test: 5m passthrough, unknown TF, empty source, 15m bucket (3× 5m → 1× 15m + 6× 5m → 2× 15m + limit enforcement), init attrs sane, stop-before-start safety, start idempotent.
+    - `TestEngineSettlementHelpersWave1b` 2 test: `_get_settle_lock` lazy/singleton + `_taker_fee` delegation.
+    - Beklenen: `data/candle_collector.py` 36.6% → ~55%, `core/engine_settlement.py` 9.7% → ~12%.
+  - **Wave 2 — DONE (2026-05-11 Batch 3):** Handler real-behavior + slug/fees helpers.
+    - StatsHubKeyboard (2) + EnvToggle (4) + SlugUtils parametrize (×11) + FeesV2 edge zones (5 + 3).
+    - Beklenen: `core/slug_utils.py` 69.1% → ~80%, `config/env_whitelist.py` ~%50.
+  - **Wave 3 + 3b — DONE (2026-05-11 Batch 4):** engine_signals + engine_fills pure helpers.
+    - `TestEngineSignalsHelpersWave3` 16: _parse_zones (4) + _in_allowed_zone (3) + _classic_free_mode (4) + _get_brier_bin (2) + _compute_pending_reserved (2).
+    - `TestEngineFillsHelpersWave3` 9: _snap_to_tick (3) + _compute_ob_imbalance (6).
+    - Beklenen: engine_signals.py 15.7% → ~18-19%, engine_fills.py 33.7% → ~37%.
+- **Sonraki adım (P1-01 follow-up — kalan):**
+  - Re-run baseline (Heddas Windows): Wave 1 sonrası coverage rakamı %43.4 → ~%45-46 beklenir → eşiği güncelle (43 → 45 ratchet).
+  - Wave 1b (kolay): engine_settlement gerçek path test (P0-08-D refactor sonrası multi-TF settlement). ~1 saat, DB fixture gerek.
   - Wave 2 (orta): handler real-behavior testleri (mevcut RuntimeWarning'leri çöz).
   - Wave 3 (zor): engine_signals/engine_settlement davranış testleri.
   - Wave 4 (büyük): backtest data_sources unit coverage.
@@ -127,7 +140,7 @@
   - ⏸ Sentetik refactor — priority listesi hazır, parça parça yapılacak.
   - ⏸ CI hard-fail — `.coveragerc fail_under` lokal pytest'te aktif; CI workflow ayrı iş.
 
-### P1-02 [~] AI Brain'i microservice'e ayır — **XL** PARTIAL ✅ 2026-05-11 (Wave 1 scaffold)
+### P1-02 [~] AI Brain'i microservice'e ayır — **XL** PARTIAL ✅ 2026-05-11 (Wave 1+2a+2b+2c — service ekosistemi tamam, Wave 3 approval queue backlog)
 - **Dosya:** `services/__init__.py` + `services/ai_advisor/{__init__.py, app.py, models.py}` NEW, `core/ai_brain_client.py` NEW, `scripts/{start,stop,smoke}_ai_advisor.bat` NEW, `tests/integration/test_ai_advisor_service.py` NEW, `requirements-dev.txt` (fastapi+uvicorn+httpx)
 - **Bekliyor:** P0-01 ✅ tamam (approval queue mevcut)
 - **Hedef:** HTTP POST /suggest → JSON suggestion list; engine pollar, action SQL'e gitmez.
@@ -140,8 +153,20 @@
 - **Davranış değişikliği:**
   - **Şu an sıfır.** AI_ADVISOR_ENABLED=false default → bot eski davranışı (in-process AI Brain).
   - Heddas isterse `set AI_ADVISOR_ENABLED=true` + `scripts\start_ai_advisor.bat` → bot HTTP'a delege eder (Wave 1 stub HOLD döner).
-- **Kapsam dışı (Wave 2+):**
-  - **Wave 2** — `core/ai_brain.py` 990 stmt LLM logic'i `services/ai_advisor/brain_core.py`'a taşı. BRAIN_SYSTEM prompt + ModelRouter + optimist/critic chain. core/ai_brain.py thin wrapper.
+- **Wave 2a (2026-05-11, DONE):** Static config taşıma — Heddas direktifi A+B sırası.
+  - `services/ai_advisor/prompts.py` NEW: BRAIN_SYSTEM (8.9KB), TRADE_SYSTEM, MISTAKE_SYSTEM, OPTIMIST_SYSTEM, CRITIC_SYSTEM — 5 prompt blok'u taşındı.
+  - `services/ai_advisor/router.py` NEW: ModelRouter 4-tier routing (Groq→Claude fallback), TASK_MODEL_MAP 11 task tipi.
+  - `core/ai_brain.py` ~85 satır cut → 8-satır import shim. `from core.ai_brain import BRAIN_SYSTEM, ModelRouter, ...` çalışmaya devam ediyor.
+  - `services/ai_advisor/app.py` /stats artık prompt fingerprint + ModelRouter task listesini expose ediyor.
+  - 4 yeni test (`tests/integration/test_ai_advisor_service.py`): prompts import, router dispatch, core/ai_brain shim alias (identity check), /stats yeni alanlar.
+  - Davranış değişikliği SIFIR.
+- **Wave 2b (2026-05-11, DONE):** Stateless HTTP wrappers extraction.
+  - `services/ai_advisor/llm_clients.py` NEW: `LLMRateLimitError` (canonical, shim'lendi), `parse_retry_after`, `build_claude_payload`, `build_chat_payload`, `do_claude_call`, `do_groq_call`, `do_openrouter_call` — hepsi stateless, api_key parametre olarak alıyor (no module globals).
+  - `core/ai_brain.py` `_do_claude / _do_groq / _do_openrouter` → 2-3 satır thin wrapper (delegate to new module). Bot in-process davranışı SIFIR değişiklik.
+  - `LLMRateLimitError` import shim: `from core.ai_brain import LLMRateLimitError` hâlâ çalışıyor (canonical class `services/ai_advisor/llm_clients.py`'da).
+  - 9 yeni test (`tests/integration/test_ai_advisor_service.py`): module importable + state + parse_retry_after + payload builders + shim identity + 3 HTTP path mocks (soft fail / 429 / success).
+- **Kapsam dışı (Wave 2c+):**
+  - **Wave 2c (backlog, ~1 saat):** `services/ai_advisor/app.py` /suggest gerçek LLM çağrısı. Caller `do_claude_call/do_groq_call/do_openrouter_call`'ı `loop.run_in_executor` ile sarmalayıp stub HOLD yerine gerçek suggestion döndürür.
   - **Wave 3** — approval-queue flow service üzerinden. Action gönderim + Telegram approval round-trip.
   - **Wave 4** — docker-compose.yml (P1-05 Linux/Docker ertelenmedikçe).
 - **Acceptance kriteri (revize):**
@@ -156,12 +181,12 @@
   - `scripts\stop_ai_advisor.bat` → temizle.
   - `py -3.11 -m pytest tests/integration/test_ai_advisor_service.py -v` → 6/6 smoke PASS beklenir.
 
-### P1-03 [x] Reality gap nightly raporu — **L** ✅ 2026-05-09
+### P1-03 [x] Reality gap nightly raporu — **L** ✅ 2026-05-09 / Wave 2 saat-pin 2026-05-11
 - **Dosya:** `telegram_bot/jobs/reality_gap_job.py` (NEW), `telegram_bot/handlers/reality_gap_handler.py` (NEW), `telegram_bot/bot.py` wire
 - **Multiplier kaynağı:** Memory `T4.6-B Fill Heuristic Sweep` (2026-04-24): classic 199 trade × 200 markets sweep HEURISTIC -$4.87 vs EMPIRICAL -$6.51, delta_pnl_pct = -33.68% → **paper × 0.66 = live beklentisi**. Keyfi sabit değil, gerçek backtest çıktısı.
 - **Yapılanlar (5 sub-task):**
   - **a) `reality_gap_job.py` NEW (284 satır)** — Daily 24h interval, ENV-gated (REALITY_GAP_ENABLED default true). live_trades tablosundan aggregate paper_pnl + pnl + result → drift hesabı. State machine: ok / warn / alert / insufficient_data. Markdown rapor `data_store/audits/reality_gap_<UTC>.md` + `reality_gap_latest.md` stable copy. Per-strategy top-10 worst drift breakdown.
-  - **b) bot.py JobQueue wire** — `jq.run_repeating(reality_gap_job, interval=86400, first=300, name="reality_gap")`. ENV: REALITY_GAP_INTERVAL_SEC, REALITY_GAP_FIRST_SEC. Bot restart sonra 5 dk içinde ilk rapor.
+  - **b) bot.py JobQueue wire** — ~~`jq.run_repeating(reality_gap_job, interval=86400, first=300, name="reality_gap")`~~. **Wave 2 (2026-05-11) saat-pin update:** `jq.run_daily(reality_gap_job, time=03:00 UTC)`. Yeni ENV: `REALITY_GAP_TIME_HHMM` (default `"03:00"`). Eski `REALITY_GAP_INTERVAL_SEC` + `REALITY_GAP_FIRST_SEC` ENV'leri artık no-op. Manuel `/rg` fresh-on-demand karşılıyor (boot-kick yok). Neden: restart sonrası boot-first kayması sabit saate dönüştü.
   - **c) Telegram `/reality_gap` (alias `/rg`) panel** — Job status, live snapshot (son 24h), nightly rapor excerpt + dosya yaşı. HTML parse_mode.
   - **d) Smoke test 7/7 PASS** — drift compute (zero divergence, 10% over, 50% under), classify state machine (ok/warn/alert/insufficient_data), markdown render (alert path, insufficient_data path, zero-trades path).
   - **e) Memory + roadmap (bu entry).**
@@ -179,7 +204,7 @@
 - **Override seçenekleri:** `REALITY_GAP_ENABLED=false` (kapat), `REALITY_GAP_WINDOW_H=N` (look-back), `REALITY_GAP_MULT=0.7` (multiplier), `REALITY_GAP_ALERT_PCT=15` (eşik), `REALITY_GAP_MIN_TRADES=20` (insufficient_data eşiği).
 - **7-gün notu:** SHADOW ACTIVE mainnet 2026-05-03'ten beri. live_trades minimal — ilk birkaç rapor `INSUFFICIENT_DATA` (n<10) gösterecek. ~2 hafta sonra anlamlı drift ölçümü mümkün.
 
-### P1-04 [x] Strateji pruning — **L** ✅ 2026-05-09 (Yol D Hibrit)
+### P1-04 [x] Strateji pruning — **L** ✅ 2026-05-09 (Yol D Hibrit) / re-audit hazırlık 2026-05-11
 - **Dosya:** `scripts/audit_strategies.py` (NEW), `scripts/prune_strategies.py` (NEW), `data_store/audits/`
 - **Bulgu:** Yol haritasındaki "20 → 3" hedefi gerçeklikle uyumsuzdu — audit'te **72 strateji** çıktı, hiçbiri "proven" criteria'sını (n≥50, WR≥55%, PnL>0) karşılamıyordu çünkü P0-08-E1 DB cleanup historical trade'leri sildi (lifecycle reset). Direkt 3'e pruning erken; **Yol D hibrit yaklaşımı** seçildi.
 - **Yapılanlar:**
@@ -190,6 +215,12 @@
 - **Sonuç:** 72 → 14 aktif strateji. Live whitelist (LIVE_STRATEGIES) dokunulmadı. WATCH 13 strateji veri biriktirmeye devam.
 - **Kabul kriteri (revize):** "En fazla 3" hedefi 7-14 gün sonra yeniden audit ile değerlendirilecek. Şu an 14 strateji, "proven" kriterini karşılayan 0.
 - **Sonraki adım:** P1-04 follow-up (2026-05-16 civarı): re-audit, "proven" çıkanları KEEP'e al, "regression" çıkanları ARCHIVE.
+- **Re-audit hazırlık (2026-05-11):**
+  - `scripts/audit_strategies.py` `--days N` argümanı parse ediliyordu ama executions sorgusunda yok sayılıyordu → **bug fix**, şimdi `closed_at >= NOW - N days` WHERE filter olarak gerçekten uygulanıyor.
+  - `--since-prev PATH` NEW: önceki audit .md dosyasından strategy ID → recommendation map çıkartıyor + "Delta vs Previous Audit" bölümü (Regressed / Improved / Still ARCHIVE / New / Dropped + Regressed ve Improved ID-bazlı detay tablosu).
+  - Header'a `Lookback` satırı eklendi.
+  - `scripts/run_strategy_audit.bat` NEW: `--days=N` ve `--since-prev=PATH` flag passthrough, default 7-day lookback.
+  - `scripts/run_strategy_prune.bat` NEW: dry-run / --apply / --apply --yes mode'ları (Windows native execution doctrine).
 
 ### P1-05 [ ] Linux + systemd + Docker — **XL**
 - **Dosya:** `Dockerfile`, `docker-compose.yml`, `deploy/systemd/polypaper.service`
@@ -226,7 +257,7 @@
   - ⏸️ "Loki/Datadog opsiyonel" — yerel JSON yeterli, cloud shipping ileride opsiyonel.
 - **Override seçenekleri:** `STRUCTURED_LOG_ENABLED=false` (kapat), `STRUCTURED_LOG_FILE=path` (özel yol), `LOG_SECRET_SCRUB=false` (scrub kapat — ÖNERİLMEZ).
 
-### P1-07 [x] mypy + ruff blocking CI — **L** ✅ 2026-05-11 (hard-close)
+### P1-07 [x] mypy + ruff blocking CI — **L** ✅ 2026-05-11 (FULL CLOSE — 71 → 0 mypy error)
 - **Dosya:** `pyproject.toml` (NEW), `requirements-dev.txt` (NEW), `scripts/run_lint.bat` (NEW), `.github/workflows/ci.yml` (updated)
 - **Yapılanlar:**
   - **a) `pyproject.toml` NEW** — `[tool.ruff]` config (line 100, py311 target, select E/W/F/B/I/UP, ignore E501/E402/B008/UP006/UP007), `[tool.ruff.lint.per-file-ignores]` tests/scripts esnek, `[tool.ruff.lint.isort]` known-first-party. `[tool.mypy]` gradual config — start permissive, 3 modülde strict override (`core.fees_v2`, `core.indicators`, `core.stats_utils`). 3rd-party stub ignore listesi.
@@ -262,11 +293,43 @@
   - mypy 71 error → `mypy_baseline.txt` snapshot. CI mypy step `continue-on-error: true` (baseline collect, follow-up'ta hard-flip).
   - Coverage 43.10% (gate 43.0% ratchet ✅), pytest 3418/0 fail.
 - **Hard-close kabul kriteri:** Tüm Heddas tarafı yapıldı, P1-07 [x] olarak kabul edilebilir. Mypy strict ratchet (per-module override genişletme + hard-fail flip) ayrı P1-07-round-2 olarak işaretlendi.
+- **Round-3 polish #2 (2026-05-11 final, DONE):** Mypy **0 hata.** "Success: no issues found in 54 source files."
+  - `core/engine_settlement.py` `_dur` dedupe (line 570 typed, 641 plain) — 2 hata kapandı.
+  - `core/executor.py` `_orderbook_source: Callable[[str], dict] | None` — 3 unreachable kapandı.
+  - `core/engine_signals.py` `_brier_cache: dict[str, float] | None` + `_brier_cache_time: float | None` — 1 unreachable kapandı.
+  - 6× `# type: ignore[unreachable]` defansif isinstance check'lerine: `uma_dispute.py ×3`, `structured_logging.py`, `intent_parser.py`, `slug_utils.py`.
+  - **Final track-record:** 71 → 59 (Round-2) → 19 (Round-3) → 12 (polish #1) → **0** (polish #2).
+- **Round-4 backlog (opsiyonel):** `check_untyped_defs = true` flip → 50+ fonksiyon imzası ekleme. annotation-unchecked notları (info-only, error değil) hâlâ var.
+- **Round-3 (2026-05-11, DONE):** Mixin Protocol pattern + multi-fix.
+  - `core/engine_settlement.py`, `engine_fills.py`, `engine_signals.py`, `engine_monitor.py` — `if TYPE_CHECKING:` attribute hint'leri ile EngineXxxMixin attr-defined sınıfı (~32 hata → 0).
+  - `core/strategy_lifecycle.py` — TypedDict `_PhaseDefaults` (5× arg-type → 0).
+  - `core/risk_manager.py` — `typing.get_type_hints(cls)` (1× operator).
+  - `core/changelog.py` — scope rename (1× assignment).
+  - `core/observability/__init__.py` — `Token[str] | None` (1×).
+  - `core/executor.py` — Union annotation (1×).
+  - `core/allowance_preflight.py` — dict[str, object] + float cast (2×).
+  - `core/strategy_plugins.py` — TypedDict (3×).
+  - **Beklenen: baseline 59 → ~13.** Round-4 backlog: 11 unreachable + 1 assignment + bir kaç asıl error.
+- **Round-2 başlangıcı (2026-05-11):** 11 mypy hata fix, baseline 71 → ~60 beklenir.
+  - `core/fees_v2.py`: 3× `no-any-return` → `float(round(...))` wrap (lines 112/130/147).
+  - `core/calibration/fill_heuristic_recalibrate.py`: 2× `var-annotated` (paper, live).
+  - `core/strategy_suggester.py` + `core/ai_brain.py` + `core/signals/whale_flow.py`: 3× `var-annotated`.
+  - `core/micro_weight_tracker.py`: 1× `dict-item` (per_asset dict type).
+  - `core/structured_logging.py`: 1× `arg-type` (`scrub_secrets(str(...))`).
+  - `core/strategy_plugins.py` + `core/experiment_runner.py`: 2× `assignment` (int→float init / int cast).
+  - Round-3 (backlog): `EngineXxxMixin attr-defined` (30+ error) Protocol pattern ile çözüm — büyük refactor.
 
-### P1-08 [ ] SQLite → PostgreSQL — **XL**
+### P1-08 [ ] SQLite → PostgreSQL — **XL** (açıklama dökümanı 2026-05-11)
 - **Dosya:** `db/database.py`, `db/migrations/`, `deploy/postgres/`
-- **Hedef:** SQLAlchemy + asyncpg, Alembic migration. `pg_dump` nightly + S3.
+- **Hedef:** SQLAlchemy/asyncpg + Alembic migration. `pg_dump` nightly + S3.
 - **Kabul kriteri:** Bot Postgres ile çalışır; PITR (WAL archiving) hazır.
+- **Deep dive (2026-05-11):** `docs/architecture/p1_08_postgresql_deep_dive.md` NEW (~280 satır). Heddas direktifi "kod yok, sadece açıklama" karşılandı:
+  - **Ne:** SQLite vs PostgreSQL 8-boyut tablo (erişim modeli, çoklu kullanıcı, yedekleme, schema, replication, JSON, concurrency, ops).
+  - **Nasıl etkiler:** 9 modül × ~800-1200 satır refactor (data/database.py, dbschema_v*, core/changelog, core/engine_settlement, scripts/audit_strategies, scripts/prune_strategies, daily_db_snapshot_job, restore_from_backup, backtest_v2 unaffected).
+  - **Neden yaparız:** SaaS pivot için zorunlu (P2-01 önkoşul), Cross-FS WAL Doctrine'ı tamamen kaldırır, PITR + replication faydası.
+  - **Karar:** "P1-08 sadece SaaS pivot kesinleştiğinde P0 zorunlu olur. Aksi takdirde bekleyebilir."
+  - **4 fazlı yol haritası:** Faz 1 (1.5g hazırlık paralel run) + Faz 2 (2g migration tooling Alembic) + Faz 3 (1g hot path) + Faz 4 (1g ops temizlik) ≈ 1 hafta net effort.
+- **Heddas karar bekliyor:** SaaS pivot var mı / yok mu? Bu cevap P1-08'in zamanlamasını belirler.
 
 ### P1-09 [x] Reconciliation loop smart-on — **M** ✅ 2026-05-09
 - **Dosya:** `core/reconciliation/onchain_sync.py`, `core/engine.py`, `telegram_bot/handlers/recon_handler.py` (NEW)
@@ -303,15 +366,37 @@
 - **Hedef:** FastAPI backend + React (Vite + TanStack Query). Live PnL, win rate, trade timeline.
 - **Kabul kriteri:** dashboard.polypaper.io URL'i; her tenant kendi share-token'ıyla read-only sayfa.
 
-### P2-03 [ ] Geopolitics %0 fee market'lere genişle — **L**
-- **Dosya:** `data/market_scanner.py`, `core/strategy_plugins.py`
+### P2-03 [~] Geopolitics %0 fee market'lere genişle — **L** PARTIAL ✅ 2026-05-11 (discovery scaffold)
+- **Dosya:** `data/polymarket_client.py` (NEW method), `core/fees_v2.py` (zaten geopolitics: 0.000)
 - **Hedef:** Kategori filtresi: `geopolitics`, `politics_us`, `sports_world_cup`. News momentum + sentiment.
-- **Kabul kriteri:** Scanner geopolitics market'lerini keşfeder; fee=0 doğrulaması test'te.
+- **Yapılanlar (2026-05-11):**
+  - **Polymarket docs cross-check:** Geopolitics gerçekten fee-free ✓ (https://docs.polymarket.com/trading/fees). fees_v2.py'da `"geopolitics": {"taker_rate": 0.000}` zaten doğru.
+  - `PolymarketClient.discover_fee_free_markets(tag_slug, limit)` NEW — gamma-api `/events?tag_slug=geopolitics&active=true&closed=false`.
+  - `FEE_FREE_TAG_SLUGS: tuple = ("geopolitics",)` class constant.
+  - 6 yeni test: tag_slugs constant + success mock + HTTP error + 429/non-200 + empty + fee=0 cross-check.
+- **Kalan iş:**
+  - MarketScanner._do_scan extension: ENV `SCAN_GEOPOLITICS_ENABLED` (default false) — Heddas onayı bekliyor.
+  - News momentum + sentiment integration — XL backlog.
+  - politics_us / sports_world_cup tag_slug expansion — tag_id research (gamma-api `/tags` endpoint sorgu).
+- **Kabul kriteri:**
+  - ✅ Scanner geopolitics market'lerini keşfedebilir (discovery method ekli).
+  - ✅ Fee=0 doğrulaması test'te (`test_geopolitics_fee_is_zero_in_fees_v2`).
+  - ⏸ Scanner entegrasyonu Heddas onayında.
 
-### P2-04 [ ] Sentry tracing 0.05 sample + custom transactions — **M**
-- **Dosya:** `main.py`, `core/engine.py`, `core/ai_brain.py`, `core/live_trader.py`
-- **Hedef:** `traces_sample_rate=0.05`. engine.cycle, ai_brain.advise, live_trader.execute_buy custom transactions.
-- **Kabul kriteri:** Sentry Performance UI'da görünür; p95 < 500ms.
+### P2-04 [x] Sentry tracing custom transactions — **M** ✅ 2026-05-11
+- **Dosya:** `core/observability/sentry_tx.py` (NEW), `core/engine.py`, `core/ai_brain.py`, `core/live_trader.py`
+- **Hedef gerçekleşen:** Custom transactions kuruldu, default OFF (Heddas $0 cost direktifi).
+- **Yapılanlar (2026-05-11):**
+  - `core/observability/sentry_tx.py` NEW: `sentry_transaction(op, name)` env-gated context manager. SENTRY_DSN unset → yields None, hiç import yok, hot-path crash etmez.
+  - `core/engine.py` cycle loop: lightweight breadcrumb + tag (full transaction wrap indentation churn'üne neden olurdu, hot path safety > tracing).
+  - `core/ai_brain.py` `run_brain_cycle` → split → inner method + outer sentry_transaction wrapper (op=`ai_brain.advise`). spent_usd + max_budget_usd data.
+  - `core/live_trader.py` `_execute_clob` wrapped (op=`live_trader.execute_buy`). amount_usd/price/direction/token_id_prefix data.
+- **Sample rate kararı:** Free plan 5k events/month limit. Default `SENTRY_TRACES_SAMPLE_RATE=0.0` (off) kalır. Roadmap'teki 0.05 hedefi free planı aşar (78k events tahmini). Heddas opt-in için 0.001 önerilir (~520 events/mo).
+- **5 yeni test** (TestSentryTxWave2_P204): DSN unset/empty/whitespace → no-op, DSN set → handle, SDK fault → graceful degrade.
+- **Kabul kriteri:**
+  - ✅ Custom transaction infrastructure çalışıyor.
+  - ⏸ Sentry Performance UI görünüm — Heddas SENTRY_DSN set ettiğinde aktif.
+  - ⏸ p95 < 500ms target — observability bağlı olduğunda ölçülecek.
 
 ### P2-05 [ ] Fill probability modeli — **XL**
 - **Dosya:** `backtest/simulation/fill_model.py`, `core/engine_fills.py`

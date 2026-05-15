@@ -1,9 +1,54 @@
 # PolyPaper Cleanup Backlog
 
-> **Durum:** 2026-04-20 oluşturuldu (ilk tarama). Son commit sync: **2026-04-22 (Epic 10 + post-audit CLOSED, 12 commit)**. Sahibi: Claude (Baş Geliştirici/Denetçi).
+> **Durum:** 2026-04-20 oluşturuldu. Son sync: **2026-05-13 (ultra-audit yeni P0 önerileri eklendi)**.
 > **Kural:** Bu dosya her oturumun başında okunur. Bitenler `[x]`, yeni iş eklenir. Bir Epic bitmeden sıradakine geçilmez.
 > **Mod:** STRICT CLEANUP — spekülasyon yok. Her iddia: dosya + satır.
 > **Protected:** `core/ai_brain.py::PROTECTED_STRATEGIES` ve `PROTECTED_STRATEGY_TYPES={"classic"}` dokunulmaz.
+> **Audit:** `docs/audits/2026_05_13_ultra_audit.md` (memory drift fix + 6 yeni P0 öneri).
+> **⚠️ Nomenklatür uyarısı**: Bu dosya `P0.1..P0.12` (Epic 12) kullanıyor, `CLAUDE.md` `P0-01..P0-15` kullanıyor. P1-11 birleştirme task'ı açıldı.
+
+---
+
+## 🆕 2026-05-13 Ultra-Audit Sonuçları (Cowork seansı)
+
+Heddas direktifi: "tam yetki + acımasız + dürüst". Audit raporu detayda
+`docs/audits/2026_05_13_ultra_audit.md`. Özet:
+
+### Gerçek P0 açık (kod-kanıtlı, memory'deki "7 açık" iddiası YANLIŞ)
+
+- [ ] **P0-02** POLYGON_PRIVATE_KEY plaintext → DPAPI/keyring (`config/settings.py:94-96`)
+- [ ] **P0-04** LIVE_BUDGET 2-faktör + 24h cooldown (`core/live_trader.py:107-116`)
+- [ ] **P0-08** 5m binary'ler default OFF (`config/settings.py:32`) — direktif değişimi onayla
+
+### P0 Kapalı (kod-kanıtlı, memory yanlış işaretliyordu)
+
+- [x] **P0-01** AI Brain manual approval (`ai_brain.py:319-326,1993-2002,2011-2017`) ✅ 2026-05-08
+- [x] **P0-03** `/export_private_key` silindi (grep 0 hit) ✅
+- [x] **P0-06** relayer pin 0.0.1 (`requirements.txt:39`) ✅ 2026-05-08
+- [x] **P0-09** Kelly MAX_BET_PCT single source (`core/kelly.py:38-52`) ✅ 2026-05-08
+
+### Yeni P0 (audit'ten geldi)
+
+- [ ] **P0-10** `fees_v2.py` precision 4 → 5 decimal (docs: smallest fee 0.00001 USDC) — Effort XS
+- [ ] **P0-11** AI Advisor service auth (`X-Internal-Key` header) — `services/ai_advisor/app.py` hiç auth yok — Effort S
+- [ ] **P0-12** Polymarket constant drift CI guard (haftalık docs MCP karşılaştır) — Effort M
+- [ ] **P0-13** `PROTECTED_STRATEGIES` audit (`core/ai_brain.py:102` sadece 2 entry; top kazanan eklenmeli) — Effort S
+- [ ] **P0-14** AI Brain "10min cycle" log → "1h cycle" (`core/ai_brain.py:163` vs `:105`) — Effort XS
+- [ ] **P0-15** `dashboard.html` git'e ekle (97KB untracked) — Effort XS
+
+### Yeni P1 (audit'ten geldi)
+
+- [ ] **P1-09** Memory drift pre-commit hook (`scripts/check_memory_drift.py`) — Effort M
+- [ ] **P1-10** TASKS.md monolithini böl (160KB → archive + active) — Effort S
+- [ ] **P1-11** P0 nomenklatür birleştir (P0-01.. vs P0.1..) — Effort S
+- [ ] **P1-12** CHANGELOG günlük entry doktrini — Effort S
+- [ ] **P1-13** Sentry opt-in (DSN + sample rate 0.001) — Effort S
+- [ ] **P1-14** Disaster recovery runbook — Effort M
+
+### Audit'in tespit ettiği KRİTİK durum
+
+🔴 **39 modified + 18 untracked dosya 2 günden beri commit'siz, mainnet LIVE.**
+Son commit `9aeaa6d` 2026-05-11. Audit commit zinciri başlatıldı 2026-05-13.
 
 ---
 

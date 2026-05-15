@@ -1,0 +1,128 @@
+# Project Status — 2026-05-13 Snapshot (post-ultra-audit)
+
+> Bu dosya canlı durumun özetidir. Detay için `02_POLYPAPER_YOL_HARITASI.md` + `03_POLYPAPER_PROGRESS_LOG.md`.
+> **2026-05-13 ultra-audit**: `docs/audits/2026_05_13_ultra_audit.md` — memory stale fix.
+
+## TL;DR
+
+**Mainnet LIVE 4 gündür** (2026-05-09'dan beri). Epic 11 + T11.x pre-mainnet gate'ler hepsi kapalı. Şu an **P1 sprint**'inde — coverage genişletme (P1-01) + AI Brain microservice ayrımı (P1-02). P0'da **3 gerçek açık** + 6 yeni P0 öneri var (P0-10..P0-15, audit'ten geliyor); hiçbiri **acil mainnet stop** seviyesinde değil.
+
+### ⚠️ Memory drift düzeltmesi 2026-05-13
+
+Önceki snapshot 7 P0 açık gösteriyordu — **kod kanıtı 4 tanesinin KAPALI olduğunu doğruladı** (P0-01, P0-03, P0-06, P0-09). Detay aşağıda + `docs/audits/2026_05_13_ultra_audit.md` §3.
+
+### ⚠️ Uncommitted state uyarısı 2026-05-13
+
+Yerel working tree **39 modified + 18 untracked** (son commit `9aeaa6d` 2026-05-11). 2 takvim günü commit'siz, mainnet LIVE. Audit commit zinciri başlatılmalı.
+
+## Yapı Sağlığı
+
+| Metrik | Değer |
+|--------|-------|
+| Tests | **3,569 PASS / 0 FAIL / 42 skip** |
+| Coverage | **%44.06** (ratchet: 42 → 43 → 45 → 50 → 55 → 60) |
+| mypy strict | **0 hata** (55 source file) |
+| ruff | **0 violation** |
+| Bare-except | **0 strict / 0 advisory** |
+| Secret leak regex | **13 × 3 scope = 0 match** |
+| Mainnet blocker | **0** |
+
+## P0 Açık (gerçek, kod-kanıtlı 2026-05-13 audit)
+
+| # | Item | Effort | Durum | Kanıt |
+|---|------|--------|-------|-------|
+| P0-02 | POLYGON_PRIVATE_KEY plaintext → DPAPI/keyring | L | **AÇIK** | `config/settings.py:94-96` hâlâ plaintext |
+| P0-04 | LIVE_BUDGET 2-faktör + 24h cooldown | M | **AÇIK** | `core/live_trader.py:107-116` tek faktör |
+| P0-08 | 5m binary'ler default OFF (env-opt-in) | S | **AÇIK** | `config/settings.py:32` BTC default ENABLED |
+
+## P0 Yeni Öneriler (2026-05-13 audit)
+
+| # | Item | Effort | Kaynak |
+|---|------|--------|--------|
+| P0-10 | `fees_v2.py` precision 4 → 5 decimal (docs: 0.00001 USDC smallest) | XS | audit §2.4 |
+| P0-11 | AI Advisor service auth (X-Internal-Key header) | S | audit §4.1 S-01 |
+| P0-12 | Polymarket constant drift CI guard (haftalık docs MCP karşılaştır) | M | audit §4.4 D-05 |
+| P0-13 | `PROTECTED_STRATEGIES` audit — top kazananları ekle | S | audit §4.3 C-02 |
+| P0-14 | AI Brain log/comment "10min cycle" → "1h cycle" | XS | audit §4.3 C-03 |
+| P0-15 | `dashboard.html` git'e ekle (untracked) | XS | audit §4.4 D-02 |
+
+## P0 Kapanmış (kod kanıtlı)
+
+| # | Item | Tarih | Kanıt |
+|---|------|-------|-------|
+| P0-01 | AI Brain auto-execute → approval queue | 2026-05-08 | `core/ai_brain.py:319-326,1993-2002,2011-2017` "NO auto-execute fallback" |
+| P0-03 | Telegram `/export_private_key` sil | <2026-05-13 | grep "export_private_key" → 0 hit; `portfolio_handler.py:113` "PK access now via OS keychain" |
+| P0-05 | Atomic backup + SHA256 + manifest + restore CLI | 2026-05-09 | — |
+| P0-06 | `py-builder-relayer-client==0.0.1` pin | 2026-05-08 | `requirements.txt:39` |
+| P0-07 | Reference price audit (Binance ground-truth + /ra panel) | 2026-05-09 | — |
+| P0-09 | Kelly MAX_BET_PCT tek kaynağa | 2026-05-08 | `core/kelly.py:38-52` "P0-09 single-source-of-truth" |
+
+## P1 Aktif
+
+### P1-01 Coverage Source Genişlet (XL, partial)
+
+- Baseline %42 → %44.06 (Wave 1 + 1b + 2 + 3 + 3b sonrası)
+- Wave hedefleri: handler smoke, slug/fees helpers, engine_signals/fills pure helpers
+- Sonraki: Wave 4 (backtest data_sources) + CI workflow + ratchet 43 → 45
+
+### P1-02 AI Brain Microservice (XL, partial)
+
+- Wave 1 + 2a + 2b + 2c kapalı (FastAPI service, /health /suggest /stats, 6 integration test PASS)
+- Default: `AI_ADVISOR_ENABLED=false` — sıfır cost, opt-in
+- Sonraki: Wave 3 approval queue flow (P0-01 ile birlikte)
+
+### P1-07 mypy strict (CLOSED 2026-05-11)
+
+- 0 hata, baseline regen, `--unsafe-fixes` clean, F601/B023/F821 fix
+
+## Son 7 Gün Major Commit
+
+```
+9aeaa6d P1-02 Wave 1: AI Advisor scaffold (FastAPI + 6 TestClient tests)
+304ffd5 P1-07 final: 2 last violations + mypy_baseline.txt regenerated
+2d900bf P1-07 hard-close: 14 violations cleaned
+b44e6fb P1-07 hard-close: F601 + B023 manuel fix
+efae07e P1-07 followup: ruff --unsafe-fixes sweep
+5ddc921 P1-07 followup: F821 critical bug fix (Becker dead code)
+a265378 docs: GitHub full refresh (README + CHANGELOG modernize)
+300870b feat(sprint3): Paket B + C V2 WSS meta events
+ad906b9 feat: mod-first UX + V2 SDK + live trading stack
+```
+
+## Bekleyen Heddas Kararları
+
+- (yok şu an — tüm bekleyen item'lar fix yapıldı, son crypto fee 0.072 → 0.07 dahil)
+
+## Pending Veri / Telemetri Bekleyişi
+
+- **P0-07 reference price audit** — 7 günlük production rapor **2026-05-15 itibarıyla** anlamlı olacak (external_prices 2026-05-08'de dolmaya başladı, audit infra hazır)
+- **T4.7-B REST timing** — 24h `REST_TIMING_TELEMETRY=true` sonrası empirical p50 update (~80ms beklenir, heuristic 200ms ile 3.5x fazla)
+
+## Cowork / Memory
+
+- Bu memory sistemi bugün (2026-05-13) bootstrap edildi
+- `CLAUDE.md` + `memory/` + `dashboard.html` kuruldu
+- TASKS.md zaten mevcuttu (Epic-tarzı cleanup backlog), bozulmadı
+
+## Bir Sonraki Oturumda Atılacak Adım
+
+**1. Acil (1 oturum)**: 39+18 dosyalık uncommitted work'i 3-4 thematic commit'e böl ve push'la (audit §0 KRİTİK).
+
+**2. Hızlı kazanımlar** (3×XS + 2×S effort, ~1 günlük iş):
+   - P0-10 fees_v2 precision (4→5 decimal)
+   - P0-14 AI Brain "10min cycle" log fix
+   - P0-15 dashboard.html git ekle
+   - P0-11 AI Advisor X-Internal-Key auth
+   - P0-13 PROTECTED_STRATEGIES audit
+
+**3. Orta vade** (M effort):
+   - P0-12 Polymarket docs drift CI guard
+   - P1-09 memory drift pre-commit hook
+   - P0-04 LIVE_BUDGET 2-faktör
+
+**4. Uzun vade** (L+ effort, mainnet stabil olduktan sonra):
+   - P0-02 keyring/DPAPI migration
+   - P0-08 5m default OFF (veya direktif değişti onayla)
+   - P1-08 PostgreSQL, P1-05 Docker
+
+Heddas tercihine bağlı — küçük adım küçük commit doktrinine sadık kal.

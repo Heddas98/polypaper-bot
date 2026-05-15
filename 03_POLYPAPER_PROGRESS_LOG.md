@@ -2,6 +2,379 @@
 
 Bu dosya canlı olarak güncellenir. Her görev başlatıldığında, tamamlandığında veya bloklandığında bir entry düşeriz.
 
+---
+
+## 2026-05-11 — Batch 6 — Polymarket docs full cross-check + crypto fee fix — **completed**
+
+- **Heddas direktifi:** "polymarket connector kullanarak ya her şeyi" → tüm Polymarket-bağımlı sabitleri docs ile bit-by-bit verify + bulunan sapma fix.
+- **Polymarket MCP cross-check sonucu (2026-05-11):**
+  - 11 kategori × 2 değer (taker_rate + maker_rebate_pct) = 22 sabit teyit edildi.
+  - **10/11 kategori bit-identical** (sports, finance, politics, economics, culture, weather, mentions, tech, other, geopolitics).
+  - **1 sapma:** crypto taker_rate 0.072 (fees_v2) vs 0.07 (docs). Sapma +2.86%. Üç bağımsız docs noktası ile teyit: rate tablosu + crypto fee curve table peak $1.75 + Fee Tables (100 sh) duplicate.
+- **Fix uygulandı:**
+  - `core/fees_v2.py:60` — `"crypto": {"taker_rate": 0.07, ...}` (was 0.072) + audit yorum block.
+  - `tests/unit/test_fees_v2.py:21-26` — `pytest.approx(3.6, abs=0.01) → 3.5`. Yorum block güncellendi.
+  - `tests/unit/test_p0_p1_extra_coverage.py:4481-4489` — `_compute_maker_rebate` test sabiti 3.6 → 3.5.
+  - `tests/test_phase55_critical.py:138` — yorum 0.072 → 0.07.
+- **Audit doc:** `docs/audits/fee_docs_recheck_2026_05_11.md` NEW (~85 satır):
+  - Full cross-check tablosu
+  - 3 independent docs sources for crypto 0.07
+  - Geopolitics fee-free verification
+  - Formula sanity check (`fee = C × rate × p × (1-p)`, exp=1 her kategori)
+  - Fee precision: docs 5 decimal, fees_v2.py 4 decimal — minor sapma, opsiyonel fix backlog
+  - Etki analizi: paper fee %2.86 azalır, live etki SIFIR (`getClobMarketInfo()` market'ten okur)
+- **Memory:** `reference_polymarket_fee_rates_2026_05_11.md` güncellendi "Karar uygulandı" notu.
+- **Etki:**
+  - Paper trading: crypto trade'lerde fee %2.86 daha az. Paper PnL biraz daha yüksek gözükür.
+  - reality_gap_job multiplier (paper × 0.66) 5-7 gün veri sonra re-calibrate edilebilir.
+  - Live trading: SIFIR (per-market fee market'ten okunuyor).
+  - Memory `project_faz0_1_fee_audit_closure.md` (2026-04-28) "bit-identical" iddiası bu fix ile gerçek anlamda bit-identical hale geldi.
+- **Beklenen pytest:** 1 fail → 0 fail (snap_to_tick fix + crypto fee test consts güncellemesi sonrası).
+
+## 2026-05-11 — Batch 5 — PRICE_TICK fix + Polymarket docs cross-check + P2-03 scaffold — **completed**
+
+- **Heddas Wave 3 run sonucu:** 3595 PASS / 2 FAIL — `EngineFillsMixin.PRICE_TICK` TYPE_CHECKING-only declare edilmişti, classmethod runtime'da bulamadı.
+- **Fix:** `core/engine_fills.py` `PRICE_TICK: ClassVar[float] = 0.01` ve `PRICE_TICK_TOL: ClassVar[float] = 0.005` Mixin'e runtime default eklendi. TradingEngine concrete class MRO ile override eder, davranış değişikliği sıfır.
+- **Heddas direktifi: "polymarket connector ile doğrulamayı unutma"** → Polymarket MCP docs ile cross-check yapıldı:
+  - **fees_v2.py geopolitics: 0.000 ✓** — docs "Geopolitical and world events markets are fee-free" doğrulandı.
+  - **fees_v2.py crypto: 0.072 ⚠ vs docs: 0.07** — sapma +2.86%, paper'da live'a kıyasla biraz fazla fee. Memory `project_faz0_1_fee_audit_closure.md` (2026-04-28) "bit-identical" iddiası docs son ay'da güncellenmiş olabilir. Heddas kararı bekleniyor (fix or ignore).
+  - Diğer 10 kategori uyumlu (sports 0.030/0.03, politics 0.040/0.04, etc.).
+- **P2-03 Geopolitics scanner scaffold:**
+  - `data/polymarket_client.py` `discover_fee_free_markets(tag_slug, limit)` NEW.
+  - `FEE_FREE_TAG_SLUGS: tuple = ("geopolitics",)` class constant.
+  - gamma-api endpoint: `/events?tag_slug=geopolitics&active=true&closed=false&limit=N&order=endDate&ascending=true`.
+  - Defensive: HTTPError/non-200/empty/closed-market filter, `_discovered_via_tag` annotation.
+  - 6 yeni test (TestGeopoliticsScannerP2_03): tag_slugs constant + success path mock + HTTP error + non-200 + empty + fee=0 cross-check (fees_v2 integration).
+- **Sıradaki:** Engine_signals/scanner entegrasyonu (Heddas onayı sonrası). Şu an sadece discovery method ekli, strateji entegrasyonu yok.
+- **Cumulative test sayım:** Batch 1+2+3+4+5 = 70 + 25 + 6 + 9 (engine_fills) = ~110 yeni method.
+
+## 2026-05-11 — Batch 4 — P1-01 Wave 3 + 3b engine helper coverage — **completed**
+
+- **Heddas direktifi:** "sırada ne kaldıysa oradan devam et" ($0 cost devam).
+- **P1-01 Wave 3** — `core/engine_signals.py` pure helper testleri:
+  - `TestEngineSignalsHelpersWave3` 16 sub-test:
+    - `_parse_zones`: empty/single/multi/invalid (4)
+    - `_in_allowed_zone`: empty=allow-all/inside/outside/boundary (3)
+    - `_classic_free_mode`: classic+default-true / non-classic / disabled-env / dict-ctx (4)
+    - `_get_brier_bin`: canonical bins + out-of-range clamp (2)
+    - `_compute_pending_reserved`: empty + wallet filter (2)
+  - Beklenen: engine_signals.py 15.7% → ~18-19%.
+- **P1-01 Wave 3b** — `core/engine_fills.py` pure helper testleri:
+  - `TestEngineFillsHelpersWave3` 9 sub-test:
+    - `_snap_to_tick`: clamp low/high + cent rounding + None (3)
+    - `_compute_ob_imbalance`: empty/balanced/heavy-bid/heavy-ask/list-format/malformed (6)
+  - Beklenen: engine_fills.py 33.7% → ~37%.
+- **P2-03 Geopolitics scaffold:** Polymarket gamma-api tag_id bilgisi gerekiyor (manuel research), ertelendi. Scaffold yapılmadı — Heddas tag_id lookup yapınca implement edilir.
+- **Toplam yeni test bu turda:** 25 sub-test (16 + 9).
+- **Coverage tahmini:** 44.06% → ~45-46% (engine_signals + engine_fills + Wave 2c).
+
+## 2026-05-11 — Batch 3 final — 32/32 PASS — **completed** ✅
+
+- **Heddas Windows re-run:** **32 passed, 1 warning** (önceki 6 FAIL + bu warning kaldı).
+- **Warning fix:** `services/ai_advisor/models.py::SuggestResponse` — `model_used` field pydantic'in protected `model_` namespace'iyle çakışıyordu. `model_config = {"protected_namespaces": ()}` eklendi → warning kapanır.
+- **Batch 3 final durum:**
+  - 32/32 PASS, 0 warning beklenir.
+  - Full suite: 3569 PASS / 0 FAIL / 42 skip beklenir.
+  - Coverage: 44.06%.
+  - mypy: 0 hata.
+
+## 2026-05-11 — Batch 3 post-run fix — 6 API drift fail — **completed**
+
+- **Heddas Windows pytest:** **3563 PASS / 6 FAIL / 42 skip.** Coverage 43.50% → **44.06%** (+0.56%). mypy: `Success: no issues found in 55 source files` ✅.
+- **6 FAIL nedeni:** Benim Wave 2 testlerimde API varsayımı yanlıştı.
+- **Düzeltmeler:**
+  - `services/ai_advisor/app.py` stub mode string: `"Wave 1 stub"` → `"stub Wave 1"` (test'in beklediği substring).
+  - `TestEnvToggleHandlerWave2` — `coerce_value()` aslında `tuple[bool, Any, str]` döner (ok, value_str, err). Test sınıfı 4 method'a re-write edildi: unknown_key, float_whitelisted (PNL_PAUSE_THRESHOLD), float_out_of_range, list_groups_returns_list_of_strings (dict değil, list[str]).
+  - `TestSlugUtilsWave2::test_infer_tf_from_slug_branches` — Legacy TF regex `^(?:btc|eth|sol|xrp)-updown-(5m|15m)-\d+` (slug_utils.py:55), test slug'leri `btc-updown-5m-N` formatına uyarlandı (önce yanlışlıkla `bitcoin-up-or-down-5m-N` yazmıştım).
+  - `TestFeesV2EdgeZonesWave2::test_in_tail_zone_*` — Real thresholds `TAIL_LOW=0.15`, `TAIL_HIGH=0.85` (önce yanlışlıkla 0.02/0.98 demiştim). Test artık modulden import edip exact constant'ları kullanıyor.
+- **Sentry transaction smoke:** ✅ Hepsi PASS.
+- **mypy: 0 hata** (55 source — services/ dahil edildi).
+- **Beklenen final:** 3569 PASS / 0 FAIL / 42 skip.
+
+## 2026-05-11 — Batch 3 (Paket 1+2+3) — Wave 2c + P1-01 Wave 2 + P2-04 Sentry — **completed**
+
+Heddas direktifi: "para kazanana kadar para harcamayacağız" → 3 paket sırayla, $0 cost:
+
+### Paket 1 — P1-02 Wave 2c — /suggest endpoint gerçek LLM
+- `services/ai_advisor/app.py` — `/suggest` endpoint ENV-gated real LLM çağrısı.
+  - **ENV: `AI_ADVISOR_REAL_LLM`** (default `false` → stub HOLD, sıfır cost).
+  - `_build_user_prompt()` — market + strategy context → LLM user message.
+  - `_call_provider_sync()` — sync dispatch (claude/groq/openrouter).
+  - `_try_real_llm()` — ModelRouter primary + FALLBACK_CHAIN, 429 → next provider, hepsi fail → stub fallback.
+  - Wave 2c response: confidence=0.5, raw LLM text (kısaltılmış, 600 char limit) reason'da. Wave 3 JSON action parser.
+- `/stats` artık `wave_2c` block: `real_llm_enabled` + `providers_available` (anthropic/groq/openrouter API key var mı).
+- **7 yeni test:** real_llm_disabled_by_default, flag_value_variants, _build_user_prompt rendering, real_llm_success_path (do_claude mock), all_providers_fail_degrades_to_stub, 429_skips_to_next_provider, stats_wave_2c_block_present.
+
+### Paket 2 — P1-01 Wave 2 — Handler real-behavior coverage
+- `tests/unit/test_p0_p1_extra_coverage.py` 4 yeni sınıf (13 method, ~30 sub-test):
+  - `TestStatsHandlerKeyboardWave2` (2): `_build_hub_keyboard()` inline markup + button label/emoji.
+  - `TestEnvToggleHandlerWave2` (2): `coerce_value()` int/bool/float coerce + `list_groups()` schema.
+  - `TestSlugUtilsWave2` (2 parametrize × 10): TF + asset inference branch coverage.
+  - `TestFeesV2EdgeZonesWave2` (5): tail-zone low/high + fee-percent + taker invalid inputs + maker rebate proportionality.
+- **RuntimeWarning fix:** `TestHandlerSafeHelpers::test_call_keyboard_builders` artık `asyncio.iscoroutinefunction` ile async builders'ı skip ediyor + `asyncio.iscoroutine(ret) → ret.close()` ile soft-cleanup. `TestBgTaskFull::test_safe_create_task_with_callback` artık `inspect.signature` ile çağrı imzasını önceden doğruluyor (yarım coroutine yaratmıyor).
+
+### Paket 3 — P2-04 Sentry tracing free plan
+- `core/observability/sentry_tx.py` NEW — `sentry_transaction(op, name)` context manager.
+  - `_sentry_enabled()` runtime-read SENTRY_DSN check + lazy `sentry_sdk` import.
+  - Empty/whitespace DSN → yields None, hiç import yapmaz (zero-cost).
+  - SDK fault → graceful degrade (yields None, hot path crash etmez).
+- **3 hot-path instrument:**
+  - `core/engine.py` cycle loop: `sentry_sdk.set_tag("engine.cycle", N)` + breadcrumb (lightweight, full transaction wrap indentation churn yaratırdı).
+  - `core/ai_brain.py` `run_brain_cycle` → `_run_brain_cycle_inner` split + sentry_transaction wrapper (op=`ai_brain.advise`). spent_usd + max_budget_usd data ekler.
+  - `core/live_trader.py` `_execute_clob` → sentry_transaction wrapper (op=`live_trader.execute_buy`). amount_usd / price / direction / token_id_prefix data.
+- **5 yeni test (TestSentryTxWave2_P204):** DSN unset/empty/whitespace → no-op + DSN set → transaction handle + SDK fault → graceful None.
+- **Cost note:** docstring'de Sentry free plan 5k events/month maliyet hesabı: traces_sample_rate=0.05 ile 78k overshoots. Default `0.0` (off) kalır; Heddas opt-in için `SENTRY_TRACES_SAMPLE_RATE=0.001` (~520 events/mo) önerilir.
+
+### Test sayım Batch 3:
+- 7 (Wave 2c) + 13 (Wave 2 handler) + 5 (Sentry) = **25 yeni test method.**
+
+### Cumulative session toplamı (Batch 1 + 2 + 3):
+- **70 yeni test method** (toplu: 3528 → ~3553 PASS beklentisi)
+- **mypy 71 → 0** (P1-07 FULL CLOSE)
+- **4 yeni service module** (prompts/router/llm_clients/app.py /suggest LLM)
+- **1 yeni observability module** (sentry_tx)
+- **5 mixin TYPE_CHECKING refactor**
+- **3 hot-path Sentry instrument** (engine/ai_brain/live_trader)
+- **3 deep dive doc**
+- **2 doctrine memory**
+- **Davranış değişikliği:** sadece reality_gap saat-pin (Wave 2). Wave 2c + Sentry default OFF, sıfır cost.
+
+### Heddas Windows verification:
+```
+py -3.11 -m pytest tests/integration/test_ai_advisor_service.py -v
+# Beklenen: 26/26 PASS (Wave 1+2a+2b+2c)
+py -3.11 -m pytest tests/unit/test_p0_p1_extra_coverage.py -k "Wave2 or Wave1b or SentryTx" -v
+# Beklenen: ~30 PASS
+py -3.11 -m pytest --cov
+# Beklenen: 43.5% → ~44-45% (Wave 2c + Wave 2 + Sentry helper covered)
+py -3.11 -m mypy core/ --no-incremental --show-error-codes | findstr /v "annotation-unchecked"
+# Beklenen: 0 error
+```
+
+## 2026-05-11 — P1-07 FULL CLOSE — mypy 71 → 0 — **completed** 🎯
+
+- **Heddas Windows mypy final çıktısı:** `Success: no issues found in 54 source files`
+- **Bu, P1-07'nin tam kapanışıdır.** Sıfır mypy hatası, hatta unreachable cosmetic'ler bile temiz.
+- **Tüm session track-record:**
+  - 2026-05-11 sabah Round-2 başlangıcı: **71 hata**
+  - Round-2 sonu (Batch 1 polish): **59 hata** (-12)
+  - Round-3 ilk (Batch 2 Mixin Protocol): **19 hata** (-40)
+  - Round-3 polish #1 (VirtualOrder class annotations): **12 hata** (-7)
+  - Round-3 polish #2 (executor + brier_cache + 6× type:ignore): **0 hata** (-12) ✅
+- **Round-4 backlog (opsiyonel, mainnet bloklayan değil):**
+  - `pyproject.toml`'da `check_untyped_defs = true` flip → 50+ fonksiyon imza annotation eklemek. Şu an annotation-unchecked notları sadece info; error olmuyor.
+- **Heddas test final:** 3528 PASS / 0 FAIL / 42 skip; mypy 0 error; coverage 43.50% (services dahil edildi, llm_clients yansıyacak).
+- **Bu seans toplam (Batch 1 + Batch 2 + polish'ler):**
+  - 45 yeni test method (+21 net pytest sayımı).
+  - **71 mypy hata → 0 (-71).**
+  - 3 yeni service module (`services/ai_advisor/prompts.py`, `router.py`, `llm_clients.py`).
+  - 5 mixin TYPE_CHECKING refactor.
+  - 2 deep dive doc (PostgreSQL + Wave 2a/2b roadmap).
+  - 2 yeni doctrine memory (NUL pad + MD batch write).
+  - **0 davranış değişikliği** (saat-pin hariç — beklenen).
+
+## 2026-05-11 — Batch 2 final 2 — Round-3 polish #2 unreachable suppress — **completed**
+
+- **Heddas Windows mypy 12 hata kalmıştı** (11 unreachable + 1 _dur no-redef benim hatamdı).
+- **Bu turda yapılanlar:**
+  - `core/engine_settlement.py`: `_dur` line 570 ve 641 çakışıyordu. Line 570'i `_dur: float | None = None` typed, line 641'i annotation'sız `_dur = None` (zaten typed). 1 no-redef + 1 assignment hatası kapanır.
+  - `core/uma_dispute.py` 3× `# type: ignore[unreachable]` defansif isinstance check'lerine (`if not isinstance(market, dict): return ...`).
+  - `core/structured_logging.py` 1× ignore (scrub_secrets defensive).
+  - `core/executor.py` — `self._orderbook_source: Callable[[str], dict] | None = None` explicit annotation. Mypy şimdi `if self._orderbook_source:` branch'ini reachable görüyor. 3× unreachable → 0.
+  - `core/intent_parser.py` 1× ignore (regex match fallback).
+  - `core/engine_signals.py` — `_brier_cache: dict[str, float] | None = None` + `_brier_cache_time: float | None = None` explicit annotation. 1× unreachable → 0.
+  - `core/slug_utils.py` 1× ignore (regex pattern check).
+- **Toplam Round-3 polish #2: 12 → 0 beklenir.**
+- **Final track-record:**
+  - Baseline 71 → Round-2 sonu **59** (-12) → Round-3 ilk **19** (-40) → Round-3 polish #1 **12** (-7) → Round-3 polish #2 **~0** (-12).
+- **Mypy final state notu:** `annotation-unchecked` notları (info-only, error değil) hâlâ var — bunlar `--check-untyped-defs` toggle ile gelir, opsiyonel. Heddas isterse `pyproject.toml`'da `check_untyped_defs = true` flip edilebilir, ama bu büyük refactor (50+ fonksiyon imzası).
+- **Sonraki adım:** Heddas final mypy run:
+  ```
+  py -3.11 -m mypy core/ --no-incremental --show-error-codes | findstr /v "annotation-unchecked"
+  ```
+  Beklenen: **0 error.**
+
+## 2026-05-11 — Batch 2 final — VirtualOrder annotations + Round-3 polish — **completed**
+
+- **Heddas Windows verification 2. tur:** 3528 PASS / 0 FAIL / 42 skip ✅. mypy **59 → 19** (Round-3 başarılı, -40 hata).
+- **19 kalan hata içinde 7 yeni `VirtualOrder has no attribute` çıktı:** Round-3 `_pending: list[VirtualOrder]` deklarasyonu mypy'a gerçek tipi gösterdi; eskiden `list[Any]` görüyordu ve attribute access serbest geçiyordu. Bunlar gerçek tip eksikliği değil, sadece mypy artık ciddiye alıyor.
+- **Round-3 polish bu seans:**
+  - `core/engine_support.py` `VirtualOrder` — `__slots__`'un yanına class-level type annotations (24 field) eklendi. mypy attribute inference yapamadığı için her field için explicit declaration. Runtime davranış sıfır (annotations ≠ assignments).
+  - `core/engine_signals.py` — `client: object` → `client: Any`. py_clob_client SDK opsiyonel ve v1/v2 değiştiği için Any pragmatik.
+  - `core/engine_settlement.py:647` — `_dur: float | None = None` explicit annotation (mypy "float vs int" yanılgısı kapanır).
+- **Beklenen final baseline:** 19 - 9 = **~10 hata** (hepsi `unreachable` cosmetic — defensive code patterns, Round-4 backlog).
+- **Coverage durumu:** 43.50% sabit (services kapsama dahil edildikten sonra Heddas yeni `--cov` koşumunda llm_clients için ekstra ~1-2% beklenir).
+
+## 2026-05-11 — Batch 2 post-run — test fix + coveragerc update — **completed**
+
+- **Heddas Windows pytest run sonucu:** 3527 PASS / 1 FAIL / 42 skip (önceki 3507/1/42 + 20 yeni test toplu PASS).
+- **1 FAIL düzeltildi:** `TestEngineSettlementHelpersWave1b::test_taker_fee_delegates_to_fees_v2` — `_taker_fee` aslında `EngineFillsMixin`'de (not Settlement). Test artık doğru class'ı (`EngineFillsMixin.__new__`) instantiate ediyor.
+- **`.coveragerc` source list'i genişletildi:** `services` eklendi. Önce `services/ai_advisor/` paketi source dışındaydı; Wave 2b LLM client'lar coverage report'unda görünmüyordu (test edildikleri halde). Şimdi dahil.
+- **Coverage real-behavior gain:** `data/candle_collector.py` **36.6% → 42.6% (+6.0%)** — Wave 1b 9 aggregation test'i tam beklendiği gibi. Net coverage 43.55% → 43.50% (-0.05%) — Wave 2b 70 satır extraction `ai_brain.py` yüksek-cover bölümünden `llm_clients.py` (services'a eklendikten sonra ölçülecek) düşük-cover bölümüne taşıdı. Heddas yeni `--cov` koşumuyla **llm_clients ölçülünce 44%+ beklenir.**
+- **Sıradaki Heddas verification:**
+  - `py -3.11 -m pytest tests/unit/test_p0_p1_extra_coverage.py::TestEngineSettlementHelpersWave1b -v` → 2/2 PASS.
+  - `py -3.11 -m pytest --cov` → services dahil edildiği için ~44-45% beklenir.
+  - `py -3.11 -m mypy core/ --no-incremental --show-error-codes` → Round-3 sonucu ~13 hata beklenir.
+
+## 2026-05-11 — Batch 2 (1+4+2+3) — _archive + mypy R3 + Wave 1b + Wave 2b — **completed**
+
+- **1. `_archive/fee_consolidation_2026_04_21_T41/` placeholder restore:**
+  - `_archive/fee_consolidation_2026_04_21_T41/README.md` NEW. Doctrine guard + audit trail explanation.
+  - `tests/integration/test_paper_shadow_divergence.py::TestSingleFeeOracle::test_fee_archive_preserved` FAIL kapanır.
+- **4. mypy Round-3 — Mixin Protocol pattern + multi-fix:**
+  - `core/engine_settlement.py`, `engine_fills.py`, `engine_signals.py`, `engine_monitor.py` — Her birine `if TYPE_CHECKING:` blok'u + concrete TradingEngine'in init/__init__ attribute hint'leri. Mixin runtime davranışı SIFIR değişiklik (declarations only).
+  - `core/strategy_lifecycle.py` — TypedDict `_PhaseDefaults` (5× arg-type → 0).
+  - `core/risk_manager.py` — `typing.get_type_hints(cls)` ile string annotation → callable type (1× "str not callable").
+  - `core/changelog.py` — Rename `changes` → `changes_count` (1× scope clash assignment).
+  - `core/observability/__init__.py` — `Token[str] | None` explicit annotation.
+  - `core/executor.py` — Union annotation `PaperExecutor | LiveExecutor`.
+  - `core/allowance_preflight.py` — `dict[str, object]` + `float(...)` cast (2× operator).
+  - `core/strategy_plugins.py` — `CONFIGURABLE: dict[str, dict[str, type]]` (3× attr/operator/index).
+  - **Beklenen baseline 59 → ~13.** Round-4 backlog: 11 unreachable + 1 assignment + few asıl statement-level errors.
+- **2. Wave 1b — CandleCollector + EngineSettlement coverage:**
+  - `tests/unit/test_p0_p1_extra_coverage.py` NEW 2 sınıf:
+    - `TestCandleCollectorAggregationWave1b` (9 test): 5m passthrough, unknown TF, empty source, 15m bucket aggregation (3× 5m → 1× 15m + 6× 5m → 2× 15m + limit enforcement), init attrs, stop-before-start safety, start idempotency.
+    - `TestEngineSettlementHelpersWave1b` (2 test): `_get_settle_lock` lazy/singleton + `_taker_fee` delegation.
+  - Beklenen coverage: `data/candle_collector.py` 36.6% → ~55%, `core/engine_settlement.py` 9.7% → ~12%.
+- **3. P1-02 Wave 2b — LLM HTTP wrappers extraction:**
+  - `services/ai_advisor/llm_clients.py` NEW:
+    - `LLMRateLimitError` (Wave 2a prompts/router pattern — canonical class).
+    - `parse_retry_after(header_val, default=None)` — stateless utility.
+    - `build_claude_payload`, `build_chat_payload` — payload builders (Anthropic + OpenAI-compatible).
+    - `do_claude_call(payload, api_key)`, `do_groq_call(...)`, `do_openrouter_call(...)` — stateless sync HTTP, 429 → raise LLMRateLimitError, other errors → None.
+  - `core/ai_brain.py` `_do_claude / _do_groq / _do_openrouter` → 2-3 satır thin wrapper. Bot in-process davranışı **SIFIR değişiklik**. `LLMRateLimitError` import-shim ile re-export edildi (`from core.ai_brain import LLMRateLimitError` çalışmaya devam ediyor).
+  - 9 yeni test: module importable + LLMRateLimitError state + parse_retry_after variants + payload builder shapes + shim identity + do_claude soft fail (ConnectionError mock) + do_groq 429 raise (mocked response) + do_openrouter success path.
+- **Cross-FS doktrin gözlem:** core/ai_brain.py 3069 trailing NUL (Wave 2b 70+ satır cut) → `os.truncate` ile temizlendi. 6 dosyada Linux mount stale cache (Windows truth Read tool ile doğrulandı). Doctrine: önümüzdeki Wave'lerde de devam edecek, Windows-side execute kritik.
+- **Test sayım bu seans (toplam Batch 1 + 2):**
+  - AI Advisor service: 6 + 4 + 9 = **19 test**.
+  - CandleBuilder + EdgeFlow + CollectorAggregation + SettlementHelpers: 10 + 5 + 9 + 2 = **26 test**.
+  - **Toplam 45 yeni test method.**
+- **mypy track-record bu seans:** baseline 71 (önce) → 59 (Round-2) → ~13 (Round-3 beklenen).
+- **Sonraki adım:** Heddas Windows-side regression test koşumu:
+  - `py -3.11 -m pytest tests/integration/test_ai_advisor_service.py -v` → 19/19 PASS beklenir.
+  - `py -3.11 -m pytest tests/unit/test_p0_p1_extra_coverage.py -k "Candle or SettlementHelpers" -v` → 26/26 PASS beklenir.
+  - `py -3.11 -m mypy core/ --no-incremental --show-error-codes` → ~13 error beklenir.
+  - `py -3.11 -m pytest --cov` → 43.55% → ~46% beklenir.
+
+## 2026-05-11 — P1-01 Follow-up Wave 1 — TestCandleBuilder multi-TF re-write — **completed**
+
+- **Yapılanlar:**
+  - `tests/unit/test_p0_p1_extra_coverage.py` 2 sınıf yeniden yazıldı, P0-08-E3 multi-TF API'sine uyumlu.
+  - `TestCandleBuilder` (10 test, eski 10 skip-marked yerine):
+    - test_init_empty (state + active_count)
+    - test_tick_invalid_price_skipped (bounds 0.0/-0.1/1.0/1.5)
+    - test_tick_first_creates_candle (yeni positional args: asset_id, tf, price + kwargs slug/asset/volume/ts)
+    - test_tick_updates_high_low_close (open korunur)
+    - test_tick_accumulates_volume
+    - test_flush_all_returns_candle_list (sıralı open kontrolü)
+    - test_flush_all_empty_returns_empty_list
+    - test_active_count_tracks_unique_keys
+    - test_multi_tf_same_asset_separate_slots (P0-08-E3 contract — aynı asset farklı TF = 3 slot)
+    - test_tick_uses_time_when_ts_none (default ts smoke)
+  - `TestCandleBuilderEdgeFlow` (5 test, eski 2 skip-marked yerine):
+    - test_concurrent_asset_tf_building (4 asset × 7 (asset,tf) slot, interleaved feed)
+    - test_oscillating_prices_track_high_low (5-tick sequence)
+    - test_flush_all_preserves_metadata (asset_id/tf/slug/asset/open_ts)
+    - test_invalid_price_does_not_create_slot (5 bounds violation + sonra geçerli)
+    - test_active_count_decreases_after_flush (post-flush fresh open)
+  - Eski `@pytest.mark.skip(reason="P1-01-c1...")` decorator'ları kaldırıldı.
+- **Neden:**
+  - P0-08-E3 multi-TF refactor sonrası 10 + 2 = 12 test skip-marked durumdaydı. P1-01 coverage Truth Audit'inde bu boşluk "sentetik testin canlı API'yi kovaladığı" örneği olarak belirtilmişti. Re-write hem skip'leri kapatıyor hem de yeni multi-TF contract'ı test ediyor (BTC 5m / BTC 15m / BTC 1h aynı anda 3 slot).
+  - Heddas hedefi 43.05% → 48% coverage. data/candle_collector.py 15+ test ile +%2-3 puan beklenir; engine_settlement gerçek-path test Wave 1b backlog.
+- **Doğrulama:**
+  - 15 yeni test method (10 + 5). Eski skip decorator'lar kaldırıldı.
+  - Linux mount stale cache test_p0_p1_extra_coverage.py'da 22700 satırda kesiyor (Windows truth daha uzun) — Windows-side pytest run kanıt.
+  - Heddas Windows: `py -3.11 -m pytest tests/unit/test_p0_p1_extra_coverage.py::TestCandleBuilder tests/unit/test_p0_p1_extra_coverage.py::TestCandleBuilderEdgeFlow -v` → 15/15 PASS beklenir.
+- **Wave 1 backlog:**
+  - engine_settlement gerçek path test (P0-08-D refactor sonrası multi-TF settlement) — ~1 saat, DB fixture gerek.
+- **Sonraki adım:** Heddas review + 02_POLYPAPER_YOL_HARITASI.md + memory batch update.
+
+## 2026-05-11 — P1-08 PostgreSQL açıklama (deep dive) — **completed**
+
+- **Yapılanlar:** `docs/architecture/p1_08_postgresql_deep_dive.md` NEW (~280 satır). Heddas direktifi "kod yok, sadece açıklama" karşılandı:
+  - **Ne:** SQLite vs PostgreSQL mimari karşılaştırması, 8 boyut tablo (erişim modeli, çoklu kullanıcı, yedekleme, schema, replication, JSON, concurrency, ops).
+  - **Nasıl etkiler:** Bot davranışı (hot path), operasyon yükü (asgari 30 dk install + Alembic + pg_dump cron), kritik path modülleri (9 modül × ~800-1200 satır refactor), yol haritası bağımlılığı (P2-01 SaaS önkoşul, P2-02 dashboard önerilen).
+  - **Neden yaparız:** Bugün için ROI yok (SQLite yeterli), SaaS pivot için zorunlu, operasyonel sağlamlık (PITR + replication), Cross-FS Linux sandbox problemi tamamen kalkar.
+  - **Karar matrisi + 4 fazlı yol haritası** (1.5 + 2 + 1 + 1 gün = ~1 hafta net).
+- **Tek satır tavsiye:** "P1-08 sadece SaaS pivot kesinleştiğinde P0 zorunlu olur. Aksi takdirde bekleyebilir."
+- **Neden:** Heddas karar gerek — SaaS pivot var mı / yok mu? Bu cevap P1-08'in zamanlamasını belirler. Kod uygulanmadı; Heddas onayı bekleniyor.
+- **Sonraki adım:** D → P1-01 Follow-up Wave 1 (TestCandleBuilder re-write).
+
+## 2026-05-11 — P1-02 Wave 2a — AI Brain prompts + ModelRouter extraction — **completed**
+
+- **Yapılanlar:**
+  - `services/ai_advisor/prompts.py` NEW: `BRAIN_SYSTEM` (8.9KB), `TRADE_SYSTEM`, `MISTAKE_SYSTEM`, `OPTIMIST_SYSTEM`, `CRITIC_SYSTEM` — toplam 5 prompt blok'u taşındı.
+  - `services/ai_advisor/router.py` NEW: `ModelRouter` 4-tier routing (Groq → Claude fallback), `TASK_MODEL_MAP` 11 task tipi, `FALLBACK_CHAIN` env-read.
+  - `core/ai_brain.py` ~85 satır cut → 8-satır import shim. Hepsi re-export edildi → `from core.ai_brain import BRAIN_SYSTEM, ModelRouter, OPTIMIST_SYSTEM, ...` çalışmaya devam ediyor (test_p0_p1_extra_coverage.py 2440-2464 dokunulmadı).
+  - `services/ai_advisor/app.py` /stats artık prompt fingerprint + ModelRouter task listesini expose ediyor (ops visibility).
+  - `tests/integration/test_ai_advisor_service.py` 4 yeni test: prompts import, router import, core/ai_brain shim alias (`is` identity check — proves no duplication), /stats yeni alanlar.
+- **Neden:**
+  - Wave 2'nin "static config" yarısı — Wave 2b'nin (LLM call extraction) önündeki engelleyici dependency'leri azaltıyor.
+  - Bot içi `from core.ai_brain import ...` import'u korunarak sıfır breaking change.
+  - Service standalone çalıştırıldığında artık kendi prompts/router'ına sahip, `core/` dependency'sine ihtiyacı yok.
+- **Doğrulama:**
+  - core/ai_brain.py NUL pad: 1378 trailing NUL → os.truncate ile temizlendi (Edit-shrink doctrine konuşuyor). Diğer 3 dosya (fees_v2, fill_heuristic_recalibrate, signals/whale_flow) Round-2 fix sonrası NUL pad → toplu temizlendi.
+  - Windows truth sağlam (Read tool teyit). Linux mount cache stale audit_strategies/strategy_suggester/structured_logging/micro_weight_tracker'da görüldü — Windows-side execute edildiğinde sorun yok.
+  - `services/ai_advisor/prompts.py` ve `router.py` AST parse OK Linux'ta da (yeni dosyalar, cache temiz).
+- **Wave 2 kapsamı:**
+  - **Wave 2a (bu seans, tamam):** Prompts + ModelRouter taşıma. Davranış değişikliği SIFIR.
+  - **Wave 2b (backlog, ~2 saat):** `_call_claude` / `_call_groq` / `_call_openrouter` / `_two_agent_cycle` → `services/ai_advisor/llm_clients.py`. AIBrain'in self.db bağımlılığını "context dict" parametresi'ne dönüştürme. DB write side effect'i bot tarafında kalır.
+  - **Wave 2c (backlog, ~1 saat):** `services/ai_advisor/app.py` /suggest gerçek LLM çağrısı (Wave 2b sonrası).
+  - **Wave 3 (backlog, ~1.5 saat):** Approval queue flow service üzerinden.
+- **Sonraki adım:** C → P1-08 PostgreSQL açıklama (deep dive). Heddas: kod yok, sadece açıklama.
+
+## 2026-05-11 — P1-07 Round-2 mypy baseline azaltma — **completed**
+
+- **Yapılanlar:** 11 mypy error fix (71 → beklenen ~60).
+  - `core/fees_v2.py`: 3× `no-any-return` → `float(round(...))` wrap (lines 112/130/147).
+  - `core/calibration/fill_heuristic_recalibrate.py`: 2× `var-annotated` → `paper: list[float] = []`, `live: list[float] = []`.
+  - `core/strategy_suggester.py`: 1× `var-annotated` → `markets: dict[str, list[dict]] = {}`.
+  - `core/ai_brain.py`: 1× `var-annotated` → `type_counts: dict[str, int] = {}`.
+  - `core/signals/whale_flow.py`: 1× `var-annotated` → `_cache: dict[str, tuple[float, float]] = {}`.
+  - `core/micro_weight_tracker.py`: 1× `dict-item` → `per_asset: dict[str, dict[str, int | float | None]] = {}`.
+  - `core/structured_logging.py`: 1× `arg-type` → `scrub_secrets(str(log_obj["msg"]))`.
+  - `core/strategy_plugins.py`: 1× `assignment` → `vol = 0.0` (int→float init).
+  - `core/experiment_runner.py`: 1× `assignment` → `int(impact.get("trade_delta", 0))` cast.
+- **Neden:** Quick wins — type bilgisini netleştir, baseline'ı kademeli aşağı çek. Round-3'te `EngineXxxMixin attr-defined` (30+ error) Protocol pattern ile çözülecek (büyük refactor, ayrı round).
+- **Doğrulama:**
+  - Yeni baseline regen Heddas'ın Windows tarafında `py -3.11 -m mypy core/ --no-incremental --show-error-codes` ile alınmalı.
+  - Beklenen düşüş: 71 → 60.
+  - Davranış değişikliği SIFIR (tüm fix'ler tip ipucu, runtime nopt).
+- **Sonraki adım:** B → P1-02 Wave 2 (AI Brain extraction).
+
+## 2026-05-11 — P1-04 re-audit hazırlık — **completed**
+
+- **Yapılanlar:**
+  - `scripts/audit_strategies.py` iki düzeltme + bir feature:
+    - **Bug fix:** `--days N` argümanı parse ediliyordu ama executions sorgusunda yok sayılıyordu. Şimdi `closed_at >= NOW - N days` WHERE clause olarak gerçekten uygulanıyor (default 30). 7 günlük rolling re-audit artık doğru çalışacak.
+    - **Header:** Lookback line eklendi (rapor başlığında "last N days" + ISO since cutoff). Statik bakışla audit'in hangi pencereyi kapsadığı belli.
+    - **`--since-prev PATH`:** Önceki audit .md dosyasından strategy ID → recommendation map çıkartıyor (KEEP/WATCH/ARCHIVE section parse + 12-char ID regex). Yeni audit'in sonuna "Delta vs Previous Audit" bölümü ekleniyor: Regressed (KEEP/WATCH → ARCHIVE), Improved (ARCHIVE → KEEP/WATCH), Still ARCHIVE, New, Dropped sayıları + Regressed ve Improved için ID-bazlı detay tablosu.
+  - `scripts/run_strategy_audit.bat` NEW: `--days=N` ve `--since-prev=PATH` flag passthrough, default 7-day lookback.
+  - `scripts/run_strategy_prune.bat` NEW: dry-run / --apply / --apply --yes mode'ları, idempotent.
+- **Neden:**
+  - 2026-05-16 re-audit yaklaşıyor. Heddas direktifi: "zarar eden 5-10 strateji ARCHIVE." Re-audit yapılırken 2026-05-09'daki ilk audit ile karşılaştırma şart (hangi WATCH'lar regress etti? hangi ARCHIVE'lar kurtuldu?). `--since-prev` flag'i bu workflow'u tek komuta sıkıştırıyor.
+  - .bat helper'lar Windows-native execution doctrine'a uygun (cross-FS WAL contention'dan kaçınmak için DB scriptleri Windows tarafında çalışmalı).
+- **Doğrulama:**
+  - Windows-side `py -3.11 scripts/audit_strategies.py --days=7` ilk re-audit'i üretmeli (data_store/audits/).
+  - `--since-prev=data_store/audits/strategy_audit_20260509T*.md` ile diff bölümü gelmeli.
+  - Linux mount stale cache (bilinen doctrine) audit_strategies.py'ı yarım gösteriyor — Windows truth file 350+ satır sağlam.
+- **Sonraki adım:** A.3 → P1-07 Round-2 mypy baseline azaltma.
+
+## 2026-05-11 — P1-03 Wave 2 — reality_gap_job saat-pin — **completed**
+
+- **Yapılanlar:**
+  - `telegram_bot/bot.py` Reality Gap zamanlayıcısı `jq.run_repeating(interval=86400s, first=300s)` → `jq.run_daily(time=03:00 UTC)` olarak değiştirildi.
+  - Yeni ENV: `REALITY_GAP_TIME_HHMM` (default `"03:00"`, UTC). "HH:MM" parse → `datetime.time` instance. Geçersiz değer → warn + fallback 03:00.
+  - Eski `REALITY_GAP_INTERVAL_SEC` + `REALITY_GAP_FIRST_SEC` ENV'leri artık no-op (manuel `/rg` fresh-on-demand karşılıyor).
+- **Neden:**
+  - Restart sonrası `first=300s` boot-kick gece raporunun saatini sürekli kaydırıyordu (24h interval bot uptime'a bağlı, tahmin edilemez).
+  - Sabit saat (03:00 UTC) → her gün aynı saatte rapor, US/EU market açılışlarıyla yarışmaz, log korelasyonu kolay.
+- **Doğrulama:**
+  - Tek edit, 13 satır diff (eski 12 satır blok → yeni 25 satır blok, ENV parse + fallback dahil).
+  - `from datetime import time as _dtime` lokal import (üstte datetime import yoktu).
+  - Bot restart sonrası: `✅ reality_gap job scheduled (daily at 03:00 UTC, manuel /rg fresh-on-demand)` log satırı beklenmeli.
+- **Sonraki adım:** A.2 → P1-04 re-audit hazırlık (audit-runner helper script — gerçek audit 2026-05-16).
+
 **Format:**
 ```
 ## YYYY-MM-DD — Task # — Subject
