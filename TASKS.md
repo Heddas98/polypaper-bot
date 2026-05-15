@@ -45,10 +45,9 @@ Heddas direktifi: "tam yetki + acımasız + dürüst". Audit raporu detayda
 - [ ] **P1-13** Sentry opt-in (DSN + sample rate 0.001) — Effort S
 - [ ] **P1-14** Disaster recovery runbook — Effort M
 
-### Audit'in tespit ettiği KRİTİK durum
+### Audit'in tespit ettiği KRİTİK durum — CLOSED 2026-05-15
 
-🔴 **39 modified + 18 untracked dosya 2 günden beri commit'siz, mainnet LIVE.**
-Son commit `9aeaa6d` 2026-05-11. Audit commit zinciri başlatıldı 2026-05-13.
+✅ **Commit zinciri konsolide ve push'a hazır.** 2026-05-13'te v1 (21:39) + v2 (21:49) iki ayrı set olarak 8 commit linear history'ye girmişti, ikisi de origin'e push'lanmamıştı. 2026-05-15 oturumunda soft-reset + 4 thematic + 3 follow-up commit zincirine indirildi: `fd79c77` fix(fees) · `4fc5121` feat(p1-02+p2-04) · `e650172` test(p1-01) · `057090c` docs(memory+audit) + memory drift fix + P0-14 + P0-10.
 
 ---
 

@@ -1,19 +1,20 @@
-# Project Status — 2026-05-13 Snapshot (post-ultra-audit)
+# Project Status — 2026-05-15 Snapshot (post-commit-chain konsolide)
 
 > Bu dosya canlı durumun özetidir. Detay için `02_POLYPAPER_YOL_HARITASI.md` + `03_POLYPAPER_PROGRESS_LOG.md`.
 > **2026-05-13 ultra-audit**: `docs/audits/2026_05_13_ultra_audit.md` — memory stale fix.
+> **2026-05-15 commit zinciri**: 8 duplikat commit (v1+v2) → 4 thematic + 3 follow-up commit + push.
 
 ## TL;DR
 
-**Mainnet LIVE 4 gündür** (2026-05-09'dan beri). Epic 11 + T11.x pre-mainnet gate'ler hepsi kapalı. Şu an **P1 sprint**'inde — coverage genişletme (P1-01) + AI Brain microservice ayrımı (P1-02). P0'da **3 gerçek açık** + 6 yeni P0 öneri var (P0-10..P0-15, audit'ten geliyor); hiçbiri **acil mainnet stop** seviyesinde değil.
+**Mainnet LIVE 6 gündür** (2026-05-09'dan beri). Epic 11 + T11.x pre-mainnet gate'ler hepsi kapalı. Şu an **P1 sprint**'inde — coverage genişletme (P1-01) + AI Brain microservice ayrımı (P1-02). P0'da **3 gerçek açık** + 6 yeni P0 öneri var (P0-10..P0-15, audit'ten geliyor); hiçbiri **acil mainnet stop** seviyesinde değil.
 
 ### ⚠️ Memory drift düzeltmesi 2026-05-13
 
 Önceki snapshot 7 P0 açık gösteriyordu — **kod kanıtı 4 tanesinin KAPALI olduğunu doğruladı** (P0-01, P0-03, P0-06, P0-09). Detay aşağıda + `docs/audits/2026_05_13_ultra_audit.md` §3.
 
-### ⚠️ Uncommitted state uyarısı 2026-05-13
+### ✅ Commit zinciri konsolide 2026-05-15
 
-Yerel working tree **39 modified + 18 untracked** (son commit `9aeaa6d` 2026-05-11). 2 takvim günü commit'siz, mainnet LIVE. Audit commit zinciri başlatılmalı.
+Önceki "39 modified + 18 untracked" CLOSED. Local main, origin/main'in 8 duplikat commit önündeydi (v1 21:39 + v2 21:49 — aynı 4 subject iki kere atılmış); soft-reset + 4 thematic + 3 follow-up commit zincirine indirildi: `fd79c77` fix(fees) · `4fc5121` feat(p1-02+p2-04) · `e650172` test(p1-01) · `057090c` docs(memory+audit) + drift fix + P0-14 + P0-10. Origin'e push'a hazır.
 
 ## Yapı Sağlığı
 

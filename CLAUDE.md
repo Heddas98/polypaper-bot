@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-13 (post-ultra-audit, P0 listesi gerçekle senkronize).
+> Son güncelleme: 2026-05-15 (post-commit-chain konsolide + push'a hazır).
 > Audit dosyası: `docs/audits/2026_05_13_ultra_audit.md`.
 
 ## Me
@@ -11,8 +11,8 @@
 ## Proje
 
 **PolyPaper Bot** — Polymarket binary prediction market'ler için otonom trading botu.
-- **Mainnet LIVE: 2026-05-09'dan beri** (4 gün) — gerçek pUSD ile.
-- Shadow trading: 2026-05-03'ten beri (10 gün).
+- **Mainnet LIVE: 2026-05-09'dan beri** (6 gün) — gerçek pUSD ile.
+- Shadow trading: 2026-05-03'ten beri (12 gün).
 - 2 ay solo geliştirme, day 1'den production.
 - Tek Telegram chat'ten kontrol (paper + live aynı kod tabanı).
 - Klasör: `C:\Users\heddas\Desktop\Heddas\Dersnotu2\Polyscout31`
@@ -28,7 +28,7 @@
 
 **Test baseline:** 3,569 PASS / 0 FAIL / 42 skip · Coverage %44.06 · mypy strict 0 hata · ruff 0 violation (memory iddiası — Heddas yerelde son full regression koştursun).
 
-**⚠️ Uncommitted state:** 39 modified + 18 untracked dosya 2 günden beri commit'siz (son commit `9aeaa6d` 2026-05-11). Audit commit zinciri başlatılmalı.
+**✅ Commit zinciri konsolide (2026-05-15):** Önceki "39 modified + 18 untracked" CLOSED. 8-commit duplikat zincir (v1 21:39 + v2 21:49) tek temiz 4-thematic + 3 follow-up commit'e indirgendi: `fd79c77` fix(fees) · `4fc5121` feat(p1-02+p2-04) · `e650172` test(p1-01) · `057090c` docs(memory+audit) + drift fix + P0-14 + P0-10. Origin'e push'lanıyor.
 
 ## Tech Stack
 
