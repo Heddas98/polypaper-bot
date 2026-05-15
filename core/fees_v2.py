@@ -57,7 +57,11 @@ CATEGORY_FEES: dict[str, dict] = {
     # Formula: fee = shares x feeRate x (p x (1-p))^exponent
     # All documented categories currently use exponent == 1.
     # Audit: docs/audits/fee_reality_check_2026_04.md (FAZ 0.1).
-    "crypto": {"taker_rate": 0.072, "taker_exp": 1, "maker_rebate_pct": 0.20},
+    # 2026-05-11: docs cross-check (https://docs.polymarket.com/trading/fees +
+    # /market-makers/maker-rebates) → crypto taker_rate = 0.07. Önceki 0.072
+    # değeri ~+2.86% sapma yaratıyordu (peak fee $1.80 vs docs $1.75).
+    # Üç ayrı yerde teyit: rate tablosu + fee curve table + Fee Tables (100 sh).
+    "crypto": {"taker_rate": 0.07, "taker_exp": 1, "maker_rebate_pct": 0.20},
     "sports": {"taker_rate": 0.030, "taker_exp": 1, "maker_rebate_pct": 0.25},
     "politics": {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
     "finance": {"taker_rate": 0.040, "taker_exp": 1, "maker_rebate_pct": 0.25},
@@ -99,7 +103,7 @@ def polymarket_taker_fee_v2(
         override_rate: optional hot override (from /fee-rate API)
         override_exp: optional exponent override
     Returns:
-        fee in USDC (rounded to 4 decimals)
+        fee in USDC (rounded to 5 decimals, docs parity 2026-05-13).
     """
     if not price or price <= 0 or price >= 0.999 or amount_usd <= 0:
         return 0.0
@@ -109,7 +113,10 @@ def polymarket_taker_fee_v2(
     exp = override_exp if override_exp is not None else params["taker_exp"]
     shares = amount_usd / price
     fee = shares * rate * (price * (1 - price)) ** exp
-    return round(fee, 4)
+    # P0-10 (2026-05-13 audit): 4 → 5 decimal — docs: "Fees are rounded to
+    # 5 decimal places. The smallest fee charged is 0.00001 USDC."
+    # https://docs.polymarket.com/trading/fees#fee-precision
+    return float(round(fee, 5))
 
 
 def polymarket_fee_percent_v2(
@@ -127,7 +134,8 @@ def polymarket_fee_percent_v2(
     # fee/amount = rate x price x (1-price)^exp x (price x (1-price))^(exp-1)
     # simplified for exp=1: rate x (1-price)
     # general: rate x (1-price)^exp x price^(exp-1)
-    return round(rate * (price ** (exp - 1)) * ((1 - price) ** exp) * 100, 4)
+    # P0-10 (2026-05-13 audit): 4 → 5 decimal (docs parity).
+    return float(round(rate * (price ** (exp - 1)) * ((1 - price) ** exp) * 100, 5))
 
 
 def polymarket_maker_rebate(
@@ -144,7 +152,8 @@ def polymarket_maker_rebate(
     if taker_fee_usd <= 0:
         return 0.0
     params = _category_params(category)
-    return round(taker_fee_usd * params["maker_rebate_pct"], 4)
+    # P0-10 (2026-05-13 audit): 4 → 5 decimal (docs parity).
+    return float(round(taker_fee_usd * params["maker_rebate_pct"], 5))
 
 
 def in_tail_zone(price: float) -> bool:

@@ -19,8 +19,11 @@ from core.fees_v2 import (
 class TestTakerFeeV2:
     def test_crypto_rate_used_by_default(self):
         fee = polymarket_taker_fee_v2(0.50, 100)
-        # crypto rate 0.072, exp 1 → fee = 200 × 0.072 × 0.25 = 3.6
-        assert fee == pytest.approx(3.6, abs=0.01)
+        # 2026-05-11 docs cross-check: crypto rate = 0.07, exp = 1.
+        # fee = (100/0.5) × 0.07 × (0.5 × 0.5) = 200 × 0.07 × 0.25 = 3.5
+        # Polymarket docs peak fee table: 100 sh × $0.50 → $1.75
+        # → 100 sh × 2 (for $100 = 200 sh) × $0.50 × proportion = $3.50.
+        assert fee == pytest.approx(3.5, abs=0.01)
 
     def test_override_rate_applies(self):
         fee_default = polymarket_taker_fee_v2(0.50, 100)
@@ -38,9 +41,28 @@ class TestTakerFeeV2:
         assert polymarket_taker_fee_v2(0.50, 0) == 0.0
 
     # Removed 2026-04-21 Epic 4 T4.1: legacy category + core/fees.py v1 module
-    # deleted. fees_v2 is now canonical — validated against live Polymarket
-    # Gamma feeSchedule (rate=0.072, exp=1, rebateRate=0.2 for crypto) rather
-    # than the pre-Mart 2026 quadratic oracle.
+    # deleted. fees_v2 is now canonical — validated against Polymarket docs
+    # (rate=0.07, exp=1, rebateRate=0.2 for crypto) verified 2026-05-11 via
+    # docs.polymarket.com/trading/fees (was 0.072 pre-fix, off by +2.86%).
+
+    def test_p0_10_precision_5_decimal_places(self):
+        """P0-10 (2026-05-13 audit): docs say smallest fee 0.00001 USDC.
+
+        Pre-fix the result was rounded to 4 decimals, which would truncate
+        any 5th-decimal value. After the fix any returned fee with a
+        non-zero 5th digit must be preserved.
+        """
+        # Geopolitics is fee-free → 0.0 (sanity).
+        assert polymarket_taker_fee_v2(0.50, 0.0001, category="geopolitics") == 0.0
+        # Very small trade in tail zone — 5th-decimal precision matters.
+        # shares = 0.01 / 0.05 = 0.2; fee = 0.2 × 0.07 × 0.05 × 0.95 = 0.000665
+        # 4-decimal round would give 0.0007 (drift!), 5-decimal gives 0.00067.
+        small = polymarket_taker_fee_v2(0.05, 0.01, category="crypto")
+        assert small == pytest.approx(0.00067, abs=1e-6)
+        # Confirm precision really is 5: the value must have at most 5
+        # digits after the decimal point.
+        decimals = len(f"{small:.10f}".rstrip("0").split(".")[1])
+        assert decimals <= 5, f"precision drift: {small} has >5 decimals"
 
 
 class TestMakerRebate:
@@ -94,11 +116,15 @@ class TestPolymarketDocsParity:
     """
 
     # (category, price, trade_value_usd, expected_fee_usdc) - 100 shares
+    # 2026-05-13 audit: crypto values refreshed to 0.07 rate era.
+    # Docs https://docs.polymarket.com/trading/fees Fee Tables (100 shares):
+    #   p=0.10 → $0.63 · p=0.50 → $1.75 (peak) · p=0.90 → $0.63
+    # Pre-2026-05-11 the rate was 0.072 → peak $1.80, p=0.1 = $0.65.
     TAKER_FEE_TABLE = [
         ("crypto", 0.01, 1.00, 0.07),
-        ("crypto", 0.10, 10.00, 0.65),
-        ("crypto", 0.50, 50.00, 1.80),
-        ("crypto", 0.90, 90.00, 0.65),
+        ("crypto", 0.10, 10.00, 0.63),
+        ("crypto", 0.50, 50.00, 1.75),
+        ("crypto", 0.90, 90.00, 0.63),
         ("crypto", 0.99, 99.00, 0.07),
         ("sports", 0.50, 50.00, 0.75),
         ("finance", 0.50, 50.00, 1.00),
