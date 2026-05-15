@@ -3,11 +3,14 @@
 # data/ (Polymarket WSS, external feeds, scanner), telegram_bot/ (handlers,
 # jobs), backtest/ (replay, calibration) bot davranışının yarıdan fazlasını
 # kapsıyor. Bunlar olmadan "%X kapsam" rakamı yanıltıcı.
+# 2026-05-11 (P1-02 Wave 2b): services/ eklendi — ai_advisor LLM client +
+# prompts + router artık dışarıda yaşıyor, bot'un canlı yoluna bağlı.
 source =
     core
     data
     telegram_bot
     backtest
+    services
 branch = True
 omit =
     */tests/*

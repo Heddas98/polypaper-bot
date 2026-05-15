@@ -4481,12 +4481,11 @@ class TestMakerTakerDecision:
     def test_compute_maker_rebate_proportional(self):
         from core.maker_taker_decision import _compute_maker_rebate
 
-        # Crypto fee at p=0.5, $100 = 100 × 0.072 × 0.25 = 1.80
-        # Rebate = 1.80 × 0.20 = 0.36
+        # 2026-05-11 docs cross-check: crypto rate=0.07 (was 0.072).
+        # Calculator: shares = $100 / $0.5 = 200; fee = 200 × 0.07 × 0.25 = 3.5
+        # Rebate = 3.5 × 0.20 = 0.70
         rebate = _compute_maker_rebate(100, 0.5)
-        # Calculator: shares = 100 / 0.5 = 200; fee = 200 × 0.072 × 0.25 = 3.6
-        # Rebate = 3.6 × 0.20 = 0.72
-        assert rebate == pytest.approx(3.6 * 0.20)
+        assert rebate == pytest.approx(3.5 * 0.20)
 
     def test_decide_extreme_urgency_returns_fok(self):
         from core.maker_taker_decision import decide_order_type
@@ -6933,37 +6932,45 @@ class TestConfigPackage:
 # ─── Coverage Wave 3 Final — Real logic tests for high-impact modules ─
 
 
-@pytest.mark.skip(
-    reason="P1-01-c1 (2026-05-09): CandleBuilder API changed in P0-08-E3 "
-    "multi-TF refactor. tick() now requires (asset_id, timeframe, price), "
-    "flush() and active_slugs() removed (per-(asset_id,tf) key). Tests "
-    "need full re-write — tracked as P1-01 follow-up."
-)
+# P1-01 Follow-up Wave 1 (2026-05-11): TestCandleBuilder re-write for
+# P0-08-E3 multi-TF API. Key is (asset_id, timeframe) tuple. flush()/
+# active_slugs() removed; flush_all() + active_count() are the surface.
 class TestCandleBuilder:
-    """data/candle_collector.py CandleBuilder — saf OHLCV aggregator."""
+    """data/candle_collector.py CandleBuilder — multi-TF OHLCV aggregator."""
 
     def test_init_empty(self):
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
         assert b._current == {}
+        assert b.active_count() == 0
 
     def test_tick_invalid_price_skipped(self):
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("btc-up", 0.0)
-        b.tick("btc-up", -0.1)
-        b.tick("btc-up", 1.0)
-        b.tick("btc-up", 1.5)
-        assert "btc-up" not in b._current
+        # P0-08-E3: tick(asset_id, timeframe, price, ...). Bounds (0, 1) exclusive.
+        b.tick("BTC", "5m", 0.0)
+        b.tick("BTC", "5m", -0.1)
+        b.tick("BTC", "5m", 1.0)
+        b.tick("BTC", "5m", 1.5)
+        assert ("BTC", "5m") not in b._current
+        assert b.active_count() == 0
 
     def test_tick_first_creates_candle(self):
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("btc-up", 0.55, volume=10.0, ts=1700000000.0)
-        c = b._current["btc-up"]
+        b.tick(
+            "BTC", "5m", 0.55,
+            slug="btc-up-5m-may11", asset="BTC",
+            volume=10.0, ts=1700000000.0,
+        )
+        c = b._current[("BTC", "5m")]
+        assert c["asset_id"] == "BTC"
+        assert c["timeframe"] == "5m"
+        assert c["slug"] == "btc-up-5m-may11"
+        assert c["asset"] == "BTC"
         assert c["open"] == 0.55
         assert c["high"] == 0.55
         assert c["low"] == 0.55
@@ -6976,12 +6983,12 @@ class TestCandleBuilder:
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("btc-up", 0.50)
-        b.tick("btc-up", 0.55)  # new high
-        b.tick("btc-up", 0.45)  # new low
-        b.tick("btc-up", 0.52)  # close
-        c = b._current["btc-up"]
-        assert c["open"] == 0.50
+        b.tick("BTC", "5m", 0.50)
+        b.tick("BTC", "5m", 0.55)  # new high
+        b.tick("BTC", "5m", 0.45)  # new low
+        b.tick("BTC", "5m", 0.52)  # close
+        c = b._current[("BTC", "5m")]
+        assert c["open"] == 0.50  # first price preserved
         assert c["high"] == 0.55
         assert c["low"] == 0.45
         assert c["close"] == 0.52
@@ -6991,55 +6998,75 @@ class TestCandleBuilder:
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("btc-up", 0.5, volume=10)
-        b.tick("btc-up", 0.5, volume=15)
-        b.tick("btc-up", 0.5, volume=5)
-        assert b._current["btc-up"]["volume"] == 30
+        b.tick("BTC", "5m", 0.5, volume=10)
+        b.tick("BTC", "5m", 0.5, volume=15)
+        b.tick("BTC", "5m", 0.5, volume=5)
+        assert b._current[("BTC", "5m")]["volume"] == 30
 
-    def test_flush_returns_candle(self):
+    def test_flush_all_returns_candle_list(self):
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("btc-up", 0.55, volume=10)
-        result = b.flush("btc-up")
-        assert result is not None
-        assert result["open"] == 0.55
-        assert "close_ts" in result
-        # Removed from current
-        assert "btc-up" not in b._current
-
-    def test_flush_unknown_slug_returns_none(self):
-        from data.candle_collector import CandleBuilder
-
-        b = CandleBuilder()
-        assert b.flush("unknown") is None
-
-    def test_flush_all_clears_state(self):
-        from data.candle_collector import CandleBuilder
-
-        b = CandleBuilder()
-        b.tick("a", 0.5)
-        b.tick("b", 0.6)
+        b.tick("BTC", "5m", 0.55, volume=10)
+        b.tick("ETH", "15m", 0.40, volume=20)
         result = b.flush_all()
+        assert isinstance(result, list)
         assert len(result) == 2
-        assert "a" in result
-        assert "b" in result
+        # State cleared
         assert b._current == {}
+        assert b.active_count() == 0
+        # Content sanity
+        opens = sorted(c["open"] for c in result)
+        assert opens == [0.40, 0.55]
 
-    def test_active_slugs(self):
+    def test_flush_all_empty_returns_empty_list(self):
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("a", 0.5)
-        b.tick("b", 0.5)
-        slugs = b.active_slugs()
-        assert "a" in slugs
-        assert "b" in slugs
+        assert b.flush_all() == []
+        assert b.active_count() == 0
 
-    def test_active_slugs_empty(self):
+    def test_active_count_tracks_unique_keys(self):
         from data.candle_collector import CandleBuilder
 
-        assert CandleBuilder().active_slugs() == []
+        b = CandleBuilder()
+        b.tick("BTC", "5m", 0.5)
+        b.tick("ETH", "15m", 0.5)
+        b.tick("SOL", "15m", 0.5)
+        assert b.active_count() == 3
+        b.flush_all()
+        assert b.active_count() == 0
+
+    def test_multi_tf_same_asset_separate_slots(self):
+        """P0-08-E3 contract: same asset across TFs → independent candles."""
+        from data.candle_collector import CandleBuilder
+
+        b = CandleBuilder()
+        # Same BTC, three different TFs — must produce three distinct slots.
+        b.tick("BTC", "5m", 0.50, volume=1)
+        b.tick("BTC", "15m", 0.60, volume=2)
+        b.tick("BTC", "1h", 0.70, volume=3)
+        b.tick("BTC", "5m", 0.52, volume=10)  # second tick on 5m only
+        assert b.active_count() == 3
+        c5 = b._current[("BTC", "5m")]
+        c15 = b._current[("BTC", "15m")]
+        c1h = b._current[("BTC", "1h")]
+        assert c5["tick_count"] == 2 and c5["volume"] == 11
+        assert c15["tick_count"] == 1 and c15["close"] == 0.60
+        assert c1h["tick_count"] == 1 and c1h["close"] == 0.70
+
+    def test_tick_uses_time_when_ts_none(self):
+        """Default ts → time.time() (smoke: open_ts populated and recent)."""
+        from data.candle_collector import CandleBuilder
+
+        b = CandleBuilder()
+        before = time.time()
+        b.tick("BTC", "5m", 0.5)
+        after = time.time()
+        c = b._current[("BTC", "5m")]
+        assert before <= c["open_ts"] <= after
+        # tick_count stays right after default-ts path
+        assert c["tick_count"] == 1
 
 
 class TestCandleCollectorBasic:
@@ -11100,7 +11127,13 @@ class TestHandlerSafeHelpers:
         ],
     )
     def test_call_keyboard_builders(self, module_path):
-        """`_build_*_keyboard` ve benzeri saf fonksiyonları topla, call et."""
+        """`_build_*_keyboard` ve benzeri saf fonksiyonları topla, call et.
+
+        P1-01 Wave 2 (2026-05-11): skip async functions to avoid
+        "coroutine was never awaited" RuntimeWarning noise. Async builders
+        are exercised by their respective `async def test_*` cases.
+        """
+        import asyncio
         import importlib
 
         try:
@@ -11111,17 +11144,25 @@ class TestHandlerSafeHelpers:
         for attr_name in dir(mod):
             if attr_name.startswith("_build_") or attr_name.endswith("_keyboard"):
                 fn = getattr(mod, attr_name)
-                if callable(fn):
+                if not callable(fn):
+                    continue
+                # P1-01 Wave 2: async functions warned via "coroutine never
+                # awaited". Only smoke the sync ones here.
+                if asyncio.iscoroutinefunction(fn):
+                    continue
+                try:
+                    # Try with no args
+                    fn()
+                    # Maybe returns InlineKeyboardMarkup or dict
+                except (TypeError, KeyError, AttributeError):
+                    # Try with single dummy arg, and consume any returned
+                    # coroutine to keep the warning surface clean.
                     try:
-                        # Try with no args
-                        result = fn()
-                        # Maybe returns InlineKeyboardMarkup or dict
-                    except (TypeError, KeyError, AttributeError):
-                        # Try with single dummy arg
-                        try:
-                            fn({})
-                        except Exception:
-                            pass
+                        ret = fn({})
+                        if asyncio.iscoroutine(ret):
+                            ret.close()
+                    except Exception:
+                        pass
 
 
 class TestRecorderModuleLevelExec:
@@ -12357,43 +12398,1016 @@ class TestLiveTraderToggleSequence:
         assert t.is_enabled() is False
 
 
-@pytest.mark.skip(
-    reason="P1-01-c1 (2026-05-09): same as TestCandleBuilder — P0-08-E3 "
-    "API drift, refactor needed."
-)
+# P1-01 Follow-up Wave 1 (2026-05-11): re-written for multi-TF API.
 class TestCandleBuilderEdgeFlow:
-    """CandleBuilder — additional edge flow."""
+    """CandleBuilder — additional edge flow (multi-asset, multi-TF)."""
 
-    def test_concurrent_slug_building(self):
+    def test_concurrent_asset_tf_building(self):
+        """4 assets × 2 TFs = 8 distinct slots updated in interleaved order."""
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        # Build 3 different slugs concurrently
-        for slug, prices in [
-            ("btc-up", [0.50, 0.55, 0.60]),
-            ("eth-up", [0.40, 0.45, 0.50]),
-            ("sol-up", [0.30, 0.35, 0.40]),
-        ]:
+        feed = [
+            ("BTC", "5m", [0.50, 0.55, 0.60]),
+            ("ETH", "15m", [0.40, 0.45, 0.50]),
+            ("SOL", "15m", [0.30, 0.35, 0.40]),
+            ("XRP", "15m", [0.20, 0.25, 0.30]),
+            ("BTC", "1h", [0.65]),
+            ("BTC", "15m", [0.58, 0.59]),
+            ("BTC", "24h", [0.70]),
+        ]
+        for asset_id, tf, prices in feed:
             for p in prices:
-                b.tick(slug, p, volume=1.0)
-        # All 3 active
-        assert len(b.active_slugs()) == 3
-        # Flush all
+                b.tick(asset_id, tf, p, volume=1.0)
+        # 7 distinct (asset, tf) keys
+        assert b.active_count() == 7
+        # Per-slot count = number of ticks
+        assert b._current[("BTC", "5m")]["tick_count"] == 3
+        assert b._current[("BTC", "15m")]["tick_count"] == 2
+        assert b._current[("BTC", "1h")]["tick_count"] == 1
+        assert b._current[("BTC", "24h")]["tick_count"] == 1
+        # Flush returns 7 candles, state cleared
         result = b.flush_all()
-        assert len(result) == 3
-        # State cleared
-        assert b.active_slugs() == []
+        assert len(result) == 7
+        assert b.active_count() == 0
 
-    def test_double_flush_returns_none_second(self):
+    def test_oscillating_prices_track_high_low(self):
+        """Walk price up-down-up — high and low correct at end."""
         from data.candle_collector import CandleBuilder
 
         b = CandleBuilder()
-        b.tick("x", 0.5)
-        first = b.flush("x")
-        assert first is not None
-        # Second flush — already removed
-        second = b.flush("x")
-        assert second is None
+        # Sequence: 0.50 -> 0.62 -> 0.42 -> 0.58 -> 0.55
+        for p in [0.50, 0.62, 0.42, 0.58, 0.55]:
+            b.tick("BTC", "5m", p)
+        c = b._current[("BTC", "5m")]
+        assert c["open"] == 0.50
+        assert c["high"] == 0.62
+        assert c["low"] == 0.42
+        assert c["close"] == 0.55  # last tick
+        assert c["tick_count"] == 5
+
+    def test_flush_all_preserves_metadata(self):
+        """flush_all() returns full candle dict — asset_id/tf/slug/asset/open_ts."""
+        from data.candle_collector import CandleBuilder
+
+        b = CandleBuilder()
+        b.tick(
+            "BTC", "5m", 0.55,
+            slug="btc-up-or-down-5m-may11",
+            asset="BTC",
+            volume=12.5,
+            ts=1700000123.0,
+        )
+        result = b.flush_all()
+        assert len(result) == 1
+        c = result[0]
+        assert c["asset_id"] == "BTC"
+        assert c["timeframe"] == "5m"
+        assert c["slug"] == "btc-up-or-down-5m-may11"
+        assert c["asset"] == "BTC"
+        assert c["open_ts"] == 1700000123.0
+        assert c["volume"] == 12.5
+
+    def test_invalid_price_does_not_create_slot(self):
+        """Bounds: price <= 0 or >= 1.0 → silently skipped."""
+        from data.candle_collector import CandleBuilder
+
+        b = CandleBuilder()
+        b.tick("BTC", "5m", 0.0)
+        b.tick("BTC", "5m", -1.0)
+        b.tick("BTC", "5m", 1.0)
+        b.tick("BTC", "5m", 1.5)
+        b.tick("BTC", "5m", 999.0)
+        # Slot never created
+        assert ("BTC", "5m") not in b._current
+        assert b.active_count() == 0
+        # Now a valid tick — slot created
+        b.tick("BTC", "5m", 0.5)
+        assert b.active_count() == 1
+
+    def test_active_count_decreases_after_flush(self):
+        from data.candle_collector import CandleBuilder
+
+        b = CandleBuilder()
+        b.tick("BTC", "5m", 0.5)
+        b.tick("ETH", "15m", 0.4)
+        b.tick("SOL", "15m", 0.3)
+        assert b.active_count() == 3
+        b.flush_all()
+        assert b.active_count() == 0
+        # Re-tick after flush — new slot opens fresh
+        b.tick("BTC", "5m", 0.6)
+        assert b.active_count() == 1
+        assert b._current[("BTC", "5m")]["open"] == 0.6  # fresh open, not 0.5
+
+
+# ─── P1-01 Wave 1b (2026-05-11): CandleCollector aggregation + helpers ─
+
+
+class TestCandleCollectorAggregationWave1b:
+    """data/candle_collector.py — multi-TF aggregation + helper methods.
+
+    Wave 1b targets the CandleCollector's pure-ish methods (aggregation,
+    init, start/stop idempotency) without the async DB hot path. Coverage
+    gain: ~5-8% on candle_collector.py.
+    """
+
+    @pytest.mark.asyncio
+    async def test_aggregate_5m_passthrough(self):
+        """factor=1 → returns raw 5m read."""
+        from unittest.mock import AsyncMock
+
+        from data.candle_collector import CandleCollector
+
+        cc = CandleCollector(db=object())
+        sample_5m = [{"open_ts": 1700000000000, "open": 0.5, "close": 0.55}]
+        cc._read_ext_5m = AsyncMock(return_value=sample_5m)
+        result = await cc.aggregate_ext_candles("BTCUSDT", "5m", limit=10)
+        assert result == sample_5m
+        cc._read_ext_5m.assert_called_once_with("BTCUSDT", 10)
+
+    @pytest.mark.asyncio
+    async def test_aggregate_unknown_tf_returns_empty(self):
+        """Unknown TF → empty list + warning log."""
+        from data.candle_collector import CandleCollector
+
+        cc = CandleCollector(db=object())
+        result = await cc.aggregate_ext_candles("BTCUSDT", "99m", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_aggregate_no_5m_data_returns_empty(self):
+        """factor>1 but no source 5m candles → empty."""
+        from unittest.mock import AsyncMock
+
+        from data.candle_collector import CandleCollector
+
+        cc = CandleCollector(db=object())
+        cc._read_ext_5m = AsyncMock(return_value=[])
+        result = await cc.aggregate_ext_candles("BTCUSDT", "15m", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_aggregate_15m_buckets_correctly(self):
+        """3× 5m → 1× 15m. open=first, close=last, high=max, low=min, volume=sum."""
+        from unittest.mock import AsyncMock
+
+        from data.candle_collector import CandleCollector
+
+        # 3 consecutive 5m candles forming one 15m bucket starting at
+        # bucket = floor(1700000000000 / 900000) * 900000.
+        bucket_start = (1700000000000 // 900000) * 900000
+        sample_5m = [
+            {"open_ts": bucket_start, "open": 0.50, "high": 0.55, "low": 0.48, "close": 0.52, "volume": 10},
+            {"open_ts": bucket_start + 300000, "open": 0.52, "high": 0.58, "low": 0.50, "close": 0.55, "volume": 20},
+            {"open_ts": bucket_start + 600000, "open": 0.55, "high": 0.60, "low": 0.45, "close": 0.50, "volume": 30},
+        ]
+        cc = CandleCollector(db=object())
+        cc._read_ext_5m = AsyncMock(return_value=sample_5m)
+        result = await cc.aggregate_ext_candles("BTCUSDT", "15m", limit=5)
+        assert len(result) == 1
+        bar = result[0]
+        assert bar["symbol"] == "BTCUSDT"
+        assert bar["interval"] == "15m"
+        assert bar["open_ts"] == bucket_start
+        assert bar["open"] == 0.50  # first 5m's open
+        assert bar["close"] == 0.50  # last 5m's close
+        assert bar["high"] == 0.60  # max of all highs
+        assert bar["low"] == 0.45  # min of all lows
+        assert bar["volume"] == 60  # 10+20+30
+        assert bar["_n_5m_periods"] == 3
+
+    @pytest.mark.asyncio
+    async def test_aggregate_15m_two_buckets(self):
+        """6× 5m → 2× 15m buckets."""
+        from unittest.mock import AsyncMock
+
+        from data.candle_collector import CandleCollector
+
+        bucket1 = (1700000000000 // 900000) * 900000
+        bucket2 = bucket1 + 900000
+        sample_5m = [
+            {"open_ts": bucket1, "open": 0.50, "high": 0.55, "low": 0.48, "close": 0.52, "volume": 10},
+            {"open_ts": bucket1 + 300000, "open": 0.52, "high": 0.53, "low": 0.51, "close": 0.51, "volume": 5},
+            {"open_ts": bucket1 + 600000, "open": 0.51, "high": 0.56, "low": 0.50, "close": 0.55, "volume": 15},
+            {"open_ts": bucket2, "open": 0.55, "high": 0.60, "low": 0.55, "close": 0.58, "volume": 20},
+            {"open_ts": bucket2 + 300000, "open": 0.58, "high": 0.62, "low": 0.57, "close": 0.60, "volume": 25},
+            {"open_ts": bucket2 + 600000, "open": 0.60, "high": 0.65, "low": 0.58, "close": 0.63, "volume": 30},
+        ]
+        cc = CandleCollector(db=object())
+        cc._read_ext_5m = AsyncMock(return_value=sample_5m)
+        result = await cc.aggregate_ext_candles("BTCUSDT", "15m", limit=10)
+        assert len(result) == 2
+        # Sorted by bucket_ts ascending — first bucket comes first
+        assert result[0]["open_ts"] == bucket1
+        assert result[1]["open_ts"] == bucket2
+        assert result[0]["volume"] == 30  # 10+5+15
+        assert result[1]["volume"] == 75  # 20+25+30
+        assert result[0]["high"] == 0.56
+        assert result[1]["high"] == 0.65
+
+    @pytest.mark.asyncio
+    async def test_aggregate_respects_limit(self):
+        """If limit < bucket count, only last N returned."""
+        from unittest.mock import AsyncMock
+
+        from data.candle_collector import CandleCollector
+
+        bucket0 = (1700000000000 // 900000) * 900000
+        # 9× 5m candles → 3× 15m buckets
+        sample_5m = []
+        for i in range(9):
+            bucket = bucket0 + (i // 3) * 900000
+            offset = (i % 3) * 300000
+            sample_5m.append({
+                "open_ts": bucket + offset,
+                "open": 0.5, "high": 0.5, "low": 0.5, "close": 0.5, "volume": 1,
+            })
+        cc = CandleCollector(db=object())
+        cc._read_ext_5m = AsyncMock(return_value=sample_5m)
+        result = await cc.aggregate_ext_candles("BTCUSDT", "15m", limit=2)
+        assert len(result) == 2  # last 2 of 3 buckets
+
+    def test_init_attributes_sane(self):
+        """CandleCollector.__init__ sets up state cleanly."""
+        from data.candle_collector import CandleBuilder, CandleCollector
+
+        db = object()
+        scanner = object()
+        cc = CandleCollector(db=db, scanner=scanner)
+        assert cc.db is db
+        assert cc.scanner is scanner
+        assert isinstance(cc._poly_builder, CandleBuilder)
+        assert cc._candle_count == 0
+        assert cc._enabled is True
+        assert cc._running is False
+        assert cc._task is None
+
+    @pytest.mark.asyncio
+    async def test_stop_when_not_started_is_safe(self):
+        """stop() before start() must not raise (defensive idempotent path)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from data.candle_collector import CandleCollector
+
+        cc = CandleCollector(db=MagicMock())
+        # _flush_poly_candles touches self.db.conn — mock the whole chain.
+        cc._flush_poly_candles = AsyncMock(return_value=None)
+        await cc.stop()
+        assert cc._running is False
+        cc._flush_poly_candles.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_start_idempotent(self):
+        """Double-start should not create a second task."""
+        import asyncio
+
+        from data.candle_collector import CandleCollector
+
+        cc = CandleCollector(db=object())
+        # Override the loop to avoid hot-path execution.
+        async def _noop():
+            await asyncio.sleep(0)
+
+        cc._collection_loop = _noop
+        await cc.start()
+        first_task = cc._task
+        await cc.start()  # second call should no-op
+        assert cc._task is first_task
+        # Cleanup
+        cc._running = False
+        if cc._task and not cc._task.done():
+            cc._task.cancel()
+            try:
+                await cc._task
+            except (asyncio.CancelledError, BaseException):
+                pass
+
+
+class TestEngineSettlementHelpersWave1b:
+    """core/engine_settlement.py — small helper methods that don't need a
+    full DB engine — pure or near-pure functions.
+    """
+
+    def test_get_settle_lock_lazy_creates(self):
+        """_get_settle_lock returns asyncio.Lock and reuses on second call."""
+        import asyncio
+
+        from core.engine_settlement import EngineSettlementMixin
+
+        # Build a minimal instance with just the attrs the method touches.
+        inst = EngineSettlementMixin.__new__(EngineSettlementMixin)
+        inst._settle_locks = {}
+        lock1 = inst._get_settle_lock("btc-up-may11")
+        assert isinstance(lock1, asyncio.Lock)
+        # Same slug returns same lock instance (per-market singleton).
+        lock2 = inst._get_settle_lock("btc-up-may11")
+        assert lock1 is lock2
+        # Different slug → new lock.
+        lock3 = inst._get_settle_lock("eth-up-may11")
+        assert lock3 is not lock1
+
+    def test_taker_fee_delegates_to_fees_v2(self):
+        """_taker_fee (EngineFillsMixin) must call fees_v2.polymarket_taker_fee_v2.
+
+        _taker_fee lives on EngineFillsMixin (not EngineSettlementMixin —
+        TradingEngine inherits from both, so the runtime call still works,
+        but in unit-test isolation we instantiate the right mixin).
+        """
+        from core.engine_fills import EngineFillsMixin
+        from core.fees_v2 import polymarket_taker_fee_v2
+
+        inst = EngineFillsMixin.__new__(EngineFillsMixin)
+        # 0.55 price, $10 amount, crypto category → known v2 output.
+        canonical = polymarket_taker_fee_v2(0.55, 10.0, category="crypto")
+        result = inst._taker_fee(0.55, 10.0, "crypto")
+        assert result == canonical
+        # Both non-negative + bounded.
+        assert result >= 0
+        assert result < 10.0
+
+
+# ─── P1-01 Wave 2 (2026-05-11): Handler real-behavior smoke ─────────
+
+
+class TestStatsHandlerKeyboardWave2:
+    """telegram_bot/handlers/stats.py — sync helpers (no DB needed).
+
+    Wave 2 (2026-05-11): real-behavior tests for handler module sync
+    helpers. Bumps stats.py coverage 13.4% → ~18-20% by smoking the
+    keyboard builders + chart-row helpers + label formatters.
+    """
+
+    def test_build_hub_keyboard_returns_inline_markup(self):
+        from telegram.ext import ContextTypes  # noqa: F401  — ensure ptb installed
+
+        from telegram_bot.handlers.stats import _build_hub_keyboard
+
+        kbd = _build_hub_keyboard()
+        # InlineKeyboardMarkup duck-type: has inline_keyboard attr.
+        assert hasattr(kbd, "inline_keyboard")
+        rows = kbd.inline_keyboard
+        assert len(rows) >= 3
+        # Verify expected callback_data prefixes present.
+        all_buttons = [btn for row in rows for btn in row]
+        callbacks = [b.callback_data for b in all_buttons]
+        for expected in ("hub:stats", "hub:ss", "hub:perf", "hub:chart",
+                         "hub:maker", "hub:kelly", "hub:velocity"):
+            assert expected in callbacks, f"missing {expected}"
+
+    def test_build_hub_keyboard_button_text_emoji(self):
+        from telegram_bot.handlers.stats import _build_hub_keyboard
+
+        kbd = _build_hub_keyboard()
+        texts = [b.text for row in kbd.inline_keyboard for b in row]
+        # Verify all 7 tab labels rendered.
+        assert any("Overall" in t for t in texts)
+        assert any("Strategies" in t for t in texts)
+        assert any("Performance" in t for t in texts)
+        assert any("Velocity" in t for t in texts)
+
+
+class TestEnvToggleHandlerWave2:
+    """config/env_whitelist.py — coerce + group helpers.
+
+    Wave 2: smoke the pure helpers. Real API:
+      - coerce_value(key, raw) → tuple[bool, Any, str]  (ok, value_str, err)
+      - list_groups() → list[str]  (unique group names)
+    """
+
+    def test_coerce_value_unknown_key_returns_error(self):
+        """Non-whitelisted key → (False, None, err_msg) — not a value."""
+        from config.env_whitelist import coerce_value
+
+        ok, val, err = coerce_value("NOT_A_REAL_ENV_KEY", "100")
+        assert ok is False
+        assert val is None
+        assert "Bilinmeyen" in err or "unknown" in err.lower() or err
+
+    def test_coerce_value_float_whitelisted(self):
+        """PNL_PAUSE_THRESHOLD is a whitelisted float (min=-1000, max=0)."""
+        from config.env_whitelist import coerce_value
+
+        ok, val_str, err = coerce_value("PNL_PAUSE_THRESHOLD", "-8.5")
+        assert ok is True, f"unexpected err: {err}"
+        # value_str is the canonicalized string form of the coerced float.
+        assert isinstance(val_str, str)
+        assert float(val_str) == -8.5
+
+    def test_coerce_value_float_out_of_range(self):
+        """Value above max → (False, None, err)."""
+        from config.env_whitelist import coerce_value
+
+        ok, val, err = coerce_value("PNL_PAUSE_THRESHOLD", "5.0")  # max=0.0
+        assert ok is False
+        assert err  # non-empty error message
+
+    def test_list_groups_returns_list_of_strings(self):
+        """list_groups() returns a flat list[str] of unique group tags."""
+        from config.env_whitelist import list_groups
+
+        groups = list_groups()
+        assert isinstance(groups, list)
+        assert len(groups) >= 3
+        for g in groups:
+            assert isinstance(g, str)
+        # Uniqueness — list_groups dedupes via `seen`.
+        assert len(set(groups)) == len(groups)
+        # `risk` is a known group (PNL_PAUSE_THRESHOLD lives in it).
+        assert "risk" in groups
+
+
+class TestSlugUtilsWave2:
+    """core/slug_utils.py — infer_tf_from_slug + infer_asset_from_slug.
+
+    Already 69.1% covered; this Wave 2 boost targets the daily/hourly/legacy
+    branch coverage explicitly. Pure functions, no fixtures needed.
+    """
+
+    @pytest.mark.parametrize(
+        "slug,expected_tf",
+        [
+            # Legacy epoch-suffix (5m / 15m) — actual regex pattern is
+            # `^(?:btc|eth|sol|xrp)-updown-(5m|15m)-\d+` (slug_utils.py:55).
+            ("btc-updown-5m-1700000000", "5m"),
+            ("eth-updown-15m-1700001234", "15m"),
+            ("sol-updown-5m-9999", "5m"),
+            # Daily (24h)
+            ("bitcoin-up-or-down-on-may-9", "24h"),
+            ("ethereum-up-or-down-on-march-17-2026", "24h"),
+            ("solana-up-or-down-on-january-1", "24h"),
+            # Hourly (1h) with am/pm-et suffix
+            ("bitcoin-up-or-down-may-9-2026-12pm-et", "1h"),
+            ("ethereum-up-or-down-january-1-2026-3am-et", "1h"),
+            # Unknown / no slug
+            ("", "?"),
+            (None, "?"),
+            ("totally-unrelated-slug", "?"),
+        ],
+    )
+    def test_infer_tf_from_slug_branches(self, slug, expected_tf):
+        from core.slug_utils import infer_tf_from_slug
+
+        assert infer_tf_from_slug(slug) == expected_tf
+
+    @pytest.mark.parametrize(
+        "slug,expected_asset",
+        [
+            ("bitcoin-up-or-down-on-may-9", "BTC"),
+            ("btc-up-or-down-5m-1700000000", "BTC"),
+            ("ethereum-up-or-down-15m-1700001234", "ETH"),
+            ("eth-up-or-down-on-march-17", "ETH"),
+            ("solana-up-or-down-on-january-1", "SOL"),
+            ("sol-up-or-down-15m-foo", "SOL"),
+            ("ripple-up-or-down-on-april-2", "XRP"),
+            ("xrp-up-or-down-15m-bar", "XRP"),
+            ("", "?"),
+            ("totally-unrelated-slug", "?"),
+        ],
+    )
+    def test_infer_asset_from_slug_branches(self, slug, expected_asset):
+        from core.slug_utils import infer_asset_from_slug
+
+        assert infer_asset_from_slug(slug) == expected_asset
+
+
+class TestEngineSignalsHelpersWave3:
+    """core/engine_signals.py — pure helper coverage (P1-01 Wave 3, 2026-05-11).
+
+    engine_signals.py is 15.7% covered with 1035 statements — the hot path
+    is large but a handful of pure / mostly-pure helpers are easy wins:
+
+      - _parse_zones  (staticmethod, string → list[tuple])
+      - _in_allowed_zone  (staticmethod, price ∈ zones)
+      - _classic_free_mode  (staticmethod, env-gated bypass check)
+      - _get_brier_bin  (price → bin label string)
+      - _compute_pending_reserved  (sum across self._pending)
+
+    Wave 3 adds ~20 sub-tests covering these without needing an engine
+    init. Expected impact: engine_signals 15.7% → ~18-19%.
+    """
+
+    # ── _parse_zones ────────────────────────────────────────────────────
+
+    def test_parse_zones_empty_string(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        assert EngineSignalsMixin._parse_zones("") == []
+        assert EngineSignalsMixin._parse_zones("   ") == []
+
+    def test_parse_zones_single_zone(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        result = EngineSignalsMixin._parse_zones("30-40")
+        assert result == [(0.30, 0.40)]
+
+    def test_parse_zones_multi_zone(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        result = EngineSignalsMixin._parse_zones("0-35,50-55,65-80")
+        assert result == [(0.0, 0.35), (0.50, 0.55), (0.65, 0.80)]
+
+    def test_parse_zones_invalid_returns_empty(self):
+        """Garbage input → empty list + warning (no exception)."""
+        from core.engine_signals import EngineSignalsMixin
+
+        # Missing dash separator
+        assert EngineSignalsMixin._parse_zones("not-a-zone-format,more") == []
+        # Non-numeric
+        assert EngineSignalsMixin._parse_zones("abc-xyz") == []
+
+    # ── _in_allowed_zone ────────────────────────────────────────────────
+
+    def test_in_allowed_zone_empty_zones_allows_all(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        # Empty zones list → allow all (no filter applied)
+        assert EngineSignalsMixin._in_allowed_zone(0.1, []) is True
+        assert EngineSignalsMixin._in_allowed_zone(0.5, []) is True
+        assert EngineSignalsMixin._in_allowed_zone(0.95, []) is True
+
+    def test_in_allowed_zone_inside_outside(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        zones = [(0.30, 0.40), (0.65, 0.80)]
+        # Inside first zone
+        assert EngineSignalsMixin._in_allowed_zone(0.35, zones) is True
+        # Inside second zone
+        assert EngineSignalsMixin._in_allowed_zone(0.70, zones) is True
+        # Gap between zones
+        assert EngineSignalsMixin._in_allowed_zone(0.50, zones) is False
+        # Below first
+        assert EngineSignalsMixin._in_allowed_zone(0.20, zones) is False
+        # Above last
+        assert EngineSignalsMixin._in_allowed_zone(0.90, zones) is False
+
+    def test_in_allowed_zone_boundary_inclusive(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        zones = [(0.30, 0.40)]
+        # Boundaries are inclusive on both ends.
+        assert EngineSignalsMixin._in_allowed_zone(0.30, zones) is True
+        assert EngineSignalsMixin._in_allowed_zone(0.40, zones) is True
+
+    # ── _classic_free_mode ──────────────────────────────────────────────
+
+    def test_classic_free_mode_string_classic_default_true(self, monkeypatch):
+        """stype='classic' + CLASSIC_BYPASS_ALL_GATES default → True."""
+        monkeypatch.delenv("CLASSIC_BYPASS_ALL_GATES", raising=False)
+        from core.engine_signals import EngineSignalsMixin
+
+        assert EngineSignalsMixin._classic_free_mode("classic") is True
+
+    def test_classic_free_mode_non_classic_returns_false(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        for stype in ("fusion", "momentum", "scalper", "martingale", ""):
+            assert EngineSignalsMixin._classic_free_mode(stype) is False
+
+    def test_classic_free_mode_classic_disabled_env(self, monkeypatch):
+        """CLASSIC_BYPASS_ALL_GATES=false → even classic blocked."""
+        monkeypatch.setenv("CLASSIC_BYPASS_ALL_GATES", "false")
+        from core.engine_signals import EngineSignalsMixin
+
+        assert EngineSignalsMixin._classic_free_mode("classic") is False
+
+    def test_classic_free_mode_accepts_ctx_dict(self, monkeypatch):
+        monkeypatch.delenv("CLASSIC_BYPASS_ALL_GATES", raising=False)
+        from core.engine_signals import EngineSignalsMixin
+
+        # Dict ctx with stype key.
+        assert EngineSignalsMixin._classic_free_mode({"stype": "classic"}) is True
+        assert EngineSignalsMixin._classic_free_mode({"stype": "fusion"}) is False
+        assert EngineSignalsMixin._classic_free_mode({}) is False
+        # None / missing stype.
+        assert EngineSignalsMixin._classic_free_mode(None) is False
+
+    # ── _get_brier_bin ──────────────────────────────────────────────────
+
+    def test_get_brier_bin_canonical_bins(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        # Need a bound instance for the method (it's `def` not staticmethod).
+        inst = EngineSignalsMixin.__new__(EngineSignalsMixin)
+        # 0.62 → 0.6-0.7
+        assert inst._get_brier_bin(0.62) == "0.6-0.7"
+        # 0.0 → 0.0-0.1
+        assert inst._get_brier_bin(0.0) == "0.0-0.1"
+        # 0.5 → 0.5-0.6
+        assert inst._get_brier_bin(0.5) == "0.5-0.6"
+        # 0.99 → 0.9-1.0
+        assert inst._get_brier_bin(0.99) == "0.9-1.0"
+
+    def test_get_brier_bin_clamps_out_of_range(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        inst = EngineSignalsMixin.__new__(EngineSignalsMixin)
+        # Above 1.0 → clamped to 0.9-1.0
+        assert inst._get_brier_bin(1.5) == "0.9-1.0"
+        # At exactly 1.0 → 0.9-1.0 (bin_idx=10 → 9)
+        assert inst._get_brier_bin(1.0) == "0.9-1.0"
+        # Negative → clamped to 0.0-0.1
+        assert inst._get_brier_bin(-0.5) == "0.0-0.1"
+
+    # ── _compute_pending_reserved ───────────────────────────────────────
+
+    def test_compute_pending_reserved_empty_pending(self):
+        from core.engine_signals import EngineSignalsMixin
+
+        inst = EngineSignalsMixin.__new__(EngineSignalsMixin)
+        inst._pending = []
+        assert inst._compute_pending_reserved(wallet_id="w1") == 0.0
+
+    def test_compute_pending_reserved_wallet_filter(self):
+        from core.engine_signals import EngineSignalsMixin
+        from core.engine_support import VirtualOrder
+
+        inst = EngineSignalsMixin.__new__(EngineSignalsMixin)
+        # 3 orders across 2 wallets
+        o1 = VirtualOrder(wallet_id="w1", amount=10.0)
+        o2 = VirtualOrder(wallet_id="w1", amount=5.0)
+        o3 = VirtualOrder(wallet_id="w2", amount=20.0)
+        inst._pending = [o1, o2, o3]
+
+        # w1 sees only its own.
+        assert inst._compute_pending_reserved(wallet_id="w1") == 15.0
+        # w2 sees only its own.
+        assert inst._compute_pending_reserved(wallet_id="w2") == 20.0
+        # Unknown wallet sees nothing.
+        assert inst._compute_pending_reserved(wallet_id="w_unknown") == 0.0
+
+
+class TestGeopoliticsScannerP2_03:
+    """data/polymarket_client.py — discover_fee_free_markets (P2-03, 2026-05-11).
+
+    Polymarket docs (trading/fees) confirms Geopolitics is the only %0-fee
+    category. fees_v2.py already has `geopolitics: taker_rate=0.000`.
+
+    Wave: gamma-api /events?tag_slug=geopolitics discovery scaffold. Tests
+    mock httpx so the unit suite stays network-free.
+    """
+
+    def test_fee_free_tag_slugs_constant(self):
+        from data.polymarket_client import PolymarketClient
+
+        # Sanity: geopolitics is the canonical fee-free tag (docs 2026-05-11).
+        assert "geopolitics" in PolymarketClient.FEE_FREE_TAG_SLUGS
+
+    @pytest.mark.asyncio
+    async def test_discover_fee_free_markets_success(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from data.polymarket_client import PolymarketClient
+
+        inst = PolymarketClient.__new__(PolymarketClient)
+        # Fake gamma-api response: 2 events with 3 total active markets +
+        # 1 closed that must be filtered out.
+        fake_r = MagicMock()
+        fake_r.status_code = 200
+        fake_r.json.return_value = [
+            {
+                "id": 1,
+                "slug": "ukraine-ceasefire-2026",
+                "markets": [
+                    {"slug": "ukraine-deal-by-q2", "closed": False},
+                    {"slug": "ukraine-deal-by-q4", "closed": True},  # filtered
+                ],
+            },
+            {
+                "id": 2,
+                "slug": "taiwan-strait-2026",
+                "markets": [
+                    {"slug": "taiwan-incident-jan", "closed": False},
+                    {"slug": "taiwan-incident-feb", "closed": False},
+                ],
+            },
+        ]
+        inst._get_with_retry = AsyncMock(return_value=fake_r)
+
+        markets = await inst.discover_fee_free_markets(tag_slug="geopolitics", limit=10)
+        assert len(markets) == 3  # closed filtered
+        # Every result annotated with discovery tag.
+        for m in markets:
+            assert m["_discovered_via_tag"] == "geopolitics"
+        # Verify gamma-api parameter shape.
+        call_args = inst._get_with_retry.call_args
+        assert call_args.kwargs["params"]["tag_slug"] == "geopolitics"
+        assert call_args.kwargs["params"]["active"] == "true"
+        assert call_args.kwargs["params"]["closed"] == "false"
+        assert call_args.kwargs["params"]["limit"] == 10
+
+    @pytest.mark.asyncio
+    async def test_discover_fee_free_markets_http_error(self):
+        from unittest.mock import AsyncMock
+
+        import httpx
+
+        from data.polymarket_client import PolymarketClient
+
+        inst = PolymarketClient.__new__(PolymarketClient)
+        inst._get_with_retry = AsyncMock(side_effect=httpx.HTTPError("boom"))
+
+        markets = await inst.discover_fee_free_markets()
+        assert markets == []
+
+    @pytest.mark.asyncio
+    async def test_discover_fee_free_markets_non_200(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from data.polymarket_client import PolymarketClient
+
+        inst = PolymarketClient.__new__(PolymarketClient)
+        fake_r = MagicMock()
+        fake_r.status_code = 429
+        inst._get_with_retry = AsyncMock(return_value=fake_r)
+
+        markets = await inst.discover_fee_free_markets()
+        assert markets == []
+
+    @pytest.mark.asyncio
+    async def test_discover_fee_free_markets_empty_response(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from data.polymarket_client import PolymarketClient
+
+        inst = PolymarketClient.__new__(PolymarketClient)
+        fake_r = MagicMock()
+        fake_r.status_code = 200
+        fake_r.json.return_value = []
+        inst._get_with_retry = AsyncMock(return_value=fake_r)
+
+        markets = await inst.discover_fee_free_markets()
+        assert markets == []
+
+    def test_geopolitics_fee_is_zero_in_fees_v2(self):
+        """Cross-check: fees_v2.py geopolitics category matches Polymarket docs."""
+        from core.fees_v2 import polymarket_fee_percent_v2, polymarket_taker_fee_v2
+
+        # Any price, any amount → 0 fee for geopolitics category.
+        assert polymarket_taker_fee_v2(0.50, 100.0, category="geopolitics") == 0.0
+        assert polymarket_taker_fee_v2(0.30, 50.0, category="geopolitics") == 0.0
+        assert polymarket_taker_fee_v2(0.75, 200.0, category="geopolitics") == 0.0
+        # Fee % is also zero.
+        assert polymarket_fee_percent_v2(0.50, category="geopolitics") == 0.0
+
+
+class TestEngineFillsHelpersWave3:
+    """core/engine_fills.py — pure helper coverage (P1-01 Wave 3, 2026-05-11).
+
+    Targets `_snap_to_tick` (classmethod) and `_compute_ob_imbalance`
+    (staticmethod) — both pure functions that exercise the maker-queue
+    fill heuristic logic without needing an engine init.
+
+    Expected impact: engine_fills.py 33.7% → ~37%.
+    """
+
+    # ── _snap_to_tick ───────────────────────────────────────────────────
+
+    def test_snap_to_tick_clamps_low_and_high(self):
+        from core.engine_fills import EngineFillsMixin
+
+        # P1-01 Wave 3b fix (2026-05-11): real behavior — 0.0 is NOT None,
+        # so falls into normal path → snapped < 0.01 → clamp to 0.01.
+        # Only price=None short-circuits to 0.0 (see _snap_to_tick body).
+        assert EngineFillsMixin._snap_to_tick(0.0) == 0.01
+        assert EngineFillsMixin._snap_to_tick(0.005) == 0.01
+        # Above ceiling → clamp to 0.99
+        assert EngineFillsMixin._snap_to_tick(1.5) == 0.99
+        assert EngineFillsMixin._snap_to_tick(0.999) == 0.99
+
+    def test_snap_to_tick_rounds_to_cent(self):
+        from core.engine_fills import EngineFillsMixin
+
+        # Inside [0.01, 0.99], rounds to nearest $0.01.
+        assert EngineFillsMixin._snap_to_tick(0.554) == 0.55
+        assert EngineFillsMixin._snap_to_tick(0.556) == 0.56
+        assert EngineFillsMixin._snap_to_tick(0.500) == 0.50
+
+    def test_snap_to_tick_none_returns_zero(self):
+        from core.engine_fills import EngineFillsMixin
+
+        assert EngineFillsMixin._snap_to_tick(None) == 0.0
+
+    # ── _compute_ob_imbalance ───────────────────────────────────────────
+
+    def test_compute_ob_imbalance_empty_returns_zero(self):
+        from core.engine_fills import EngineFillsMixin
+
+        assert EngineFillsMixin._compute_ob_imbalance({}) == 0.0
+        assert EngineFillsMixin._compute_ob_imbalance(None) == 0.0
+
+    def test_compute_ob_imbalance_balanced_book_near_zero(self):
+        from core.engine_fills import EngineFillsMixin
+
+        # Bid and ask sides symmetric → imbalance near 0.
+        orderbook = {
+            "bids": [{"price": 0.50, "size": 100}],
+            "asks": [{"price": 0.51, "size": 100}],
+        }
+        imb = EngineFillsMixin._compute_ob_imbalance(orderbook)
+        assert -0.1 <= imb <= 0.1, f"balanced book imbalance should be ~0, got {imb}"
+
+    def test_compute_ob_imbalance_heavy_bid_positive(self):
+        from core.engine_fills import EngineFillsMixin
+
+        # Strong bid pressure → positive imbalance (bullish).
+        orderbook = {
+            "bids": [
+                {"price": 0.50, "size": 1000},
+                {"price": 0.49, "size": 500},
+                {"price": 0.48, "size": 200},
+            ],
+            "asks": [{"price": 0.51, "size": 10}],
+        }
+        imb = EngineFillsMixin._compute_ob_imbalance(orderbook)
+        assert imb > 0.5, f"heavy bid book should produce strong positive imbalance, got {imb}"
+
+    def test_compute_ob_imbalance_heavy_ask_negative(self):
+        from core.engine_fills import EngineFillsMixin
+
+        # Strong ask pressure → negative imbalance (bearish).
+        orderbook = {
+            "bids": [{"price": 0.50, "size": 10}],
+            "asks": [
+                {"price": 0.51, "size": 1000},
+                {"price": 0.52, "size": 500},
+                {"price": 0.53, "size": 200},
+            ],
+        }
+        imb = EngineFillsMixin._compute_ob_imbalance(orderbook)
+        assert imb < -0.5, f"heavy ask book should produce strong negative imbalance, got {imb}"
+
+    def test_compute_ob_imbalance_accepts_list_format(self):
+        """2026-04-29 bug fix: Polymarket sometimes sends list-of-lists.
+
+        Each level can be `{"price", "size"}` dict OR `[price, size]` list.
+        """
+        from core.engine_fills import EngineFillsMixin
+
+        orderbook = {
+            "bids": [[0.50, 100], [0.49, 50]],
+            "asks": [[0.51, 100], [0.52, 50]],
+        }
+        # Should not raise, returns a finite number.
+        imb = EngineFillsMixin._compute_ob_imbalance(orderbook)
+        assert isinstance(imb, float)
+        assert -1.0 <= imb <= 1.0
+
+    def test_compute_ob_imbalance_handles_malformed_level(self):
+        """Garbage level entries → defensive zero handling, no crash."""
+        from core.engine_fills import EngineFillsMixin
+
+        orderbook = {
+            "bids": [None, {"foo": "bar"}, [0.50, 100]],
+            "asks": [{"price": "not-a-number", "size": "also-not"}, [0.51, 50]],
+        }
+        # Defensive path — should not raise.
+        imb = EngineFillsMixin._compute_ob_imbalance(orderbook)
+        assert isinstance(imb, float)
+        assert -1.0 <= imb <= 1.0
+
+
+class TestSentryTxWave2_P204:
+    """core/observability/sentry_tx.py — ENV-gated transaction wrapper.
+
+    P2-04 (2026-05-11): Sentry custom transactions for engine.cycle,
+    ai_brain.advise, live_trader.execute_buy. Must be zero-cost when DSN
+    is unset (default — Heddas's $0-cost requirement).
+    """
+
+    def test_no_op_when_dsn_unset(self, monkeypatch):
+        """SENTRY_DSN unset → yields None, never imports sentry_sdk."""
+        monkeypatch.delenv("SENTRY_DSN", raising=False)
+        from core.observability.sentry_tx import _sentry_enabled, sentry_transaction
+
+        assert _sentry_enabled() is False
+        with sentry_transaction(op="test.op", name="t1") as tx:
+            assert tx is None
+
+    def test_no_op_when_dsn_empty_string(self, monkeypatch):
+        """SENTRY_DSN set to empty string → no-op."""
+        monkeypatch.setenv("SENTRY_DSN", "")
+        from core.observability.sentry_tx import _sentry_enabled, sentry_transaction
+
+        assert _sentry_enabled() is False
+        with sentry_transaction(op="test.op", name="t2") as tx:
+            assert tx is None
+
+    def test_no_op_when_dsn_whitespace_only(self, monkeypatch):
+        """SENTRY_DSN whitespace → strip().False → no-op."""
+        monkeypatch.setenv("SENTRY_DSN", "   ")
+        from core.observability.sentry_tx import _sentry_enabled
+
+        assert _sentry_enabled() is False
+
+    def test_transaction_returns_handle_when_enabled(self, monkeypatch):
+        """SENTRY_DSN + sentry_sdk → wrapper yields a real transaction handle."""
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.io/1")
+
+        fake_tx = MagicMock()
+        fake_cm = MagicMock()
+        fake_cm.__enter__ = MagicMock(return_value=fake_tx)
+        fake_cm.__exit__ = MagicMock(return_value=None)
+
+        fake_sdk = MagicMock()
+        fake_sdk.start_transaction = MagicMock(return_value=fake_cm)
+
+        from core.observability import sentry_tx as st_module
+
+        with patch.dict("sys.modules", {"sentry_sdk": fake_sdk}):
+            with st_module.sentry_transaction(op="o", name="n") as tx:
+                assert tx is fake_tx
+            fake_sdk.start_transaction.assert_called_once_with(op="o", name="n")
+
+    def test_transaction_swallows_sdk_errors_softly(self, monkeypatch):
+        """If sentry_sdk init raises mid-transaction, helper yields None.
+
+        Sentry must NEVER break the hot path — bot stays alive on any SDK fault.
+        """
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("SENTRY_DSN", "https://fake@sentry.io/1")
+
+        fake_sdk = MagicMock()
+        fake_sdk.start_transaction = MagicMock(side_effect=RuntimeError("sdk fault"))
+
+        from core.observability import sentry_tx as st_module
+
+        with patch.dict("sys.modules", {"sentry_sdk": fake_sdk}):
+            with st_module.sentry_transaction(op="o", name="n") as tx:
+                assert tx is None  # graceful degrade
+
+
+class TestFeesV2EdgeZonesWave2:
+    """core/fees_v2.py — tail-zone behavior + EV-percent variants.
+
+    fees_v2.py is 100% covered but the Wave 2 tests pin the contract
+    against changes (regression guard for fee math).
+    """
+
+    def test_in_tail_zone_low_extreme(self):
+        from core.fees_v2 import TAIL_LOW, in_tail_zone
+
+        # Tail-low threshold is TAIL_LOW (0.15 as of 2026-05): below = tail.
+        assert in_tail_zone(0.01) is True
+        assert in_tail_zone(TAIL_LOW - 0.01) is True
+        # At-or-above threshold — not tail.
+        assert in_tail_zone(TAIL_LOW + 0.01) is False
+        assert in_tail_zone(0.5) is False
+
+    def test_in_tail_zone_high_extreme(self):
+        from core.fees_v2 import TAIL_HIGH, in_tail_zone
+
+        # > TAIL_HIGH (0.85) is tail (dead-edge high)
+        assert in_tail_zone(TAIL_HIGH + 0.01) is True
+        assert in_tail_zone(0.99) is True
+        # At-or-below threshold — not tail.
+        assert in_tail_zone(TAIL_HIGH - 0.01) is False
+
+    def test_in_tail_zone_zero_price(self):
+        """Falsy price → True (defensive)."""
+        from core.fees_v2 import in_tail_zone
+
+        assert in_tail_zone(0) is True
+        assert in_tail_zone(0.0) is True
+
+    def test_polymarket_fee_percent_returns_nonneg(self):
+        from core.fees_v2 import polymarket_fee_percent_v2
+
+        # At very edges (< 0.001 or > 0.999) returns 0.0 (no trade)
+        assert polymarket_fee_percent_v2(0.0005) == 0.0
+        assert polymarket_fee_percent_v2(0.9995) == 0.0
+        # Mid-range produces a positive fee percent.
+        pct = polymarket_fee_percent_v2(0.55, category="crypto")
+        assert pct > 0.0
+        assert pct < 100.0  # never > 100% of notional
+
+    def test_polymarket_taker_fee_returns_zero_at_invalid_inputs(self):
+        from core.fees_v2 import polymarket_taker_fee_v2
+
+        # price <= 0 → 0
+        assert polymarket_taker_fee_v2(0.0, 10.0) == 0.0
+        assert polymarket_taker_fee_v2(-0.1, 10.0) == 0.0
+        # price >= 0.999 → 0
+        assert polymarket_taker_fee_v2(0.9995, 10.0) == 0.0
+        # amount_usd <= 0 → 0
+        assert polymarket_taker_fee_v2(0.5, 0.0) == 0.0
+        assert polymarket_taker_fee_v2(0.5, -5.0) == 0.0
+
+    def test_polymarket_maker_rebate_proportional_to_taker_fee(self):
+        from core.fees_v2 import polymarket_maker_rebate
+
+        # Zero taker fee → zero rebate
+        assert polymarket_maker_rebate(0.0) == 0.0
+        # Positive taker fee → positive rebate (proportional)
+        r10 = polymarket_maker_rebate(10.0, category="crypto")
+        r20 = polymarket_maker_rebate(20.0, category="crypto")
+        # Rebate scales linearly with input taker fee.
+        assert abs(r20 - 2 * r10) < 1e-6
+        # Rebate is a fraction of the input.
+        assert r10 < 10.0
 
 
 class TestUmaDisputeAllVariants:
@@ -14501,6 +15515,11 @@ class TestBgTaskFull:
 
     @pytest.mark.asyncio
     async def test_safe_create_task_with_callback(self):
+        """P1-01 Wave 2 (2026-05-11): inspect signature before creating the
+        coroutine so the failed-path branch doesn't leave a coroutine never
+        awaited (RuntimeWarning)."""
+        import inspect
+
         from core.bg_task import safe_create_task
 
         async def coro():
@@ -14511,10 +15530,12 @@ class TestBgTaskFull:
         def callback(task):
             called.append(True)
 
-        # Try with callback if signature supports
-        try:
+        # Check signature once — only build coroutine for the path we'll use.
+        sig = inspect.signature(safe_create_task)
+        supports_on_done = "on_done" in sig.parameters
+        if supports_on_done:
             t = safe_create_task(coro(), name="x", on_done=callback)
-        except TypeError:
+        else:
             t = safe_create_task(coro(), name="x")
         await t
 

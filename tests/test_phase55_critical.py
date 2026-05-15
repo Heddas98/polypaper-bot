@@ -135,7 +135,7 @@ class TestFeesV2BoundaryPrices:
         # Act: fee at valid boundary
         fee = polymarket_taker_fee_v2(price, amount)
 
-        # Assert: returns non-zero fee (crypto category: 0.072)
+        # Assert: returns non-zero fee (crypto category rate=0.07 per docs 2026-05-11).
         assert fee >= 0.0
         assert isinstance(fee, float)
 
