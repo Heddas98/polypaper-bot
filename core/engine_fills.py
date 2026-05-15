@@ -20,6 +20,7 @@ import os
 import random
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, ClassVar
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
@@ -36,6 +37,23 @@ logger = logging.getLogger("polypaper.core.engine")
 
 class EngineFillsMixin:
     """Pending-order, maker-queue and fill-pipeline methods for TradingEngine."""
+
+    # P1-01 Wave 3b fix (2026-05-11): _snap_to_tick is a classmethod that
+    # references `cls.PRICE_TICK`. The concrete TradingEngine class
+    # (engine.py:1353/1359) sets these as class attrs. MRO means
+    # TradingEngine attrs win at runtime, so providing safe defaults on the
+    # mixin lets unit tests use EngineFillsMixin directly without breaking
+    # the concrete-class contract.
+    PRICE_TICK: ClassVar[float] = 0.01  # Polymarket $0.01 min tick
+    PRICE_TICK_TOL: ClassVar[float] = 0.005  # 0.5¢ "same level" tolerance
+
+    # P1-07 Round-3: TYPE_CHECKING-only instance attribute hints.
+    if TYPE_CHECKING:
+        from core.engine_support import VirtualOrder
+
+        _pending: list[VirtualOrder]
+        _trade_lock: asyncio.Lock
+        _cancel_count: int
 
     @classmethod
     def _snap_to_tick(cls, price: float) -> float:

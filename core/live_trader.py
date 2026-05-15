@@ -17,7 +17,6 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
-from typing import Optional
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
@@ -167,7 +166,7 @@ class LiveTrader:
         self._daily_pnl = 0.0
         self._daily_trades = 0
         self._daily_date = ""
-        self._open: Optional[dict] = None
+        self._open: dict | None = None
         self._total_spent = 0.0
         self._total_pnl = 0.0
         # T11.2 [B] (2026-04-22): `self._budget` is now a @property that
@@ -404,7 +403,7 @@ class LiveTrader:
         token_id: str,
         odds: float,
         slug: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         if not self.is_enabled():
             return None
         if strategy_label not in LIVE_STRATEGIES:
@@ -433,7 +432,7 @@ class LiveTrader:
 
     async def _place(
         self, token_id, direction, amount, odds, slug, strategy, signal
-    ) -> Optional[dict]:
+    ) -> dict | None:
         try:
             order_result = await self._execute_clob(token_id, amount, odds, direction)
             oid = order_result.get("id", "") if order_result else ""
@@ -572,16 +571,32 @@ class LiveTrader:
         self._open = None
         await self._save_state()
 
-    async def _execute_clob(self, token_id, amount, price, direction) -> Optional[dict]:
+    async def _execute_clob(self, token_id, amount, price, direction) -> dict | None:
         # T1.4 Faz 1: inner CLOB exceptions caught in _sync_order (L363).
         # Only loop/threadpool-level failures can surface here; let CancelledError
         # propagate so cooperative cancellation still works.
-        try:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._sync_order, token_id, amount, price)
-        except RuntimeError as e:
-            logger.error(f"CLOB exec: {e}")
-            return None
+        # P2-04 (2026-05-11): Sentry transaction for live trade execution.
+        # Zero-cost when SENTRY_DSN unset. When set, this captures CLOB
+        # latency + side metadata for performance investigation.
+        from core.observability.sentry_tx import sentry_transaction
+
+        with sentry_transaction(
+            op="live_trader.execute_buy",
+            name=f"clob_{direction}_{token_id[:8]}",
+        ) as _tx:
+            if _tx is not None:
+                _tx.set_data("amount_usd", amount)
+                _tx.set_data("price", price)
+                _tx.set_data("direction", direction)
+                _tx.set_data("token_id_prefix", token_id[:12])
+            try:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(
+                    None, self._sync_order, token_id, amount, price
+                )
+            except RuntimeError as e:
+                logger.error(f"CLOB exec: {e}")
+                return None
 
     async def execute_market_order(
         self,
@@ -710,7 +725,7 @@ class LiveTrader:
             "shares": round(amount / price, 4) if price > 0 else 0,
         }
 
-    def _sync_order(self, token_id, amount, price) -> Optional[dict]:
+    def _sync_order(self, token_id, amount, price) -> dict | None:
         """
         Phase 49 A-01: Uses cached self._api_creds from start()/derive path.
         If cache is empty (e.g. trader was enabled without going through start()),

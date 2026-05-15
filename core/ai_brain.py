@@ -70,19 +70,11 @@ def _get_llm_ratelimit_min_cost() -> float:
         return 0.001
 
 
-class LLMRateLimitError(RuntimeError):
-    """Epic 8 T8.2: raised by `_do_*` helpers when the LLM API returns 429.
-
-    Carries the server-provided retry-after (seconds) so the async wrapper
-    can populate `_rate_limited_until` accurately instead of using the
-    fallback backoff constant.
-    """
-
-    def __init__(self, provider: str, retry_after: float):
-        super().__init__(f"{provider} rate-limited, retry_after={retry_after}s")
-        self.provider = provider
-        self.retry_after = retry_after
-
+# P1-02 Wave 2b (2026-05-11): LLMRateLimitError + LLM HTTP wrappers moved
+# to services/ai_advisor/llm_clients.py. Re-import the canonical class
+# here so existing call sites (`from core.ai_brain import LLMRateLimitError`)
+# keep working with zero source changes.
+from services.ai_advisor.llm_clients import LLMRateLimitError  # noqa: E402,F401
 
 # Phase 32: Tighter safety + 10min cycle
 # Phase 75+: CHANGED to 6 hour cooldown + 50 trade minimum (GPT recommendation)
@@ -113,151 +105,23 @@ CYCLE_INTERVAL = int(os.getenv("AI_BRAIN_CYCLE", "3600"))
 ACTIVE_INTERVAL = CYCLE_INTERVAL  # Same in active mode
 MIN_TRADES_FOR_ACTION = int(os.getenv("AI_MIN_TRADES", "15"))  # Was 50 — lowered for 11+ strategies
 
-# Phase 69: 2-Agent mode prompts
-OPTIMIST_SYSTEM = """Sen bir Polymarket analisti ve IYIMSER perspektiften bakiyorsun.
-Gorevin: Bu markette neden trade etmeliyiz? Firsatlari bul, potansiyeli goster.
-
-Fermi Decompozisyon kullan:
-1. Base rate: Benzer marketlerin gecmis WR'si nedir?
-2. Ozel faktor: Bu marketi farkli kilan ne var?
-3. Timing: Simdi mi girmeli, beklemeli mi?
-4. Tahmini WR: Parcalari birlestirip olas kazanma oranini soyle.
-
-CIKTI (JSON): {"bullish_case": "neden girilmeli", "estimated_wr": 0.55-0.80,
-"best_strategies": ["strat1","strat2"], "conviction": 0.0-1.0, "fermi_steps": [...]}"""
-
-CRITIC_SYSTEM = """Sen bir Polymarket risk yoneticisi ve SKEPTIK perspektiften bakiyorsun.
-Gorevin: Bu trade neden basarisiz olabilir? Riskleri goster, kayiplari tahmin et.
-
-Analiz et:
-1. Yanilma senaryolari: Ne olursa kaybederiz?
-2. Likidite riski: Cikabilir miyiz?
-3. Manipulation: Bu fiyat manipule edilmis olabilir mi?
-4. Timing: Gecmiste bu saatte/gunde performans nasil?
-
-CIKTI (JSON): {"bearish_case": "neden girilmemeli", "risk_score": 0.0-1.0,
-"kill_strategies": ["strat1","strat2"], "concerns": [...]}"""
-
-BRAIN_SYSTEM = """Sen PolyPaper Bot'un otonom trading beynisin. GERCEK OGRENME yapiyorsun.
-
-PROJE: Polymarket multi-timeframe Up/Down kripto paper + live trading.
-TF MATRIX (P0-08-A 2026-05-08 — Heddas direktifi):
-  - 5m  → BTC sadece (high-frekans microstructure)
-  - 15m → BTC, ETH, SOL, XRP (kisa vadeli momentum)
-  - 1h  → BTC sadece (trend + news cycle, series_id=10114)
-  - 24h → BTC sadece (macro positioning + daily close, series_id=41)
-
-TF-SPECIFIC JUDGMENT (P0-08-G 2026-05-08):
-  - 5m  : ordbook imbalance, taker flow, queue dynamics on
-  - 15m : short-term momentum + momentum-following
-  - 1h  : trend continuation, intraday reversion, news propagation
-  - 24h : macro narrative, daily close behavior, cross-asset correlation
-  Action.timeframe field MUTLAKA dogru TF degerini icermeli (5m/15m/1h/24h).
-
-KRITIK KURALLAR (IHLAL ETME):
-1. M_BTC_5m_any_0.92 threshold'u ASLA degistirme (0.92 sabit, bu stratejinin gucu)
-2. BTC High-Threshold Pure threshold'u ASLA degistirme (0.80 sabit)
-3. Zaten STOPPED olan stratejiyi tekrar DELETE etme — sadece ACTIVE olanlari isle
-4. AI_ stratejileri $1 ile basla, 20+ trade ve %55+ WR olmadan scale ETME
-5. Human stratejilerin threshold'unu max ±0.05 degistir
-6. Her CREATE walk-forward backtest ile dogrulanir — FAIL olursa deploy edilmez
-7. 6-sinyal fusion aktif: odds, ema, momentum, volatility, time, ORDERBOOK IMBALANCE
-8. Thompson Sampling aktif: dusuk performansli stratejiler otomatik bloke ediliyor
-9. Regime detection aktif: trending/ranging/volatile → uyumsuz stratejiler atlanir
-
-KANITLANMIS VERILER:
-- Zone 35-50c: +$152 (en karli zone)
-- Zone 65-80c: +$19 (guvenli zone)
-- Zone 50-65c: -$48 (TEHLIKELI)
-- Fusion: 122t %65 WR, EV +1.15 (en iyi tip)
-- Momentum: 135t %67 WR, EV +0.36
-- Scalper/Martingale: KAYBEDIYOR
-- UP yonu: %60 WR vs DOWN %53
-
-FERMI DECOMPOZISYON (Phase 69 — her karar icin kullan):
-1. Base rate: Benzer market/strateji gecmis WR → baz oran
-2. Ozel faktor: Mevcut durum farkli mi? (volatilite, saat, zone)
-3. Sinyal gucu: Confluence gate kac sinyal uyumlu? (4+/6 = iyi)
-4. Risk: Bayesian posterior vs market fiyat fark > 2c mi?
-Son tahmin = base × ozel × sinyal × risk
-
-AKSIYON TIPLERI:
-- DELETE: SADECE active + kaybeden strateji (stopped olanlari IGNORE ET)
-- CREATE: Yeni strateji ($1 ile basla, reason'a neden olusturdugun yaz)
-  Ornek: {"type":"CREATE","strategy_type":"fusion","asset":"ETH","direction":"any","odds_threshold":0.50,"reason":"ETH 5m fusion 65-80c zone'da karli"}
-- SCALE: stake artir (human max 3x, AI max 5x ama 20+ trade gerekli)
-- TUNE: threshold degistir (human max ±0.05, AI max ±0.15)
-  Ornek: {"type":"TUNE","id":"df8902ba","field":"odds_threshold","value":0.50,"reason":"WR yuksek, threshold dusur daha cok trade ac"}
-- RESTART: Durmus karli stratejiyi baslat
-  Ornek: {"type":"RESTART","id":"4da8cbee","reason":"market trending'e dondu, momentum calisabilir"}
-- (INSIGHT KALDIRILDI 2026-05-05: LLM cost israfı, sadece not yaziyordu)
-
-KARAR VERIRKEN DIKKAT ET:
-1. SKIP ANALIZI bloğuna bak — neden trade acilmiyor? SIG_WEAK coksa threshold dusur. REGIME coksa o strateji tipini durdur.
-2. FEE ANALIZI'ne bak — fee/PnL > %50 ise daha yuksek edge gereken trade'ler ac, dusuk edge'li trade'leri engellet.
-3. SAAT BAZLI PERFORMANS'a bak — en iyi saatlerde daha agresif ol, en kotu saatlerde dikkatli ol.
-4. STRATEJI BAZLI PERFORMANS'a bak — tp_exit ve settle_win sayilari yuksek olan stratejileri koru.
-5. ANLIK MARKET DURUMU'na bak — spot momentum guclu ise o yone CREATE yap.
-6. BOT KONFIGURASYONU'na bak — hangi sinyaller kapali, agirliklar ne. Buna gore strateji olustur.
-7. SADECE 4-5 AKTIF STRATEJI varsa ONCELIKLE CREATE veya RESTART yap. Fazla DELETE yapma.
-8. Paper trading'de cesur ol ama NEDEN kaybettigini ANALIZ et.
-
-CIKTI (SADECE JSON, baska bir sey yazma):
-{"actions": [...], "confidence": 0.0-1.0, "market_view": "bullish/bearish/sideways",
- "reasoning": "turkce — skip analizini, fee durumunu, momentum'u yorumla",
- "lessons_learned": "gecmis kararlardan ne ogrendi — oversize, fee_trap, wrong_direction vb"}
-"""
-
-TRADE_SYSTEM = """Kisa trade analizi. Max 3 satir turkce.
-[emoji] [Strateji] → [Sonuc] [PnL] | Analiz: [1 cumle]"""
-
-MISTAKE_SYSTEM = """Sen bir trade hata analisti sin. Kaybeden trade'leri analiz et.
-
-Her kayip trade icin:
-1. mistake_type: early_exit | wrong_direction | ignored_signal | bad_timing | oversize | fee_trap | low_edge
-2. lesson_learned: 1 cumle (Turkce), spesifik ve olculebilir
-3. applied_fix: Bu hatadan kacinmak icin parametrik oneri
-
-SADECE JSON ciktisi ver:
-{"mistake_type": "...", "lesson_learned": "...", "applied_fix": "..."}
-"""
-
+# ─────────────────────────────────────────────────────────────────────
+# P1-02 Wave 2a (2026-05-11): prompts and ModelRouter were extracted to
+# services/ai_advisor/. core/ai_brain.py keeps thin import-shim aliases
+# so every existing `from core.ai_brain import BRAIN_SYSTEM` /
+# `core.ai_brain.ModelRouter` / etc. keeps working with zero changes.
+# Wave 2b will move _call_claude/_call_groq/_two_agent_cycle next.
+# ─────────────────────────────────────────────────────────────────────
+from services.ai_advisor.prompts import (  # noqa: E402,F401
+    BRAIN_SYSTEM,
+    CRITIC_SYSTEM,
+    MISTAKE_SYSTEM,
+    OPTIMIST_SYSTEM,
+    TRADE_SYSTEM,
+)
+from services.ai_advisor.router import ModelRouter  # noqa: E402,F401
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-
-
-class ModelRouter:
-    """Phase 59→69: 4-tier model routing with OpenRouter fallback.
-
-    Tier 1: Groq (FREE) — routine tasks
-    Tier 2: OpenRouter (FREE/CHEAP) — mid-tier tasks, Groq fallback
-    Tier 3: Claude (PAID) — complex reasoning
-    Tier 4: OpenRouter premium — Claude/GPT-4o via OpenRouter as final fallback
-    """
-
-    TASK_MODEL_MAP = {
-        # Tier 1: FREE — routine tasks (Groq Llama 70B)
-        "market_scan": ("groq", "llama-3.3-70b-versatile"),
-        "data_summary": ("groq", "llama-3.1-8b-instant"),
-        "alert_format": ("groq", "llama-3.1-8b-instant"),
-        "trade_analysis": ("groq", "llama-3.3-70b-versatile"),
-        "mistake_analysis": ("groq", "llama-3.3-70b-versatile"),
-        # Phase 75: OpenRouter has no balance → route to Groq free
-        "optimist_agent": ("groq", "llama-3.3-70b-versatile"),
-        "data_enrichment": ("groq", "llama-3.1-8b-instant"),
-        # Tier 3: PAID — complex reasoning (Claude)
-        "strategy_decision": ("claude", "claude-sonnet-4-6"),
-        "risk_assessment": ("claude", "claude-sonnet-4-6"),
-        "brain_cycle": ("claude", "claude-sonnet-4-6"),
-        "critic_agent": ("claude", "claude-sonnet-4-6"),
-    }
-
-    # Fallback chain: skip openrouter (no balance), groq→claude only
-    FALLBACK_CHAIN = os.getenv("AI_BRAIN_FALLBACK_CHAIN", "groq,claude").split(",")
-
-    @classmethod
-    def get(cls, task_type: str) -> tuple[str, str]:
-        return cls.TASK_MODEL_MAP.get(task_type, ("groq", "llama-3.3-70b-versatile"))
 
 
 class AIBrain:
@@ -294,11 +158,16 @@ class AIBrain:
         await self._load_budget()
         await self._ensure_tables()
         remaining = MAX_BUDGET - self._spent
+        # P0-14 (2026-05-13 audit): log said "10min cycle" but CYCLE_INTERVAL
+        # default has been 3600s (1h) since Sprint 3 S3-01. Compute interval
+        # label at runtime so `/envt AI_BRAIN_CYCLE 600` also displays right.
+        _cycle_min = max(1, CYCLE_INTERVAL // 60)
+        _cycle_label = f"{_cycle_min}min" if _cycle_min < 60 else f"{_cycle_min // 60}h"
         logger.info(
-            f"🧠 AI Brain v3: 10min cycle | ${self._spent:.2f}/{MAX_BUDGET:.2f} "
+            f"🧠 AI Brain v3: {_cycle_label} cycle | ${self._spent:.2f}/{MAX_BUDGET:.2f} "
             f"(${remaining:.2f} remaining)"
         )
-        # Phase 82e Sprint 2.1: scheduler death = no 10min cycles = stale AI
+        # Phase 82e Sprint 2.1: scheduler death = no cycle = stale AI
         safe_create_task(self._scheduler(), name="ai_brain_scheduler")
 
     async def _ensure_tables(self):
@@ -369,6 +238,21 @@ class AIBrain:
 
     # ═══ MAIN BRAIN CYCLE ═══
     async def run_brain_cycle(self) -> Optional[str]:
+        # P2-04 (2026-05-11): wrap the AI cycle in a Sentry transaction.
+        # Zero-cost when SENTRY_DSN unset; high-value trace otherwise
+        # because brain cycles can hit 4 LLM providers + DB queries.
+        from core.observability.sentry_tx import sentry_transaction
+
+        with sentry_transaction(
+            op="ai_brain.advise",
+            name=f"cycle_{self._cycle_count}",
+        ) as _tx:
+            if _tx is not None:
+                _tx.set_data("spent_usd", self._spent)
+                _tx.set_data("max_budget_usd", MAX_BUDGET)
+            return await self._run_brain_cycle_inner()
+
+    async def _run_brain_cycle_inner(self) -> Optional[str]:
         if self._spent >= MAX_BUDGET:
             logger.warning(f"🧠 Budget: ${self._spent:.2f}/{MAX_BUDGET:.2f}")
             return "Budget exhausted"
@@ -649,7 +533,7 @@ CONSENSUS KURALI:
             )
             if mistakes:
                 lines.append("\n═══ GECMIS HATALAR VE DERSLER (OGREN VE TEKRARLAMA!) ═══")
-                type_counts = {}
+                type_counts: dict[str, int] = {}
                 for m in mistakes:
                     mtype = m[0] or "unknown"
                     type_counts[mtype] = type_counts.get(mtype, 0) + 1
@@ -1800,39 +1684,15 @@ CONSENSUS KURALI:
             return None
 
     def _do_claude(self, payload):
-        import httpx as _httpx
+        """Thin wrapper around the stateless HTTP call (Wave 2b).
 
-        try:
-            r = _httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                content=payload,
-                timeout=60.0,
-            )
-            # Epic 8 T8.2: detect 429 before json-parsing. Raising a typed
-            # exception lets the async wrapper update cooldown state; any
-            # non-429 error keeps the existing soft-None semantics.
-            if r.status_code == 429:
-                retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
-                raise LLMRateLimitError("claude", retry_after)
-            d = r.json()
-            if "content" in d and d["content"]:
-                return d["content"][0].get("text", "")
-            if "error" in d:
-                logger.warning(f"Claude: {d['error'].get('message','')[:100]}")
-            return None
-        except LLMRateLimitError:
-            # Epic 8 T8.2: re-raise typed rate-limit so async wrapper sees it.
-            raise
-        except Exception:  # noqa: BLE001
-            # Epic 8 T8.1 audit: sync HTTP call — httpx.HTTPError, TimeoutError,
-            # ConnectionError, JSONDecodeError. Caller treats None as soft
-            # failure (429 now handled explicitly above).
-            return None
+        Returns response text on success, or None on non-429 failure.
+        Raises LLMRateLimitError on 429 — caller (`_call_claude`) handles
+        cooldown bookkeeping with the carried retry_after.
+        """
+        from services.ai_advisor.llm_clients import do_claude_call
+
+        return do_claude_call(payload, ANTHROPIC_API_KEY)
 
     async def _call_groq(self, system, user):
         if not GROK_API_KEY:
@@ -1865,31 +1725,10 @@ CONSENSUS KURALI:
             return None
 
     def _do_groq(self, payload):
-        import httpx as _httpx
+        """Thin wrapper around the stateless HTTP call (Wave 2b)."""
+        from services.ai_advisor.llm_clients import do_groq_call
 
-        try:
-            r = _httpx.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {GROK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                content=payload,
-                timeout=30.0,
-            )
-            # Epic 8 T8.2: 429 — raise typed so wrapper records cooldown.
-            if r.status_code == 429:
-                retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
-                raise LLMRateLimitError("groq", retry_after)
-            d = r.json()
-            ch = d.get("choices", [])
-            return ch[0].get("message", {}).get("content", "") if ch else None
-        except LLMRateLimitError:
-            raise
-        except Exception:  # noqa: BLE001
-            # Epic 8 T8.1 audit: sync HTTP — httpx.HTTPError, TimeoutError,
-            # JSONDecodeError. None is soft failure.
-            return None
+        return do_groq_call(payload, GROK_API_KEY)
 
     # ═══ Phase 69: OpenRouter SDK ═══
     async def _call_openrouter(
@@ -1925,33 +1764,10 @@ CONSENSUS KURALI:
             return None
 
     def _do_openrouter(self, payload):
-        import httpx as _httpx
+        """Thin wrapper around the stateless HTTP call (Wave 2b)."""
+        from services.ai_advisor.llm_clients import do_openrouter_call
 
-        try:
-            r = _httpx.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://polypaper-bot.local",
-                    "X-Title": "PolyPaper Bot",
-                },
-                content=payload,
-                timeout=45.0,
-            )
-            # Epic 8 T8.2: 429 — raise typed so wrapper records cooldown.
-            if r.status_code == 429:
-                retry_after = self._parse_retry_after(r.headers.get("Retry-After"))
-                raise LLMRateLimitError("openrouter", retry_after)
-            d = r.json()
-            ch = d.get("choices", [])
-            return ch[0].get("message", {}).get("content", "") if ch else None
-        except LLMRateLimitError:
-            raise
-        except Exception:  # noqa: BLE001
-            # Epic 8 T8.1 audit: sync HTTP — OpenRouter free tier is flaky.
-            # httpx.HTTPError / TimeoutError / JSONDecodeError all normal.
-            return None
+        return do_openrouter_call(payload, OPENROUTER_API_KEY)
 
     # ═══ PER-TRADE ═══
     async def analyze_trade(self, trade_data: dict):

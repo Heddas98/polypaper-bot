@@ -30,7 +30,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Optional
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
 
@@ -100,7 +99,13 @@ class RiskLimits:
     @classmethod
     def from_dict(cls, d: dict) -> "RiskLimits":
         lim = cls()
-        type_map = {f.name: f.type for f in cls.__dataclass_fields__.values()}
+        # P1-07 Round-3 (2026-05-11): get_type_hints() resolves string-form
+        # annotations to actual class objects so `type_map[attr](val)` is a
+        # real callable (mypy: was inferring `dataclasses.Field.type: str`,
+        # 1× "str not callable" operator error).
+        import typing as _t
+
+        type_map = _t.get_type_hints(cls)
 
         # Handle per_asset_limits separately
         per_asset = {}
@@ -171,7 +176,7 @@ class RiskManager:
     Engine generates signals → RiskManager validates → only then execute.
     """
 
-    def __init__(self, limits: Optional[RiskLimits] = None):
+    def __init__(self, limits: RiskLimits | None = None):
         self.limits = limits or RiskLimits()
         self.state = RiskState()
         self.per_asset_exposure: dict[str, float] = {}  # asset → total $ exposure
@@ -580,7 +585,7 @@ class RiskManager:
         return RiskVerdict(True, f"LIQUIDITY_OK: bid_depth=${bid_depth:.2f} >= ${min_depth:.2f}")
 
     def check_unsellable_risk(
-        self, market_odds: float, orderbook: dict, minutes_to_close: Optional[float] = None
+        self, market_odds: float, orderbook: dict, minutes_to_close: float | None = None
     ) -> RiskVerdict:
         """Phase 66: Pre-entry check for unsellable token risk.
 

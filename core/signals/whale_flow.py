@@ -42,7 +42,7 @@ class WhaleFlowSignal:
         self.min_trades = min_trades
         self.min_volume_usd = min_volume_usd
         self._last_query_ts = 0.0
-        self._cache = {}  # {slug: (timestamp, signal_value)}
+        self._cache: dict[str, tuple[float, float]] = {}  # {slug: (timestamp, signal_value)}
 
         # ENV overrides (Phase 79: all signal params should be tunable)
         _env_lookback = os.getenv("WHALE_LOOKBACK_SECONDS")

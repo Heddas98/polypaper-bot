@@ -24,7 +24,6 @@ Reference: memory/reference_polymarket_updown_discovery.md
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 # ── Asset detection ────────────────────────────────────────────────────
 _ASSET_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
@@ -39,7 +38,7 @@ _ASSET_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
 )
 
 
-def infer_asset_from_slug(slug: Optional[str]) -> str:
+def infer_asset_from_slug(slug: str | None) -> str:
     """BTC / ETH / SOL / XRP — bilinmiyorsa "?" döner."""
     if not slug:
         return "?"
@@ -67,7 +66,7 @@ _RE_DAILY = re.compile(
 )
 
 
-def infer_tf_from_slug(slug: Optional[str]) -> str:
+def infer_tf_from_slug(slug: str | None) -> str:
     """Slug elindeyse fallback parsing. Bilinmiyorsa "?" döner.
 
     Birincil yol `infer_tf_from_market(market_dict)` — market dict mevcutsa
@@ -83,8 +82,8 @@ def infer_tf_from_slug(slug: Optional[str]) -> str:
         return m.group(1)
 
     # 24h — daily on-date pattern (önce kontrol; daha spesifik)
-    if _RE_DAILY.match(s):
-        return "24h"
+    if _RE_DAILY.match(s):  # type: ignore[unreachable]
+        return "24h"  # type: ignore[unreachable]
 
     # 1h — hourly with am/pm-et suffix
     if _RE_HOURLY.match(s):
@@ -138,7 +137,7 @@ def _series_slugs(series) -> set[str]:
     return out
 
 
-def infer_tf_from_market(market: Optional[dict]) -> str:
+def infer_tf_from_market(market: dict | None) -> str:
     """Birincil TF inference — market dict'in tags + series'ten okur,
     sonra slug regex'e fallback yapar.
 

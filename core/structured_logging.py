@@ -26,7 +26,6 @@ import re
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 # 13 secret regex (T10.8 baseline) + ek
 SECRET_PATTERNS = [
@@ -90,7 +89,7 @@ SECRET_PATTERNS = [
 def scrub_secrets(text: str) -> str:
     """Apply all secret patterns. Order matters (specific → generic)."""
     if not isinstance(text, str):
-        return text
+        return text  # type: ignore[unreachable]
     for pattern, replacement in SECRET_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
@@ -150,16 +149,16 @@ class JsonFormatter(logging.Formatter):
             log_obj["exc"] = self.formatException(record.exc_info)
         # Scrub before JSON encode (defensive)
         if os.getenv("LOG_SECRET_SCRUB", "true").strip().lower() in {"1", "true", "yes"}:
-            log_obj["msg"] = scrub_secrets(log_obj["msg"])
+            log_obj["msg"] = scrub_secrets(str(log_obj["msg"]))
         return json.dumps(log_obj, ensure_ascii=False, default=str)
 
 
 def setup_structured_logging(
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     enable_scrub: bool = True,
     max_bytes: int = 100 * 1024 * 1024,  # 100 MB (P1-06 roadmap target)
     backup_count: int = 10,  # × 10 = ~1 GB total cap
-) -> Optional[RotatingFileHandler]:
+) -> RotatingFileHandler | None:
     """Wire JSON file handler + secret scrub filter to root logger.
 
     Idempotent: safe to call multiple times.

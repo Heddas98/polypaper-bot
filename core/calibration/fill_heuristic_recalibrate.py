@@ -33,7 +33,6 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("polypaper.calibration.fill_heuristic")
 
@@ -125,7 +124,8 @@ async def fetch_recent_paper_live_pairs(
     """
     import sqlite3
 
-    paper, live = [], []
+    paper: list[float] = []
+    live: list[float] = []
     if not db_path.exists():
         return paper, live
 
@@ -153,7 +153,7 @@ async def fetch_recent_paper_live_pairs(
 
 
 async def recalibrate_weekly(
-    db_path: Optional[Path] = None, sample_size: int = DEFAULT_SAMPLE_SIZE
+    db_path: Path | None = None, sample_size: int = DEFAULT_SAMPLE_SIZE
 ) -> dict:
     """Top-level: weekly recalibration check.
 

@@ -19,7 +19,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Optional
 
 import aiosqlite
 
@@ -60,7 +59,7 @@ class ExperimentRunner:
 
     def __init__(self):
         self.db = None
-        self._pending: Optional[ExperimentResult] = None
+        self._pending: ExperimentResult | None = None
         self._history: list[ExperimentResult] = []
 
     async def initialize(self, db):
@@ -122,7 +121,7 @@ class ExperimentRunner:
                         impact = self._estimate_impact(key, old_val, new_val, rows)
                         result.experiment_wr += impact.get("wr_delta", 0)
                         result.experiment_pnl += impact.get("pnl_delta", 0)
-                        result.experiment_trades += impact.get("trade_delta", 0)
+                        result.experiment_trades += int(impact.get("trade_delta", 0))
 
                     # Improvement
                     if result.baseline_pnl != 0:
@@ -224,7 +223,7 @@ class ExperimentRunner:
 
         return impact
 
-    def apply_pending(self) -> Optional[dict[str, tuple]]:
+    def apply_pending(self) -> dict[str, tuple] | None:
         """Apply pending experiment's params to os.environ."""
         if self._pending is None:
             return None
@@ -294,7 +293,7 @@ class ExperimentRunner:
 
 
 # ── Singleton ──
-_instance: Optional[ExperimentRunner] = None
+_instance: ExperimentRunner | None = None
 
 
 def get_experiment_runner() -> ExperimentRunner:

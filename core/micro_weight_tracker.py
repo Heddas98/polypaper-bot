@@ -155,7 +155,7 @@ class MicroWeightTracker:
 
     def get_status(self) -> dict:
         """Snapshot for /micro and /diag commands."""
-        per_asset = {}
+        per_asset: dict[str, dict[str, int | float | None]] = {}
         for a, hist in self._hist.items():
             n = len(hist)
             if n == 0:

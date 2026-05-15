@@ -41,7 +41,6 @@ import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Optional
 
 logger = logging.getLogger("polypaper.core.intent_parser")
 
@@ -347,7 +346,7 @@ def _extract_args(spec: CommandSpec, raw: str) -> list[str]:
 def keyword_match(text: str) -> IntentResult:
     tokens = _tokenize(text)
     best_score = 0.0
-    best: Optional[CommandSpec] = None
+    best: CommandSpec | None = None
     for c in COMMAND_CATALOG:
         s = _score(c, tokens, text)
         if s > best_score:
@@ -401,7 +400,7 @@ def _catalog_text() -> str:
     return "\n".join(lines)
 
 
-async def _call_claude(text: str) -> Optional[dict]:
+async def _call_claude(text: str) -> dict | None:
     if not ANTHROPIC_API_KEY:
         return None
     try:
@@ -455,7 +454,7 @@ async def _call_claude(text: str) -> Optional[dict]:
         # last-resort: pull first {...} block
         m = re.search(r"\{.*\}", raw, flags=re.DOTALL)
         if not m:
-            return None
+            return None  # type: ignore[unreachable]
         try:
             return json.loads(m.group(0))
         except json.JSONDecodeError:

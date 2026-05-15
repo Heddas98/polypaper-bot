@@ -24,6 +24,7 @@ import math
 import os
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiosqlite  # Epic 8 T8.1: narrow DB exception handling (brier/trade_memory)
 import httpx  # Epic 8 T8.1: narrow HTTP exception handling (orderbook fetches)
@@ -50,6 +51,17 @@ logger = logging.getLogger("polypaper.core.engine")
 class EngineSignalsMixin:
     """`_evaluate` hot-path methods for TradingEngine."""
 
+    # P1-07 Round-3 (2026-05-11): static attribute hints — TradingEngine
+    # provides these at runtime (engine.py:138/151/152 + __init__).
+    if TYPE_CHECKING:
+        _pending: list[VirtualOrder]
+        _ob_cache: dict[str, tuple[float, dict]]
+        _OB_CACHE_TTL: ClassVar[float]
+        # py_clob_client.ClobClient is optional + the v1/v2 SDK surface
+        # changes; Any keeps usage points (`.get_orderbook(...)` etc.) typed
+        # permissively without dragging the SDK import into our type graph.
+        client: Any
+
     MIN_ORDER_SHARES = float(os.getenv("MIN_ORDER_SHARES", "1.0"))
 
     # ── S3-02: Zone-Filtered Trading ──
@@ -64,8 +76,10 @@ class EngineSignalsMixin:
 
     # ── Phase 79 S4-04: Brier Calibration Alarm ──
     BRIER_GAP_MAX = float(os.getenv("BRIER_GAP_MAX", "0.30"))
-    _brier_cache = None  # {bin: gap_value} — loaded once at startup
-    _brier_cache_time = None  # timestamp of last refresh
+    # P1-07 Round-3 (2026-05-11): explicit `dict | None` so post-load
+    # narrowing doesn't make line 230 unreachable to mypy.
+    _brier_cache: dict[str, float] | None = None  # {bin: gap_value} — loaded once at startup
+    _brier_cache_time: float | None = None  # timestamp of last refresh
 
     @staticmethod
     def _parse_zones(zones_str: str) -> list[tuple[float, float]]:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import aiosqlite
 
@@ -61,6 +62,11 @@ class EngineMonitorMixin:
     declared as a class-level ``dict = {}`` here which leaked state across
     instances (test fixtures, multi-restart).
     """
+
+    # P1-07 Round-3 (2026-05-11): static attribute hints — TradingEngine
+    # provides _max_moves at runtime (engine.py:98 init).
+    if TYPE_CHECKING:
+        _max_moves: dict[str, tuple[float, float]]
 
     def _track_max_moves(self, exec_id: str, entry: float, cur: float):
         """Track max favorable and max adverse price moves for an open position."""

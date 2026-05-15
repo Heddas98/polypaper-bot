@@ -17,7 +17,6 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC
-from typing import Optional
 
 logger = logging.getLogger("polypaper.core.strategy_plugins")
 
@@ -26,7 +25,7 @@ logger = logging.getLogger("polypaper.core.strategy_plugins")
 class StrategySignal:
     """Output of a strategy evaluation."""
 
-    direction: Optional[str] = None  # "up", "down", None
+    direction: str | None = None  # "up", "down", None
     confidence: float = 0.0  # 0.0 to 1.0
     should_trade: bool = False
     reason: str = ""
@@ -370,7 +369,7 @@ class MartingaleStrategy(BaseStrategy):
             return result
 
         # Volatility boost (same as contrarian)
-        vol = 0
+        vol = 0.0
         if len(series) >= 5:
             vol = math.sqrt(sum((x - mean) ** 2 for x in series[-10:]) / min(len(series), 10))
 
@@ -1140,12 +1139,12 @@ class FusionStrategy(BaseStrategy):
     description = "🔀 Weighted multi-signal composite (12 signals). Default strategy type."
 
     # HyperOpt-tunable signal weights (None = use ENV defaults)
-    SIGNAL_W_ODDS: Optional[float] = None
-    SIGNAL_W_EMA: Optional[float] = None
-    SIGNAL_W_MOMENTUM: Optional[float] = None
-    SIGNAL_W_TIME: Optional[float] = None
-    SIGNAL_W_ORDERBOOK: Optional[float] = None
-    MIN_COMPOSITE: Optional[float] = None
+    SIGNAL_W_ODDS: float | None = None
+    SIGNAL_W_EMA: float | None = None
+    SIGNAL_W_MOMENTUM: float | None = None
+    SIGNAL_W_TIME: float | None = None
+    SIGNAL_W_ORDERBOOK: float | None = None
+    MIN_COMPOSITE: float | None = None
 
     def evaluate(self, s: MarketSnapshot) -> StrategySignal:
         result = StrategySignal()
@@ -1289,7 +1288,10 @@ class StrategyRegistry:
     """Registry for all available strategy plugins + global config."""
 
     # Phase 19.5: Editable plugin parameters
-    CONFIGURABLE = {
+    # P1-07 Round-3 (2026-05-11): explicit `dict[str, dict[str, type]]`
+    # annotation. Was `dict[str, object]` (mypy default narrow) → 3× errors
+    # on get_config/set_config when iterating + indexing.
+    CONFIGURABLE: dict[str, dict[str, type]] = {
         "contrarian": {"min_deviation": float, "min_confidence": float},
         "martingale": {
             "MULTIPLIER": float,
@@ -1374,7 +1376,7 @@ class StrategyRegistry:
         self._strategies[strategy.name] = strategy
         logger.info(f"Registered strategy plugin: {strategy.name}")
 
-    def get(self, name: str) -> Optional[BaseStrategy]:
+    def get(self, name: str) -> BaseStrategy | None:
         return self._strategies.get(name)
 
     def evaluate(self, name: str, snapshot: MarketSnapshot) -> StrategySignal:

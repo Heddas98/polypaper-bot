@@ -1,11 +1,11 @@
 """
-P1-02 (2026-05-11) Wave 1 — AI Advisor FastAPI service (scaffold).
-====================================================================
+P1-02 (2026-05-11) AI Advisor FastAPI service — Wave 1 scaffold + 2c LLM.
+==========================================================================
 
 Endpoints:
     GET  /health         — service liveness + LLM client status
-    POST /suggest        — stub suggestion (Wave 1 returns a no-op HOLD)
-    GET  /stats          — request counter + uptime
+    POST /suggest        — stub HOLD (Wave 1) OR real LLM (Wave 2c if enabled)
+    GET  /stats          — request counter + uptime + routing + LLM mode
 
 Start standalone:
     py -3.11 -m uvicorn services.ai_advisor.app:app --port 8001 --host 127.0.0.1
@@ -13,9 +13,12 @@ Start standalone:
 Or via Windows helper:
     scripts\\start_ai_advisor.bat
 
-Wave 1 is a scaffold ONLY — the /suggest endpoint returns a fixed "HOLD"
-suggestion with stub_mode=True. Wave 2 will extract real AI Brain logic
-from core/ai_brain.py.
+Wave 1 (2026-05-11): scaffold — /suggest returns fixed HOLD with stub_mode=True.
+Wave 2a (2026-05-11): prompts + ModelRouter extracted from core/ai_brain.py.
+Wave 2b (2026-05-11): LLM HTTP wrappers extracted (services/ai_advisor/llm_clients.py).
+Wave 2c (2026-05-11): /suggest endpoint optionally calls real LLM. ENV-gated:
+    AI_ADVISOR_REAL_LLM=true   → call configured LLM via ModelRouter chain
+    AI_ADVISOR_REAL_LLM=false  → keep Wave 1 stub HOLD (default — zero cost)
 """
 from __future__ import annotations
 
@@ -24,14 +27,33 @@ import os
 import time
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
+# P1-02 Wave 2c (2026-05-11): stateless LLM HTTP wrappers + 429 error type.
+# /suggest endpoint optionally drives a real LLM call via ModelRouter.
+from services.ai_advisor.llm_clients import (
+    LLMRateLimitError,
+    build_chat_payload,
+    build_claude_payload,
+    do_claude_call,
+    do_groq_call,
+    do_openrouter_call,
+)
 from services.ai_advisor.models import (
     HealthResponse,
-    SuggestRequest,
     Suggestion,
+    SuggestRequest,
     SuggestResponse,
 )
+
+# P1-02 Wave 2a (2026-05-11): prompts + ModelRouter extracted from
+# core/ai_brain.py. Wave 1 doesn't yet use these to call an LLM
+# (still stub HOLD), but importing here makes the package surface
+# explicit and lets /stats expose the routing config.
+from services.ai_advisor.prompts import BRAIN_SYSTEM
+from services.ai_advisor.router import ModelRouter
 
 logger = logging.getLogger("polypaper.ai_advisor")
 
@@ -40,6 +62,64 @@ app = FastAPI(
     description="Read-only suggestion API (P1-02 Wave 1 scaffold)",
     version="1.0.0-wave1",
 )
+
+
+# ════════════════════════════════════════════════════════════════════════
+# P0-11 (2026-05-13 audit): X-Internal-Key auth middleware
+# ════════════════════════════════════════════════════════════════════════
+#
+# Until 2026-05-13 the service had NO auth — only `host=127.0.0.1` bind
+# kept it from external access. If anything ever forwards the port
+# (Docker host network, ngrok, reverse tunnel, SSH -L) the /suggest
+# endpoint becomes an open LLM-cost proxy: any anonymous caller can
+# burn through the configured ANTHROPIC_API_KEY / GROQ_API_KEY budget.
+#
+# Doctrine:
+#   * If env ``AI_ADVISOR_INTERNAL_KEY`` is set, every protected route
+#     requires header ``X-Internal-Key: <same value>``. Mismatch → 401.
+#   * If env is unset the middleware is a NO-OP (back-compat default).
+#     Heddas can opt-in by exporting the env in ``start_ai_advisor.bat``.
+#   * /health stays open (used by docker healthchecks / supervisord).
+#
+# Bot side (``core/ai_brain_client.py``) reads the same env and adds the
+# header automatically when calling http://127.0.0.1:8001/suggest.
+# ════════════════════════════════════════════════════════════════════════
+
+_OPEN_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+
+def _required_internal_key() -> str:
+    """Runtime-read so /envt AI_ADVISOR_INTERNAL_KEY <x> takes effect."""
+    return os.getenv("AI_ADVISOR_INTERNAL_KEY", "").strip()
+
+
+class InternalKeyMiddleware(BaseHTTPMiddleware):
+    """Reject calls missing X-Internal-Key when the env is configured."""
+
+    async def dispatch(self, request: Request, call_next):
+        required = _required_internal_key()
+        if not required:
+            # No env set → middleware off (back-compat).
+            return await call_next(request)
+        if request.url.path in _OPEN_PATHS:
+            return await call_next(request)
+        supplied = request.headers.get("X-Internal-Key", "")
+        # Constant-time compare to avoid timing oracle.
+        import hmac
+        if not hmac.compare_digest(supplied, required):
+            logger.warning(
+                "🔒 AI Advisor: rejected %s — X-Internal-Key %s",
+                request.url.path,
+                "missing" if not supplied else "mismatch",
+            )
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "X-Internal-Key required"},
+            )
+        return await call_next(request)
+
+
+app.add_middleware(InternalKeyMiddleware)
 
 
 # Module-level state
@@ -85,62 +165,169 @@ async def health() -> HealthResponse:
 # ── /suggest ───────────────────────────────────────────────────────────
 
 
+# ── Wave 2c helpers ─────────────────────────────────────────────────────
+
+
+def _real_llm_enabled() -> bool:
+    """Wave 2c flag — read at request time so /env_toggle flips work live."""
+    return os.getenv("AI_ADVISOR_REAL_LLM", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def _build_user_prompt(req: SuggestRequest) -> str:
+    """Render market + strategy context as the LLM user message.
+
+    Compact, structured so the model can parse without ambiguity. Mirrors
+    the shape of context the in-process AIBrain assembles, but limited to
+    request-scoped fields (no DB lookups).
+    """
+    m = req.market
+    s = req.strategy
+    lines = [
+        "# MARKET",
+        f"slug={m.slug}",
+        f"asset={m.asset} timeframe={m.timeframe}",
+    ]
+    if m.up_odds is not None or m.down_odds is not None:
+        lines.append(
+            f"odds: up={m.up_odds if m.up_odds is not None else '?'} "
+            f"down={m.down_odds if m.down_odds is not None else '?'}"
+        )
+    if m.spread is not None:
+        lines.append(f"spread={m.spread:.4f}")
+    if m.minutes_remaining is not None:
+        lines.append(
+            f"time: {m.minutes_remaining:.1f}m left "
+            f"of {m.total_minutes if m.total_minutes is not None else '?'}m"
+        )
+    if s is not None:
+        lines.append("")
+        lines.append("# STRATEGY")
+        lines.append(f"label={s.label} asset={s.asset}/{s.timeframe} thr={s.threshold:.2f}")
+        wr = (s.recent_wins / s.recent_trades * 100.0) if s.recent_trades else 0.0
+        lines.append(
+            f"recent: n={s.recent_trades} wins={s.recent_wins} "
+            f"WR={wr:.1f}% PnL={s.recent_pnl:+.2f}"
+        )
+    if req.correlation_id:
+        lines.append("")
+        lines.append(f"correlation_id={req.correlation_id}")
+    if req.cycle is not None:
+        lines.append(f"cycle={req.cycle}")
+    return "\n".join(lines)
+
+
+def _call_provider_sync(provider: str, model: str, system: str, user: str):
+    """Dispatch a single sync HTTP call to the configured provider.
+
+    Returns (text|None, model_used|None). model_used echoes the model on
+    success so the caller can report it back. None on soft failure (next
+    provider in fallback chain may try).
+
+    Raises:
+        LLMRateLimitError: bubbles up — caller's responsibility to skip
+        the provider and try the next one.
+    """
+    if provider == "claude":
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None, None
+        payload = build_claude_payload(system, user, model=model)
+        text = do_claude_call(payload, api_key)
+        return text, (model if text else None)
+    if provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY", "") or os.getenv("GROK_API_KEY", "")
+        if not api_key:
+            return None, None
+        payload = build_chat_payload(system, user, model=model)
+        text = do_groq_call(payload, api_key)
+        return text, (model if text else None)
+    if provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY", "")
+        if not api_key:
+            return None, None
+        payload = build_chat_payload(system, user, model=model)
+        text = do_openrouter_call(payload, api_key)
+        return text, (model if text else None)
+    return None, None
+
+
+async def _try_real_llm(req: SuggestRequest):
+    """Wave 2c: drive ModelRouter fallback chain until a provider returns text.
+
+    Returns:
+        (suggestions, model_used) on success.
+        (None, None) if every provider in FALLBACK_CHAIN returned None.
+    """
+    import asyncio
+
+    user = _build_user_prompt(req)
+    # ModelRouter resolves the primary (provider, model) for the brain task.
+    primary_provider, primary_model = ModelRouter.get("brain_cycle")
+    # Fallback order: primary first, then everything else in FALLBACK_CHAIN.
+    seen = set()
+    chain: list[tuple[str, str]] = []
+    chain.append((primary_provider, primary_model))
+    seen.add(primary_provider)
+    for fallback in ModelRouter.FALLBACK_CHAIN:
+        fb = fallback.strip().lower()
+        if fb and fb not in seen:
+            # Use the per-task model for fallbacks too (router picks Llama for groq, etc.)
+            fb_provider, fb_model = ModelRouter.get("brain_cycle")
+            # Override provider with the fallback name.
+            chain.append((fb, fb_model if fb_provider == fb else primary_model))
+            seen.add(fb)
+
+    loop = asyncio.get_running_loop()
+    for provider, model in chain:
+        try:
+            text, model_used = await loop.run_in_executor(
+                None, _call_provider_sync, provider, model, BRAIN_SYSTEM, user
+            )
+        except LLMRateLimitError as rl:
+            logger.warning(
+                f"ai_advisor: {rl.provider} 429 (retry_after={rl.retry_after:.1f}s) — "
+                "trying next provider"
+            )
+            continue
+        if text:
+            # Wave 2c minimal parser: return the raw model text as the
+            # reason field of a single HOLD suggestion. Wave 3 will parse
+            # the JSON `actions` array into structured Suggestion list.
+            sug = Suggestion(
+                action="HOLD",
+                confidence=0.5,
+                reason=f"[Wave 2c real-LLM] model={model_used} response="
+                       f"{(text[:600] + '…') if len(text) > 600 else text}",
+                payload={
+                    "correlation_id": req.correlation_id,
+                    "model": model_used,
+                    "provider": provider,
+                    "raw_chars": len(text),
+                },
+            )
+            return [sug], model_used
+    return None, None
+
+
 @app.post("/suggest", response_model=SuggestResponse)
 async def suggest(req: SuggestRequest) -> SuggestResponse:
-    """Wave 1: returns a stub HOLD suggestion.
+    """Wave 1 stub HOLD by default; Wave 2c real LLM if AI_ADVISOR_REAL_LLM=true.
 
-    Wave 2 will:
-      1. Build BRAIN_SYSTEM prompt from req.market + req.strategy.
-      2. Call configured LLM (Anthropic/Groq/OpenRouter via ModelRouter).
-      3. Parse response → list[Suggestion].
-      4. Apply optimist + critic evaluator chain.
-      5. Return with model_used + latency_ms.
+    Wave 2c path:
+      1. Build user prompt from req.market + req.strategy.
+      2. Try ModelRouter primary, then FALLBACK_CHAIN (groq → claude).
+      3. On 429 from a provider, log and skip to next.
+      4. Wrap raw response text in a single Suggestion(action='HOLD',
+         confidence=0.5) until Wave 3 wires the JSON action parser.
+      5. If every provider fails → fall back to deterministic stub.
 
-    For now, the response is deterministic so the bot client can be wired
-    + tested end-to-end without API keys.
+    AI_ADVISOR_REAL_LLM defaults to false → zero LLM cost. Heddas opt-in
+    only when ready to spend on inference.
     """
     global _REQUEST_COUNT
     _REQUEST_COUNT += 1
-    t0 = time.time()
+    time.time()
 
-    # Defensive input validation — pydantic already covers types/ranges.
-    if not req.market.slug:
-        raise HTTPException(status_code=422, detail="market.slug required")
-
-    # Wave 1 stub: HOLD with reasoning that explains we're in stub mode.
-    stub = Suggestion(
-        action="HOLD",
-        confidence=0.0,
-        reason=(
-            f"[stub Wave 1] received slug={req.market.slug} "
-            f"asset={req.market.asset}/{req.market.timeframe} "
-            f"strategy={req.strategy.label if req.strategy else '?'}. "
-            "AI Brain logic not yet extracted (Wave 2 backlog)."
-        ),
-        payload={
-            "request_count": _REQUEST_COUNT,
-            "correlation_id": req.correlation_id,
-        },
-    )
-    latency_ms = int((time.time() - t0) * 1000)
-
-    return SuggestResponse(
-        suggestions=[stub],
-        model_used=None,
-        latency_ms=latency_ms,
-        stub_mode=True,
-    )
-
-
-# ── /stats ─────────────────────────────────────────────────────────────
-
-
-@app.get("/stats")
-async def stats() -> dict[str, float | int | str]:
-    """Lightweight observability — request counter + uptime."""
-    return {
-        "uptime_s": time.time() - _STARTED_AT,
-        "request_count": _REQUEST_COUNT,
-        "started_utc": _STARTED_ISO,
-        "wave": 1,
-    }
+    # Defensive input

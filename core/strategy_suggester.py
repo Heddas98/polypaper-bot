@@ -409,7 +409,7 @@ class StrategySuggester:
             if not rows or len(rows) < 20:
                 return {"trades": 0, "wins": 0, "wr": 0, "pnl": 0, "note": "yetersiz veri"}
 
-            markets = {}
+            markets: dict[str, list[dict]] = {}
             for r in rows:
                 slug = r[0]
                 if slug not in markets:

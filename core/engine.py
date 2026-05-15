@@ -936,8 +936,28 @@ class TradingEngine(
                 _warmup_logged = True
             await asyncio.sleep(2)
 
+        # P2-04 (2026-05-11): ENV-gated Sentry breadcrumb + tag per cycle.
+        # Zero-cost when SENTRY_DSN unset (helper does the env check). We
+        # avoid wrapping the entire ~200-line cycle body in `with` to keep
+        # indentation churn minimal; instead, individual hot-paths
+        # (AI Brain, live trade) own their own transactions.
+        from core.observability.sentry_tx import _sentry_enabled
+
         while self._running:
             self._cycle += 1
+            if _sentry_enabled():
+                try:
+                    import sentry_sdk as _sdk
+
+                    _sdk.set_tag("engine.cycle", self._cycle)
+                    _sdk.add_breadcrumb(
+                        category="engine.cycle",
+                        message=f"cycle {self._cycle} start",
+                        level="info",
+                    )
+                except Exception:  # noqa: BLE001
+                    # Sentry best-effort; never break the hot path.
+                    pass
             try:
                 if self.kill_switch.is_killed():
                     if self._cycle % 60 == 1:

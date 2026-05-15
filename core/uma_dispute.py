@@ -80,7 +80,7 @@ def _parse_end_date(market: dict[str, Any]) -> int | None:
     Returns: Unix epoch int (UTC) or None if unparseable.
     """
     if not isinstance(market, dict):
-        return None
+        return None  # type: ignore[unreachable]
 
     # Try epoch fields first (cheap)
     for key in ("endDateTs", "closeTime", "end_time"):
@@ -122,7 +122,7 @@ class GateDecision:
 def is_market_closed(market: dict[str, Any]) -> bool:
     """Market trading already stopped?"""
     if not isinstance(market, dict):
-        return False
+        return False  # type: ignore[unreachable]
     # Gamma fields (observed):
     if market.get("closed") is True:
         return True
@@ -147,7 +147,7 @@ def is_market_disputed(market: dict[str, Any]) -> bool:
       - state: "DISPUTED" enum string
     """
     if not isinstance(market, dict):
-        return False
+        return False  # type: ignore[unreachable]
     rs = str(market.get("resolutionStatus", "")).lower()
     if rs in {"disputed", "challenged", "in_dispute"}:
         return True

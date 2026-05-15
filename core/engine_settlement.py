@@ -16,8 +16,19 @@ import asyncio
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 import aiosqlite  # T1.4 Faz 1: narrow DB exception handling
+
+if TYPE_CHECKING:
+    # P1-07 Round-3 (2026-05-11): static attribute hints for the mixin.
+    # These are provided at runtime by ``core.engine.TradingEngine``; the
+    # imports stay TYPE_CHECKING-only to avoid the engine → mixin import
+    # cycle. mypy sees the attribute set on the mixin class body below.
+    from core.live_trader import LiveTrader
+    from core.risk_manager import RiskManager
+    from core.strategy_selector import StrategySelector
+    from data.database import Database
 
 try:
     from telegram.error import TelegramError
@@ -40,6 +51,21 @@ logger = logging.getLogger("polypaper.core.engine")
 
 class EngineSettlementMixin:
     """Exit / settle / close / notify methods for TradingEngine."""
+
+    # P1-07 Round-3 (2026-05-11): static attribute hints — TradingEngine
+    # provides these at runtime via multiple inheritance + __init__.
+    # Declarations only, no assignment (mypy reads, runtime ignores).
+    if TYPE_CHECKING:
+        db: Database
+        risk: RiskManager
+        selector: StrategySelector
+        live: LiveTrader
+        micro_weight: Any  # MicroWeightTracker | None — TYPE_CHECKING-only
+        _open_positions: set[str]
+        _settled_slugs: dict[str, datetime]
+        _cooldowns: dict[str, datetime]
+
+        def _pop_max_moves(self, slug: str) -> tuple[float, float] | None: ...
 
     def _get_settle_lock(self, slug: str) -> asyncio.Lock:
         """Phase 54 P0-05: per-market lock to prevent settlement race conditions."""
@@ -541,7 +567,8 @@ class EngineSettlementMixin:
             )
 
             # Sprint 2 S2-03: Calculate enrichment metrics
-            _dur = None
+            # P1-07 Round-3 (2026-05-11): annotate _dur once (re-used at line ~647).
+            _dur: float | None = None
             _created = row.get("created_at")
             if _created:
                 try:
@@ -612,7 +639,7 @@ class EngineSettlementMixin:
             from core.trade_journal import log_decision_close
 
             _created = row.get("created_at")
-            _dur = None
+            _dur = None  # P1-07 Round-3: typed at line 570 (first declaration).
             if _created:
                 from datetime import datetime as _dt
 

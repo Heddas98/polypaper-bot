@@ -8,10 +8,7 @@ deployed independently in Wave 3.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
-
 
 # ── Request side ───────────────────────────────────────────────────────
 
@@ -22,11 +19,11 @@ class MarketContext(BaseModel):
     slug: str = Field(..., min_length=1, description="event slug")
     asset: str = Field("?", description="BTC/ETH/SOL/XRP")
     timeframe: str = Field("?", description="5m/15m/1h/24h")
-    up_odds: Optional[float] = Field(None, ge=0.0, le=1.0)
-    down_odds: Optional[float] = Field(None, ge=0.0, le=1.0)
-    spread: Optional[float] = Field(None, ge=0.0)
-    minutes_remaining: Optional[float] = Field(None, ge=0.0)
-    total_minutes: Optional[float] = Field(None, ge=0.0)
+    up_odds: float | None = Field(None, ge=0.0, le=1.0)
+    down_odds: float | None = Field(None, ge=0.0, le=1.0)
+    spread: float | None = Field(None, ge=0.0)
+    minutes_remaining: float | None = Field(None, ge=0.0)
+    total_minutes: float | None = Field(None, ge=0.0)
 
 
 class StrategyContext(BaseModel):
@@ -48,9 +45,9 @@ class SuggestRequest(BaseModel):
     """
 
     market: MarketContext
-    strategy: Optional[StrategyContext] = None
-    correlation_id: Optional[str] = None
-    cycle: Optional[int] = None
+    strategy: StrategyContext | None = None
+    correlation_id: str | None = None
+    cycle: int | None = None
 
 
 # ── Response side ──────────────────────────────────────────────────────
@@ -65,14 +62,20 @@ class Suggestion(BaseModel):
     )
     confidence: float = Field(0.0, ge=0.0, le=1.0)
     reason: str = ""
-    payload: Optional[dict] = None
+    payload: dict | None = None
 
 
 class SuggestResponse(BaseModel):
     """Outbound response from /suggest."""
 
+    # P1-02 Wave 2c fix (2026-05-11): `model_used` field conflicts with
+    # pydantic's protected `model_` namespace (UserWarning at import time).
+    # Disable the protected namespace check explicitly — there's no model
+    # config attribute we use here, so it's safe to clear.
+    model_config = {"protected_namespaces": ()}
+
     suggestions: list[Suggestion] = Field(default_factory=list)
-    model_used: Optional[str] = Field(
+    model_used: str | None = Field(
         None, description="LLM identifier — None in Wave 1 stub mode")
     latency_ms: int = 0
     stub_mode: bool = False

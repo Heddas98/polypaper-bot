@@ -10,7 +10,6 @@ import json
 import logging
 import os
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 import httpx
 
@@ -28,7 +27,7 @@ INTERVAL_SECS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "24h": 86400}
 MAX_FUTURE = {"1h": timedelta(hours=3), "4h": timedelta(hours=12), "24h": timedelta(hours=50)}
 
 
-def safe_float(val, default=None) -> Optional[float]:
+def safe_float(val, default=None) -> float | None:
     if val is None:
         return default
     try:
@@ -102,7 +101,7 @@ class PolymarketClient:
 
     # ═══ DUAL-SOURCE PRICING ═══
 
-    async def get_live_price(self, token_id: str, side: str = "BUY") -> Optional[float]:
+    async def get_live_price(self, token_id: str, side: str = "BUY") -> float | None:
         """WS first (0ms) → REST fallback (1-3s)."""
         # Source 1: WebSocket cache
         if self.ws is not None and self.ws.is_connected:
@@ -120,7 +119,7 @@ class PolymarketClient:
                 return p
         return None
 
-    async def get_live_midpoint(self, token_id: str) -> Optional[float]:
+    async def get_live_midpoint(self, token_id: str) -> float | None:
         if self.ws is not None and self.ws.is_connected:
             p = self.ws.get_live_price(token_id)
             if p is not None:
@@ -138,7 +137,7 @@ class PolymarketClient:
 
     # ═══ MARKET ODDS ═══
 
-    async def get_market_odds(self, market: dict) -> Optional[dict]:
+    async def get_market_odds(self, market: dict) -> dict | None:
         tokens = self._extract_token_ids(market)
         if not tokens:
             return None
@@ -293,6 +292,85 @@ class PolymarketClient:
                 return data[0]
         return None
 
+    # ── P2-03 (2026-05-11): Geopolitics %0 fee discovery ─────────────────
+    # Polymarket docs (https://docs.polymarket.com/trading/fees) confirms
+    # "Geopolitical and world events markets are fee-free." That makes them
+    # ideal for paper-vs-live divergence testing — fee math is zero on both
+    # sides, so any divergence is pure fill-model / latency.
+    #
+    # Discovery uses gamma-api /events with tag_slug filter (200 req/10s
+    # rate limit on /tags endpoints — see docs/rate-limits). Default tag
+    # slugs match Polymarket's category taxonomy.
+
+    FEE_FREE_TAG_SLUGS: tuple[str, ...] = ("geopolitics",)
+
+    async def discover_fee_free_markets(
+        self,
+        tag_slug: str = "geopolitics",
+        limit: int = 20,
+    ) -> list[dict]:
+        """Discover active markets tagged with a fee-free category.
+
+        Args:
+            tag_slug: Polymarket tag slug. Default "geopolitics" — the only
+                officially fee-free category per docs (2026-05-11).
+            limit: Max events to fetch in one call (gamma-api default 20).
+
+        Returns:
+            List of market dicts (flattened from event.markets). Empty list
+            on HTTP error / parse failure. Caller filters by closed flag
+            (some events report closed but markets still queryable).
+
+        Notes:
+            ``gamma-api`` /events accepts ``tag_slug`` AND ``tag_id``. We
+            use slug because it's human-readable and stable. If tag_slug
+            returns nothing, callers should fall back to ``tag_id`` via
+            ``discover_active_markets`` with the appropriate series_id.
+        """
+        try:
+            r = await self._get_with_retry(
+                f"{self.GAMMA_BASE}/events",
+                params={
+                    "tag_slug": tag_slug,
+                    "active": "true",
+                    "closed": "false",
+                    "limit": limit,
+                    "order": "endDate",
+                    "ascending": "true",
+                },
+                timeout=5.0,
+                label="gamma.events.tag_slug",
+            )
+        except (TimeoutError, httpx.HTTPError):
+            return []
+        if not r or r.status_code != 200:
+            return []
+        try:
+            events = r.json()
+        except (json.JSONDecodeError, ValueError):
+            return []
+        if not isinstance(events, list):
+            return []
+
+        markets: list[dict] = []
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            for m in ev.get("markets", []):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("closed"):
+                    continue
+                # Annotate with tag_slug for caller fee-bypass logic.
+                m["_discovered_via_tag"] = tag_slug
+                markets.append(m)
+
+        logger.info(
+            f"Fee-free discovery (tag={tag_slug}): "
+            f"{len(events)} events → {len(markets)} active markets"
+        )
+        return markets
+
     async def _discover_by_events(self, asset, tf):
         await self._refresh_events_cache()
         prefix = self.SLUG_PREFIXES.get(asset.upper(), "btc-updown")
@@ -347,7 +425,7 @@ class PolymarketClient:
         self._events_ts = now
         logger.info(f"Events cache: {len(events)}")
 
-    async def get_orderbook(self, token_id: str) -> Optional[dict]:
+    async def get_orderbook(self, token_id: str) -> dict | None:
         """Phase 18: Fetch L2 orderbook for depth simulation.
         Returns: {"asks": [[price, size], ...], "bids": [[price, size], ...]}
         Sorted: asks low→high, bids high→low."""
@@ -388,7 +466,7 @@ class PolymarketClient:
             logger.debug(f"Orderbook fetch: {type(e).__name__}: {e}")
         return None
 
-    def calculate_vwap_fill(self, orderbook: dict, side: str, amount_usd: float) -> Optional[dict]:
+    def calculate_vwap_fill(self, orderbook: dict, side: str, amount_usd: float) -> dict | None:
         """Phase 18: VWAP fill simulation from real orderbook depth.
         side='BUY' uses asks, 'SELL' uses bids.
         Returns: {"vwap": float, "filled_usd": float, "filled_shares": float,
@@ -655,7 +733,7 @@ class PolymarketClient:
             logger.debug(f"check_market_resolved({slug}): " f"{type(e).__name__}: {e}")
         return None
 
-    async def get_resolution_price(self, token_id: str) -> Optional[float]:
+    async def get_resolution_price(self, token_id: str) -> float | None:
         """Phase 82e Sprint 5 HOTFIX v4 — Unfiltered live price.
 
         get_live_price() 0.01-0.99 clamp'i uyguluyor; tam olarak resolved

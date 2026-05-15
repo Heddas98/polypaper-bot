@@ -1052,18 +1052,34 @@ class PolyPaperBot:
                     f"✅ shadow_vs_paper job scheduled (every {svp_interval}s, first in {svp_first}s)"
                 )
 
-                # P1-03-b (2026-05-09): nightly reality gap. Daily 24h interval.
-                # First run 5 min after boot (so first report is fresh after a
-                # bot restart); subsequent runs every 86400s. ENV-gated.
+                # P1-03-b (2026-05-09) + P1-03 Wave 2 (2026-05-11): nightly
+                # reality gap. Pinned to a fixed UTC time so the report lands
+                # at the same hour every night regardless of bot restarts.
+                # Default 03:00 UTC (off-hours, no race with US/EU markets).
+                # Manuel `/rg` komutu fresh-on-demand karşılar — boot-kick yok.
+                # ENV: REALITY_GAP_ENABLED=true|false, REALITY_GAP_TIME_HHMM=HH:MM (UTC)
                 if os.getenv("REALITY_GAP_ENABLED", "true").lower() == "true":
-                    rg_interval = int(os.getenv("REALITY_GAP_INTERVAL_SEC", "86400"))
-                    rg_first = int(os.getenv("REALITY_GAP_FIRST_SEC", "300"))
-                    jq.run_repeating(
-                        reality_gap_job, interval=rg_interval, first=rg_first, name="reality_gap"
+                    from datetime import time as _dtime
+
+                    rg_hhmm = os.getenv("REALITY_GAP_TIME_HHMM", "03:00").strip()
+                    try:
+                        _h_str, _m_str = rg_hhmm.split(":", 1)
+                        _rg_time = _dtime(hour=int(_h_str), minute=int(_m_str))
+                    except (ValueError, IndexError):
+                        logger.warning(
+                            f"reality_gap: invalid REALITY_GAP_TIME_HHMM={rg_hhmm!r}, "
+                            f"falling back to 03:00 UTC"
+                        )
+                        _rg_time = _dtime(hour=3, minute=0)
+                    jq.run_daily(
+                        reality_gap_job,
+                        time=_rg_time,
+                        name="reality_gap",
                     )
                     logger.info(
                         f"✅ reality_gap job scheduled "
-                        f"(every {rg_interval}s, first in {rg_first}s)"
+                        f"(daily at {_rg_time.strftime('%H:%M')} UTC, "
+                        f"manuel /rg fresh-on-demand)"
                     )
 
                 # 2026-04-29 Polymarket Portfolio refresh (Aşama 1)

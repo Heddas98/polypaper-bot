@@ -198,7 +198,11 @@ async def get_changelog_for_ai(
             lines.append("\n═══ DURMUS STRATEJI OZETI (son 30 gun) ═══")
             for s in stopped_summary:
                 label = s[0] or "?"
-                changes = s[2] or 0
+                # P1-07 Round-3 (2026-05-11): rename to avoid clash with the
+                # `changes = []` declared earlier in this function (line 158).
+                # mypy unified the two scopes and complained about list[str]
+                # vs int. Different name = different binding.
+                changes_count = s[2] or 0
                 chain = s[3] or "?"
                 best_wr = s[4]
                 worst_pnl = s[5]
@@ -206,7 +210,7 @@ async def get_changelog_for_ai(
                 wr_str = f"max_WR={best_wr:.0f}%" if best_wr is not None else ""
                 pnl_str = f"min_PnL={worst_pnl:+.2f}" if worst_pnl is not None else ""
                 lines.append(
-                    f"  {label}: {changes} degisiklik, {max_trades or 0}t, "
+                    f"  {label}: {changes_count} degisiklik, {max_trades or 0}t, "
                     f"{wr_str} {pnl_str} | {chain[:60]}"
                 )
 

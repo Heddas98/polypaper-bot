@@ -96,9 +96,13 @@ class CorrelationContext:
         engine._evaluate(...)
     """
 
-    def __init__(self, prefix: str = "", cid: Optional[str] = None):
+    def __init__(self, prefix: str = "", cid: str | None = None):
         self.cid = cid or new_correlation_id(prefix)
-        self._token = None
+        # P1-07 Round-3 (2026-05-11): typed None → Token[str] | None. Was
+        # tripping mypy on __enter__ assignment of a ContextVar.set return.
+        from contextvars import Token
+
+        self._token: Token[str] | None = None
 
     def __enter__(self) -> str:
         self._token = _current_cid.set(self.cid)

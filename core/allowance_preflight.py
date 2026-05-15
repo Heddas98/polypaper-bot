@@ -40,7 +40,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger("polypaper.core.allowance_preflight")
 
@@ -81,7 +80,9 @@ async def check_collateral_allowance(client) -> dict:
         {"asset_type": "COLLATERAL", "balance": float, "allowance": float,
          "ok": bool, "raw": dict, "error": Optional[str]}
     """
-    result = {
+    # P1-07 Round-3 (2026-05-11): explicit annotation so result["allowance"]
+    # comparison with MIN_ALLOWANCE_USD doesn't trip "float vs object" operator.
+    result: dict[str, object] = {
         "asset_type": "COLLATERAL",
         "spender": ADDR_CTF_EXCHANGE,
         "balance": 0.0,
@@ -119,7 +120,7 @@ async def check_collateral_allowance(client) -> dict:
             allow_raw = float(bal.get("allowance", 0) or 0) if isinstance(bal, dict) else 0
         result["balance"] = balance_raw / 1e6
         result["allowance"] = allow_raw / 1e6
-        result["ok"] = result["allowance"] >= MIN_ALLOWANCE_USD
+        result["ok"] = float(result["allowance"]) >= MIN_ALLOWANCE_USD  # type: ignore[arg-type]
     except AttributeError as e:
         result["error"] = f"SDK method missing: {e}"
     except (ValueError, TypeError, KeyError) as e:
@@ -131,7 +132,7 @@ async def check_collateral_allowance(client) -> dict:
     return result
 
 
-async def check_conditional_allowance(client, sample_token_id: Optional[str] = None) -> dict:
+async def check_conditional_allowance(client, sample_token_id: str | None = None) -> dict:
     """CTF (outcome tokens) approval status.
 
     NOT: V2 SDK `BalanceAllowanceParams(asset_type=CONDITIONAL)` token_id
@@ -146,7 +147,9 @@ async def check_conditional_allowance(client, sample_token_id: Optional[str] = N
         {"asset_type": "CONDITIONAL", "token_id": str, "allowance": float,
          "ok": bool, "raw": dict, "error": Optional[str], "inferred": bool}
     """
-    result = {
+    # P1-07 Round-3 (2026-05-11): same dict[str, object] pattern as the
+    # COLLATERAL check above — explicit annotation so comparisons don't trip.
+    result: dict[str, object] = {
         "asset_type": "CONDITIONAL",
         "token_id": sample_token_id or "",
         "allowance": 0.0,
@@ -193,7 +196,7 @@ async def check_conditional_allowance(client, sample_token_id: Optional[str] = N
         # CTF tokens 6 decimals (same as pUSD)
         result["allowance"] = allow_raw / 1e6
         # CTF setApprovalForAll → "infinite" allowance (very large number)
-        result["ok"] = result["allowance"] > 1e9  # >$1B = setApprovalForAll proxy
+        result["ok"] = float(result["allowance"]) > 1e9  # type: ignore[arg-type]  # >$1B = setApprovalForAll proxy
     except AttributeError as e:
         result["error"] = f"SDK method missing: {e}"
     except (ValueError, TypeError, KeyError) as e:
@@ -206,7 +209,7 @@ async def check_conditional_allowance(client, sample_token_id: Optional[str] = N
 
 async def check_all_allowances(
     client,
-    sample_token_id: Optional[str] = None,
+    sample_token_id: str | None = None,
 ) -> dict[str, dict]:
     """Run all allowance checks concurrently.
 
@@ -302,7 +305,7 @@ def format_status_report(status: dict) -> str:
     return "\n".join(lines)
 
 
-async def run_preflight(client, sample_token_id: Optional[str] = None) -> tuple[bool, str]:
+async def run_preflight(client, sample_token_id: str | None = None) -> tuple[bool, str]:
     """Top-level convenience: run all checks + return (ok, html_report).
 
     Bot startup'tan çağrılır:

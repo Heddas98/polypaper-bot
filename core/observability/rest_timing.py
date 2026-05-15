@@ -52,12 +52,11 @@ import os
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Optional
 
 logger = logging.getLogger("polypaper.observability.rest_timing")
 
 # ── Module state ─────────────────────────────────────────────────────────
-_ENABLED: Optional[bool] = None
+_ENABLED: bool | None = None
 _BUFFER_SIZE: int = 10_000
 _samples: dict[str, deque] = defaultdict(lambda: deque(maxlen=_BUFFER_SIZE))
 

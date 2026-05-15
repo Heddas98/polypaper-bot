@@ -43,7 +43,6 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger("polypaper.core.executor")
 
@@ -54,14 +53,14 @@ class OrderRequest:
 
     token_id: str
     side: str  # "BUY" | "SELL"
-    amount_usd: Optional[float] = None  # BUY için (notional)
-    shares: Optional[float] = None  # SELL için
+    amount_usd: float | None = None  # BUY için (notional)
+    shares: float | None = None  # SELL için
     price: float = 0.50  # Limit price
     order_type: str = "FOK"  # FOK | FAK | GTC_POST_ONLY | GTD
     tick_size: str = "0.01"
     neg_risk: bool = False
-    builder_code: Optional[str] = None
-    expiration: Optional[int] = None  # GTD için Unix timestamp
+    builder_code: str | None = None
+    expiration: int | None = None  # GTD için Unix timestamp
     slug: str = ""  # logging için
     strategy_label: str = ""
 
@@ -77,8 +76,8 @@ class ExecutionResult:
     notional_filled_usd: float = 0.0
     fee_usd: float = 0.0
     slippage_bps: float = 0.0
-    rejected_reason: Optional[str] = None
-    transaction_hash: Optional[str] = None
+    rejected_reason: str | None = None
+    transaction_hash: str | None = None
     raw_response: dict = field(default_factory=dict)
     executor_mode: str = ""  # "live" | "paper"
 
@@ -118,7 +117,11 @@ class PaperExecutor(Executor):
         self._open_orders: dict[str, dict] = {}
         self._order_seq = 0
         # Optional: orderbook source (set by engine)
-        self._orderbook_source = None  # callable: (token_id) -> orderbook dict
+        # P1-07 Round-3 (2026-05-11): explicit Callable | None so mypy keeps
+        # the `if self._orderbook_source:` branch reachable after `set_orderbook_source`.
+        from collections.abc import Callable as _Callable
+
+        self._orderbook_source: _Callable[[str], dict] | None = None
 
     def set_orderbook_source(self, fn):
         """Engine wires this — PaperExecutor orderbook için callback."""
@@ -303,6 +306,10 @@ def get_executor(mode: str = "paper", **kwargs) -> Executor:
     if mode in _default_executors:
         return _default_executors[mode]
 
+    # P1-07 Round-3 (2026-05-11): annotate ex as union so the assignment
+    # at line 309 (LiveExecutor) doesn't trip mypy after line 307 narrowed
+    # the inferred type to PaperExecutor.
+    ex: PaperExecutor | LiveExecutor
     if mode == "paper":
         ex = PaperExecutor(**kwargs)
     elif mode == "live":

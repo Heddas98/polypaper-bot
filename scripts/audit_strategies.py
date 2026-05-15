@@ -1,13 +1,19 @@
 """
 P1-04-a (2026-05-09) Strategy audit (read-only).
+P1-04 re-audit prep (2026-05-11):
+  - --days N now actually filters executions by closed_at >= NOW - N days
+    (was parsed but ignored). Default 30.
+  - --since-prev PATH compares current audit against a previous .md report
+    and prints a "regressed/improved/dropped/new" delta section.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sqlite3
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -52,10 +58,56 @@ def _fmt_pnl(x):
     return f"{x:+.2f}" if x is not None else "?"
 
 
+def _parse_prev_audit(path: Path) -> dict[str, str]:
+    r"""Extract {strategy_id_12char: recommendation} from a prior audit .md.
+
+    Looks for table rows like `| 1 | \`abc123def456\` | Label | ...` in
+    each section (KEEP/WATCH/ARCHIVE). Section header determines the rec.
+    Returns short-id -> recommendation map.
+    """
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    section = None
+    section_map = {
+        "KEEP Proven": "KEEP",
+        "WATCH Exploration": "WATCH",
+        "ARCHIVE Pruning": "ARCHIVE",
+    }
+    id_row_re = re.compile(r"\|\s*(?:\d+\s*\|\s*)?`([0-9a-f]{6,32})`")
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = line.strip()
+        if s.startswith("## "):
+            section = None
+            for key, rec in section_map.items():
+                if key in s:
+                    section = rec
+                    break
+            continue
+        if not section:
+            continue
+        m = id_row_re.search(line)
+        if m:
+            sid = m.group(1)[:12]
+            out[sid] = section
+    return out
+
+
 def main():
     p = argparse.ArgumentParser(prog="audit_strategies")
     p.add_argument("--output")
-    p.add_argument("--days", type=int, default=30)
+    p.add_argument(
+        "--days",
+        type=int,
+        default=30,
+        help="Lookback window in days for execution stats (closed_at filter).",
+    )
+    p.add_argument(
+        "--since-prev",
+        type=str,
+        default=None,
+        help="Path to a previous strategy_audit_*.md to diff against (delta section).",
+    )
     args = p.parse_args()
 
     if not DB_PATH.exists():
@@ -82,13 +134,24 @@ def main():
     strategies = [dict(r) for r in cur.fetchall()]
 
     stats = {}
-    cur = conn.execute("""SELECT strategy_id,
+    # P1-04 re-audit fix (2026-05-11): apply --days lookback filter. Older
+    # behavior summed across the entire history (silently ignoring --days).
+    since_iso = (datetime.now(UTC) - timedelta(days=int(args.days))).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    cur = conn.execute(
+        """SELECT strategy_id,
         COUNT(*) AS n,
         SUM(CASE WHEN result='won' THEN 1 ELSE 0 END) AS wins,
         SUM(pnl) AS pnl_sum,
         MAX(closed_at) AS last_closed
-        FROM executions WHERE strategy_id IS NOT NULL AND status='claimed'
-        GROUP BY strategy_id""")
+        FROM executions
+        WHERE strategy_id IS NOT NULL
+          AND status='claimed'
+          AND closed_at >= ?
+        GROUP BY strategy_id""",
+        (since_iso,),
+    )
     for r in cur.fetchall():
         sid = r["strategy_id"]
         n = r["n"] or 0
@@ -127,6 +190,7 @@ def main():
     L.append("# Strategy Audit Report (P1-04-a)")
     L.append("")
     L.append(f"**Generated:** {now.strftime('%Y-%m-%d %H:%M UTC')}")
+    L.append(f"**Lookback:** last {args.days} days (executions.closed_at >= {since_iso})")
     L.append(f"**Total strategies:** {total}")
     L.append(f"**Total trades (claimed):** {total_trades}")
     L.append(f"**Total realized PnL:** {total_pnl:+.2f}")
@@ -219,6 +283,64 @@ def main():
     L.append("Live whitelist (LIVE_STRATEGIES) untouched paper noise only.")
     L.append("")
     L.append("Next: P1-04-b (Heddas confirms) -> P1-04-c (idempotent stop migration).")
+
+    # P1-04 re-audit (2026-05-11): diff against previous audit if --since-prev.
+    if args.since_prev:
+        prev_path = Path(args.since_prev)
+        prev_map = _parse_prev_audit(prev_path)
+        L.append("")
+        L.append("## Delta vs Previous Audit")
+        L.append("")
+        if not prev_map:
+            L.append(f"> Could not parse previous audit at `{prev_path}` (no rows found).")
+        else:
+            L.append(f"**Compared with:** `{prev_path.name}` ({len(prev_map)} strategies)")
+            L.append("")
+            cur_map = {(r["id"] or "")[:12]: r["recommendation"] for r in rows}
+
+            regressed = []  # KEEP/WATCH -> ARCHIVE
+            improved = []  # ARCHIVE -> KEEP/WATCH
+            kept_archive = []  # ARCHIVE -> ARCHIVE (still bad)
+            new_ids = []  # in cur, not in prev
+            dropped_ids = []  # in prev, not in cur
+
+            for sid12, rec_now in cur_map.items():
+                rec_prev = prev_map.get(sid12)
+                if rec_prev is None:
+                    new_ids.append((sid12, rec_now))
+                elif rec_prev != rec_now:
+                    if rec_now == "ARCHIVE" and rec_prev in {"KEEP", "WATCH"}:
+                        regressed.append((sid12, rec_prev, rec_now))
+                    elif rec_prev == "ARCHIVE" and rec_now in {"KEEP", "WATCH"}:
+                        improved.append((sid12, rec_prev, rec_now))
+                elif rec_now == "ARCHIVE":
+                    kept_archive.append(sid12)
+            for sid12 in prev_map.keys():
+                if sid12 not in cur_map:
+                    dropped_ids.append((sid12, prev_map[sid12]))
+
+            L.append(f"- **Regressed** (KEEP/WATCH -> ARCHIVE): {len(regressed)}")
+            L.append(f"- **Improved** (ARCHIVE -> KEEP/WATCH): {len(improved)}")
+            L.append(f"- **Still ARCHIVE both runs:** {len(kept_archive)}")
+            L.append(f"- **New strategies:** {len(new_ids)}")
+            L.append(f"- **Dropped (no longer in DB):** {len(dropped_ids)}")
+            L.append("")
+            if regressed:
+                L.append("### Regressed (need attention)")
+                L.append("")
+                L.append("| ID | Prev | Now |")
+                L.append("|---|---|---|")
+                for sid12, prev_rec, now_rec in regressed[:20]:
+                    L.append(f"| `{sid12}` | {prev_rec} | {now_rec} |")
+                L.append("")
+            if improved:
+                L.append("### Improved")
+                L.append("")
+                L.append("| ID | Prev | Now |")
+                L.append("|---|---|---|")
+                for sid12, prev_rec, now_rec in improved[:20]:
+                    L.append(f"| `{sid12}` | {prev_rec} | {now_rec} |")
+                L.append("")
 
     md = "\n".join(L) + "\n"
     if args.output:

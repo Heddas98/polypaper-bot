@@ -135,6 +135,34 @@ def _stagger(sid):
 
 
 class VirtualOrder:
+    # P1-07 Round-3 (2026-05-11): class-level annotations alongside __slots__.
+    # mypy doesn't infer attribute types from __slots__ alone — these declarations
+    # let `_pending: list[VirtualOrder]` mixin hints work without `has no attribute`
+    # false positives. Runtime behavior is unchanged (annotations not assignments).
+    strategy_id: str
+    slug: str
+    token_id: str
+    direction: str
+    limit_price: float
+    amount: float
+    fee: float
+    created_at: object  # datetime.datetime — fwd ref to avoid cycles
+    wallet_id: int | None
+    user_id: int | None
+    sl_pct: float | None
+    sl_odds: float | None
+    tp_pct: float | None
+    tp_odds: float | None
+    threshold: float | None
+    is_maker: bool
+    signal_score: float
+    signal_price: float
+    queue_ahead_usd: float
+    cum_traded_at_price_usd: float
+    placement_ts_ms: int
+    category: str | None
+    reasoning_json: str | None
+
     __slots__ = (
         "strategy_id",
         "slug",

@@ -27,7 +27,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC
-from typing import Optional
 
 import aiosqlite
 
@@ -49,8 +48,23 @@ PROTECTED_STRATEGY_TYPES = {
 }
 
 # ═══ Default overrides per phase ═══
+# P1-07 Round-3 (2026-05-11): TypedDict so `cls(**defaults)` unpack is
+# typed precisely (float floats + phase str). Previously mypy inferred
+# `dict[str, object]` and 5× arg-type errors fired on the StrategyParams
+# constructor call below.
+from typing import TypedDict
+
+
+class _PhaseDefaults(TypedDict):
+    min_composite: float
+    conviction_min: float
+    edge_gate_mult: float
+    trade_amount_mult: float
+    phase: str
+
+
 # Exploration: loose gates, small size — we're learning
-EXPLORATION_DEFAULTS = {
+EXPLORATION_DEFAULTS: _PhaseDefaults = {
     "min_composite": 0.20,  # Low bar — let signals through for learning
     "conviction_min": 0.20,  # Low bar
     "edge_gate_mult": 0.70,  # 30% looser than global edge gate
@@ -59,7 +73,7 @@ EXPLORATION_DEFAULTS = {
 }
 
 # Evaluation: normal gates, adjusted by performance
-EVALUATION_DEFAULTS = {
+EVALUATION_DEFAULTS: _PhaseDefaults = {
     "min_composite": 0.30,  # Moderate
     "conviction_min": 0.25,  # Moderate
     "edge_gate_mult": 0.85,  # 15% looser than global
@@ -68,7 +82,7 @@ EVALUATION_DEFAULTS = {
 }
 
 # Proven: earned trust — starts at global defaults, adjusted by WR
-PROVEN_DEFAULTS = {
+PROVEN_DEFAULTS: _PhaseDefaults = {
     "min_composite": 0.35,  # Global default
     "conviction_min": 0.30,  # Global default
     "edge_gate_mult": 1.0,  # No discount
@@ -372,7 +386,7 @@ class StrategyLifecycle:
                 f"edge={current.edge_gate_mult:.2f} size={current.trade_amount_mult:.1f}x"
             )
 
-    async def _get_stats(self, sid: str) -> Optional[dict]:
+    async def _get_stats(self, sid: str) -> dict | None:
         """Get strategy stats including rolling WR."""
         try:
             # Overall stats
