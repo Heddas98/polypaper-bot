@@ -320,7 +320,7 @@ def taker_fee_dynamic(
         fallback_category: category tag if dynamic fetch fails
 
     Returns:
-        Fee in USDC (rounded to 4 decimals).
+        Fee in USDC (rounded to 5 decimals — docs parity, P0-10 2026-05-13).
     """
     params = get_market_fee_params(client, condition_id)
     if params is None:
