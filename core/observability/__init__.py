@@ -35,7 +35,9 @@ from __future__ import annotations
 import logging
 import uuid
 from contextvars import ContextVar
-from typing import Optional
+
+# L-01 (2026-05-15 ultra-audit): removed unused `from typing import Optional`
+# (F401). Annotations in this module use `str` only — no Optional[T] needed.
 
 __all__ = [
     "new_correlation_id",

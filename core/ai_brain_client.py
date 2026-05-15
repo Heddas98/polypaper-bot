@@ -118,8 +118,12 @@ async def suggest_via_service(
     """
     if not is_enabled():
         return None
-    try:
-        import httpx
-    except ImportError:
+    # L-01 (2026-05-15 ultra-audit): availability probe via find_spec instead
+    # of `import httpx`/F401. The actual POST call is wired in Wave 3
+    # (currently a stub returning None — caller `core/ai_brain.py` falls
+    # back to in-process path).
+    import importlib.util as _il
+    if _il.find_spec("httpx") is None:
         logger.warning("httpx not installed; advisor client disabled")
-        return
+        return None
+    return None
