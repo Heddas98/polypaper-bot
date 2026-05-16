@@ -493,4 +493,38 @@ v2 iterasyonunda bir Edit/Write tool app.py'ı satır 333'te kesti: `suggest()` 
 
 ---
 
-**Bir sonraki adım**: Wave 1 (C-01, C-02, H-03, L-01) + REG-01 kapalı. Heddas temiz full regression koşumu sonrası REG-02 netleşir. Wave 2-4 backlog.
+## 📌 ADDENDUM 2 — Wave 2 closure (2026-05-15)
+
+Wave 2 tamamlandı. 6 öğe (H-01, H-02, H-04, H-05, H-06, M-01) kapatıldı:
+
+| # | Durum | Commit | Not |
+|---|---|---|---|
+| **H-01** | ✅ kapalı | `fc04d1c` | AI Advisor cost-tiered auth: real-LLM mode'da X-Internal-Key zorunlu, stub mode no-op. test_ai_advisor_service.py 29/29 PASS (+3 yeni test). |
+| **H-02** | ✅ kapalı | `4820636` | `_budget_lock` + `_charge()` helper — 3 `_spent +=` noktası atomik. |
+| **H-04** | ✅ kapalı (false-positive) | `8959905` | Derin inceleme: gerçek race YOK — `UPDATE ... WHERE balance>=?` tek statement atomik + aiosqlite tek-connection write serialize. Audit bulgusu yanlıştı. Kozmetik: rowcount commit-öncesi yakalama + belge. |
+| **H-05** | ✅ kapalı | `88573b9` | `live_handler.py` 4 para-kritik entry-point admin-gate'lendi (`live_command`, `live_callback`, `allowance_command`, `_custom_command`). `bot.py`'da global filter yoktu. |
+| **H-06** | ✅ kapalı (C-01 ile) | `93136c6` | `settings.validate()` genişletme **Wave 1 C-01 commit'inde** yapılmıştı (LIVE_ENABLED → ADMIN_TELEGRAM_ID + POLYGON_PRIVATE_KEY + POLYGON_WALLET zorunlu). H-06 ayrı iş değildi. |
+| **M-01** | ✅ kapalı | `88573b9` | `_user_error_msg()` helper — 8 callback + 1 allowance exception-leak noktası kategorize edildi. Ham `str(exc)` artık user'a gitmiyor; full detay `logger.exception()` ile log'da. |
+
+**H-05 kapsam notu**: `ws_command`/`ws_callback`/`daily_command`/`daily_callback` (bilgi handler'ları, para harcamıyor) admin-gate'siz kaldı — düşük öncelik, ayrı tur. Para-kritik 4 handler bu commit'te kapandı.
+
+### REG-02 — reproduce edilemedi (3 deneme)
+
+REG-02 contamination'ı 3 yolla araştırıldı, **hiçbiri reproduce etmedi**:
+1. İzole koşum — 3 test PASS
+2. `test_p0_p1_extra_coverage.py` tek dosya — 2342 pass / 0 fail
+3. Şüpheli kombinasyon (`test_env_reference_gen.py` + `TestEnvToggleHandlerWave2` + `test_regime`) — 19 pass
+
+2 Explore agent + manuel reproduce denemesi sonuçsuz. Agent'ların `sys.path.insert` teorisi teknik olarak hatalı (`sys.path` kirliliği `ImportError: cannot import name` üretmez — modül bir kez `sys.modules`'a girince `sys.path` onu etkilemez).
+
+**En olası açıklama (hipotez #2 doğrulanıyor)**: Heddas full regression'ı koştuğu 365s sırasında bu audit oturumu eşzamanlı `git checkout ca6ff41 -- app.py` + `git commit` + Edit yapıyordu → worktree dosyaları test ortasında mutasyona uğradı. `test_regime_at_entry_write.py` `db/models.py`'yi dosya olarak okur — mid-run `git checkout` onu bozabilir.
+
+**Kalan aksiyon**: Heddas, bu oturum pasifken **temiz** full regression koşmalı. 3 REG-02 fail kaybolursa hipotez doğrulanır (kod sağlam, mid-run mutation'dı). Kalırsa gerçek contamination — o noktada reproduce-first yaklaşımıyla yeniden kazılır.
+
+### Yan bulgu — test hijyeni (yeni, düşük öncelik)
+
+`test_env_reference_gen.py:25` + `test_whitelist_runtime_readiness.py:56`: `sys.path.insert(0, ...)` cleanup'sız. Contamination'ın kökü DEĞİL (kanıtlandı), ama test hijyeni borcu. Ayrıca `test_env_reference_gen.py` `docs/env_reference.md`'yi regenerate ediyor (test artifact — working tree kirletir). **Yeni: L-06** (düşük öncelik, Wave 4 backlog).
+
+---
+
+**Durum (2026-05-15 oturum sonu)**: Wave 1 (C-01, C-02, H-03, L-01) ✅ · REG-01 ✅ · Wave 2 (H-01, H-02, H-04, H-05, H-06, M-01) ✅. Açık: REG-02 (Heddas temiz re-run bekliyor), Wave 3 (C-03 critical-path tests, M-03 Pydantic, M-07/M-08), Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).

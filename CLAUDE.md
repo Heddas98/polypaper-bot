@@ -25,10 +25,11 @@
 - P1-02: AI Brain microservice (Wave 1+2a+2b+2c kapalı, Wave 3 approval queue backlog).
 - Açık P0 eski: P0-02 (keyring), P0-04 (LIVE_BUDGET 2FA), P0-08 (5m default OFF) — mainnet blocker değil.
 - Audit 2026-05-13: P0-10 (fees precision) ✅, P0-14 (1h cycle log) ✅ kapalı; P0-11..P0-13, P0-15 backlog.
-- **Audit 2026-05-15 Wave 1 ✅ kapalı** (4 fix): C-01 is_admin backdoor, C-02 slug prompt-injection sanitize, H-03 /buy inf/nan reject, L-01 ruff F401 2 violations.
-- **REG-01 ✅ kapalı** (`8b13226`): `services/ai_advisor/app.py` 2026-05-13 v2 commit zincirinde truncate olmuş (412→333 satır, `suggest()` gövdesi + `/stats` kayıp). v1 `ca6ff41`'den restore. `test_ai_advisor_service.py` 26/26 PASS.
-- **REG-02 ⚠️ açık** (Wave 2): 3 test (env_whitelist×2 + regime) full regression FAIL ama izole + tek-dosya PASS. Reproduce edilemedi — Heddas temiz full regression koşmalı.
-- Audit 2026-05-15 Wave 2-3 backlog: H-01 (AI Advisor auth default OFF), H-02 (budget race), H-04..H-06, M-01..M-08, C-03 critical-path tests, REG-02.
+- **Audit 2026-05-15 Wave 1 ✅** (4 fix): C-01 is_admin backdoor, C-02 slug prompt-injection sanitize, H-03 /buy inf/nan reject, L-01 ruff F401.
+- **REG-01 ✅** (`8b13226`): `services/ai_advisor/app.py` 2026-05-13 v2 zincirinde truncate (412→333 satır). v1 `ca6ff41`'den restore. test 29/29 PASS.
+- **Audit 2026-05-15 Wave 2 ✅** (6 fix): H-01 AI Advisor cost-tiered auth (`fc04d1c`), H-02 budget race lock (`4820636`), H-04 deduct rowcount false-positive (`8959905`), H-05 live_handler admin gate + M-01 exception leak (`88573b9`), H-06 zaten C-01'de kapanmış.
+- **REG-02 ⚠️ açık**: 3 test full regression FAIL, izole+tek-dosya+kombinasyon PASS. 3 reproduce denemesi başarısız (2 agent + manuel). Hipotez: mid-run file mutation. Heddas temiz re-run koşmalı.
+- Wave 3 backlog: C-03 critical-path tests, M-03 Pydantic LLM schemas, M-07 mypy baseline regen, M-08 test monolith böl. Wave 4: M-02/M-04/M-05/M-06, L-02..L-06.
 
 **Test baseline (2026-05-15 full regression):** 3,572 pass / 12 fail / 63 skip. 12 fail = 9 REG-01 (app.py truncation, ÇÖZÜLDÜ) + 3 REG-02 (reproduce edilemedi). Ruff 0 violation. Coverage %44.06 toplam (kritik path <%30, C-03 açık). mypy strict baseline corrupted (M-07).
 
