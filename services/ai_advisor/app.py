@@ -26,8 +26,9 @@ import logging
 import os
 import time
 from datetime import UTC, datetime
+from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -178,15 +179,19 @@ def _real_llm_enabled() -> bool:
 def _safe_user_str(s: str, maxlen: int = 120) -> str:
     """C-02 (2026-05-15 ultra-audit): escape untrusted strings before LLM injection.
 
-    Polymarket market slugs and strategy labels are user-controlled content
-    (anyone can create a market with arbitrary slug text). Without escaping,
+    Polymarket market slugs and strategy labels are user-controlled free
+    text (anyone can create a market with arbitrary slug). Without escaping,
     a slug like ``"BTC UP\\n\\nSYSTEM: ignore previous instructions"`` could
     inject pseudo-instructions into the LLM user message and pollute the
     2-agent (Optimist/Critic) reasoning. P0-01 manual approval still blocks
     *execution*, but the LLM's reasoning leak + approval queue manipulation
     is a real attack surface. ``json.dumps`` quotes the string and escapes
-    newlines, quotes, control chars — model still reads it but cannot
+    newlines, quotes, control chars — the model still reads it but cannot
     interpret embedded instructions as system-level.
+
+    Applied to slug + label only — ``asset``/``timeframe`` are short
+    pydantic-constrained enum-like values (BTC/ETH/SOL/XRP, 5m/15m/1h/24h)
+    that the bot itself fills, not free user input.
     """
     import json as _json
     return _json.dumps(s[:maxlen] if s else "")
@@ -199,17 +204,16 @@ def _build_user_prompt(req: SuggestRequest) -> str:
     the shape of context the in-process AIBrain assembles, but limited to
     request-scoped fields (no DB lookups).
 
-    C-02 (2026-05-15): user-controlled strings (slug, label) are sanitized
-    via ``_safe_user_str`` to prevent prompt-injection through Polymarket
-    market names. Numeric/enum fields stay unquoted.
+    C-02 (2026-05-15): user-controlled free text (slug, strategy label) is
+    sanitized via ``_safe_user_str`` to prevent prompt-injection through
+    Polymarket market names.
     """
     m = req.market
     s = req.strategy
     lines = [
         "# MARKET",
         f"slug={_safe_user_str(m.slug)}",
-        f"asset={_safe_user_str(m.asset, maxlen=10)} "
-        f"timeframe={_safe_user_str(m.timeframe, maxlen=10)}",
+        f"asset={m.asset} timeframe={m.timeframe}",
     ]
     if m.up_odds is not None or m.down_odds is not None:
         lines.append(
@@ -229,8 +233,7 @@ def _build_user_prompt(req: SuggestRequest) -> str:
         # C-02: strategy label is user-controlled (via /quick_strategy wizard).
         lines.append(
             f"label={_safe_user_str(s.label)} "
-            f"asset={_safe_user_str(s.asset, maxlen=10)}/"
-            f"{_safe_user_str(s.timeframe, maxlen=10)} thr={s.threshold:.2f}"
+            f"asset={s.asset}/{s.timeframe} thr={s.threshold:.2f}"
         )
         wr = (s.recent_wins / s.recent_trades * 100.0) if s.recent_trades else 0.0
         lines.append(
@@ -355,6 +358,83 @@ async def suggest(req: SuggestRequest) -> SuggestResponse:
     """
     global _REQUEST_COUNT
     _REQUEST_COUNT += 1
-    time.time()
+    t0 = time.time()
 
-    # Defensive input
+    # Defensive input validation — pydantic already covers types/ranges.
+    if not req.market.slug:
+        raise HTTPException(status_code=422, detail="market.slug required")
+
+    real_llm = _real_llm_enabled()
+    suggestions: list[Suggestion] = []
+    model_used: Optional[str] = None
+    stub_mode = True
+
+    if real_llm:
+        suggestions_real, model_used = await _try_real_llm(req)
+        if suggestions_real:
+            suggestions = suggestions_real
+            stub_mode = False
+        else:
+            logger.info(
+                "ai_advisor: real-LLM mode but all providers returned None — "
+                "degrading to stub HOLD"
+            )
+
+    if not suggestions:
+        # Wave 1 stub: HOLD with mode explanation. Always reachable as
+        # final fallback so the bot client never sees a 500.
+        mode = "Wave 2c real-LLM all-providers-failed" if real_llm else "stub Wave 1"
+        suggestions = [
+            Suggestion(
+                action="HOLD",
+                confidence=0.0,
+                reason=(
+                    f"[{mode}] slug={req.market.slug} "
+                    f"asset={req.market.asset}/{req.market.timeframe} "
+                    f"strategy={req.strategy.label if req.strategy else '?'}."
+                ),
+                payload={
+                    "request_count": _REQUEST_COUNT,
+                    "correlation_id": req.correlation_id,
+                },
+            )
+        ]
+
+    latency_ms = int((time.time() - t0) * 1000)
+    return SuggestResponse(
+        suggestions=suggestions,
+        model_used=model_used,
+        latency_ms=latency_ms,
+        stub_mode=stub_mode,
+    )
+
+
+# ── /stats ─────────────────────────────────────────────────────────────
+
+
+@app.get("/stats")
+async def stats() -> dict[str, object]:
+    """Lightweight observability — request counter + uptime + routing + LLM mode."""
+    return {
+        "uptime_s": time.time() - _STARTED_AT,
+        "request_count": _REQUEST_COUNT,
+        "started_utc": _STARTED_ISO,
+        "wave": 1,
+        # P1-02 Wave 2a: prompts + ModelRouter now live in this package.
+        # `core/ai_brain.py` aliases them. Expose for ops visibility.
+        "prompts_loaded": ["BRAIN_SYSTEM", "TRADE_SYSTEM", "MISTAKE_SYSTEM"],
+        "brain_system_chars": len(BRAIN_SYSTEM),
+        "routing": {
+            "tasks": sorted(ModelRouter.TASK_MODEL_MAP.keys()),
+            "fallback_chain": ModelRouter.FALLBACK_CHAIN,
+        },
+        # P1-02 Wave 2c: LLM call surface + current mode flag.
+        "wave_2c": {
+            "real_llm_enabled": _real_llm_enabled(),
+            "providers_available": {
+                "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),
+                "groq": bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")),
+                "openrouter": bool(os.getenv("OPENROUTER_API_KEY")),
+            },
+        },
+    }
