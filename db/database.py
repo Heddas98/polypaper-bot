@@ -289,8 +289,17 @@ class Database:
                     "UPDATE wallets SET balance = balance - ? WHERE id = ? AND balance >= ?",
                     (amount, wallet_id, amount),
                 )
+                # H-04 (2026-05-15 ultra-audit): capture rowcount BEFORE
+                # commit. The deduction is already fully race-free — the
+                # `WHERE balance >= ?` guard is evaluated atomically inside
+                # the single UPDATE, and aiosqlite serialises every write on
+                # one connection so no concurrent deduct can interleave
+                # between the balance read and the write. Reading rowcount
+                # pre-commit is defensive only: it removes any dependency on
+                # the cursor object staying valid across commit().
+                deducted = cursor.rowcount > 0
                 await self.conn.commit()
-                return cursor.rowcount > 0  # True if row was updated
+                return deducted  # True if a row actually lost balance
             except aiosqlite.Error as e:
                 # T11.8-B (2026-04-24): narrow from bare Exception. aiosqlite
                 # raises OperationalError "database is locked" during write
