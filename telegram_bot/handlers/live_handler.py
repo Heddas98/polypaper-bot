@@ -13,13 +13,59 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
+from config.settings import Settings
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.live")
 
 
+def _is_admin(context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> bool:
+    """H-05 (2026-05-15 ultra-audit): admin gate — mirrors env_toggle pattern.
+
+    Every live_handler entry point drives a real-money flow (toggle live
+    trading, /buy, /sell, on-chain allowance approve). Telegram callback
+    data is user-controlled — a non-admin who opens a DM with the bot
+    could replay a captured `live_toggle_confirm` / `live_market_*`
+    payload and move real pUSD. Fail-closed: if settings is missing from
+    bot_data, deny.
+    """
+    settings: Settings | None = context.bot_data.get("settings")
+    if settings is None:
+        logger.warning(
+            "live_handler _is_admin: settings missing in bot_data, denying %s",
+            telegram_id,
+        )
+        return False
+    return settings.is_admin(telegram_id)
+
+
+def _user_error_msg(exc: Exception, where: str = "") -> str:
+    """M-01 (2026-05-15 ultra-audit): exception → safe user-facing message.
+
+    Raw ``str(exc)`` echoed to the Telegram user can leak DB schema names,
+    file paths and internal identifiers (info disclosure). Full detail
+    still reaches the logs via the paired ``logger.exception()`` call —
+    the user only sees a category + location line. Always keep a
+    ``logger.exception()`` next to each call site so triage data is not
+    lost.
+    """
+    if isinstance(exc, aiosqlite.Error):
+        cat = "Veritabanı hatası"
+    elif isinstance(exc, TimeoutError | ConnectionError):
+        cat = "Bağlantı / zaman aşımı"
+    elif isinstance(exc, ValueError | TypeError | KeyError):
+        cat = "Geçersiz veri"
+    else:
+        cat = "Beklenmeyen hata"
+    loc = f" ({where})" if where else ""
+    return f"⚠️ {cat}{loc} — log'da detay var, sorun sürerse yöneticiye haber ver."
+
+
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
+    # H-05 (2026-05-15 ultra-audit): admin gate — real-money UI.
+    if not _is_admin(context, update.effective_user.id):
+        return await update.message.reply_text("⛔ Bu komut yöneticiye özel.")
     engine = context.bot_data.get("engine")
     if not engine or not hasattr(engine, "live"):
         return await update.message.reply_text("Live trader bulunamadı.")
@@ -30,6 +76,11 @@ async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all live_ button callbacks."""
     q = update.callback_query
+    # H-05 (2026-05-15 ultra-audit): admin gate BEFORE answering. Callback
+    # data is user-controlled; a non-admin who DMs the bot could replay a
+    # `live_toggle_confirm` / `live_market_*` payload and move real pUSD.
+    if not _is_admin(context, q.from_user.id):
+        return await q.answer("⛔ Yetkisiz erişim", show_alert=True)
     await q.answer()
     data = q.data
     engine = context.bot_data.get("engine")
@@ -139,10 +190,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _show_market_form(q, engine, side)
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"market_form: {_ex}")
-            await q.message.reply_text(
-                f"⚠️ Market form hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "market formu"))
 
     elif data.startswith("live_market_tf:"):
         # format: live_market_tf:BUY:5m
@@ -151,10 +199,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _show_market_asset_chooser(q, engine, side, tf)
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"market_tf: {_ex}")
-            await q.message.reply_text(
-                f"⚠️ Timeframe hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "timeframe seçimi"))
 
     elif data.startswith("live_market_asset:"):
         # format: live_market_asset:BUY:BTC_UP:5m
@@ -163,10 +208,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _show_market_amount_picker(q, engine, side, asset, tf)
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"market_asset: {_ex}")
-            await q.message.reply_text(
-                f"⚠️ Asset hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "asset seçimi"))
 
     elif data.startswith("live_market_amount:"):
         # format: live_market_amount:BUY:BTC_UP:5m:1
@@ -176,8 +218,8 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"market_amount: {_ex}")
             await q.message.reply_text(
-                f"⚠️ Tutar hata: <code>{esc(str(_ex)[:200])}</code>\n\n"
-                f"<i>Custom tutar için: /buy {{coin}} {{UP/DOWN}} {{tutar}}</i>",
+                _user_error_msg(_ex, "tutar seçimi")
+                + "\n\n<i>Custom tutar için: /buy {coin} {UP/DOWN} {tutar}</i>",
                 parse_mode="HTML",
             )
 
@@ -188,10 +230,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _execute_market_trade(q, engine, db, side, asset, tf, amount_str)
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"market_exec: {_ex}")
-            await q.message.reply_text(
-                f"❌ Trade hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "trade"))
 
     elif data.startswith("live_redeem:"):
         # 2026-05-05 Heddas direktifi: bot direct redeem (Relayer gasless)
@@ -239,10 +278,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"redeem: {_ex}")
-            await q.message.reply_text(
-                f"❌ Redeem hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "redeem"))
 
     elif data.startswith("live_sell_pct:"):
         # 2026-05-05 Heddas direktifi: SELL flow PnL panel + % satış
@@ -252,10 +288,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _show_sell_pct_picker(q, engine, asset_key)
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"sell_pct: {_ex}")
-            await q.message.reply_text(
-                f"⚠️ Sell hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "satış paneli"))
 
     elif data == "live_approve_allowance":
         # 2026-05-05: Allowance approve via UI tuş
@@ -291,10 +324,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"approve_allowance UI: {_ex}")
-            await q.message.reply_text(
-                f"❌ Approve hata: <code>{esc(str(_ex)[:200])}</code>",
-                parse_mode="HTML",
-            )
+            await q.message.reply_text(_user_error_msg(_ex, "allowance approve"))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1074,6 +1104,9 @@ async def allowance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """2026-05-05: Allowance approve — Polymarket Exchange contract'a
     USDC harcama izni verir. Trade yapmadan önce 1 kez yapılır.
     """
+    # H-05 (2026-05-15 ultra-audit): admin gate — on-chain allowance grant.
+    if not _is_admin(context, update.effective_user.id):
+        return await update.message.reply_text("⛔ Bu komut yöneticiye özel.")
     msg = await update.message.reply_text(
         "⏳ Allowance approve gönderiliyor...\n" "Polygon network on-chain TX, gas öder.",
     )
@@ -1082,7 +1115,11 @@ async def allowance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         ok, detail = await approve_allowance()
     except Exception as e:  # noqa: BLE001
-        ok, detail = False, f"unexpected: {type(e).__name__}: {e}"
+        # M-01 (2026-05-15 ultra-audit): log full detail, surface only the
+        # exception type to the user. `detail` is rendered to the user via
+        # esc(detail[:400]) below — raw str(e) would leak internals.
+        logger.exception(f"allowance_command approve failed: {e}")
+        ok, detail = False, f"{type(e).__name__} — log'da detay var"
 
     if ok:
         text = (
@@ -1133,6 +1170,9 @@ async def _custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE, si
     (5m / 15m / 1h / 24h). Verilmezse default 5m. Matrix'te asset+tf
     kombinasyonu desteklenmiyorsa hata mesajı + matrix önerisi.
     """
+    # H-05 (2026-05-15 ultra-audit): admin gate — /buy + /sell real-money entry.
+    if not _is_admin(context, update.effective_user.id):
+        return await update.message.reply_text("⛔ Bu komut yöneticiye özel.")
     args = context.args or []
     if len(args) < 3:
         await update.message.reply_text(
