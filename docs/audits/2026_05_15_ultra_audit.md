@@ -454,4 +454,43 @@ con.execute(f"SET threads TO {_env_int('DUCKDB_THREADS', 2)}")
 
 Bu audit `STRICT CLEANUP` modunda — her bulgu dosya:satır ile kanıtlı. Memory iddiaları kanıtla karşılaştırıldı. 3 paralel Explore agent + manuel deep-dive. Mainnet LIVE durumu gözetilerek priority sıralı.
 
-**Bir sonraki adım**: Heddas onayıyla Wave 1 (4 kritik fix) tek commit zinciri olarak ya da fix başına ayrı commit ile yapılır. Sonra `memory/status.md` güncellenir.
+---
+
+## 📌 ADDENDUM — Full regression sonrası (2026-05-15, Heddas pytest koşumu)
+
+Heddas Wave 1 push sonrası ilk full regression koşturdu: **3572 passed / 12 failed / 63 skipped** (365s). 12 fail iki kategoriye ayrıldı:
+
+### REG-01 — `services/ai_advisor/app.py` truncation regression ✅ ÇÖZÜLDÜ
+
+**9 test fail**: `tests/integration/test_ai_advisor_service.py` (`/stats` 404 + `/suggest` ResponseValidationError).
+
+**Kök neden**: app.py 2026-05-13 v2 commit zincirinde (`ed10eec`) truncate olmuş. Git arkeoloji:
+
+| Commit | app.py satır |
+|---|---|
+| `9aeaa6d` Wave1 scaffold | 146 |
+| `ca6ff41` v1 feat (21:39) | **412 — TAM** |
+| `ed10eec` v2 docs (21:49) | **333 — TRUNCATED (-79)** |
+| `4fc5121` Group 2 commit (bu audit oturumu) | 333 (truncated commit'lendi) |
+
+v2 iterasyonunda bir Edit/Write tool app.py'ı satır 333'te kesti: `suggest()` fonksiyon gövdesi (defensive validation + real_llm + `return SuggestResponse`) ve `/stats` endpoint'i komple kayboldu. `suggest()` `return`'süz bitince FastAPI `None` döndü → `response_model` validation hatası.
+
+**Görünmezlik**: pytest hiç koşulmadığı için (memory "Heddas yerelde koştursun" notu) 2026-05-13'ten beri gizli kaldı. Bu audit oturumunun Group 2 commit'i (`4fc5121`) truncated dosyayı farkında olmadan origin'e push'ladı. **Group 2 commit mesajındaki "6-test integration sweep PASS" iddiası memory'den kopyalanmış, doğrulanmamıştı — yanlış iddia.**
+
+**Fix** (`8b13226`): `git checkout ca6ff41 -- app.py` (412 satır restore) + C-02 yeniden uygulandı (slug+label escape) + ruff I001. **Sonuç: `test_ai_advisor_service.py` 26/26 PASS.**
+
+### REG-02 — 3 test contamination (REPRODUCE EDİLEMEDİ — Wave 2 backlog)
+
+**3 test fail**: `test_p0_p1_extra_coverage.py::TestEnvToggleHandlerWave2` (2× env_whitelist) + `test_regime_at_entry_write.py::test_execution_dataclass_has_regime_at_entry`.
+
+**Doğrulama**: 3 test **izole** koşumda PASS; `test_p0_p1_extra_coverage.py` **tek dosya** koşumda 2342 passed / 0 failed. Yani `config/env_whitelist.py` (`list_groups` L404, `coerce_value` L353) ve `db/models.py` (`regime_at_entry` L212) **kod doğru** — bu fail'ler test-pollution kaynaklı.
+
+**Reproduce edilemedi** — kesin kök neden bilinmiyor. Hipotezler:
+1. Test isolation contamination — alfabetik erken bir dosya (`test_a*`–`test_o*`) `config.env_whitelist`/`db.models` global state'i kirletip temizlemiyor.
+2. Mid-run file mutation — Heddas full regression'ı koştuğu 365s sırasında bu audit oturumu eşzamanlı `git checkout`/`git commit`/Edit yapıyordu; worktree dosyaları test ortasında değişmiş olabilir.
+
+**Wave 2 task**: Heddas, app.py fix push edildikten + bu oturum pasifken **temiz** bir full regression koşmalı. 3 fail kaybolursa → mid-run mutation'dı (kod sağlam). Kalırsa → gerçek contamination, `tests/unit/test_a*`–`test_o*` arası `sys.modules`/`config.env_whitelist`/`db.models` manipülasyonu için derin tarama gerekir.
+
+---
+
+**Bir sonraki adım**: Wave 1 (C-01, C-02, H-03, L-01) + REG-01 kapalı. Heddas temiz full regression koşumu sonrası REG-02 netleşir. Wave 2-4 backlog.

@@ -4,6 +4,7 @@
 > **2026-05-13 ultra-audit**: `docs/audits/2026_05_13_ultra_audit.md` — memory stale fix.
 > **2026-05-15 commit zinciri**: 8 duplikat commit (v1+v2) → 4 thematic + 3 follow-up commit + push.
 > **2026-05-15 ultra-audit Wave 1**: `docs/audits/2026_05_15_ultra_audit.md` — 22 bulgu (3 Critical, 6 High, 8 Medium, 5 Low); Wave 1 (C-01 + C-02 + H-03 + L-01) kapalı, Wave 2-3 backlog.
+> **2026-05-15 full regression**: 3,572 pass / 12 fail. REG-01 (app.py truncation, 9 fail) ✅ `8b13226` ile çözüldü; REG-02 (3 fail, reproduce edilemedi) Wave 2 backlog.
 
 ## TL;DR
 

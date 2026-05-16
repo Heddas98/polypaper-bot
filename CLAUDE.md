@@ -26,11 +26,13 @@
 - Açık P0 eski: P0-02 (keyring), P0-04 (LIVE_BUDGET 2FA), P0-08 (5m default OFF) — mainnet blocker değil.
 - Audit 2026-05-13: P0-10 (fees precision) ✅, P0-14 (1h cycle log) ✅ kapalı; P0-11..P0-13, P0-15 backlog.
 - **Audit 2026-05-15 Wave 1 ✅ kapalı** (4 fix): C-01 is_admin backdoor, C-02 slug prompt-injection sanitize, H-03 /buy inf/nan reject, L-01 ruff F401 2 violations.
-- Audit 2026-05-15 Wave 2-3 backlog: H-01 (AI Advisor auth default OFF), H-02 (budget race), H-04..H-06, M-01..M-08, C-03 critical-path tests.
+- **REG-01 ✅ kapalı** (`8b13226`): `services/ai_advisor/app.py` 2026-05-13 v2 commit zincirinde truncate olmuş (412→333 satır, `suggest()` gövdesi + `/stats` kayıp). v1 `ca6ff41`'den restore. `test_ai_advisor_service.py` 26/26 PASS.
+- **REG-02 ⚠️ açık** (Wave 2): 3 test (env_whitelist×2 + regime) full regression FAIL ama izole + tek-dosya PASS. Reproduce edilemedi — Heddas temiz full regression koşmalı.
+- Audit 2026-05-15 Wave 2-3 backlog: H-01 (AI Advisor auth default OFF), H-02 (budget race), H-04..H-06, M-01..M-08, C-03 critical-path tests, REG-02.
 
-**Test baseline (2026-05-15 doğrulanmış):** 3,645 collected · Ruff 0 violation (Wave 1 sonrası) · Coverage %44.06 toplam (kritik path <%30, C-03 hâlâ açık) · mypy strict baseline corrupted (M-07, regen gerekiyor).
+**Test baseline (2026-05-15 full regression):** 3,572 pass / 12 fail / 63 skip. 12 fail = 9 REG-01 (app.py truncation, ÇÖZÜLDÜ) + 3 REG-02 (reproduce edilemedi). Ruff 0 violation. Coverage %44.06 toplam (kritik path <%30, C-03 açık). mypy strict baseline corrupted (M-07).
 
-**✅ Commit zinciri (2026-05-15):** Önceki "39 modified + 18 untracked" CLOSED. 8 duplikat → 4 thematic + 3 follow-up commit (push edildi: `1de180c..3289636`). Sonra ultra-audit + Wave 1: `6e4b9ba` docs(audit-2026-05-15) · `93136c6` fix(c-01) · `bda186a` fix(c-02) · `9c01bca` fix(h-03) · `47c7e25` fix(l-01).
+**✅ Commit zinciri (2026-05-15):** Önceki "39 modified + 18 untracked" CLOSED. 8 duplikat → 4 thematic + 3 follow-up commit (push: `1de180c..3289636`). Ultra-audit + Wave 1: `6e4b9ba` docs(audit) · `93136c6` fix(c-01) · `bda186a` fix(c-02) · `9c01bca` fix(h-03) · `47c7e25` fix(l-01) · `0a8acbd` chore(memory). REG-01: `8b13226` fix(regression) app.py truncation restore.
 
 ## Tech Stack
 
