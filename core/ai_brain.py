@@ -133,6 +133,13 @@ class AIBrain:
         self.settings = settings
         self._running = False
         self._spent = 0.0
+        # H-02 (2026-05-15 ultra-audit): serialise _spent read-modify-write.
+        # The 3 `_spent += cost` sites lived in separate async coroutines;
+        # a bare `+=` is a lost-update race if two cycles overlap (1h
+        # interval but scheduler jitter / manual /ai_cycle can stack them),
+        # silently letting total spend drift past MAX_BUDGET. _charge()
+        # below holds this lock for the increment + persist.
+        self._budget_lock = asyncio.Lock()
         self._last_run = ""
         self._cycle_count = 0
         # Epic 8 T8.2: per-provider rate-limit cooldown (unix timestamps).
@@ -1579,8 +1586,8 @@ CONSENSUS KURALI:
                 ),
             )
             await self.db.conn.commit()
-            self._spent += 0.015
-            await self._save_budget()
+            # H-02: atomic budget charge (replaces bare _spent += / _save pair)
+            await self._charge(0.015)
         except (aiosqlite.Error, ValueError, TypeError, AttributeError) as _sd_err:
             # Epic 8 T8.1 ALARM fix: silent pass → logger.debug. Decision
             # logging is audit trail — if DB write fails, _spent still bumps
@@ -1613,6 +1620,19 @@ CONSENSUS KURALI:
             # persistence failure means next restart may lose accumulated
             # _spent — visible log so we notice drift.
             logger.warning(f"_save_budget failed, _spent not persisted: {_sb_err}")
+
+    async def _charge(self, amount: float) -> None:
+        """H-02 (2026-05-15 ultra-audit): atomic budget increment + persist.
+
+        All three former `self._spent += <cost>` sites route through here.
+        The lock serialises read-modify-write so concurrent cycles cannot
+        lose an update and silently bypass MAX_BUDGET. Persist happens
+        inside the lock so a crash between increment and save can't desync
+        the DB-backed counter.
+        """
+        async with self._budget_lock:
+            self._spent += amount
+            await self._save_budget()
 
     # ═══ LLM ═══
     def _parse_retry_after(self, header_val, default=None):
@@ -1647,8 +1667,8 @@ CONSENSUS KURALI:
         """
         self._rate_limited_until[provider] = time.time() + retry_after
         min_cost = _get_llm_ratelimit_min_cost()
-        self._spent += min_cost
-        await self._save_budget()
+        # H-02: atomic budget charge
+        await self._charge(min_cost)
         logger.warning(
             f"🧠 {provider} 429 rate-limit: backoff {retry_after:.1f}s, "
             f"charged ${min_cost:.3f} (spent=${self._spent:.3f})"
@@ -1677,8 +1697,8 @@ CONSENSUS KURALI:
                 cost = {"sonnet": 0.015, "haiku": 0.004, "opus": 0.06}.get(
                     model.split("-")[1] if "-" in model else "sonnet", 0.015
                 )
-                self._spent += cost
-                await self._save_budget()
+                # H-02: atomic budget charge
+                await self._charge(cost)
                 logger.info(f"🧠 Claude OK (${self._spent:.3f}/{MAX_BUDGET})")
             return r
         except LLMRateLimitError as rl:
