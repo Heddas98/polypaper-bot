@@ -447,6 +447,9 @@ def test_real_llm_success_path(client, monkeypatch):
 
     monkeypatch.setenv("AI_ADVISOR_REAL_LLM", "true")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-test")
+    # H-01 (2026-05-15 audit): real-LLM mode requires AI_ADVISOR_INTERNAL_KEY
+    # + matching X-Internal-Key header (no open LLM-cost proxy).
+    monkeypatch.setenv("AI_ADVISOR_INTERNAL_KEY", "test-internal-key")
 
     # Mock do_claude_call (ModelRouter brain_cycle → claude primary).
     with patch(
@@ -456,7 +459,10 @@ def test_real_llm_success_path(client, monkeypatch):
         payload = {
             "market": {"slug": "btc-test", "asset": "BTC", "timeframe": "5m"},
         }
-        r = client.post("/suggest", json=payload)
+        r = client.post(
+            "/suggest", json=payload,
+            headers={"X-Internal-Key": "test-internal-key"},
+        )
     assert r.status_code == 200
     data = r.json()
     assert data["stub_mode"] is False
@@ -478,6 +484,8 @@ def test_real_llm_all_providers_fail_degrades_to_stub(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
     monkeypatch.setenv("GROQ_API_KEY", "gsk-fake")
     monkeypatch.setenv("GROK_API_KEY", "")
+    # H-01 (2026-05-15 audit): real-LLM mode requires internal key + header.
+    monkeypatch.setenv("AI_ADVISOR_INTERNAL_KEY", "test-internal-key")
 
     with (
         patch("services.ai_advisor.app.do_claude_call", return_value=None),
@@ -485,7 +493,10 @@ def test_real_llm_all_providers_fail_degrades_to_stub(client, monkeypatch):
         patch("services.ai_advisor.app.do_openrouter_call", return_value=None),
     ):
         payload = {"market": {"slug": "btc-test", "asset": "BTC", "timeframe": "5m"}}
-        r = client.post("/suggest", json=payload)
+        r = client.post(
+            "/suggest", json=payload,
+            headers={"X-Internal-Key": "test-internal-key"},
+        )
     assert r.status_code == 200
     data = r.json()
     assert data["stub_mode"] is True
@@ -501,6 +512,8 @@ def test_real_llm_429_skips_to_next_provider(client, monkeypatch):
     monkeypatch.setenv("AI_ADVISOR_REAL_LLM", "true")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
     monkeypatch.setenv("GROQ_API_KEY", "gsk-fake")
+    # H-01 (2026-05-15 audit): real-LLM mode requires internal key + header.
+    monkeypatch.setenv("AI_ADVISOR_INTERNAL_KEY", "test-internal-key")
 
     # Claude raises 429 → groq returns text.
     with (
@@ -511,7 +524,10 @@ def test_real_llm_429_skips_to_next_provider(client, monkeypatch):
         patch("services.ai_advisor.app.do_groq_call", return_value="groq fallback ok"),
     ):
         payload = {"market": {"slug": "btc-test", "asset": "BTC", "timeframe": "5m"}}
-        r = client.post("/suggest", json=payload)
+        r = client.post(
+            "/suggest", json=payload,
+            headers={"X-Internal-Key": "test-internal-key"},
+        )
     assert r.status_code == 200
     data = r.json()
     assert data["stub_mode"] is False
@@ -532,3 +548,43 @@ def test_stats_wave_2c_block_present(client):
     assert set(pa.keys()) == {"anthropic", "groq", "openrouter"}
     for v in pa.values():
         assert isinstance(v, bool)
+
+
+# ── H-01 (2026-05-15 ultra-audit) — cost-tiered auth ────────────────────
+
+
+def test_real_llm_without_internal_key_rejected(client, monkeypatch):
+    """H-01: real-LLM mode + no AI_ADVISOR_INTERNAL_KEY → 401.
+
+    Real LLM = real money on every /suggest call. Running it without an
+    internal key would be an open LLM-cost proxy if the port is ever
+    forwarded — the middleware must reject protected routes.
+    """
+    monkeypatch.setenv("AI_ADVISOR_REAL_LLM", "true")
+    monkeypatch.delenv("AI_ADVISOR_INTERNAL_KEY", raising=False)
+    payload = {"market": {"slug": "btc-test", "asset": "BTC", "timeframe": "5m"}}
+    r = client.post("/suggest", json=payload)
+    assert r.status_code == 401
+    assert "AI_ADVISOR_INTERNAL_KEY" in r.json()["detail"]
+
+
+def test_stub_mode_without_internal_key_allowed(client, monkeypatch):
+    """H-01: stub mode (real-LLM off) + no key → still allowed (zero cost).
+
+    The cost-tiered doctrine keeps local-dev ergonomics for the free stub
+    path — only the paid real-LLM path is gated.
+    """
+    monkeypatch.setenv("AI_ADVISOR_REAL_LLM", "false")
+    monkeypatch.delenv("AI_ADVISOR_INTERNAL_KEY", raising=False)
+    payload = {"market": {"slug": "btc-test", "asset": "BTC", "timeframe": "5m"}}
+    r = client.post("/suggest", json=payload)
+    assert r.status_code == 200
+    assert r.json()["stub_mode"] is True
+
+
+def test_health_open_even_in_real_llm_mode(client, monkeypatch):
+    """H-01: /health stays open regardless of mode (healthcheck contract)."""
+    monkeypatch.setenv("AI_ADVISOR_REAL_LLM", "true")
+    monkeypatch.delenv("AI_ADVISOR_INTERNAL_KEY", raising=False)
+    r = client.get("/health")
+    assert r.status_code == 200

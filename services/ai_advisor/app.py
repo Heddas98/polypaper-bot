@@ -95,14 +95,44 @@ def _required_internal_key() -> str:
 
 
 class InternalKeyMiddleware(BaseHTTPMiddleware):
-    """Reject calls missing X-Internal-Key when the env is configured."""
+    """Reject calls missing X-Internal-Key based on cost-exposure tier.
+
+    H-01 (2026-05-15 ultra-audit): the original middleware was a pure
+    no-op whenever ``AI_ADVISOR_INTERNAL_KEY`` was unset (back-compat
+    default). That left ``/suggest`` an open LLM-cost proxy as soon as
+    real-LLM mode was on — any caller that reached the port could burn
+    the configured ANTHROPIC/GROQ budget.
+
+    New cost-tiered doctrine:
+      * ``/health`` & docs routes — always open (healthchecks, supervisord).
+      * Key configured → every protected route needs a matching header.
+      * Key unset + stub mode (AI_ADVISOR_REAL_LLM=false) → allow.
+        Zero LLM cost, keeps local-dev ergonomics.
+      * Key unset + real-LLM mode → REJECT 401. Real LLM = real money;
+        running it without auth is never acceptable.
+    """
 
     async def dispatch(self, request: Request, call_next):
+        # /health, /docs etc. are always open (healthchecks, supervisord).
+        if request.url.path in _OPEN_PATHS:
+            return await call_next(request)
         required = _required_internal_key()
         if not required:
-            # No env set → middleware off (back-compat).
-            return await call_next(request)
-        if request.url.path in _OPEN_PATHS:
+            # H-01: no key configured — decide by cost-exposure tier.
+            if _real_llm_enabled():
+                logger.error(
+                    "🔒 AI Advisor: %s rejected — AI_ADVISOR_REAL_LLM=true "
+                    "requires AI_ADVISOR_INTERNAL_KEY (open LLM-cost proxy)",
+                    request.url.path,
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "detail": "AI_ADVISOR_INTERNAL_KEY required when "
+                        "AI_ADVISOR_REAL_LLM=true"
+                    },
+                )
+            # Stub mode — zero cost, allow (back-compat).
             return await call_next(request)
         supplied = request.headers.get("X-Internal-Key", "")
         # Constant-time compare to avoid timing oracle.
