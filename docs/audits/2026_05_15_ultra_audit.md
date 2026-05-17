@@ -515,16 +515,28 @@ REG-02 contamination'ı 3 yolla araştırıldı, **hiçbiri reproduce etmedi**:
 2. `test_p0_p1_extra_coverage.py` tek dosya — 2342 pass / 0 fail
 3. Şüpheli kombinasyon (`test_env_reference_gen.py` + `TestEnvToggleHandlerWave2` + `test_regime`) — 19 pass
 
-2 Explore agent + manuel reproduce denemesi sonuçsuz. Agent'ların `sys.path.insert` teorisi teknik olarak hatalı (`sys.path` kirliliği `ImportError: cannot import name` üretmez — modül bir kez `sys.modules`'a girince `sys.path` onu etkilemez).
+2 Explore agent + manuel reproduce denemesi sonuçsuz. Agent'ların `sys.path.insert` teorisi teknik olarak hatalı.
 
-**En olası açıklama (hipotez #2 doğrulanıyor)**: Heddas full regression'ı koştuğu 365s sırasında bu audit oturumu eşzamanlı `git checkout ca6ff41 -- app.py` + `git commit` + Edit yapıyordu → worktree dosyaları test ortasında mutasyona uğradı. `test_regime_at_entry_write.py` `db/models.py`'yi dosya olarak okur — mid-run `git checkout` onu bozabilir.
+### REG-02 — KESIN ÇÖZÜLDÜ ✅ (2026-05-17): ana dizin senkronize değildi
 
-**Kalan aksiyon**: Heddas, bu oturum pasifken **temiz** full regression koşmalı. 3 REG-02 fail kaybolursa hipotez doğrulanır (kod sağlam, mid-run mutation'dı). Kalırsa gerçek contamination — o noktada reproduce-first yaklaşımıyla yeniden kazılır.
+Heddas `main.py` çalıştırınca **production bot import-time `ImportError: cannot import name 'list_groups'`** ile patladı → gerçek kök neden ortaya çıktı:
+
+| Kanıt | Worktree (`claude/...`) | Heddas ana dizini (`Polyscout31`) |
+|---|---|---|
+| HEAD | `6b8e670` (origin/main güncel) | `ed10eec` (2026-05-13, **12+ commit geride**) |
+| `config/env_whitelist.py` | 410 satır, `list_groups` L404 ✓ | **402 satır, `list_groups` YOK** (working tree modified, HEAD'den de eski) |
+| working tree vs origin/main | senkron | **86 dosya, −1.291 satır geride** |
+
+Heddas `git reset --hard origin/main` **hiç yapmamıştı** (önceki oturumda söylenmişti). Ana dizin 2026-05-13 state'inde + bozuk working tree'de takılıydı. **Heddas full regression'ı bu bozuk ana dizinde koşmuştu** → 12 fail = 9 REG-01 (truncated app.py) + 3 REG-02 (eski `config/env_whitelist.py` `list_groups`'suz + eski `db/models.py`). Benim worktree'mde her şey doğru olduğu için izole testlerim hep PASS etti — **iki ayrı working tree, contamination/mutation yoktu.**
+
+**Çözüm (2026-05-17)**: `.git/index.lock` (0-byte, 2 gün stale, crashed git işlemi) silindi → `git stash push -u` (eski state `ana-dizin-eski-state-2026-05-13-yedek` stash'inde) → `git reset --hard origin/main`. Ana dizin → `6b8e670`. Doğrulama: `import telegram_bot.bot` OK, ana dizinde REG-01+REG-02 testleri **41/41 PASS**.
+
+**REG-02 = test/kod bug'ı değildi — Heddas'ın working environment'ı senkronize değildi.** Doktrin notu: gelecekte worktree'de fix yapılıp push edildiğinde, ana dizin de `git fetch && git reset --hard origin/main` ile senkronlanmalı (yoksa "iki gerçeklik" sorunu).
 
 ### Yan bulgu — test hijyeni (yeni, düşük öncelik)
 
-`test_env_reference_gen.py:25` + `test_whitelist_runtime_readiness.py:56`: `sys.path.insert(0, ...)` cleanup'sız. Contamination'ın kökü DEĞİL (kanıtlandı), ama test hijyeni borcu. Ayrıca `test_env_reference_gen.py` `docs/env_reference.md`'yi regenerate ediyor (test artifact — working tree kirletir). **Yeni: L-06** (düşük öncelik, Wave 4 backlog).
+`test_env_reference_gen.py:25` + `test_whitelist_runtime_readiness.py:56`: `sys.path.insert(0, ...)` cleanup'sız. REG-02'nin kökü DEĞİL (kanıtlandı — kök neden ana dizin desync'iydi), ama test hijyeni borcu. Ayrıca `test_env_reference_gen.py` `docs/env_reference.md`'yi regenerate ediyor (test artifact — working tree kirletir). **Yeni: L-06** (düşük öncelik, Wave 4 backlog).
 
 ---
 
-**Durum (2026-05-15 oturum sonu)**: Wave 1 (C-01, C-02, H-03, L-01) ✅ · REG-01 ✅ · Wave 2 (H-01, H-02, H-04, H-05, H-06, M-01) ✅. Açık: REG-02 (Heddas temiz re-run bekliyor), Wave 3 (C-03 critical-path tests, M-03 Pydantic, M-07/M-08), Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
+**Durum (2026-05-17 oturum sonu)**: Wave 1 (C-01, C-02, H-03, L-01) ✅ · REG-01 ✅ · Wave 2 (H-01, H-02, H-04, H-05, H-06, M-01) ✅ · REG-02 ✅ (ana dizin senkronize edildi). Açık: Wave 3 (C-03 critical-path tests, M-03 Pydantic, M-07/M-08), Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).

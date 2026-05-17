@@ -28,7 +28,7 @@
 - **Audit 2026-05-15 Wave 1 ✅** (4 fix): C-01 is_admin backdoor, C-02 slug prompt-injection sanitize, H-03 /buy inf/nan reject, L-01 ruff F401.
 - **REG-01 ✅** (`8b13226`): `services/ai_advisor/app.py` 2026-05-13 v2 zincirinde truncate (412→333 satır). v1 `ca6ff41`'den restore. test 29/29 PASS.
 - **Audit 2026-05-15 Wave 2 ✅** (6 fix): H-01 AI Advisor cost-tiered auth (`fc04d1c`), H-02 budget race lock (`4820636`), H-04 deduct rowcount false-positive (`8959905`), H-05 live_handler admin gate + M-01 exception leak (`88573b9`), H-06 zaten C-01'de kapanmış.
-- **REG-02 ⚠️ açık**: 3 test full regression FAIL, izole+tek-dosya+kombinasyon PASS. 3 reproduce denemesi başarısız (2 agent + manuel). Hipotez: mid-run file mutation. Heddas temiz re-run koşmalı.
+- **REG-02 ✅** (2026-05-17): Kök neden — Heddas ana dizini (`Polyscout31`) origin/main'in 12+ commit gerisindeydi + bozuk working tree (`config/env_whitelist.py` `list_groups`'suz). `main.py` ImportError. Test/kod bug'ı DEĞİLDİ — working environment desync. Çözüm: stale `.git/index.lock` sil → `git stash` → `git reset --hard origin/main`. Ana dizin → `6b8e670`, bot import OK, 41/41 test PASS.
 - Wave 3 backlog: C-03 critical-path tests, M-03 Pydantic LLM schemas, M-07 mypy baseline regen, M-08 test monolith böl. Wave 4: M-02/M-04/M-05/M-06, L-02..L-06.
 
 **Test baseline (2026-05-15 full regression):** 3,572 pass / 12 fail / 63 skip. 12 fail = 9 REG-01 (app.py truncation, ÇÖZÜLDÜ) + 3 REG-02 (reproduce edilemedi). Ruff 0 violation. Coverage %44.06 toplam (kritik path <%30, C-03 açık). mypy strict baseline corrupted (M-07).
