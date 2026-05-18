@@ -61,6 +61,17 @@ def _user_error_msg(exc: Exception, where: str = "") -> str:
     return f"⚠️ {cat}{loc} — log'da detay var, sorun sürerse yöneticiye haber ver."
 
 
+def _progress_bar(frac: float, width: int = 10) -> str:
+    """Faz 1 kokpit (2026-05-18): text progress bar — [██████░░░░].
+
+    `frac` 0..1'e clamp edilir. Risk-limit kullanımı gibi oranları
+    görsel gösterir.
+    """
+    frac = max(0.0, min(1.0, frac))
+    filled = round(frac * width)
+    return "█" * filled + "░" * (width - filled)
+
+
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
     # H-05 (2026-05-15 ultra-audit): admin gate — real-money UI.
@@ -1447,27 +1458,105 @@ async def _build_main(engine, db):
     except Exception as _pe:  # noqa: BLE001
         logger.debug(f"pm cache read in live_handler: {_pe}")
 
+    # ── Faz 1 kokpit (2026-05-18 Heddas) — canlı veri toplama ─────────
+    # Hepsi defensive: bir kaynak yok/bozuksa o blok atlanır, panel
+    # asla crash etmez (mainnet /live — kokpit her zaman açılmalı).
+
+    # Loss streak + risk halt (engine.risk = RiskManager).
+    streak, streak_max, risk_halted = 0, 10, False
+    try:
+        _risk = getattr(engine, "risk", None)
+        if _risk is not None:
+            _rs = _risk.get_status()
+            streak = int(_rs.get("loss_streak", 0))
+            risk_halted = bool(_rs.get("halted", False))
+            streak_max = int(getattr(_risk.limits, "max_loss_streak", 10))
+    except Exception as _re:  # noqa: BLE001
+        logger.debug(f"kokpit risk status: {_re}")
+
+    # Binance spot momentum (engine.external_feed).
+    momentum_line = ""
+    try:
+        _ef = getattr(engine, "external_feed", None)
+        if _ef is not None and getattr(_ef, "is_available", False):
+            _parts = []
+            for _a in ("BTC", "ETH", "SOL", "XRP"):
+                _mom = _ef.get_spot_momentum(_a, lookback_seconds=60)
+                if _mom:
+                    _ch = float(_mom.get("change_pct", 0.0))
+                    _arrow = "↗" if _ch > 0.02 else ("↘" if _ch < -0.02 else "→")
+                    _parts.append(f"{_a} {_arrow}{_ch:+.2f}%")
+                else:
+                    _px = _ef.get_price(_a)
+                    if _px:
+                        _parts.append(f"{_a} ${_px:,.0f}")
+            if _parts:
+                momentum_line = "  " + "  ·  ".join(_parts) + "\n"
+    except Exception as _me:  # noqa: BLE001
+        logger.debug(f"kokpit momentum: {_me}")
+
+    # Market regime (engine.regime.regime — RegimeClassifier).
+    regime_str = ""
+    try:
+        _rg = getattr(getattr(engine, "regime", None), "regime", None)
+        if _rg:
+            regime_str = f"  Rejim: ⚖️ {_rg}\n"
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Kill-switch (engine.kill_switch).
+    ks_str = "✅ aktif değil"
+    try:
+        _ks = getattr(engine, "kill_switch", None)
+        if _ks is not None and hasattr(_ks, "is_stopped") and _ks.is_stopped():
+            ks_str = "🔴 STOP"
+    except Exception:  # noqa: BLE001
+        pass
+
     # 2026-04-29 Aşama 3.B: top-level mode banner
     from telegram_bot.templates.mode_banner import format_banner
 
+    # Risk-limit progress bar — kullanılan / toplam.
+    _budget_val = max(0.01, float(st.get("budget", 0.0)))
+    _used_val = max(0.0, _budget_val - float(st.get("remaining", 0.0)))
+    _bar = _progress_bar(_used_val / _budget_val)
+
+    # Loss-streak satırı — eşiğe göre uyarı tonu.
+    if streak >= streak_max:
+        streak_line = (
+            f"  Loss Streak: 🔴 <b>{streak}/{streak_max}</b> "
+            f"— KILL-SWITCH SINIRINDA!\n"
+        )
+    elif streak >= max(1, streak_max - 2):
+        streak_line = f"  Loss Streak: ⚠️ {streak}/{streak_max}\n"
+    elif streak > 0:
+        streak_line = f"  Loss Streak: {streak}/{streak_max}\n"
+    else:
+        streak_line = ""
+    _halt_line = "  🛑 <b>RISK HALT AKTİF</b>\n" if risk_halted else ""
+    _open_str = "📌 1 açık" if st.get("open") else "— yok"
+
     text = (
-        format_banner() + f"💰 <b>PolyPaper — Live Trader</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📋 <b>PAPER</b> (simülasyon)\n"
-        f"  PnL: {p_pnl:+.2f} | {p_trades}t | WR: {p_wr:.0f}%\n\n"
-        f"💰 <b>POLYMARKET CÜZDAN</b> (gerçek){pm_age}\n"
-        f"  pUSD Bakiye:     <b>{pm_balance}</b>\n"
-        f"  Allowance:       {pm_allowance}\n"
-        f"  Açık Pozisyon NAV: {pm_nav}\n\n"
+        format_banner() + "🎯 <b>POLYPAPER — LIVE TRADE İSTASYONU</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{status_text}{pm_age}\n\n"
+        f"💵 <b>CÜZDAN</b> (Polymarket — gerçek pUSD)\n"
+        f"  Bakiye: <b>{pm_balance}</b>  ·  Açık NAV: {pm_nav}\n"
+        f"  Allowance: {pm_allowance}\n\n"
         f"🤖 <b>BOT LIVE TRADER</b>\n"
-        f"  Durum: {status_text}\n"
-        f"  Cüzdan: {st['wallet']}\n"
-        f"  Risk Limit: ${st.get('remaining', 0):.2f} / ${st.get('budget', 1.49):.2f}\n"
-        f"  Trade başı:    $1.00 (LIVE_MAX_TRADE)\n"
-        f"  Bot PnL: <b>${st['total_pnl']:+.4f}</b> | Bugün ${st['daily_pnl']:+.4f} ({st['daily_trades']}t)\n"
-        f"  Pozisyon: {'📌 AÇIK' if st.get('open') else '—'}\n\n"
-        f"<i>'Risk Limit' = bot toplam harcama tavanı (LIVE_BUDGET env). "
-        f"'Bakiye' = Polymarket'taki gerçek pUSD. Detay → /portfolio</i>"
+        f"  Risk Limit  [{_bar}]\n"
+        f"  Kullanılan ${_used_val:.2f} / ${_budget_val:.2f}  "
+        f"(kalan ${st.get('remaining', 0):.2f})\n"
+        f"  Bugün: <b>${st['daily_pnl']:+.2f}</b>  ·  {st['daily_trades']} trade\n"
+        f"  Toplam PnL: <b>${st['total_pnl']:+.4f}</b>\n"
+        f"{streak_line}{_halt_line}"
+        f"  Pozisyon: {_open_str}  ·  Cüzdan: {st['wallet']}\n\n"
+        f"📡 <b>PİYASA</b> (Binance spot · canlı)\n"
+        f"{momentum_line}{regime_str}\n"
+        f"📋 PAPER: {p_pnl:+.2f} · {p_trades}t · WR %{p_wr:.0f}\n"
+        f"🛡️ Kill-switch: {ks_str}\n\n"
+        f"<i>Risk Limit = bot harcama tavanı (LIVE_BUDGET). Bakiye = "
+        f"Polymarket'taki gerçek pUSD. Detay → /portfolio · /lg · /rg</i>"
     )
 
     toggle_btn = "⏸ Duraklat" if active else "▶️ Devam Et"
