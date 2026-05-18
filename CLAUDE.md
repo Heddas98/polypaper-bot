@@ -34,7 +34,8 @@
 - **Wave 3 ✅ (2026-05-18, C-03)**: `test_live_trader_e2e.py` 9 test (`maybe_mirror` success path, `b1f219a`) + `test_ai_brain_cycle_e2e.py` 5 test (`run_brain_cycle` P0-01 invariant, `7ea5674`). Kritik-path e2e boşluğu kapandı.
 - **Wave 3 kalan ✅ (2026-05-18)**: M-07 mypy_baseline UTF-16→UTF-8 regen (`f8c23bd`, mypy 0 hata doğrulandı), M-03 ai_brain `_BrainResponse` Pydantic LLM schema (`0ca08cb`, +2 test). M-08 (555 class / 24.5k satır monolith) — bölme planı audit ADDENDUM 5'te, tam uygulama backlog (test-kaybı riski, ayrı oturum).
 - **OP-02 ✅ (2026-05-18)**: `.env` Polymarket creds stale değil artık. API key sorunlu DEĞİLDİ (Polymarket'te duruyordu) — sadece `.env` kopyaları eskiydi. `scripts/refresh_polymarket_creds.py` ile `POLYGON_PRIVATE_KEY`'den geçerli L2 creds türetilip `.env` güncellendi. Bot restart → PATH 1 stored creds PASS.
-- Wave 4 backlog: M-02/M-04/M-05/M-06, L-02..L-06 + M-08 uygulama (test monolith böl).
+- **Wave 4 ✅ (2026-05-18)**: M-04 httpx verify, M-05 `_place` operator notify, M-06 Sentry PII guard doktrin (`9b0b346`). M-02 & L-05 incelendi → FALSE POSITIVE (fix yapılmadı). L-02 risk>değer (yapma). L-03/L-04/L-06 düşük-değer backlog.
+- **Audit durumu**: Tüm Critical/High + anlamlı Medium bulgular kapandı. Backlog: M-08 (test monolith böl, plan hazır), L-03/L-04/L-06 (düşük-değer hijyen).
 
 **Test baseline (2026-05-15 full regression):** 3,572 pass / 12 fail / 63 skip. 12 fail = 9 REG-01 (app.py truncation, ÇÖZÜLDÜ) + 3 REG-02 (reproduce edilemedi). Ruff 0 violation. Coverage %44.06 toplam (kritik path <%30, C-03 açık). mypy strict baseline corrupted (M-07).
 

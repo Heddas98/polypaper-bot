@@ -641,4 +641,28 @@ Bot restart sonrası **PATH 1 (stored creds) doğrudan PASS** — derive fallbac
 
 ---
 
-**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit ✅ · `.env` (OP-01/L-07) ✅ · Wave 3 C-03 e2e (14 test) ✅ · M-07 ✅ · M-03 ✅ · OP-02 ✅ · M-08 (plan hazır, uygulama backlog). Bot canlı. Açık: M-08 uygulama, Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
+## 📌 ADDENDUM 7 — Wave 4: M-02/M-04/M-05/M-06 + L-02..L-06 (2026-05-18)
+
+### Wave 4 Medium ✅ (`9b0b346`)
+
+- **M-04** ✅ — `data/polymarket_client.py` 2 `httpx.AsyncClient`'a explicit `verify=True` (defense-in-depth).
+- **M-05** ✅ — `core/live_trader.py` `_place` except'i order fail'i sessizce yutuyordu; operatöre `_notify` eklendi (exception tipi, M-01 doktrini). 43 live_trader test PASS.
+- **M-06** ✅ — `sentry_tx.py` `sentry_transaction` docstring'ine PII guard doktrin notu (kod fix değil — şu an leak yok, gelecek geliştirici rehberi).
+- **M-02** — **incelendi, FALSE POSITIVE**: `reality_gap_job` log'u drift%+count (finansal değer değil); `auto_redeem_job:89` `${cur_val}` operasyonel log + zaten `bot.send_message` ile admin'e Telegram'da gidiyor. DEBUG'a indirmek operatörü kör eder — fix yapılmadı.
+
+### L-02..L-06 — dürüst değerlendirme (STRICT CLEANUP: değersiz/riskli fix yapma)
+
+| # | Karar | Gerekçe |
+|---|---|---|
+| **L-02** migration idempotency | YAPMA | `strategy_type duplicate` SADECE `:memory:` test DB'sinde (`_create_tables` modern schema + migration v1 redundant ALTER). Production'da schema-version tracking → migration bir kez → warning yok. Migration kritik-path refactor riski > test-gürültüsü değeri. |
+| **L-03** auto_redeem in-memory set | BACKLOG | Relayer idempotent, restart double-submit riski düşük; yeni DB tablo orta iş. |
+| **L-04** smoke_phase49 `exec()` | BACKLOG | İzole test dosyası, önemsiz. |
+| **L-05** archive_reader f-string SQL | YAPMA (FALSE POSITIVE) | `_env_int` **int döner** — SQL injection imkânsız; DuckDB `SET threads` PRAGMA-benzeri, parametre almaz; f-string doğru yaklaşım. |
+| **L-06** test sys.path cleanup | BACKLOG | Test hijyeni; REG-02 kökü DEĞİL (kanıtlandı). |
+
+L'lerin hiçbiri "şimdi fix" değil — 1 false-positive, 1 risk>değer, 3 düşük-değer backlog.
+
+---
+
+**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit ✅ · `.env` (OP-01/L-07/OP-02) ✅ · Wave 3 C-03 e2e (16 test) ✅ · M-03/M-07 ✅ · Wave 4 Medium (M-04/M-05/M-06) ✅ · M-02 & L-05 false-positive. Bot canlı.
+**Açık (backlog)**: M-08 test monolith böl (plan ADDENDUM 5), L-02 (yapma — risk>değer), L-03/L-04/L-06 (düşük-değer). **Audit'in tüm Critical/High + anlamlı Medium bulguları kapandı.**

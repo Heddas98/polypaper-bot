@@ -9,7 +9,8 @@
 > **2026-05-18 log audit ✅**: bot ilk temiz boot. M-09 per_market_exposure 827 stale entry leak (`39e5bf3`), H-07 reconciliation log dinamik (`35ccb7b`), L-07 chainlink RPC env (`a9deec4`). Bot restart'ta doğrulandı: per_market 827→3, log dinamik.
 > **2026-05-18 `.env` + Wave 3 ✅**: OP-01 duplikat LIVE_ENABLED silindi + L-07 CHAINLINK_RPC_URL eklendi. Wave 3 C-03: `test_live_trader_e2e.py` 9 test (`b1f219a`) + `test_ai_brain_cycle_e2e.py` 7 test (`7ea5674`+`0ca08cb`).
 > **2026-05-18 Wave 3 kalan ✅**: M-07 mypy_baseline UTF-16→UTF-8 (`f8c23bd`, mypy 0 hata), M-03 ai_brain Pydantic LLM schema (`0ca08cb`). M-08 (555 class monolith) bölme planı audit ADDENDUM 5'te — uygulama backlog.
-> **2026-05-18 OP-02 ✅**: `.env` Polymarket creds refresh. API key sorunlu değildi (Polymarket'te geçerli) — `.env` kopyaları eskiydi. `scripts/refresh_polymarket_creds.py` ile `POLYGON_PRIVATE_KEY`'den türetilip güncellendi. Bot restart → PATH 1 PASS. Açık: M-08 uygulama, Wave 4.
+> **2026-05-18 OP-02 ✅**: `.env` Polymarket creds refresh. API key sorunlu değildi (Polymarket'te geçerli) — `.env` kopyaları eskiydi. `scripts/refresh_polymarket_creds.py` ile `POLYGON_PRIVATE_KEY`'den türetilip güncellendi. Bot restart 21:16 → PATH 1 PASS doğrulandı (401/400/derive satırları kayboldu, Chainlink `oracle smoke OK`).
+> **2026-05-18 Wave 4 ✅**: M-04 httpx verify, M-05 `_place` notify, M-06 Sentry PII doktrin (`9b0b346`). M-02 & L-05 FALSE POSITIVE. L-02 risk>değer. Audit'in tüm Critical/High + anlamlı Medium'ları kapandı. Backlog: M-08, L-03/L-04/L-06.
 > **2026-05-15 Wave 2 ✅**: H-01 AI Advisor auth (`fc04d1c`), H-02 budget race lock (`4820636`), H-04 deduct false-positive (`8959905`), H-05 admin gate + M-01 exception leak (`88573b9`), H-06 C-01'de kapanmış.
 
 ## TL;DR
