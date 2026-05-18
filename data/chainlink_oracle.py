@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -47,8 +48,12 @@ from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
 
 logger = logging.getLogger("polypaper.data.chainlink_oracle")
 
-# Free public RPC. Operator can override via env if rate-limited.
-DEFAULT_RPC = "https://eth.llamarpc.com"
+# L-07 (2026-05-18 log audit): the default RPC is now overridable via the
+# CHAINLINK_RPC_URL env. Live boot logged "oracle smoke test got 0 prices —
+# RPC may be blocked" because eth.llamarpc.com was rate-limiting/blocking.
+# The old comment claimed env-override existed but no code read it — fixed.
+# Read at import time; takes effect on next bot restart.
+DEFAULT_RPC = os.getenv("CHAINLINK_RPC_URL", "https://eth.llamarpc.com").strip()
 
 AGGREGATORS: dict[str, dict] = {
     "BTC": {"addr": "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c", "decimals": 8},
