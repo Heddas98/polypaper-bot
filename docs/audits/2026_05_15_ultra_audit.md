@@ -588,4 +588,45 @@ C-03 ana hedef (maybe_mirror + run_brain_cycle e2e) ✅ kapandı. Kalan: coverag
 
 ---
 
-**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit (M-09/H-07/L-07) ✅ · OP-01/L-07 `.env` ✅ · Wave 3 (C-03 e2e: 14 yeni test) ✅. Bot canlı. Açık: OP-02 (Heddas — yeni Polymarket key), Wave 3 kalan M-03/M-07/M-08, Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
+## 📌 ADDENDUM 5 — Wave 3 kalan: M-07 ✅, M-03 ✅, M-08 plan (2026-05-18)
+
+### M-07 — mypy baseline ✅ (`f8c23bd`)
+
+`mypy_baseline.txt` UTF-16 LE BOM ile kaydedilmişti (PowerShell `>` redirect). `mypy core/ --no-incremental` → **`Success: no issues found in 55 source files`** — 0 hata. Memory'nin "mypy strict 0 hata" iddiası doğruymuş, sadece baseline dosyası bozuktu. UTF-8'e çevrilip 0-error snapshot ile regen edildi. (Hiçbir CI/script tüketmiyor — saf referans.)
+
+### M-03 — Pydantic LLM response schema ✅ (`0ca08cb`)
+
+`_parse()` dayanıklı bir JSON çıkartıcı ama **tip doğrulaması yok** — LLM `"confidence": "high"` döndürse `_run_brain_cycle_inner`'daki `confidence >= threshold` karşılaştırması TypeError ile cycle'ı çökertir. `_BrainResponse` Pydantic modeli eklendi (confidence float-coerce + [0,1] clamp, actions list+dict garantisi), `_validate_brain_response()` helper `_parse` çıktısını normalize ediyor. +2 regression test (`test_ai_brain_cycle_e2e.py` 7/7 PASS).
+
+### M-08 — test monolith bölme PLANI (uygulanmadı — ayrı oturum)
+
+`test_p0_p1_extra_coverage.py` = **555 test class / 24.534 satır / ~1.534 test fonksiyonu**. Tek oturumda güvenli bölmek imkânsıza yakın: bir class atlanırsa sessiz test kaybı = coverage düşüşü. STRICT CLEANUP doktrini aceleci/riskli refactor'e izin vermez — bu yüzden **tam bölme yapılmadı**, plan bırakıldı.
+
+**Bölme planı** — tema-bazlı ~12-15 dosya (`tests/unit/coverage/` altına):
+
+| Yeni dosya | Class temaları |
+|---|---|
+| `test_cov_backtest.py` | WalkForward, FillHeuristic, BacktestEngineV2* |
+| `test_cov_polymarket.py` | PolymarketRTDS, DocsCompliance, Portfolio, Actions, DynamicFeeQuery |
+| `test_cov_live_trader.py` | LiveTrader* (EnvKnobs, SharedCache, State, MaybeMirror, DeriveAndVerify, StartFlow) |
+| `test_cov_engine.py` | EngineSupport, EngineSignalsHelpers, EngineSettlement, EngineStartFlow |
+| `test_cov_ai_brain.py` | AiBrainHelpers, AiBrainInstanceMethods, AiBrainHandleApproval |
+| `test_cov_data_feeds.py` | ChainlinkOracle, ExternalFeed, CandleCollector, MarketRecorder |
+| `test_cov_handlers.py` | Handler*, MainDashboard, EnvToggleHandlerWave2 |
+| `test_cov_strategy.py` | StrategySuggester, LiveStrategyBacktestAdapter |
+| `test_cov_uma_fees.py` | UmaDispute, fee testleri |
+| `test_cov_misc.py` | IntentParser, CallbackUpdateProxy, kalanlar |
+
+**Güvenli bölme prosedürü** (ayrı oturum):
+1. 555 class'ı tema-bucket'larına ayır (class-adı → tema script).
+2. Her bucket → yeni dosya: import header + class'lar taşınır.
+3. 9 modül-seviye helper → `tests/unit/conftest.py`'ye taşı (paylaşımlı).
+4. Her yeni dosya: `pytest <dosya> --co -q` ile test sayısı say.
+5. **İnvariant**: Σ(yeni dosya test sayısı) == orijinal (2.342) — kayıp kanıtı.
+6. Ancak (5) sağlandıktan sonra orijinal dosya silinir.
+
+M-08 backlog'da kalır — tam uygulama bu invariant doğrulamasıyla ayrı bir oturumda yapılmalı.
+
+---
+
+**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit ✅ · `.env` (OP-01/L-07) ✅ · Wave 3 C-03 e2e (14 test) ✅ · M-07 ✅ · M-03 ✅ · M-08 (plan hazır, uygulama backlog). Bot canlı. Açık: OP-02 (Heddas), M-08 uygulama, Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
