@@ -180,3 +180,43 @@ async def test_unparseable_llm_output_notifies_operator(brain, ai_db):
     assert res is not None and "Parse failed" in res
     brain._send.assert_awaited()
     brain._queue_for_approval.assert_not_called()
+
+
+# ── M-03: LLM response schema coercion ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_m03_string_confidence_coerced_no_crash(brain, ai_db):
+    """M-03: a hallucinated `"confidence": "high"` is coerced to a float
+    instead of flowing into the `confidence >= threshold` compare and
+    crashing the cycle with a TypeError.
+    """
+    await _seed_settled_trades(ai_db, 20)
+    brain._two_agent_cycle = AsyncMock(
+        return_value='{"actions": [], "confidence": "high", "lessons_learned": ""}'
+    )
+
+    # Before M-03 this raised: TypeError '>=' not supported between
+    # instances of 'str' and 'float'. It must now complete cleanly.
+    res = await brain.run_brain_cycle()
+
+    assert res is not None
+    assert "Parse failed" not in res
+    brain._save_decision.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_m03_nonlist_actions_coerced_to_empty(brain, ai_db):
+    """M-03: a hallucinated non-list `"actions"` is coerced to [] rather
+    than breaking the action-iteration loop."""
+    await _seed_settled_trades(ai_db, 20)
+    brain._two_agent_cycle = AsyncMock(
+        return_value='{"actions": "STOP EVERYTHING", "confidence": 0.8}'
+    )
+
+    res = await brain.run_brain_cycle()
+
+    assert res is not None
+    # actions coerced to [] → no queue, decision recorded.
+    brain._queue_for_approval.assert_not_called()
+    brain._save_decision.assert_awaited()

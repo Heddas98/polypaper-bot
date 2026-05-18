@@ -26,6 +26,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import aiosqlite  # Epic 8 T8.1: narrow DB exception handling
+from pydantic import BaseModel, Field, field_validator  # M-03 (2026-05-15)
 
 from core.bg_task import safe_create_task  # Phase 82e Sprint 2.1
 
@@ -123,6 +124,54 @@ from services.ai_advisor.prompts import (  # noqa: E402,F401
 from services.ai_advisor.router import ModelRouter  # noqa: E402,F401
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# M-03 (2026-05-15 ultra-audit): LLM brain-cycle response schema.
+# _parse() is a robust JSON *extractor* but does NO type validation — a
+# hallucinated `"confidence": "high"` would flow into the
+# `confidence >= threshold` compare in _run_brain_cycle_inner and raise
+# TypeError mid-cycle; a non-list `"actions"` would break the action
+# loop. Every parsed response is coerced through this schema first.
+# ─────────────────────────────────────────────────────────────────────
+class _BrainResponse(BaseModel):
+    model_config = {"extra": "allow"}  # keep market_view / reasoning / etc.
+
+    actions: list = Field(default_factory=list)
+    confidence: float = 0.5
+    lessons_learned: str = ""
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return 0.5
+        return min(1.0, max(0.0, f))  # clamp to [0, 1]
+
+    @field_validator("actions", mode="before")
+    @classmethod
+    def _coerce_actions(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [a for a in v if isinstance(a, dict)]
+
+    @field_validator("lessons_learned", mode="before")
+    @classmethod
+    def _coerce_lessons(cls, v):
+        return str(v) if v is not None else ""
+
+
+def _validate_brain_response(raw: dict) -> dict:
+    """Coerce a raw _parse() dict through _BrainResponse — see class doc."""
+    try:
+        return _BrainResponse(**(raw or {})).model_dump()
+    except Exception as _e:  # noqa: BLE001 — any schema failure → safe default
+        logger.warning(
+            f"🧠 M-03: brain response schema rejected ({_e}); safe defaults"
+        )
+        return {"actions": [], "confidence": 0.5, "lessons_learned": ""}
 
 
 class AIBrain:
@@ -321,6 +370,12 @@ class AIBrain:
                     "⚠️ <b>AI Brain Parse Hatasi</b>\n\nJSON parse 2 denemede de basarisiz. Bir sonraki cycle'da tekrar denenecek."
                 )
                 return "Parse failed (notified)"
+
+        # M-03 (2026-05-15 ultra-audit): _parse() extracts JSON but does
+        # NOT type-check it. Coerce through _BrainResponse so a
+        # hallucinated `"confidence": "high"` can't reach the float
+        # comparison below and crash the cycle with a TypeError.
+        parsed = _validate_brain_response(parsed)
 
         actions = parsed.get("actions", [])[:MAX_ACTIONS]
         lessons = parsed.get("lessons_learned", "")
