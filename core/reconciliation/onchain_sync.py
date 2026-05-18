@@ -230,10 +230,17 @@ class ReconciliationTask:
 
     async def start(self) -> None:
         if not self.enabled:
+            # H-07 (2026-05-18 log audit): the old message was a static
+            # string that always claimed "LIVE_ENABLED=false" — misleading
+            # when LIVE mode is actually on and an explicit RECON_ENABLED=false
+            # is the real reason recon stays off. Report the true env state.
+            _recon = os.getenv("RECON_ENABLED", "").strip().lower() or "(unset)"
+            _live = os.getenv("LIVE_ENABLED", "").strip().lower() or "(unset)"
             logger.info(
                 "🔗 Reconciliation: DISABLED "
-                "(RECON_ENABLED unset/false AND LIVE_ENABLED=false). "
-                "Auto-on activates when bot enters live mode."
+                f"(RECON_ENABLED={_recon}, LIVE_ENABLED={_live}). "
+                "RECON_ENABLED=true forces it on; leaving RECON_ENABLED unset "
+                "auto-activates it when LIVE_ENABLED=true."
             )
             return
         if not self.wallet:
