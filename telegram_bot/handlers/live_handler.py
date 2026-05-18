@@ -72,21 +72,60 @@ def _progress_bar(frac: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _mainnet_days() -> int:
-    """LIVE_START_DATE'ten bugüne gün — bot'un canlı (mainnet) süresi.
+def _live_start_dt() -> datetime:
+    """LIVE_START_DATE parse — bot mainnet go-live tarihi (UTC datetime).
 
     2026-05-18 (Heddas direktifi): /live paneli bot performansını bu
     tarihten itibaren sayar — operatörün bot-öncesi kişisel Polymarket
-    geçmişi karışmaz. Parse hatası → 0 (panel yine açılır).
+    geçmişi karışmaz. Parse hatası → 2026-05-09 (mainnet go-live default).
     """
     raw = os.getenv("LIVE_START_DATE", "2026-05-09").strip()
     try:
         start = datetime.fromisoformat(raw)
         if start.tzinfo is None:
             start = start.replace(tzinfo=UTC)
-        return max(0, (datetime.now(UTC) - start).days)
+        return start
     except (ValueError, TypeError):
-        return 0
+        return datetime(2026, 5, 9, tzinfo=UTC)
+
+
+def _mainnet_days() -> int:
+    """LIVE_START_DATE'ten bugüne gün — bot'un canlı (mainnet) süresi."""
+    return max(0, (datetime.now(UTC) - _live_start_dt()).days)
+
+
+def _live_pnl_block(lp: dict | None) -> str:
+    """Faz 2A (2026-05-18 Heddas): on-chain bot LIVE PnL kokpit bloğu.
+
+    `data.polymarket_portfolio.compute_live_pnl` çıktısını /live kokpitine
+    basar. Bu blok bot'un GERÇEK canlı sonucudur — Polymarket on-chain
+    `activity` feed'inden hesaplanır (TRADE maliyeti + REDEEM payout).
+    `live_trader._total_pnl` sayacı manuel `/live` trade'lerini kaçırdığı
+    için $0 gösteriyordu; bu blok onun yerine geçer.
+
+    lp None ise (cache henüz dolmadı) "veri bekleniyor" satırı döner.
+    """
+    if not lp:
+        return (
+            "📊 <b>BOT LIVE PnL</b> (Polymarket on-chain)\n"
+            "  <i>veri bekleniyor — portfolio cache henüz dolmadı</i>\n\n"
+        )
+    net = float(lp.get("net_pnl", 0.0))
+    icon = "🟢" if net > 0 else ("🔴" if net < 0 else "⚪")
+    net_str = f"{'+' if net >= 0 else '-'}${abs(net):.2f}"
+    roi = float(lp.get("roi_pct", 0.0))
+    pend = int(lp.get("pending_markets", 0))
+    pend_str = f"  ·  ⏳ {pend} bekliyor" if pend else ""
+    return (
+        "📊 <b>BOT LIVE PnL</b> (Polymarket on-chain)\n"
+        f"  Net: {icon} <b>{net_str}</b>  ·  ROI {roi:+.1f}%\n"
+        f"  {int(lp.get('trades', 0))} trade  ·  "
+        f"✅ {int(lp.get('win_markets', 0))} kazanan  ·  "
+        f"❌ {int(lp.get('loss_markets', 0))} kaybeden{pend_str}\n"
+        f"  Yatırım ${float(lp.get('cost', 0)):.2f}  →  "
+        f"Dönüş ${float(lp.get('payout', 0)):.2f}  ·  "
+        f"Fee ${float(lp.get('fee', 0)):.2f}\n\n"
+    )
 
 
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1462,8 +1501,13 @@ async def _build_main(engine, db):
     pm_allowance = "N/A"
     pm_nav = "N/A"
     pm_age = ""
+    live_pnl: dict | None = None  # on-chain bot LIVE PnL (compute_live_pnl)
     try:
-        from data.polymarket_portfolio import cache_age_seconds, read_cached_snapshot
+        from data.polymarket_portfolio import (
+            cache_age_seconds,
+            compute_live_pnl,
+            read_cached_snapshot,
+        )
 
         pm_snap = await read_cached_snapshot(db)
         if pm_snap:
@@ -1478,6 +1522,14 @@ async def _build_main(engine, db):
             pm_nav = f"${float(pm_snap.get('portfolio_value_usd', 0)):.2f}"
             age_s = cache_age_seconds(pm_snap)
             pm_age = f" (veri {age_s}s önce)" if age_s < 999 else " (stale)"
+            # 2026-05-18 Faz 2A: bot LIVE PnL — on-chain activity feed'inden
+            # hesapla (TRADE maliyeti + REDEEM payout). LIVE_START_DATE
+            # öncesi operatörün kişisel geçmişi elenir.
+            _activity = pm_snap.get("activity") or []
+            if _activity:
+                live_pnl = compute_live_pnl(
+                    _activity, int(_live_start_dt().timestamp())
+                )
     except Exception as _pe:  # noqa: BLE001
         logger.debug(f"pm cache read in live_handler: {_pe}")
 
@@ -1576,17 +1628,17 @@ async def _build_main(engine, db):
         f"  Kullanılan ${_used_val:.2f} / ${_budget_val:.2f}  "
         f"(kalan ${st.get('remaining', 0):.2f})\n"
         f"  Bugün: <b>${st['daily_pnl']:+.2f}</b>  ·  {st['daily_trades']} trade\n"
-        f"  Toplam PnL: <b>${st['total_pnl']:+.4f}</b>  ·  "
-        f"{st.get('trade_count', 0)} trade (canlıdan beri)\n"
         f"  Pozisyon: {_open_str}  ·  Cüzdan: {st['wallet']}\n\n"
+        f"{_live_pnl_block(live_pnl)}"
         f"📡 <b>PİYASA</b> (Binance spot · canlı)\n"
         f"{momentum_line}{regime_str}\n"
         f"📋 <b>PAPER</b> (simülasyon — LIVE değil)\n"
         f"  PnL {p_pnl:+.2f} · {p_trades}t · WR %{p_wr:.0f}\n"
         f"{streak_line}{_halt_line}"
         f"🛡️ Kill-switch: {ks_str}\n\n"
-        f"<i>Risk Limit = bot harcama tavanı (LIVE_BUDGET). Bakiye = "
-        f"Polymarket'taki gerçek pUSD. Detay → /portfolio · /lg · /rg</i>"
+        f"<i>BOT LIVE PnL = Polymarket on-chain activity'den hesap (gerçek "
+        f"sonuç). Risk Limit = bot harcama tavanı (LIVE_BUDGET). "
+        f"Detay → /portfolio · /lg · /rg</i>"
     )
 
     toggle_btn = "⏸ Duraklat" if active else "▶️ Devam Et"

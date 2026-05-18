@@ -354,6 +354,117 @@ async def fetch_activity(
         return [], f"activity unexpected: {type(e).__name__}: {e}"
 
 
+def compute_live_pnl(
+    activity: list[dict],
+    since_epoch: int,
+    now_epoch: int | None = None,
+    settle_grace_sec: int = 900,
+) -> dict:
+    """Bot LIVE PnL — data-api/activity TRADE+REDEEM event'lerinden hesap.
+
+    2026-05-18 (Heddas direktifi): `live_trader._total_pnl` $0 kalıyordu —
+    `check_settlement` yalnız otomatik-mirror (`_open` set eden) trade'leri
+    yakalıyor, manuel `/live` trade'lerini değil. Gerçek LIVE PnL bu yüzden
+    hiç hesaplanmıyordu. Çözüm: Polymarket'in on-chain `activity` feed'i
+    (gerçek kaynak — TRADE = alım maliyeti, REDEEM = kazanan payout).
+
+    Saf fonksiyon — cache'lenmiş `activity` listesini alır, ekstra API/DB
+    çağrısı YOK (snapshot zaten periyodik güncelleniyor).
+
+    Args:
+        activity: snapshot'ın 'activity' listesi (ActivityRow asdict'leri —
+                  type / usdc_size / price / size / timestamp / condition_id).
+        since_epoch: unix saniye — bot mainnet başlangıcı (LIVE_START_DATE).
+                     Öncesi (operatörün bot-öncesi kişisel geçmişi) ELENİR.
+        now_epoch: "şimdi" referansı (test için enjekte edilebilir). None →
+                   gerçek zaman.
+        settle_grace_sec: bir TRADE'in REDEEM'i hâlâ gelmemişse, trade bu
+                          süreden yeni ise market "pending" (settle bekliyor)
+                          sayılır, "loss" değil. 5dk BTC market'leri için
+                          900s (15dk) güvenli pay — 60s snapshot job'ının
+                          in-flight bir trade'i geçici "loss" göstermesini
+                          engeller.
+
+    Hesap (market-bazlı filtre — bir market bot-döneminde TRADE edildiyse,
+    o market'in TÜM event'leri sayılır; event-bazlı filtre sınırdaki
+    market'in trade'ini eler ama redeem'ini sayar → PnL şişer):
+        TRADE  → maliyet (usdc_size — share değeri + taker fee dahil)
+        REDEEM → payout (usdc_size — kazanan share'lar $1'a redeem, fee yok)
+        net_pnl = Σ payout − Σ cost  (gerçekleşen nakit PnL, fee düşülmüş)
+        fee     = Σ max(0, usdc_size − price×size)  TRADE'lerde — 2026-05-18
+                  9 canlı trade'de `fees_v2.polymarket_taker_fee_v2` ile
+                  cent-cent doğrulandı (crypto 0.07×(1−p) modeli).
+        win market     = REDEEM almış conditionId
+        loss market    = REDEEM almamış + son trade'i grace'ten eski
+        pending market = REDEEM almamış + son trade'i grace içinde (settle
+                         bekliyor — henüz kazanç/kayıp belli değil)
+
+    Returns: dict (error key yok — saf hesap, exception fırlatmaz).
+    """
+    if now_epoch is None:
+        now_epoch = int(datetime.now(UTC).timestamp())
+
+    def _f(d: dict, k: str) -> float:
+        try:
+            return float(d.get(k, 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _ts(d: dict) -> int:
+        try:
+            return int(d.get("timestamp", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    bot_cids = {
+        str(a.get("condition_id", ""))
+        for a in activity
+        if str(a.get("type", "")).upper() == "TRADE"
+        and _ts(a) >= since_epoch
+        and a.get("condition_id")
+    }
+    rel = [a for a in activity if str(a.get("condition_id", "")) in bot_cids]
+    trades = [a for a in rel if str(a.get("type", "")).upper() == "TRADE"]
+    redeems = [a for a in rel if str(a.get("type", "")).upper() == "REDEEM"]
+
+    cost = sum(_f(t, "usdc_size") for t in trades)
+    payout = sum(_f(r, "usdc_size") for r in redeems)
+    fee = sum(
+        max(0.0, _f(t, "usdc_size") - _f(t, "price") * _f(t, "size"))
+        for t in trades
+    )
+
+    traded_cids = {str(t.get("condition_id", "")) for t in trades}
+    redeemed_cids = {str(r.get("condition_id", "")) for r in redeems}
+    no_redeem = traded_cids - redeemed_cids
+    # En son trade'i grace içinde olan market'ler hâlâ settle bekliyor —
+    # kayıp sayma. Grace'ten eski + redeem yok → gerçek kayıp.
+    pending_cids = {
+        cid
+        for cid in no_redeem
+        if max(
+            (_ts(t) for t in trades if str(t.get("condition_id", "")) == cid),
+            default=0,
+        )
+        > now_epoch - settle_grace_sec
+    }
+    loss_cids = no_redeem - pending_cids
+
+    return {
+        "trades": len(trades),
+        "redeems": len(redeems),
+        "markets": len(traded_cids),
+        "win_markets": len(traded_cids & redeemed_cids),
+        "loss_markets": len(loss_cids),
+        "pending_markets": len(pending_cids),
+        "cost": round(cost, 4),
+        "payout": round(payout, 4),
+        "net_pnl": round(payout - cost, 4),
+        "fee": round(fee, 4),
+        "roi_pct": round((payout - cost) / cost * 100, 2) if cost > 0 else 0.0,
+    }
+
+
 async def fetch_closed_positions(
     user_address: str,
     http_client: httpx.AsyncClient,
