@@ -6,7 +6,8 @@
 > **2026-05-15 ultra-audit Wave 1**: `docs/audits/2026_05_15_ultra_audit.md` — 22 bulgu (3 Critical, 6 High, 8 Medium, 5 Low); Wave 1 (C-01 + C-02 + H-03 + L-01) kapalı, Wave 2-3 backlog.
 > **2026-05-15 full regression**: 3,572 pass / 12 fail. REG-01 (app.py truncation, 9 fail) ✅ `8b13226`.
 > **2026-05-17 REG-02 ✅**: kök neden ana dizin desync — Heddas working tree origin/main'in 12+ commit gerisindeydi (`config/env_whitelist.py` `list_groups`'suz, bot ImportError). stash+reset --hard ile senkronlandi → 6b8e670. Test/kod bug'ı değildi.
-> **2026-05-18 log audit ✅**: bot ilk temiz boot. M-09 per_market_exposure 827 stale entry leak (`39e5bf3`), H-07 reconciliation log dinamik (`35ccb7b`), L-07 chainlink RPC env (`a9deec4`). Operasyonel açık: OP-01 `.env` LIVE_ENABLED duplikat, OP-02 stale creds.
+> **2026-05-18 log audit ✅**: bot ilk temiz boot. M-09 per_market_exposure 827 stale entry leak (`39e5bf3`), H-07 reconciliation log dinamik (`35ccb7b`), L-07 chainlink RPC env (`a9deec4`). Bot restart'ta doğrulandı: per_market 827→3, log dinamik.
+> **2026-05-18 `.env` + Wave 3 ✅**: OP-01 duplikat LIVE_ENABLED silindi + L-07 CHAINLINK_RPC_URL eklendi. Wave 3 C-03: `test_live_trader_e2e.py` 9 test (`b1f219a`) + `test_ai_brain_cycle_e2e.py` 5 test P0-01 (`7ea5674`). OP-02 (stale Polymarket creds) açık.
 > **2026-05-15 Wave 2 ✅**: H-01 AI Advisor auth (`fc04d1c`), H-02 budget race lock (`4820636`), H-04 deduct false-positive (`8959905`), H-05 admin gate + M-01 exception leak (`88573b9`), H-06 C-01'de kapanmış.
 
 ## TL;DR

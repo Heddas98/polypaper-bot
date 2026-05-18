@@ -30,8 +30,9 @@
 - **Audit 2026-05-15 Wave 2 ✅** (6 fix): H-01 AI Advisor cost-tiered auth (`fc04d1c`), H-02 budget race lock (`4820636`), H-04 deduct rowcount false-positive (`8959905`), H-05 live_handler admin gate + M-01 exception leak (`88573b9`), H-06 zaten C-01'de kapanmış.
 - **REG-02 ✅** (2026-05-17): Kök neden — Heddas ana dizini (`Polyscout31`) origin/main'in 12+ commit gerisindeydi + bozuk working tree (`config/env_whitelist.py` `list_groups`'suz). `main.py` ImportError. Test/kod bug'ı DEĞİLDİ — working environment desync. Çözüm: stale `.git/index.lock` sil → `git stash` → `git reset --hard origin/main`. Ana dizin → `6b8e670`, bot import OK, 41/41 test PASS.
 - **Log audit 2026-05-18 ✅** (bot ilk temiz boot sonrası): M-09 per_market_exposure unbounded growth/827 stale entry (`39e5bf3`), H-07 reconciliation log mesajı dinamik (`35ccb7b`), L-07 chainlink CHAINLINK_RPC_URL env override (`a9deec4`).
-- **Açık operasyonel (Heddas)**: OP-01 `.env`'de `LIVE_ENABLED` DUPLIKAT (satır 46 false / 372 true — mainnet flag belirsizliği, biri silinmeli), OP-02 stale Polymarket ENV creds (401, derive ile kurtuluyor).
-- Wave 3 backlog: C-03 critical-path tests, M-03 Pydantic LLM schemas, M-07 mypy baseline regen, M-08 test monolith böl. Wave 4: M-02/M-04/M-05/M-06, L-02..L-06.
+- **`.env` ✅ (2026-05-18)**: OP-01 duplikat `LIVE_ENABLED` satır 46 silindi (tek kaynak `true`), L-07 `CHAINLINK_RPC_URL=ethereum.publicnode.com` eklendi. OP-02 (stale Polymarket creds) açık — yeni API key Heddas almalı.
+- **Wave 3 ✅ (2026-05-18, C-03)**: `test_live_trader_e2e.py` 9 test (`maybe_mirror` success path, `b1f219a`) + `test_ai_brain_cycle_e2e.py` 5 test (`run_brain_cycle` P0-01 invariant, `7ea5674`). Kritik-path e2e boşluğu kapandı.
+- Wave 3 kalan: M-03 Pydantic LLM schemas, M-07 mypy baseline regen, M-08 test monolith böl. Wave 4: M-02/M-04/M-05/M-06, L-02..L-06.
 
 **Test baseline (2026-05-15 full regression):** 3,572 pass / 12 fail / 63 skip. 12 fail = 9 REG-01 (app.py truncation, ÇÖZÜLDÜ) + 3 REG-02 (reproduce edilemedi). Ruff 0 violation. Coverage %44.06 toplam (kritik path <%30, C-03 açık). mypy strict baseline corrupted (M-07).
 

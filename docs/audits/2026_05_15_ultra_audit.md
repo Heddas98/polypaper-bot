@@ -565,4 +565,27 @@ Boot log: `401 Unauthorized/Invalid api key → derive fallback PASS`. `.env`'de
 
 ---
 
-**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit (M-09, H-07, L-07) ✅. Bot `6b8e670`'te canlı çalışıyor. Açık operasyonel: OP-01 (`.env` duplikat — Heddas), OP-02 (stale creds — Heddas). Açık audit: Wave 3 (C-03/M-03/M-07/M-08), Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
+## 📌 ADDENDUM 4 — Wave 3 + `.env` operasyonel kapanış (2026-05-18)
+
+### `.env` düzeltmeleri ✅ (OP-01, L-07)
+
+Heddas "tam yetki" verdi — `.env` doğrudan düzenlendi:
+- **OP-01** ✅: satır 46'daki duplikat `LIVE_ENABLED=false` silindi. Artık tek kaynak (Sprint 2 Mainnet bloğu, `=true`). Mainnet flag belirsizliği kapandı.
+- **L-07** ✅: `CHAINLINK_RPC_URL=https://ethereum.publicnode.com` eklendi (eth_call destekli tam-node). Bot restart'ında bloklu `eth.llamarpc.com` yerine geçer.
+- **OP-02** açık kaldı: stale Polymarket creds — yeni API key Polymarket web arayüzünden alınmalı (audit oturumu erişemez). Bot derive ile çalışıyor, acil değil.
+
+### Wave 3 — C-03 critical-path testleri ✅
+
+Audit C-03: "kritik path coverage <%30, mainnet-risk fonksiyonları (`maybe_mirror`, `run_brain_cycle`) end-to-end test edilmemiş". Wave 3 bu boşluğu kapattı:
+
+**Wave 3-B** (`b1f219a`) — `tests/unit/test_live_trader_e2e.py`, **9 test**: `maybe_mirror` SUCCESS path → `_place` → `_open` + `_total_spent` + `live_trades` INSERT, CLOB failure dalları, single-slot guard, `check_settlement`. Gerçek `:memory:` DB, sadece `_execute_clob` (network) mock'lu. Önceki `test_live_trader.py` bu path'i açıkça "out-of-scope" bırakmıştı.
+
+**Wave 3-C** (`7ea5674`) — `tests/unit/test_ai_brain_cycle_e2e.py`, **5 test**: `run_brain_cycle` gerçek akış — budget gate, minimum-trades gate, **P0-01 invariant** (LLM confidence 0.99 STOP action bile yalnızca `_queue_for_approval`'a gider — auto-execute yok), boş-action karar kaydı, parse-failure bildirimi. `_parse` gerçek çalışıyor. P0-01 fix'inin (2026-05-08) ilk gerçek regression koruyucusu.
+
+**ai_advisor** (Wave 1 H-01) — `test_ai_advisor_service.py` 29 test zaten mevcut.
+
+C-03 ana hedef (maybe_mirror + run_brain_cycle e2e) ✅ kapandı. Kalan: coverage % ölçümü (M-07 mypy regen, M-08 monolith böl) — sayısal raporlama, ayrı iş.
+
+---
+
+**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit (M-09/H-07/L-07) ✅ · OP-01/L-07 `.env` ✅ · Wave 3 (C-03 e2e: 14 yeni test) ✅. Bot canlı. Açık: OP-02 (Heddas — yeni Polymarket key), Wave 3 kalan M-03/M-07/M-08, Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
