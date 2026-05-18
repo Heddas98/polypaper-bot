@@ -629,4 +629,16 @@ M-08 backlog'da kalır — tam uygulama bu invariant doğrulamasıyla ayrı bir 
 
 ---
 
-**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit ✅ · `.env` (OP-01/L-07) ✅ · Wave 3 C-03 e2e (14 test) ✅ · M-07 ✅ · M-03 ✅ · M-08 (plan hazır, uygulama backlog). Bot canlı. Açık: OP-02 (Heddas), M-08 uygulama, Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
+## 📌 ADDENDUM 6 — OP-02 çözüldü: Polymarket creds refresh (2026-05-18)
+
+Heddas direktifi: "API'leri silme, aktif kullanıyor olalım."
+
+**Tanı netleştirme**: API key SORUNLU DEĞİLDİ — Polymarket'te geçerli key duruyordu, `create_or_derive_api_key` her boot onu buluyordu. Boot log'undaki `400 Could not create api key` aslında "key zaten var" demek (create→derive geçişi). Tek sorun: `.env`'deki saklanan kopyalar (`POLYMARKET_API_KEY/SECRET/PASSPHRASE`) eskiydi → her boot `verify 401` → derive fallback (~1-2s + Cloudflare riski).
+
+**Çözüm** — `scripts/refresh_polymarket_creds.py` (yeni, kalıcı utility): `POLYGON_PRIVATE_KEY`'den geçerli L2 CLOB creds türetir → `get_trades` ile doğrular → `.env`'in 3 creds satırını in-place günceller. Creds stdout'a basılmaz; script doğrudan `.env`'e yazar (line-match regex, base64-güvenli lambda replacement). Çalıştırıldı — `.env` taze creds ile güncellendi, `get_trades` verify PASS.
+
+Bot restart sonrası **PATH 1 (stored creds) doğrudan PASS** — derive fallback + boot'taki 401 adımı ortadan kalkar. API key'ler silinmedi, korundu + güncellendi. Key gelecekte rotate edilirse script yeniden çalıştırılır.
+
+---
+
+**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit ✅ · `.env` (OP-01/L-07) ✅ · Wave 3 C-03 e2e (14 test) ✅ · M-07 ✅ · M-03 ✅ · OP-02 ✅ · M-08 (plan hazır, uygulama backlog). Bot canlı. Açık: M-08 uygulama, Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
