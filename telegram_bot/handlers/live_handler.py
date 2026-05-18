@@ -1522,18 +1522,22 @@ async def _build_main(engine, db):
     _bar = _progress_bar(_used_val / _budget_val)
 
     # Loss-streak satırı — eşiğe göre uyarı tonu.
+    # NOT: bu streak engine.risk (RiskManager) sayacı — PAPER trade
+    # settlement'ından beslenir (engine_settlement.py). LIVE trade'ler
+    # risk_manager streak'ine dokunmaz. Bu yüzden "Paper" etiketli ve
+    # PAPER bloğunda gösterilir — LIVE TRADER bloğunda DEĞİL.
     if streak >= streak_max:
         streak_line = (
-            f"  Loss Streak: 🔴 <b>{streak}/{streak_max}</b> "
-            f"— KILL-SWITCH SINIRINDA!\n"
+            f"  ⚠️ Paper loss-streak: 🔴 <b>{streak}/{streak_max}</b> "
+            f"(risk-gate sınırı)\n"
         )
     elif streak >= max(1, streak_max - 2):
-        streak_line = f"  Loss Streak: ⚠️ {streak}/{streak_max}\n"
+        streak_line = f"  ⚠️ Paper loss-streak: {streak}/{streak_max}\n"
     elif streak > 0:
-        streak_line = f"  Loss Streak: {streak}/{streak_max}\n"
+        streak_line = f"  Paper loss-streak: {streak}/{streak_max}\n"
     else:
         streak_line = ""
-    _halt_line = "  🛑 <b>RISK HALT AKTİF</b>\n" if risk_halted else ""
+    _halt_line = "  🛑 <b>RISK HALT AKTİF</b> (paper risk-manager)\n" if risk_halted else ""
     _open_str = "📌 1 açık" if st.get("open") else "— yok"
 
     text = (
@@ -1549,11 +1553,12 @@ async def _build_main(engine, db):
         f"(kalan ${st.get('remaining', 0):.2f})\n"
         f"  Bugün: <b>${st['daily_pnl']:+.2f}</b>  ·  {st['daily_trades']} trade\n"
         f"  Toplam PnL: <b>${st['total_pnl']:+.4f}</b>\n"
-        f"{streak_line}{_halt_line}"
         f"  Pozisyon: {_open_str}  ·  Cüzdan: {st['wallet']}\n\n"
         f"📡 <b>PİYASA</b> (Binance spot · canlı)\n"
         f"{momentum_line}{regime_str}\n"
-        f"📋 PAPER: {p_pnl:+.2f} · {p_trades}t · WR %{p_wr:.0f}\n"
+        f"📋 <b>PAPER</b> (simülasyon — LIVE değil)\n"
+        f"  PnL {p_pnl:+.2f} · {p_trades}t · WR %{p_wr:.0f}\n"
+        f"{streak_line}{_halt_line}"
         f"🛡️ Kill-switch: {ks_str}\n\n"
         f"<i>Risk Limit = bot harcama tavanı (LIVE_BUDGET). Bakiye = "
         f"Polymarket'taki gerçek pUSD. Detay → /portfolio · /lg · /rg</i>"
