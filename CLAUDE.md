@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-15 (post-ultra-audit Wave 1 closure).
+> Son güncelleme: 2026-05-18 (BOT LIVE PnL closure + closure-kaydı doktrini).
 > Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
@@ -67,6 +67,7 @@ Solo proje — sadece **Heddas**. Dış ekip yok.
 - **Memory landmarks**: Büyük closure'larda `data_store/.auto-memory/project_*.md` doss çıkarılır.
 - **Yapı**: Roadmap (`02_POLYPAPER_YOL_HARITASI.md`) → progress log (`03_POLYPAPER_PROGRESS_LOG.md`) + cleanup TASKS (`TASKS.md`) → memory landmark.
 - **Memory drift kontrolü (yeni 2026-05-13)**: Her oturum açılışında `CLAUDE.md` / `memory/status.md` / `TASKS.md` üçü ile gerçek kod kanıtını karşılaştır. Tutarsızsa **koda güven, memory'yi güncelle**. 2026-05-13 audit: 4 P0 closed ama memory open gösteriyordu.
+- **Closure kaydı ZORUNLU (Heddas direktifi 2026-05-18)**: Her modül / faz / anlamlı değişiklik **biter bitmez**, kapanışla **aynı turda** `CLAUDE.md` (Mevcut Faz bölümü) + `memory/status.md` üst snapshot'ına tek satır closure kaydı düş — biçim: `commit-hash` · ne yapıldı · sonuç/sayı. Ertelenmez. Gerekçe: auto-compact konuşma context'ini sildiğinde geriye **sadece bu kayıt** kalır; yazılmazsa yapılan iş hafızadan tamamen düşer.
 
 ## Anahtar Komutlar (Telegram)
 
