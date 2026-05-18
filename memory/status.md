@@ -11,6 +11,7 @@
 > **2026-05-18 Wave 3 kalan ✅**: M-07 mypy_baseline UTF-16→UTF-8 (`f8c23bd`, mypy 0 hata), M-03 ai_brain Pydantic LLM schema (`0ca08cb`). M-08 (555 class monolith) bölme planı audit ADDENDUM 5'te — uygulama backlog.
 > **2026-05-18 OP-02 ✅**: `.env` Polymarket creds refresh. API key sorunlu değildi (Polymarket'te geçerli) — `.env` kopyaları eskiydi. `scripts/refresh_polymarket_creds.py` ile `POLYGON_PRIVATE_KEY`'den türetilip güncellendi. Bot restart 21:16 → PATH 1 PASS doğrulandı (401/400/derive satırları kayboldu, Chainlink `oracle smoke OK`).
 > **2026-05-18 Wave 4 ✅**: M-04 httpx verify, M-05 `_place` notify, M-06 Sentry PII doktrin (`9b0b346`). M-02 & L-05 FALSE POSITIVE. L-02 risk>değer. Audit'in tüm Critical/High + anlamlı Medium'ları kapandı. Backlog: M-08, L-03/L-04/L-06.
+> **2026-05-18 `/live` redesign**: Faz 1 kokpit ✅ (`e39042f`), Budget Reset butonu ✅ (`1b2f506`), Faz 2A veri katmanı ✅ (`9803037` live_trades INSERT bug, `d574924` allowance ♾️, `f99b0b0` streak PAPER etiketi). Açık: manuel trade settle eşleştirme (güvenilir kaynak yok — backlog), Faz 2B paneller, Faz 3.
 > **2026-05-15 Wave 2 ✅**: H-01 AI Advisor auth (`fc04d1c`), H-02 budget race lock (`4820636`), H-04 deduct false-positive (`8959905`), H-05 admin gate + M-01 exception leak (`88573b9`), H-06 C-01'de kapanmış.
 
 ## TL;DR
