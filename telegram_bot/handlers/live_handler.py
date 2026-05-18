@@ -6,7 +6,7 @@ Real data feeds back into paper model calibration.
 
 import logging
 import os  # 2026-05-05: market BUY/SELL slippage env read
-from datetime import UTC
+from datetime import UTC, datetime
 
 import aiosqlite
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -70,6 +70,23 @@ def _progress_bar(frac: float, width: int = 10) -> str:
     frac = max(0.0, min(1.0, frac))
     filled = round(frac * width)
     return "█" * filled + "░" * (width - filled)
+
+
+def _mainnet_days() -> int:
+    """LIVE_START_DATE'ten bugüne gün — bot'un canlı (mainnet) süresi.
+
+    2026-05-18 (Heddas direktifi): /live paneli bot performansını bu
+    tarihten itibaren sayar — operatörün bot-öncesi kişisel Polymarket
+    geçmişi karışmaz. Parse hatası → 0 (panel yine açılır).
+    """
+    raw = os.getenv("LIVE_START_DATE", "2026-05-09").strip()
+    try:
+        start = datetime.fromisoformat(raw)
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        return max(0, (datetime.now(UTC) - start).days)
+    except (ValueError, TypeError):
+        return 0
 
 
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1526,6 +1543,7 @@ async def _build_main(engine, db):
     _budget_val = max(0.01, float(st.get("budget", 0.0)))
     _used_val = max(0.0, _budget_val - float(st.get("remaining", 0.0)))
     _bar = _progress_bar(_used_val / _budget_val)
+    _days = _mainnet_days()
 
     # Loss-streak satırı — eşiğe göre uyarı tonu.
     # NOT: bu streak engine.risk (RiskManager) sayacı — PAPER trade
@@ -1553,12 +1571,13 @@ async def _build_main(engine, db):
         f"💵 <b>CÜZDAN</b> (Polymarket — gerçek pUSD)\n"
         f"  Bakiye: <b>{pm_balance}</b>  ·  Açık NAV: {pm_nav}\n"
         f"  Allowance: {pm_allowance}\n\n"
-        f"🤖 <b>BOT LIVE TRADER</b>\n"
+        f"🤖 <b>BOT LIVE TRADER</b>  ·  📅 {_days} gün LIVE\n"
         f"  Risk Limit  [{_bar}]\n"
         f"  Kullanılan ${_used_val:.2f} / ${_budget_val:.2f}  "
         f"(kalan ${st.get('remaining', 0):.2f})\n"
         f"  Bugün: <b>${st['daily_pnl']:+.2f}</b>  ·  {st['daily_trades']} trade\n"
-        f"  Toplam PnL: <b>${st['total_pnl']:+.4f}</b>\n"
+        f"  Toplam PnL: <b>${st['total_pnl']:+.4f}</b>  ·  "
+        f"{st.get('trade_count', 0)} trade (canlıdan beri)\n"
         f"  Pozisyon: {_open_str}  ·  Cüzdan: {st['wallet']}\n\n"
         f"📡 <b>PİYASA</b> (Binance spot · canlı)\n"
         f"{momentum_line}{regime_str}\n"
