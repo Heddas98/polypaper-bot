@@ -1451,7 +1451,13 @@ async def _build_main(engine, db):
         pm_snap = await read_cached_snapshot(db)
         if pm_snap:
             pm_balance = f"${float(pm_snap.get('pusd_balance', 0)):.2f}"
-            pm_allowance = f"${float(pm_snap.get('pusd_allowance', 0)):.2f}"
+            # 2026-05-18: allowance > 1e12 = "unlimited approve" (raw
+            # uint256 — 3-contract sınırsız onay). Astronomik rakam
+            # ("$1.15e71") yerine ♾️ göster.
+            _allow_raw = float(pm_snap.get("pusd_allowance", 0))
+            pm_allowance = (
+                "♾️ Sınırsız" if _allow_raw > 1e12 else f"${_allow_raw:.2f}"
+            )
             pm_nav = f"${float(pm_snap.get('portfolio_value_usd', 0)):.2f}"
             age_s = cache_age_seconds(pm_snap)
             pm_age = f" (veri {age_s}s önce)" if age_s < 999 else " (stale)"
