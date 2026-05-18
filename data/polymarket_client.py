@@ -50,7 +50,9 @@ class PolymarketClient:
     def __init__(self, settings: Settings, ws_client=None):
         self.settings = settings
         self._client = httpx.AsyncClient(
-            timeout=CLOB_TIMEOUT, headers={"Accept": "application/json"}
+            timeout=CLOB_TIMEOUT,
+            headers={"Accept": "application/json"},
+            verify=True,  # M-04 (2026-05-15 audit): explicit TLS verify
         )
         self._events_cache: list[dict] = []
         self._events_ts: float = 0
@@ -592,7 +594,7 @@ class PolymarketClient:
 
             url = f"{self.CLOB_BASE}{self.BULK_ORDER_ENDPOINT}"
             payload = {"orders": signed_orders}
-            async with _httpx.AsyncClient(timeout=10.0) as cli:
+            async with _httpx.AsyncClient(timeout=10.0, verify=True) as cli:  # M-04
                 r = await cli.post(url, json=payload)
             if r.status_code != 200:
                 return {

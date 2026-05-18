@@ -72,6 +72,14 @@ def sentry_transaction(op: str, name: str) -> Iterator[Any]:
     Yields:
         Sentry transaction handle when active, None when no-op. Callers
         should check ``if tx is not None`` before ``tx.set_data(...)``.
+
+    M-06 (2026-05-15 ultra-audit) — PII GUARD: ``tx.set_data()`` payloads
+    are uploaded to Sentry's servers (a third party). Pass ONLY numeric /
+    enum / count values — e.g. ``spent_usd``, ``market_count``, cycle no.
+    NEVER pass raw LLM prompts, strategy labels, market context, trade
+    history, wallet addresses or any free text: that would exfiltrate
+    trading internals + user data off-box. Current call sites are clean
+    (numeric only) — keep them that way.
     """
     if not _sentry_enabled():
         yield None

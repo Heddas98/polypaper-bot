@@ -499,6 +499,19 @@ class LiveTrader:
             # telegram notify. Use logger.exception to capture traceback for triage.
             # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.
             logger.exception(f"Live place failed ({type(e).__name__}): {e}")
+            # M-05 (2026-05-15 ultra-audit): surface the failure to the
+            # operator. A silent _place exception means a live mirror was
+            # attempted but no position opened — previously visible only by
+            # reading logs. Only the exception TYPE is sent (M-01 doctrine:
+            # never raw str(e) to the user). notify is best-effort.
+            try:
+                await self._notify(
+                    "⚠️ <b>LIVE TRADE BAŞARISIZ</b>\n"
+                    f"Hata tipi: <code>{type(e).__name__}</code>\n"
+                    "Pozisyon AÇILMADI — detay log'da."
+                )
+            except Exception:  # noqa: BLE001 — notify is best-effort
+                pass
             return None
 
     async def check_settlement(
