@@ -539,4 +539,30 @@ Heddas `git reset --hard origin/main` **hiç yapmamıştı** (önceki oturumda s
 
 ---
 
-**Durum (2026-05-17 oturum sonu)**: Wave 1 (C-01, C-02, H-03, L-01) ✅ · REG-01 ✅ · Wave 2 (H-01, H-02, H-04, H-05, H-06, M-01) ✅ · REG-02 ✅ (ana dizin senkronize edildi). Açık: Wave 3 (C-03 critical-path tests, M-03 Pydantic, M-07/M-08), Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
+## 📌 ADDENDUM 3 — Canlı boot log audit (2026-05-18)
+
+Bot `6b8e670`'te başarıyla başladı (REG-01/REG-02 sonrası ilk temiz boot). Boot log'u acımasız incelendi — 3 kod fix + 2 operasyonel bulgu.
+
+### M-09 — `per_market_exposure` unbounded growth ✅ (`39e5bf3`)
+
+Boot log: `Risk state restored: ... per_market=827` (ama `open=0`). [core/risk_manager.py](core/risk_manager.py) `record_trade_closed` pozisyon kapanınca `per_market_exposure[slug]`'u `max(0, …)` ile 0'a indiriyor ama key'i **pop etmiyordu** → her trade edilen market sonsuza dek dict'te kalıyor (827 stale entry), `bot_settings` JSON blob + her boot `load_state` parse'ı şişiyor. Kanıt: yanındaki `strategy_market_open` dict zaten `pop()`'luyordu. Fix: `record_trade_closed` 0'a düşeni `pop()` + `load_state` 0/negatif filtre (827 legacy temizliği). 163 risk/recon test PASS.
+
+### H-07 — reconciliation `DISABLED` log mesajı yanıltıcı ✅ (`35ccb7b`)
+
+Boot log çelişkisi: `🟢 Live Trader: SHADOW ACTIVE` vs `🔗 Reconciliation: DISABLED (… LIVE_ENABLED=false)`. Tanı: reconciliation kodu **doğru** — `.env`'de `RECON_ENABLED=false` explicit ("manual approve" doktrini). Ama `start()` log'u **statik string**di — her zaman "LIVE_ENABLED=false" yazıyordu, gerçek nedeni gizliyordu. Fix: log artık runtime `RECON_ENABLED` + `LIVE_ENABLED` değerlerini gösteriyor.
+
+### L-07 — Chainlink RPC env override yoktu ✅ (`a9deec4`)
+
+Boot log: `⚠ oracle smoke test got 0 prices — RPC may be blocked` (`eth.llamarpc.com`). `chainlink_oracle.py:50` yorumu "operator can override via env" diyordu ama **env okuyan kod yoktu** — `DEFAULT_RPC` hardcoded. Fix: `CHAINLINK_RPC_URL` env override eklendi.
+
+### 🔴 OP-01 — `.env`'de `LIVE_ENABLED` DUPLIKAT (Heddas — kritik)
+
+`.env` satır 46 `LIVE_ENABLED=false`, satır 372 `LIVE_ENABLED=true`. `python-dotenv` son tanımı alır → `true` (bot LIVE). **Ama bu, mainnet gerçek-para flag'inin belirsiz olması demek** — `.env` düzenleyen biri satır 46'yı görüp "kapalı" sanabilir; dotenv versiyonu davranışı değiştirebilir. Heddas iki satırdan birini silmeli (kasıtlı olan `true` → satır 46'yı sil). **Kod değil, `.env` hijyeni — ama mainnet riski.**
+
+### 🟡 OP-02 — Stale Polymarket ENV creds (Heddas)
+
+Boot log: `401 Unauthorized/Invalid api key → derive fallback PASS`. `.env`'deki `POLYMARKET_API_KEY/SECRET/PASSPHRASE` eski; bot her boot Cloudflare-riskli derive yapıyor. Heddas stored creds'i güncellemeli.
+
+---
+
+**Durum (2026-05-18 oturum sonu)**: Wave 1 ✅ · REG-01 ✅ · Wave 2 ✅ · REG-02 ✅ · Log audit (M-09, H-07, L-07) ✅. Bot `6b8e670`'te canlı çalışıyor. Açık operasyonel: OP-01 (`.env` duplikat — Heddas), OP-02 (stale creds — Heddas). Açık audit: Wave 3 (C-03/M-03/M-07/M-08), Wave 4 (M-02/M-04/M-05/M-06, L-02..L-06).
