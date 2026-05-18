@@ -746,6 +746,39 @@ class LiveTrader:
             self._daily_trades += 1
             self._trade_count += 1
             await self._save_state()
+            # 2026-05-18 (Heddas /live audit): manuel market order'ları da
+            # live_trades tablosuna yaz. Önceden SADECE _place (otomatik
+            # mirror) INSERT yapıyordu; execute_market_order (manuel /live
+            # BUY/SELL — operatörün asıl kullandığı yol) atlıyordu. Sonuç:
+            # live_trades tablosu boş kalıyor, _trade_count artıyor ama hiç
+            # kayıt yok. strategy_label='MANUAL'. Sonuç (result/pnl) NULL
+            # başlar — manuel trade'in kapanışı Polymarket portfolio
+            # reconciliation ile sonradan eşlenir.
+            if self.db:
+                try:
+                    await self.db.conn.execute(
+                        "INSERT INTO live_trades (strategy_label, slug, "
+                        "direction, token_id, entry_price, amount, "
+                        "signal_score, order_id, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (
+                            "MANUAL",
+                            slug,
+                            direction.lower(),
+                            token_id,
+                            price,
+                            amount,
+                            0.0,
+                            oid,
+                            datetime.now(UTC).isoformat(),
+                        ),
+                    )
+                    await self.db.conn.commit()
+                except aiosqlite.Error as _ie:
+                    logger.warning(
+                        f"live_trades INSERT (manual) failed: "
+                        f"{type(_ie).__name__}: {_ie}"
+                    )
             logger.info(
                 f"💰 MANUAL {side} {coin} {direction} {tf} ${amount:.2f} "
                 f"@{price:.3f} → {status} (id={oid[:12]})"
