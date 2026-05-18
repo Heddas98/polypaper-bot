@@ -402,9 +402,20 @@ class RiskManager:
         self.state.open_position_count = max(0, self.state.open_position_count - 1)
         self.state.total_exposure = max(0, self.state.total_exposure - trade_amount)
         self.state.daily_pnl += pnl
-        self.state.per_market_exposure[market_slug] = max(
+        # M-09 (2026-05-18 log audit): drop the key when exposure reaches 0
+        # instead of leaving a stale 0.0 entry. Without this,
+        # per_market_exposure grew unbounded — one entry per market ever
+        # traded (observed live: per_market=827 stale entries) — bloating
+        # the bot_settings JSON blob and every load_state parse. The sibling
+        # strategy_market_open dict (L410) already pop()s correctly; this
+        # mirrors that.
+        _new_market_exp = max(
             0, self.state.per_market_exposure.get(market_slug, 0) - trade_amount
         )
+        if _new_market_exp <= 0:
+            self.state.per_market_exposure.pop(market_slug, None)
+        else:
+            self.state.per_market_exposure[market_slug] = _new_market_exp
         # Phase 74b: Release strategy→market lock
         if strategy_id:
             self.state.strategy_market_open.pop(f"{strategy_id}:{market_slug}", None)
@@ -727,7 +738,12 @@ class RiskManager:
             try:
                 _pme_raw = d.get("risk_state.per_market_exposure", "{}")
                 _pme = json.loads(_pme_raw) if _pme_raw else {}
-                self.state.per_market_exposure = {k: float(v) for k, v in _pme.items()}
+                # M-09 (2026-05-18 log audit): filter stale 0/negative entries
+                # on load — one-time cleanup of the ~827 legacy entries that
+                # accumulated before the record_trade_closed pop() fix.
+                self.state.per_market_exposure = {
+                    k: float(v) for k, v in _pme.items() if float(v) > 0
+                }
             except (json.JSONDecodeError, TypeError, ValueError, AttributeError) as _pme_err:
                 # T1.4 Faz 1: corrupted/legacy JSON blob. Fallback: empty map
                 # — Gate 9 (market concentration) will rebuild organically as
