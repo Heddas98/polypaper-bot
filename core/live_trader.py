@@ -395,6 +395,27 @@ class LiveTrader:
         logger.info(f"💰 Live Trader {'PAUSED' if self._paused else 'RESUMED'}")
         return not self._paused
 
+    async def reset_budget(self) -> float:
+        """Operator-triggered live budget reset (via /live UI, 2-tap confirmed).
+
+        Zeroes the lifetime spend counter so the full ``LIVE_BUDGET``
+        ceiling is available again, and persists immediately so a restart
+        cannot resurrect the old counter. Returns the prior spend (for the
+        confirmation message).
+
+        Deliberately does NOT touch ``_total_pnl`` / ``_daily_pnl`` — only
+        the spend gate is reset; PnL history stays intact. This is the
+        only spend-counter mutation outside ``_place``.
+        """
+        old_spent = self._total_spent
+        self._total_spent = 0.0
+        await self._save_state()
+        logger.warning(
+            f"💰 LIVE BUDGET RESET by operator — spent ${old_spent:.2f} → "
+            f"$0.00 | full ${self._budget:.2f} ceiling available again"
+        )
+        return old_spent
+
     async def maybe_mirror(
         self,
         strategy_label: str,

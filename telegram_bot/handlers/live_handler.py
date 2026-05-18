@@ -149,6 +149,61 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
+    elif data == "live_budget_reset":
+        # 2026-05-18 Heddas: live budget reset — 2-tap confirmed (real pUSD
+        # spend ceiling). Same confirm/cancel pattern as live_toggle.
+        st = engine.live.get_status()
+        _budget = st.get("budget", 0.0)
+        _spent = _budget - st.get("remaining", 0.0)
+        confirm_text = (
+            "⚠️ <b>Live Budget Reset?</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Harcanan <b>${_spent:.2f}</b> → <b>$0.00</b> sıfırlanacak.\n"
+            f"Tüm <b>${_budget:.2f}</b> risk limiti yeniden açılır — "
+            "gerçek pUSD harcaması devam edebilir.\n\n"
+            f"📉 Bot: PnL bugün <b>${st.get('daily_pnl', 0.0):+.2f}</b>, "
+            f"loss-streak <b>{st.get('loss_streak', '?')}</b>\n\n"
+            "<i>Reset etmeden önce /rg ile performansı kontrol etmen "
+            "önerilir — kayıp serisindeysen yeni bütçe yeni zarar olabilir.</i>\n\n"
+            "Emin misin?"
+        )
+        kb = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✅ Evet, resetle", callback_data="live_budget_reset_confirm"
+                    ),
+                    InlineKeyboardButton(
+                        "❌ İptal", callback_data="live_budget_reset_cancel"
+                    ),
+                ],
+            ]
+        )
+        try:
+            await q.edit_message_text(confirm_text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
+            await q.message.reply_text(confirm_text, parse_mode="HTML", reply_markup=kb)
+
+    elif data == "live_budget_reset_confirm":
+        old_spent = await engine.live.reset_budget()
+        # Audit: admin id + amount in the bot log (reset_budget also logs).
+        logger.warning(
+            f"💰 Live budget reset CONFIRMED via /live UI by admin "
+            f"{q.from_user.id} — spent ${old_spent:.2f} → $0.00"
+        )
+        text, kb = await _build_main(engine, db)
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+    elif data == "live_budget_reset_cancel":
+        text, kb = await _build_main(engine, db)
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
     elif data == "live_compare":
         text = await _build_compare(engine)
         kb = InlineKeyboardMarkup(
@@ -1452,6 +1507,8 @@ async def _build_main(engine, db):
                 InlineKeyboardButton("📊 Paper vs Real", callback_data="live_compare"),
                 InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
             ],
+            # 2026-05-18 Heddas: live budget reset (2-tap confirmed callback).
+            [InlineKeyboardButton("💰 Budget Reset", callback_data="live_budget_reset")],
             [InlineKeyboardButton("🔄 Yenile", callback_data="live_main")],
         ]
     )

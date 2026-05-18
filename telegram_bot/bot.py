@@ -630,6 +630,10 @@ class PolyPaperBot:
             "live_main",
             "live_compare",
             "live_history",
+            # 2026-05-18 Heddas: live budget reset (2-tap confirmed)
+            "live_budget_reset",
+            "live_budget_reset_confirm",
+            "live_budget_reset_cancel",
         ]:
             self.app.add_handler(CallbackQueryHandler(live_callback, pattern=f"^{pattern}$"))
         # 2026-05-05 Heddas: Market BUY/SELL UI callback'leri

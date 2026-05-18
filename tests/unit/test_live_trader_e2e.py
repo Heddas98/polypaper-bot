@@ -264,3 +264,54 @@ async def test_total_spent_accumulates_across_sequential_trades(trader):
 
     await trader.maybe_mirror(_STRAT, 0.85, "up", "t2", 0.80, "btc-acc-2")
     assert trader._total_spent > spent_after_first, "spend must accumulate"
+
+
+# ── reset_budget — operator-triggered budget reset (2026-05-18) ───────────
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_zeroes_spend_and_returns_prior(trader):
+    """reset_budget() zeroes _total_spent and returns the prior spend."""
+    trader._execute_clob = AsyncMock(return_value={"id": "o", "status": "placed"})
+    await trader.maybe_mirror(_STRAT, 0.85, "up", "tok-r", 0.80, "btc-reset-1")
+    spent_before = trader._total_spent
+    assert spent_before > 0.0
+
+    returned = await trader.reset_budget()
+
+    assert returned == spent_before, "must return the pre-reset spend"
+    assert trader._total_spent == 0.0, "spend counter must be zeroed"
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_preserves_pnl(trader):
+    """reset_budget() touches ONLY the spend gate — PnL history is intact."""
+    trader._execute_clob = AsyncMock(return_value={"id": "o", "status": "placed"})
+    await trader.maybe_mirror(_STRAT, 0.85, "up", "tok-rp", 0.80, "btc-reset-pnl")
+    await trader.check_settlement(
+        slug="btc-reset-pnl", won=True, pnl_paper=1.5, paper_amount=1.0
+    )
+    pnl_before = trader._total_pnl
+    assert pnl_before != 0.0
+
+    await trader.reset_budget()
+
+    assert trader._total_pnl == pnl_before, "reset_budget must not touch _total_pnl"
+    assert trader._total_spent == 0.0
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_reopens_mirror_capacity(trader):
+    """After reset_budget the spend gate is clear → maybe_mirror works again."""
+    trader._execute_clob = AsyncMock(return_value={"id": "o", "status": "placed"})
+    await trader.maybe_mirror(_STRAT, 0.85, "up", "t1", 0.80, "btc-cap-1")
+    await trader.check_settlement(
+        slug="btc-cap-1", won=True, pnl_paper=0.5, paper_amount=1.0
+    )
+    await trader.reset_budget()
+    assert trader._total_spent == 0.0
+
+    # Spend gate freed → a fresh mirror can open.
+    res = await trader.maybe_mirror(_STRAT, 0.85, "up", "t2", 0.80, "btc-cap-2")
+    assert res is not None
+    assert trader._open is not None
