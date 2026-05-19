@@ -154,6 +154,9 @@ class PolymarketClient:
             "has_liquidity": False,
             "best_ask_up": None,
             "best_bid_up": None,
+            # B audit (2026-05-19): gerçek order book derinliği (USDC)
+            "ask_depth_usd": 0.0,
+            "bid_depth_usd": 0.0,
         }
 
         if up_tok:
@@ -168,7 +171,6 @@ class PolymarketClient:
                 result["best_bid_up"] = bid
             if ask and bid:
                 result["spread"] = round(ask - bid, 4)
-                result["has_liquidity"] = True
 
         if dn_tok:
             mid = await self.get_live_midpoint(dn_tok)
@@ -179,9 +181,43 @@ class PolymarketClient:
             result["down_odds"] = round(1.0 - result["up_odds"], 4)
         elif result["down_odds"] and not result["up_odds"]:
             result["up_odds"] = round(1.0 - result["down_odds"], 4)
-        if result["up_odds"] and not result["has_liquidity"]:
-            result["has_liquidity"] = True
+
+        # A+B audit (2026-05-19): has_liquidity ARTIK gerçek order book
+        # derinliğinden gelir. Eski kod `if up_odds and not has_liquidity:
+        # has_liquidity = True` ile midpoint üzerine sahte-True yapıyordu →
+        # ince/boş defterli market'ler engine NO_LIQ gate'ini geçip "no
+        # match" alıyordu. O override KALDIRILDI.
+        result["has_liquidity"] = await self._compute_liquidity(up_tok, result)
         return result
+
+    async def _compute_liquidity(self, up_tok: str | None, result: dict) -> bool:
+        """B audit (2026-05-19): order book derinliği — has_liquidity kaynağı.
+
+        `MARKET_DEPTH_CHECK=true` (default) ise `get_orderbook` ile up-token'ın
+        iki yanlı defter derinliği ölçülür: ask + bid USDC derinliği ikisi de
+        `MIN_BOOK_DEPTH_USD` eşiğini geçmeli. Binary market'te up-token bid'i
+        ≈ down-yön giriş derinliğidir — tek defter iki yönü de kapsar.
+        Env kapalıysa ya da defter çekilemezse temkinli fallback: best_ask
+        VE best_bid ikisi de var mı (eski sahte midpoint override değil).
+        """
+        if not up_tok:
+            return False
+        if os.getenv("MARKET_DEPTH_CHECK", "true").lower() != "true":
+            return bool(result.get("best_ask_up") and result.get("best_bid_up"))
+        try:
+            book = await self.get_orderbook(up_tok)
+        except Exception:  # noqa: BLE001
+            book = None
+        if not book:
+            return bool(result.get("best_ask_up") and result.get("best_bid_up"))
+        asks = book.get("asks") or []
+        bids = book.get("bids") or []
+        ask_depth = sum(p * s for p, s in asks)
+        bid_depth = sum(p * s for p, s in bids)
+        result["ask_depth_usd"] = round(ask_depth, 2)
+        result["bid_depth_usd"] = round(bid_depth, 2)
+        min_depth = float(os.getenv("MIN_BOOK_DEPTH_USD", "2.0"))
+        return ask_depth >= min_depth and bid_depth >= min_depth
 
     # ═══ MARKET DISCOVERY ═══
 
@@ -201,6 +237,29 @@ class PolymarketClient:
         if timeframe in ("5m", "15m"):
             return await self._discover_by_slug(asset, timeframe)
         return await self._discover_by_events(asset, timeframe)
+
+    @staticmethod
+    def _market_tradeable(m: dict) -> bool:
+        """C audit (2026-05-19): market CLOB'da gerçekten trade edilebilir mi?
+
+        Polymarket docs: "Markets can only be traded via the CLOB if
+        `enableOrderBook` is true." Eski discovery yalnız closed/active/
+        endDate bakıyordu; `enableOrderBook=False` ya da `acceptingOrders=
+        False` bir market trade denemesinde "no match"/reject üretir.
+        Alan YOKSA (None) engellenmez — Gamma her zaman döndürmez, bu yüzden
+        sadece açıkça `False` olanı eler (default-allow).
+        """
+        if not isinstance(m, dict):
+            return False
+        if m.get("closed") is True:
+            return False
+        if m.get("active") is False:
+            return False
+        if m.get("enableOrderBook") is False:
+            return False
+        if m.get("acceptingOrders") is False:
+            return False
+        return True
 
     # ── P0-08-B (2026-05-08): Polymarket Series-ID discovery ──
     async def _discover_by_series_id(self, asset, tf, series_id: int):
@@ -233,7 +292,8 @@ class PolymarketClient:
         found = []
         for ev in data:
             for m in ev.get("markets") or []:
-                if m.get("closed"):
+                # C audit (2026-05-19): closed + enableOrderBook + acceptingOrders
+                if not self._market_tradeable(m):
                     continue
                 end = self._parse_dt(m.get("endDate") or ev.get("endDate"))
                 if end and end <= now:
@@ -262,7 +322,8 @@ class PolymarketClient:
         for ts in [current - interval, current, current + interval]:
             slug = f"{prefix}-{tf}-{ts}"
             m = await self._query_slug(slug)
-            if m and not m.get("closed", False):
+            # C audit (2026-05-19): closed + enableOrderBook + acceptingOrders
+            if m and self._market_tradeable(m):
                 end = self._parse_dt(m.get("endDate"))
                 if end and end <= datetime.now(UTC):
                     continue
@@ -382,7 +443,8 @@ class PolymarketClient:
         found = []
         for ev in self._events_cache:
             for m in ev.get("markets", []):
-                if m.get("slug", "").startswith(target) and not m.get("closed"):
+                # C audit (2026-05-19): closed + enableOrderBook + acceptingOrders
+                if m.get("slug", "").startswith(target) and self._market_tradeable(m):
                     end = self._parse_dt(m.get("endDate") or ev.get("endDate"))
                     if end and (end <= now or (end - now) > max_f):
                         continue

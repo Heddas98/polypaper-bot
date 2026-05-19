@@ -638,6 +638,13 @@ class PolyPaperBot:
             "live_budget_reset",
             "live_budget_reset_confirm",
             "live_budget_reset_cancel",
+            # 2026-05-19 Faz 2B/3 trade istasyonu panelleri — KRİTİK: bu
+            # 4 callback live_callback if/elif zincirinde vardı ama burada
+            # kayıtlı DEĞİLdi → butonlar tamamen tepkisizdi (ölü buton).
+            "live_scan",
+            "live_guards",
+            "live_perf",
+            "live_risk",
         ]:
             self.app.add_handler(CallbackQueryHandler(live_callback, pattern=f"^{pattern}$"))
         # 2026-05-05 Heddas: Market BUY/SELL UI callback'leri

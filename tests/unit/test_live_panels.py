@@ -18,8 +18,10 @@ from telegram_bot.handlers.live_handler import (
     _build_market_scan,
     _build_performance,
     _build_risk,
+    _live_pnl_detail_block,
     _panel_nav_kb,
     _safe_edit,
+    _short_market,
 )
 
 # ── _panel_nav_kb ────────────────────────────────────────────────────────
@@ -213,11 +215,12 @@ async def test_build_performance_merges_sections(monkeypatch):
 
     txt = await _build_performance(engine, MagicMock())
     assert "PERFORMANS" in txt
-    assert "BOT LIVE PnL" in txt  # on-chain blok
+    assert "BOT LIVE PnL" in txt  # aggregate blok
+    assert "İŞLEM DÖKÜMÜ" in txt  # on-chain per-market detay (D1 fix)
     assert "Paper vs Real" in txt  # kalibrasyon
-    assert "Live Trade Gecmisi" in txt  # geçmiş
-    # _build_history footer artık yanıltıcı total_pnl göstermez
-    assert "Risk limiti kalan" in txt
+    # D1: eski DB-kaynaklı "Live Trade Gecmisi" kaldırıldı — on-chain
+    # işlem dökümü gerçek geçmiş; çelişkili "geçmiş yok" satırı yok
+    assert "Live Trade Gecmisi" not in txt
 
 
 @pytest.mark.asyncio
@@ -307,3 +310,67 @@ async def test_safe_edit_telegram_error_falls_back():
     q.message.reply_text = AsyncMock()
     await _safe_edit(q, "txt", None)
     q.message.reply_text.assert_called_once()
+
+
+# ── İşlem dökümü — _short_market + _live_pnl_detail_block ────────────────
+
+
+def test_short_market_parses_coin_and_time():
+    s = _short_market("Bitcoin Up or Down - May 18, 2:55PM-3:00PM ET")
+    assert s.startswith("BTC")
+    assert "2:55PM" in s
+    assert " ET" not in s
+    assert len(s) <= 30
+
+
+def test_short_market_empty():
+    assert _short_market("") == "?"
+
+
+def test_live_pnl_detail_block_empty():
+    txt = _live_pnl_detail_block([])
+    assert "İŞLEM DÖKÜMÜ" in txt
+    assert "henüz bot trade" in txt
+
+
+def test_live_pnl_detail_block_renders_trades():
+    """per_market satırları — tarih/market/outcome/giriş/net hepsi görünür."""
+    pm = [
+        {
+            "ts": 1779130494,
+            "result": "win",
+            "title": "Bitcoin Up or Down - May 18, 2:55PM-3:00PM ET",
+            "outcome": "Up",
+            "entry_price": 0.75,
+            "cost": 1.02,
+            "payout": 1.33,
+            "net": 0.31,
+        },
+        {
+            "ts": 1779000000,
+            "result": "loss",
+            "title": "Bitcoin Up or Down - May 17, 9:00AM ET",
+            "outcome": "Down",
+            "entry_price": 0.55,
+            "cost": 1.01,
+            "payout": 0.0,
+            "net": -1.01,
+        },
+    ]
+    txt = _live_pnl_detail_block(pm)
+    assert "İŞLEM DÖKÜMÜ" in txt
+    assert "🟢" in txt and "🔴" in txt  # win + loss ikonları
+    assert "Up" in txt and "Down" in txt
+    assert "+$0.31" in txt
+    assert "-$1.01" in txt
+
+
+def test_live_pnl_detail_block_caps_at_limit():
+    pm = [
+        {"ts": i, "result": "win", "title": f"M{i}", "outcome": "Up",
+         "entry_price": 0.5, "cost": 1.0, "payout": 1.5, "net": 0.5}
+        for i in range(50)
+    ]
+    txt = _live_pnl_detail_block(pm, limit=12)
+    # 12 satır başlık ikonu (her market 1 🟢) — 50 değil
+    assert txt.count("🟢") == 12

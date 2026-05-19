@@ -399,7 +399,9 @@ def compute_live_pnl(
         pending market = REDEEM almamış + son trade'i grace içinde (settle
                          bekliyor — henüz kazanç/kayıp belli değil)
 
-    Returns: dict (error key yok — saf hesap, exception fırlatmaz).
+    Returns: dict — aggregate alanlar + `per_market` (her market için
+    işlem dökümü: title/ts/outcome/entry_price/cost/payout/net/result).
+    Error key yok — saf hesap, exception fırlatmaz.
     """
     if now_epoch is None:
         now_epoch = int(datetime.now(UTC).timestamp())
@@ -450,6 +452,46 @@ def compute_live_pnl(
     }
     loss_cids = no_redeem - pending_cids
 
+    # Per-market işlem dökümü (Heddas direktifi 2026-05-19 — "nerede ne
+    # zaman ne olmuş ne kadar gitmiş"): her bot market'i için tek satır
+    # detay. UI bunu "İşlem Dökümü" tablosu olarak basar.
+    per_market: list[dict] = []
+    for cid in traded_cids:
+        c_trades = sorted(
+            (t for t in trades if str(t.get("condition_id", "")) == cid),
+            key=_ts,
+        )
+        c_redeems = [r for r in redeems if str(r.get("condition_id", "")) == cid]
+        first = c_trades[0] if c_trades else {}
+        m_cost = sum(_f(t, "usdc_size") for t in c_trades)
+        m_payout = sum(_f(r, "usdc_size") for r in c_redeems)
+        m_fee = sum(
+            max(0.0, _f(t, "usdc_size") - _f(t, "price") * _f(t, "size"))
+            for t in c_trades
+        )
+        if cid in redeemed_cids:
+            result = "win"
+        elif cid in pending_cids:
+            result = "pending"
+        else:
+            result = "loss"
+        per_market.append(
+            {
+                "condition_id": cid,
+                "title": str(first.get("title", "") or first.get("slug", "")),
+                "ts": _ts(first),
+                "outcome": str(first.get("outcome", "")),
+                "entry_price": round(_f(first, "price"), 4),
+                "trades": len(c_trades),
+                "cost": round(m_cost, 4),
+                "payout": round(m_payout, 4),
+                "net": round(m_payout - m_cost, 4),
+                "fee": round(m_fee, 4),
+                "result": result,
+            }
+        )
+    per_market.sort(key=lambda m: int(m["ts"]), reverse=True)  # yeni → eski
+
     return {
         "trades": len(trades),
         "redeems": len(redeems),
@@ -462,6 +504,7 @@ def compute_live_pnl(
         "net_pnl": round(payout - cost, 4),
         "fee": round(fee, 4),
         "roi_pct": round((payout - cost) / cost * 100, 2) if cost > 0 else 0.0,
+        "per_market": per_market,
     }
 
 
