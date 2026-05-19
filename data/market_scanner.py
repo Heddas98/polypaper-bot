@@ -110,7 +110,10 @@ class MarketScanner:
                 # down derivation (binary market): only if not freshly set
                 if "down_odds" not in entry or entry.get("down_odds") is None:
                     entry["down_odds"] = max(0.0, 1.0 - float(price))
-                entry["has_liquidity"] = True  # WS tick means market is live
+                # A audit (2026-05-19): WS-tick "has_liquidity=True" KALDIRILDI —
+                # bir fiyat tick'i "market canlı" demek ama "$ derinlik var"
+                # demek DEĞİL. has_liquidity yalnız get_market_odds'un gerçek
+                # order book derinlik ölçümünden gelir (5s scan'de tazelenir).
                 entry["ws_ts"] = datetime.now(UTC).isoformat()
                 self.odds_cache[slug] = entry
                 # Keep last_known_odds in sync for fallback path
@@ -129,7 +132,8 @@ class MarketScanner:
                 # UP side derivation only if UP is stale / missing
                 if "up_odds" not in entry or entry.get("up_odds") is None:
                     entry["up_odds"] = max(0.0, 1.0 - float(price))
-                entry["has_liquidity"] = True
+                # A audit (2026-05-19): WS-tick has_liquidity override kaldırıldı
+                # (yukarı bkz) — has_liquidity gerçek order book derinliğinden.
                 entry.setdefault("ws_ts", datetime.now(UTC).isoformat())
                 self.odds_cache[slug] = entry
             except Exception:  # noqa: BLE001
