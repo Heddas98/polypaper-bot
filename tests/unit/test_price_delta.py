@@ -65,6 +65,17 @@ def test_compute_deltas_drop_last_default():
     assert r["last_dir"] == "down"
 
 
+def test_compute_deltas_current_window():
+    """drop_last=True → atılan en yeni mum `current_*` alanlarına yazılır."""
+    candles = [_c(100, 101), _c(101, 100), _c(200, 206)]  # son pencere 200→206
+    r = compute_price_deltas(candles)  # drop_last=True
+    assert r["current_open"] == 200.0
+    assert r["current_close"] == 206.0
+    assert r["current_delta"] == 6.0
+    assert r["current_dir"] == "up"
+    assert r["n"] == 2  # tamamlanmış pencereler (son hariç)
+
+
 def test_compute_deltas_avg_windows():
     """5/10/all ortalamaları doğru pencere dilimlerinden."""
     # 12 pencere, hepsi +1% (open 100, close 101)
@@ -114,9 +125,24 @@ def test_price_delta_block_renders():
     txt = _price_delta_block("BTC", "5m", st)
     assert "BTC 5m" in txt
     assert "Fiyat Hareketi" in txt
-    assert "Son pencere" in txt
-    assert "Ort.|hareket|" in txt
-    assert "pencere" in txt  # up/down sayısı
+    assert "Önceki pencere" in txt
+    assert "ortalama hareket" in txt.lower()
+    assert "24 saat yön" in txt
+
+
+def test_price_delta_block_shows_live_current():
+    """live_* alanları varsa 'Şu an (canlı)' satırı + güncel delta görünür."""
+    st = compute_price_deltas(
+        [_c(100, 101), _c(101, 100), _c(100, 100)], drop_last=False
+    )
+    # _fetch_price_deltas'ın canlı augmentasyonunu simüle et
+    st["current_open"] = 100.0
+    st["live_price"] = 109.0
+    st["live_delta"] = 9.0
+    st["live_delta_pct"] = 9.0
+    txt = _price_delta_block("BTC", "5m", st)
+    assert "Şu an (canlı)" in txt
+    assert "canlı $109" in txt  # açılış→canlı fiyat satırı
 
 
 # ── _fetch_price_deltas ──────────────────────────────────────────────────
@@ -126,10 +152,15 @@ def test_price_delta_block_renders():
 async def test_fetch_price_deltas_normal():
     engine = MagicMock()
     engine.candle_collector.get_ext_candles = AsyncMock(
-        return_value=[_c(100, 101), _c(101, 102), _c(102, 100)]
+        return_value=[_c(100, 101), _c(101, 102), _c(102, 105)]
     )
+    # canlı spot fiyat — devam eden pencere açılışı 102, canlı 110 → +8
+    engine.external_feed.get_price = MagicMock(return_value=110.0)
     r = await _fetch_price_deltas(engine, "BTC", "5m")
-    assert r["n"] >= 1  # drop_last sonrası ≥1 pencere
+    assert r["n"] >= 1  # drop_last sonrası ≥1 tamamlanmış pencere
+    assert r["live_price"] == 110.0
+    assert r["live_delta"] == pytest.approx(8.0)
+    assert r["live_dir"] == "up"
 
 
 @pytest.mark.asyncio

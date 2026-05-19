@@ -252,37 +252,120 @@ async def _fetch_price_deltas(engine, coin: str, tf: str) -> dict:
         # `drop_last` ile onu atar (yalnız tamamlanmış pencereler sayılır).
         limit = candles_24h_count(tf) + 1
         candles = await cc.get_ext_candles(symbol, tf, limit=limit)
-        return compute_price_deltas(candles)
+        deltas = compute_price_deltas(candles)
+        # Güncel (canlı) delta — devam eden pencere açılışı vs CANLI spot
+        # fiyat. external_feed.get_price 30s'den eski veriyi None döner →
+        # canlı satır o zaman gösterilmez (blok candles_ext'e düşer).
+        try:
+            ef = getattr(engine, "external_feed", None)
+            live = ef.get_price(coin) if ef is not None else None
+            co = float(deltas.get("current_open", 0) or 0)
+            if live and co > 0:
+                live = float(live)
+                deltas["live_price"] = round(live, 4)
+                deltas["live_delta"] = round(live - co, 4)
+                deltas["live_delta_pct"] = round((live - co) / co * 100.0, 4)
+                _ld = live - co
+                deltas["live_dir"] = (
+                    "up" if _ld > 0 else ("down" if _ld < 0 else "flat")
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return deltas
     except Exception as _e:  # noqa: BLE001
         logger.debug(f"price deltas {coin}/{tf}: {_e}")
         return {}
 
 
-def _price_delta_block(coin: str, tf: str, st: dict) -> str:
-    """📐 Fiyat hareketi bloğu — `compute_price_deltas` çıktısını basar.
+def _delta_arrow(d: float) -> str:
+    """Fiyat-hareketi yön oku: ▲ artı · ▼ eksi · ▬ değişimsiz."""
+    return "▲" if d > 0 else ("▼" if d < 0 else "▬")
 
-    Market açılış→kapanış delta'sı + son 5/10/24s ortalama |hareket| +
-    net yön + up/down pencere sayısı. İşlem alırken volatilite/eğilim
-    göstergesi. Veri yoksa boş string döner (panel atlar).
+
+def _fmt_signed_usd(d: float) -> str:
+    """İşaretli USD — adaptif hassasiyet (BTC $31 · ETH $1.20 · XRP $0.0012)."""
+    a = abs(d)
+    if a >= 100:
+        body = f"{a:,.0f}"
+    elif a >= 1:
+        body = f"{a:,.2f}"
+    else:
+        body = f"{a:.4f}"
+    return f"{'+' if d >= 0 else '-'}${body}"
+
+
+def _price_delta_block(coin: str, tf: str, st: dict) -> str:
+    """📐 Fiyat hareketi bloğu — okunaklı + açıklamalı (2026-05-19 revize).
+
+    Heddas direktifi: 4 net satır — (1) ŞU AN (canlı) delta: pencere
+    açıldığından beri kaç gitmiş; (2) ÖNCEKİ kapanmış pencere; (3) pencere
+    başına ortalama hareket (son 5/10/24s); (4) 24 saat yön dengesi + yorum.
+    `compute_price_deltas` + `_fetch_price_deltas` (live_*) çıktısını basar.
+    Veri yoksa boş string döner (panel satırı atlar).
     """
     if not st or int(st.get("n", 0)) == 0:
         return ""
+    lines = [f"📐 <b>{esc(coin)} {esc(tf)} — Fiyat Hareketi</b>"]
+
+    # (1) ŞU AN — canlı spot varsa canlı, yoksa son candles_ext verisi.
+    cur_open = float(st.get("current_open", 0) or 0)
+    now_d = now_dp = now_px = None
+    src = ""
+    if st.get("live_price") and cur_open > 0:
+        now_d = float(st["live_delta"])
+        now_dp = float(st["live_delta_pct"])
+        now_px = float(st["live_price"])
+        src = "canlı"
+    elif cur_open > 0 and float(st.get("current_close", 0) or 0) > 0:
+        now_d = float(st["current_delta"])
+        now_dp = float(st["current_delta_pct"])
+        now_px = float(st["current_close"])
+        src = "son veri"
+    if now_d is not None:
+        _pf = ",.0f" if cur_open >= 100 else ",.2f"
+        lines.append(
+            f"  ▶️ <b>Şu an ({src}): {_delta_arrow(now_d)} "
+            f"{_fmt_signed_usd(now_d)}</b>  ({now_dp:+.3f}%)"
+        )
+        lines.append(
+            f"     pencere açılışı ${format(cur_open, _pf)} → "
+            f"{src} ${format(now_px, _pf)}"
+        )
+
+    # (2) ÖNCEKİ tamamlanmış pencere.
     ld = float(st.get("last_delta", 0.0))
     ldp = float(st.get("last_delta_pct", 0.0))
-    arrow = "▲" if ld > 0 else ("▼" if ld < 0 else "▬")
-    sign = "+" if ld >= 0 else "-"
-    aa = st.get("avg_abs_pct", {}) or {}
-    net = float(st.get("net_pct_all", 0.0))
-    net_arrow = "▲" if net > 0 else ("▼" if net < 0 else "▬")
-    return (
-        f"📐 <b>{esc(coin)} {esc(tf)} — Fiyat Hareketi</b>\n"
-        f"  Son pencere: {arrow} {sign}${abs(ld):,.0f} ({ldp:+.3f}%)\n"
-        f"  Ort.|hareket|: 5p %{float(aa.get('5', 0)):.3f} · "
-        f"10p %{float(aa.get('10', 0)):.3f} · "
-        f"24s %{float(aa.get('all', 0)):.3f}\n"
-        f"  Net yön 24s: {net_arrow} {net:+.3f}%  ·  "
-        f"↑{int(st.get('up_count', 0))} / ↓{int(st.get('down_count', 0))} pencere\n"
+    lines.append(
+        f"  ⏹ Önceki pencere: {_delta_arrow(ld)} {_fmt_signed_usd(ld)}"
+        f"  ({ldp:+.3f}%) — kapandı"
     )
+
+    # (3) Pencere başına ortalama hareket (mutlak, volatilite göstergesi).
+    aa = st.get("avg_abs_pct", {}) or {}
+    lines.append("  📊 Pencere başına ortalama hareket:")
+    lines.append(
+        f"     son 5 pencere: %{float(aa.get('5', 0)):.3f}  ·  "
+        f"son 10: %{float(aa.get('10', 0)):.3f}  ·  "
+        f"son 24 saat: %{float(aa.get('all', 0)):.3f}"
+    )
+
+    # (4) 24 saat yön dengesi + insan-okunur yorum.
+    up = int(st.get("up_count", 0))
+    dn = int(st.get("down_count", 0))
+    tot = up + dn
+    if tot:
+        ratio = up / tot
+        verdict = (
+            "yukarı eğilimli" if ratio >= 0.55
+            else "aşağı eğilimli" if ratio <= 0.45
+            else "dengeli (≈ yazı-tura)"
+        )
+    else:
+        verdict = "veri yok"
+    lines.append(
+        f"  🧭 24 saat yön: {up} ▲ yukarı / {dn} ▼ aşağı — <i>{verdict}</i>"
+    )
+    return "\n".join(lines) + "\n"
 
 
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2141,14 +2224,22 @@ async def _build_market_scan(engine) -> str:
                 odds = scanner.get_current_odds(slug)
         except Exception:  # noqa: BLE001
             odds = None
-        # 2026-05-19 Heddas: kompakt fiyat-hareketi — 24s ortalama |hareket| +
-        # son pencere yön oku. Detaylı blok market BUY onay ekranında.
+        # 2026-05-19 Heddas: kompakt fiyat-hareketi alt-satırı — güncel
+        # (canlı) hareket + son 24s ortalama. Tam blok market BUY onayında.
         _dl = await _fetch_price_deltas(engine, coin, tf)
         _dtxt = ""
         if _dl and int(_dl.get("n", 0)) > 0:
             _aa = float((_dl.get("avg_abs_pct") or {}).get("all", 0))
-            _ar = {"up": "▲", "down": "▼"}.get(str(_dl.get("last_dir", "")), "▬")
-            _dtxt = f"  ·  {_ar} 24s|Δ| %{_aa:.3f}"
+            if _dl.get("live_price"):
+                _cd = float(_dl.get("live_delta_pct", 0))
+                _clab = "canlı"
+            else:
+                _cd = float(_dl.get("last_delta_pct", 0))
+                _clab = "son pencere"
+            _dtxt = (
+                f"\n       {_clab}: {_delta_arrow(_cd)} {_cd:+.3f}%"
+                f"  ·  24s ort. hareket %{_aa:.3f}"
+            )
         if odds:
             up = float(odds.get("up_odds", 0) or 0)
             dn = float(odds.get("down_odds", 0) or 0)
@@ -2156,7 +2247,11 @@ async def _build_market_scan(engine) -> str:
         else:
             text += f"  {tf:>3}  <i>odds yok</i>{_dtxt}\n"
         shown += 1
-    text += "\n<i>Δ = pencere açılış→kapanış fiyat farkı · |Δ| = mutlak " "ortalama (volatilite). Detay → market BUY onay ekranı.</i>"
+    text += (
+        "\n<i>'canlı' = pencere açılışından bu yana hareket · '24s ort. "
+        "hareket' = son 24 saatte pencere başına ortalama oynaklık. "
+        "Tam detay → market BUY onay ekranı.</i>"
+    )
     return text.rstrip() + "\n"
 
 

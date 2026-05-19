@@ -93,10 +93,34 @@ def compute_price_deltas(candles: list[dict], drop_last: bool = True) -> dict:
         "net_pct_all": 0.0,
         "up_count": 0,
         "down_count": 0,
+        # Güncel (devam eden) pencere — `drop_last` ile atılan en yeni mum.
+        # Caller canlı spot fiyatla `live_delta`'yı ayrıca türetebilir.
+        "current_open": 0.0,
+        "current_close": 0.0,
+        "current_delta": 0.0,
+        "current_delta_pct": 0.0,
+        "current_dir": "flat",
     }
     rows = list(candles or [])
+    current_candle: dict | None = None
     if drop_last and len(rows) > 1:
+        current_candle = rows[-1]  # devam eden pencere
         rows = rows[:-1]
+    # Güncel pencere delta'sı (atılan en yeni mum üzerinden).
+    if isinstance(current_candle, dict):
+        try:
+            _co = float(current_candle.get("open", 0) or 0)
+            _cc = float(current_candle.get("close", 0) or 0)
+        except (TypeError, ValueError):
+            _co = _cc = 0.0
+        if _co > 0:
+            out["current_open"] = round(_co, 4)
+            out["current_close"] = round(_cc, 4)
+            out["current_delta"] = round(_cc - _co, 4)
+            out["current_delta_pct"] = round((_cc - _co) / _co * 100.0, 4)
+            out["current_dir"] = (
+                "up" if _cc > _co else ("down" if _cc < _co else "flat")
+            )
     deltas: list[tuple[float, float]] = []  # (delta_usd, delta_pct)
     for c in rows:
         if not isinstance(c, dict):
