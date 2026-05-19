@@ -144,6 +144,25 @@ def _panel_nav_kb(refresh_cb: str) -> InlineKeyboardMarkup:
     )
 
 
+async def _safe_edit(q, text: str, kb) -> None:
+    """Callback panel edit — "message not modified" duplicate'ini engelle.
+
+    2026-05-19 (B1 audit): "🔄 Yenile" panel içeriği değişmemişse Telegram
+    `BadRequest: message is not modified` döndürür. Eski desen bunu geniş
+    yakalayıp `reply_text` ile YENİ mesaj atıyordu → her gereksiz
+    yenilemede duplicate panel. Artık "not modified" sessizce yutulur
+    (panel zaten güncel); yalnız gerçek edit hatasında reply fallback.
+    """
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except BadRequest as e:
+        if "not modified" in str(e).lower():
+            return  # panel zaten güncel — duplicate mesaj atma
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+    except (TimeoutError, TelegramError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
     # H-05 (2026-05-15 ultra-audit): admin gate — real-money UI.
@@ -318,10 +337,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.exception(f"live_perf: {_ex}")
             text = _user_error_msg(_ex, "performans paneli")
         kb = _panel_nav_kb("live_perf")
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (TimeoutError, BadRequest, TelegramError):
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
 
     elif data == "live_risk":
         # Faz 2B: risk yöneticisi paneli (RiskManager state + limitler)
@@ -331,10 +347,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.exception(f"live_risk: {_ex}")
             text = _user_error_msg(_ex, "risk paneli")
         kb = _panel_nav_kb("live_risk")
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (TimeoutError, BadRequest, TelegramError):
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
 
     elif data == "live_scan":
         # Faz 2B: piyasa tarama paneli (scanner aktif market'ler + odds)
@@ -344,10 +357,7 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.exception(f"live_scan: {_ex}")
             text = _user_error_msg(_ex, "piyasa tarama")
         kb = _panel_nav_kb("live_scan")
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (TimeoutError, BadRequest, TelegramError):
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
 
     elif data == "live_guards":
         # Faz 2B: 6-guard snapshot — /lg builder'ı panel olarak göm
@@ -359,18 +369,11 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.exception(f"live_guards: {_ex}")
             text = _user_error_msg(_ex, "guards paneli")
         kb = _panel_nav_kb("live_guards")
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (TimeoutError, BadRequest, TelegramError):
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
 
     elif data == "live_main":
         text, kb = await _build_main(engine, db)
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (TimeoutError, BadRequest, TelegramError):
-            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
 
     # ═══════════════════════════════════════════════════════════════════
     # 2026-05-05 Heddas direktifi: /live ekranı = LIVE mod manuel trade
@@ -1998,9 +2001,17 @@ async def _build_performance(engine, db) -> str:
         logger.debug(f"_build_performance history: {_e}")
         history = "<i>Geçmiş alınamadı.</i>"
 
+    # D1 audit (2026-05-19): on-chain blok TÜM canlı geçmişi kapsar;
+    # alttaki compare/history DB `live_trades`/`executions` kaynaklı —
+    # tarihsel manuel trade'ler (9803037 INSERT fix öncesi) orada yok.
+    # Ayırıcı not, "9 trade" üstte + "henüz live trade yok" altta
+    # çelişkisini açıklar.
     return (
         "📈 <b>PERFORMANS</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{_live_pnl_block(live_pnl)}"
+        "<i>⬇️ Aşağısı yalnız DB-kayıtlı trade'ler (otomatik-mirror + "
+        "2026-05-18 sonrası manuel). Bot'un TÜM canlı sonucu yukarıdaki "
+        "on-chain bloktadır.</i>\n\n"
         f"{compare}\n\n"
         f"{history}"
     )

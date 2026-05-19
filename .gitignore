@@ -110,6 +110,8 @@ archive/
 
 # Reports folder (HTML dashboards, snapshots)
 reports/
+# P0-15 (2026-05-19): generated local HTML dashboard — artifact, not source
+dashboard.html
 
 # Local bot state
 .bot_pid

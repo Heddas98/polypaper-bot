@@ -12,12 +12,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from telegram import InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 
 from telegram_bot.handlers.live_handler import (
     _build_market_scan,
     _build_performance,
     _build_risk,
     _panel_nav_kb,
+    _safe_edit,
 )
 
 # ── _panel_nav_kb ────────────────────────────────────────────────────────
@@ -251,3 +253,57 @@ def test_build_guards_text_returns_snapshot():
     assert "G1 Kill Switch" in txt
     assert "G6 WS Stale" in txt
     assert len(txt) <= 3950  # Telegram 4096 limitine karşı truncate
+
+
+# ── _safe_edit — B1 audit (refresh "message not modified" duplicate fix) ──
+
+
+@pytest.mark.asyncio
+async def test_safe_edit_success_no_reply():
+    """edit başarılı → reply_text ÇAĞRILMAZ (duplicate mesaj yok)."""
+    q = MagicMock()
+    q.edit_message_text = AsyncMock()
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+    await _safe_edit(q, "txt", None)
+    q.edit_message_text.assert_called_once()
+    q.message.reply_text.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_safe_edit_not_modified_swallowed():
+    """B1 çekirdek: 'message is not modified' → reply_text ÇAĞRILMAZ.
+
+    Eski desen bunu reply_text ile yanıtlayıp her gereksiz "🔄 Yenile"de
+    duplicate panel üretiyordu. Artık sessizce yutulur.
+    """
+    q = MagicMock()
+    q.edit_message_text = AsyncMock(
+        side_effect=BadRequest("Message is not modified: text/markup same")
+    )
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+    await _safe_edit(q, "txt", None)
+    q.message.reply_text.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_safe_edit_real_badrequest_falls_back():
+    """Gerçek BadRequest (not-modified DEĞİL) → reply_text fallback."""
+    q = MagicMock()
+    q.edit_message_text = AsyncMock(side_effect=BadRequest("Message to edit not found"))
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+    await _safe_edit(q, "txt", None)
+    q.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_safe_edit_telegram_error_falls_back():
+    """TelegramError → reply_text fallback (panel yine de gösterilir)."""
+    q = MagicMock()
+    q.edit_message_text = AsyncMock(side_effect=TelegramError("network glitch"))
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+    await _safe_edit(q, "txt", None)
+    q.message.reply_text.assert_called_once()

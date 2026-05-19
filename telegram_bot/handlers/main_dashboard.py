@@ -1,13 +1,14 @@
-"""Mod-first /start dashboard — Heddas 2026-05-06 UX redesign.
+"""Mod-first tek-kapı dashboard — Heddas 2026-05-06 UX redesign,
+2026-05-19 tek-kapı + birleştirme.
 
-Yeni mimari:
-  /start → mod seç (PAPER vs LIVE)
-  PAPER mode → paper-only menü (stats, strategies, AI Brain, dashboard)
-  LIVE mode  → live-only menü (BUY/SELL, positions, PnL, redeem, allowance)
+Mimari:
+  /start /main /dashboard /d → mod seç (PAPER vs LIVE) — bot'un TEK girişi
+  PAPER MODE → detaylı paper dashboard (`dashboard._build`) + paper menü
+  LIVE MODE  → `/live` trade istasyonu kokpiti (`live_handler._build_main`)
 
-İki mod arasında "Mode Değiştir" butonu ile geçiş. Bot düzeyinde
-LIVE_ENABLED env flag'i ayrıca trade execution'ı kontrol eder
-(paper hep aktif, live ENV ile gate'lenir).
+Mod seçimi YALNIZ navigasyondur — hangi menü dünyasını gördüğünü seçer.
+Gerçek parayla trading'i açmak ayrıdır: kokpitteki 2-tık onaylı
+`live_toggle` (LIVE_ENABLED env). Mod seçmek trading'i BAŞLATMAZ.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
+
+from telegram_bot.handlers.live_handler import _live_start_dt, _safe_edit
 
 logger = logging.getLogger("polypaper.main_dashboard")
 
@@ -61,20 +64,7 @@ async def main_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             disable_web_page_preview=True,
         )
     elif update.callback_query:
-        try:
-            await update.callback_query.edit_message_text(
-                text,
-                parse_mode="HTML",
-                reply_markup=kb,
-                disable_web_page_preview=True,
-            )
-        except (BadRequest, TelegramError):
-            await update.callback_query.message.reply_text(
-                text,
-                parse_mode="HTML",
-                reply_markup=kb,
-                disable_web_page_preview=True,
-            )
+        await _safe_edit(update.callback_query, text, kb)
 
 
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -132,8 +122,10 @@ async def _build_main_dashboard_text_kb(
         "  <i>Polymarket'te gerçek parayla trade istasyonu. Manuel\n"
         "  BUY/SELL, piyasa/risk/guard panelleri, on-chain PnL.</i>\n"
         f"  💵 <b>${live_summary['balance']:,.2f}</b>  ·  "
-        f"bugün {live_summary['pnl_emoji']} {live_summary['daily_pnl']:+.2f}  ·  "
-        f"{live_summary['open_positions']} pozisyon  ·  "
+        f"net {live_summary['pnl_emoji']} "
+        f"{'+' if live_summary['net_pnl'] >= 0 else '-'}"
+        f"${abs(live_summary['net_pnl']):.2f} "
+        f"({live_summary['trades']} trade)  ·  "
         f"allowance {live_summary['allowance_status']}\n\n"
         "<i>Seçtiğin mod kendi menü dünyasını açar. Mod seçimi yalnız "
         "navigasyon — gerçek parayla trading'i LIVE MODE içinde ayrıca, "
@@ -193,10 +185,17 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
 
 
 async def _get_live_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
-    """Live trade özet bilgi — Polymarket cache'inden."""
+    """Live trade özet bilgi — Polymarket cache'inden.
+
+    2026-05-19 (A8 audit): eski `daily_pnl` açık pozisyonların unrealized
+    PnL'iydi ama "bugün" diye etiketleniyordu. Artık bot'un GERÇEK net
+    PnL'i on-chain activity'den hesaplanır (`compute_live_pnl`) — `/live`
+    kokpitiyle aynı kaynak.
+    """
     summary = {
         "balance": 0.0,
-        "daily_pnl": 0.0,
+        "net_pnl": 0.0,
+        "trades": 0,
         "pnl_emoji": "⚪",
         "open_positions": 0,
         "allowance_status": "❓ Bilinmiyor",
@@ -204,23 +203,23 @@ async def _get_live_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
     try:
         engine = context.bot_data.get("engine")
         if engine and getattr(engine, "db", None):
-            from data.polymarket_portfolio import read_cached_snapshot
+            from data.polymarket_portfolio import compute_live_pnl, read_cached_snapshot
 
             snap = await read_cached_snapshot(engine.db)
             if snap:
                 summary["balance"] = float(snap.get("pusd_balance", 0))
                 allowance = float(snap.get("pusd_allowance", 0))
                 summary["allowance_status"] = "✅ Hazır" if allowance >= 1.0 else "❌ Eksik"
-                positions = snap.get("positions", [])
-                summary["open_positions"] = len(positions)
-                # Bugünkü PnL: positions cur_value - cost_basis (active only)
-                # + today's redeemed activity sum
-                pnl = sum(
-                    float(p.get("cur_value_usd", 0)) - float(p.get("cost_basis_usd", 0))
-                    for p in positions
-                )
-                summary["daily_pnl"] = pnl
-        summary["pnl_emoji"] = "🟢" if summary["daily_pnl"] >= 0 else "🔴"
+                summary["open_positions"] = len(snap.get("positions", []) or [])
+                activity = snap.get("activity") or []
+                if activity:
+                    lp = compute_live_pnl(
+                        activity, int(_live_start_dt().timestamp())
+                    )
+                    summary["net_pnl"] = float(lp.get("net_pnl", 0.0))
+                    summary["trades"] = int(lp.get("trades", 0))
+        net = summary["net_pnl"]
+        summary["pnl_emoji"] = "🟢" if net > 0 else ("🔴" if net < 0 else "⚪")
     except Exception as e:  # noqa: BLE001
         logger.debug(f"_get_live_summary: {e}")
     return summary
@@ -276,10 +275,7 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     q = update.callback_query
     if q:
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError):
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
     elif update.message:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -312,10 +308,7 @@ async def live_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     q = update.callback_query
     if q:
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (BadRequest, TelegramError):
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
     elif update.message:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
