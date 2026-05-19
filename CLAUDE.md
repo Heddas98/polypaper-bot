@@ -20,7 +20,7 @@
 
 ## Mevcut Faz
 
-**P1 sprint** + 2026-05-15 ultra-audit Wave 1 closure.
+**`/live` trade istasyonu + mode-first UX redesign tamamlandı** (2026-05-18/19) — kokpit, 4 panel, mode-first tek-kapı, on-chain PnL hep canlı. Aktif backlog: P0-04 (Budget 2FA), M-08 (test monolith böl), paper PnL tutarsızlık araştırması (ayrı task). P1-01 (coverage) + P1-02 (AI Brain microservice) sürüyor.
 - P1-01: Coverage source genişletme (%42 → %60 ratchet, şu an %44.06 toplam ama kritik path <%30).
 - P1-02: AI Brain microservice (Wave 1+2a+2b+2c kapalı, Wave 3 approval queue backlog).
 - Açık P0 eski: P0-02 (keyring), P0-04 (LIVE_BUDGET 2FA), P0-08 (5m default OFF) — mainnet blocker değil.
@@ -45,7 +45,7 @@
 - **BOT LIVE PnL ✅ (2026-05-18, `c72ddfc`)**: Kokpit "9 trade · $0 PnL" gösteriyordu — `live_trader._total_pnl` `check_settlement`'tan beslenir, manuel `/live` trade'lerini kaçırır. `data/polymarket_portfolio.py::compute_live_pnl` — Polymarket on-chain `activity` feed'inden gerçek PnL (TRADE maliyeti + REDEEM payout). Market-bazlı conditionId filtresi (bot-öncesi market'in sınır-aşan redeem'i PnL'i şişirmez) + pending guard (redeem'siz + 900s grace içi trade = pending, kayıp değil). fee = `usdc_size−price×size`, fees_v2 crypto `0.07×(1−p)` ile cent-cent doğrulandı. `_build_main` kokpite "BOT LIVE PnL" bloğu; yanıltıcı "Toplam PnL: $0.0000" satırı silindi. **Production sonuç: 9 trade, 9/9 KAZANDI, net +$3.55, fee $0.14, ROI +%38.8**. Manuel-trade settle eşleştirme bu yolla çözüldü (on-chain kaynak — `closed_positions` belirsizliğine gerek kalmadı). `test_live_pnl.py` 14 test.
 - **Veri bulgusu (2026-05-18, KESİN)**: `engine.risk` streak = PAPER (sadece `engine_settlement.py:633`'ten beslenir). Polymarket `closed_positions` (50 kayıt) — filtre testi: bot dönemi (≥2026-05-09 + crypto updown) = **0 kayıt**, hepsi (50/50) Heddas'ın bot-ÖNCESİ kişisel geçmişi (Ocak-Mart: `tur-ala-fen`/`nba`/`uel` spor + eski bitcoin, toplam `realized_pnl` $19.7k). `polymarket_portfolio.py` parse DOĞRU — sadece cüzdan eski kullanıldığından. **Faz 2B panel doktrini**: "bot performansı" için `closed_positions` HİÇ KULLANMA (0 bot kaydı, 50-limit eski geçmişle dolu). Bot verisi → `live_trades` (artık `9803037` ile kaydeder) + Polymarket `recent_trades`/`activity` (Mayıs, güncel).
 
-**Test baseline (2026-05-15 full regression):** 3,572 pass / 12 fail / 63 skip. 12 fail = 9 REG-01 (app.py truncation, ÇÖZÜLDÜ) + 3 REG-02 (reproduce edilemedi). Ruff 0 violation. Coverage %44.06 toplam (kritik path <%30, C-03 açık). mypy strict baseline corrupted (M-07).
+**Test durumu (2026-05-19):** oturum boyunca live/mode/wave test alt-kümeleri **2591 pass / 0 fail** (tekrarlı doğrulandı). Yeni test dosyaları: `test_live_pnl.py` (17), `test_live_panels.py` (22), `test_mode_first.py` (11). Ruff 0 violation, mypy `core/` Success (55 dosya). Coverage %44.06 (kritik path <%30). Not: 2026-05-15'teki "12 fail" çözüldü — 9 REG-01 ✅, 3 REG-02 env-desync'ti (kod bug'ı değil). Tam suite (~3,600) bu oturum komple koşulmadı.
 
 **✅ Commit zinciri (2026-05-15):** Önceki "39 modified + 18 untracked" CLOSED. 8 duplikat → 4 thematic + 3 follow-up commit (push: `1de180c..3289636`). Ultra-audit + Wave 1: `6e4b9ba` docs(audit) · `93136c6` fix(c-01) · `bda186a` fix(c-02) · `9c01bca` fix(h-03) · `47c7e25` fix(l-01) · `0a8acbd` chore(memory). REG-01: `8b13226` fix(regression) app.py truncation restore.
 
