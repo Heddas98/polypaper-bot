@@ -52,6 +52,85 @@ BINANCE_SYMBOLS = {
 }
 
 
+def candles_24h_count(tf: str) -> int:
+    """24 saatlik veride kaç adet `tf` mumu var — fiyat-delta sorgu limiti.
+
+    `AGGREGATION_FACTORS` üzerinden türetilir (24h = 288 × 5m). 5m→288,
+    15m→96, 1h→24, 4h→6. Bilinmeyen tf → 96 (15m varsayım).
+    """
+    factor = AGGREGATION_FACTORS.get(tf, 3)
+    return max(2, 288 // max(1, factor))
+
+
+def compute_price_deltas(candles: list[dict], drop_last: bool = True) -> dict:
+    """Mum listesinden fiyat-hareketi istatistiği (Heddas direktifi 2026-05-19).
+
+    Her crypto Up/Down market'i bir zaman penceresidir; o pencerenin Binance
+    mumunun açılış→kapanış delta'sı "fiyat farkı"dır. Bu fonksiyon son
+    pencerelerin delta'larından: son pencere delta'sı + ortalama |hareket|
+    (son 5 / 10 / tümü) + net yön + up/down pencere sayısını üretir.
+
+    Saf fonksiyon — `candles_ext` sorgusunu çağıran yapar
+    (`CandleCollector.get_ext_candles`).
+
+    Args:
+        candles: [{open, close, ...}] — eski→yeni sıralı (`get_ext_candles`
+                 çıktısı).
+        drop_last: `candles_ext` en yeni satırı genelde DEVAM EDEN penceredir
+                   (kapanışı henüz kesinleşmemiş). True → atılır, yalnız
+                   tamamlanmış pencereler sayılır. Test için False geçilebilir.
+
+    Returns: dict — n / last_delta / last_delta_pct / last_dir /
+        avg_abs_pct{5,10,all} / net_pct_all / up_count / down_count.
+        Exception fırlatmaz; veri yoksa sıfır-dolu dict.
+    """
+    out: dict = {
+        "n": 0,
+        "last_delta": 0.0,
+        "last_delta_pct": 0.0,
+        "last_dir": "flat",
+        "avg_abs_pct": {"5": 0.0, "10": 0.0, "all": 0.0},
+        "net_pct_all": 0.0,
+        "up_count": 0,
+        "down_count": 0,
+    }
+    rows = list(candles or [])
+    if drop_last and len(rows) > 1:
+        rows = rows[:-1]
+    deltas: list[tuple[float, float]] = []  # (delta_usd, delta_pct)
+    for c in rows:
+        if not isinstance(c, dict):
+            continue
+        try:
+            o = float(c.get("open", 0) or 0)
+            cl = float(c.get("close", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if o <= 0:
+            continue
+        deltas.append((cl - o, (cl - o) / o * 100.0))
+    if not deltas:
+        return out
+    out["n"] = len(deltas)
+    out["last_delta"] = round(deltas[-1][0], 2)
+    out["last_delta_pct"] = round(deltas[-1][1], 4)
+    _ld = deltas[-1][0]
+    out["last_dir"] = "up" if _ld > 0 else ("down" if _ld < 0 else "flat")
+
+    def _avg_abs(seg: list[tuple[float, float]]) -> float:
+        return round(sum(abs(p) for _, p in seg) / len(seg), 4) if seg else 0.0
+
+    out["avg_abs_pct"] = {
+        "5": _avg_abs(deltas[-5:]),
+        "10": _avg_abs(deltas[-10:]),
+        "all": _avg_abs(deltas),
+    }
+    out["net_pct_all"] = round(sum(p for _, p in deltas) / len(deltas), 4)
+    out["up_count"] = sum(1 for d, _ in deltas if d > 0)
+    out["down_count"] = sum(1 for d, _ in deltas if d < 0)
+    return out
+
+
 class CandleBuilder:
     """Aggregates tick-level price data into OHLCV candles.
 

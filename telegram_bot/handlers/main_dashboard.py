@@ -176,9 +176,18 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
                         summary["open_strategies"] = int(row[0] or 0)
             except Exception:
                 pass
-            # Paper balance: ENV display (gerçek paper bakiye trade journal'dan).
-            # Default $10,386 (memory: 1417 trade, +$355 PnL, baseline $10,000)
-            summary["balance"] = float(os.getenv("PAPER_BUDGET_DISPLAY", "10386.0"))
+            # Paper bakiye: primary paper wallet'in canlı DB bakiyesi.
+            # 2026-05-19 audit: eski PAPER_BUDGET_DISPLAY env default'u
+            # ($10,386) doğrulanmamış 2026-04-30 snapshot'tan türemişti (drift).
+            try:
+                async with db.conn.execute(
+                    "SELECT balance FROM wallets WHERE is_primary=1 LIMIT 1"
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row and row[0] is not None:
+                        summary["balance"] = float(row[0])
+            except Exception:
+                pass
         summary["pnl_emoji"] = "🟢" if summary["daily_pnl"] >= 0 else "🔴"
     except Exception as e:  # noqa: BLE001
         logger.debug(f"_get_paper_summary: {e}")
@@ -259,10 +268,13 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # hub keyboard'a geçildi — tüm `menu_*` callback'leri kayıtlı + çalışır.
     hub = build_main_hub_keyboard(refresh_callback="main_paper")
     rows = list(hub.inline_keyboard) + [
+        # 2026-05-19 Heddas: Piyasa Tara paper'dan da erişilir — fiyat-hareketi
+        # (delta) verisi mod-bağımsız (crypto OHLC). Aynı zengin panel.
         [
+            InlineKeyboardButton("📡 Piyasa Tara", callback_data="live_scan"),
             InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live"),
-            InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard"),
-        ]
+        ],
+        [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],
     ]
     kb = InlineKeyboardMarkup(rows)
     q = update.callback_query
