@@ -2,8 +2,11 @@
 P0-07 (2026-05-09) — Reference price feed gerceklik audit'i.
 ==============================================================
 
-Polymarket binary Up/Down market'lerinin resolution oracle'i Binance spot
-price (kline close at boundary moment). Bu script:
+Polymarket crypto Up/Down market'lerinin resolution kaynagi = Chainlink
+BTC/USD data stream (market kurali; 2026-05-19 Gamma API ile dogrulandi —
+eski "Binance spot kline" varsayimi YANLISTI). UYARI: asagidaki
+--fetch-references Binance klines API'sini "official" sayiyor; bu metodoloji
+artik supheli, Chainlink data stream'e gore revize edilmeli. Bu script:
 
   1. --backfill : historical executions tablosundan settled trade'leri tara,
      external_prices'tan ±5s window'da bot'un local feed degerlerini tut,

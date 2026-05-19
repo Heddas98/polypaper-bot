@@ -4,8 +4,8 @@ PolyPaper Bot - Reference Price Audit Handler (P0-07-f, 2026-05-09)
 Telegram /ref_audit (alias /ra) — son 7 gunluk reference price audit ozeti.
 
 Heddas direktifi P0-07: bot'un local Binance/Chainlink feed'inin Polymarket
-resolution oracle (Binance kline close at boundary) ile sapma derecesini
-canli takip et. >5 bps sistemik sapma -> edge tahmini gecersiz alarmi.
+resolution kaynagi (Chainlink BTC/USD data stream — 2026-05-19 dogrulandi)
+ile sapma derecesini canli takip et. >5 bps sistemik sapma -> edge alarmi.
 
 Panel icerigi:
   - Son 7 gun audit row sayisi + data quality breakdown

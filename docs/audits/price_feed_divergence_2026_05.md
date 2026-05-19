@@ -1,5 +1,12 @@
 # Reference Price Feed Audit — 2026-05 (P0.3 Closure)
 
+> ⚠️ **DÜZELTME 2026-05-19:** Bu audit'in merkez sonucu YANLIŞ. "Polymarket
+> 5m resolution oracle = Binance" iddiası (TL;DR tablosu) hatalı. Gamma API
+> ile 500+ markette doğrulandı: 5m **ve** 15m BTC up/down marketleri
+> **Chainlink BTC/USD data stream**'e settle olur — market kuralı aynen:
+> "not according to other sources or spot markets". Aşağıdaki "5m parity OK /
+> divergence yok" değerlendirmesini DİKKATE ALMA.
+
 **Tarih:** 2026-04-30
 **Sahibi:** Claude (Lead Architect)
 **Kapsam:** Bot signal pipeline price feed source vs Polymarket resolution oracle (Binance + Chainlink Data Stream)

@@ -1,5 +1,11 @@
 # Polymarket RTDS Chainlink Subscribe — 2026-05 (P0.12 Closure)
 
+> ⚠️ **DÜZELTME 2026-05-19:** Bu doküman "5m = Binance parity, 15m = Chainlink"
+> varsayımıyla yazıldı — YANLIŞ. Gamma API ile doğrulandı: 5m **ve** 15m crypto
+> up/down marketleri **Chainlink BTC/USD data stream**'e settle olur. Modül
+> düzeltildi (`get_price_5m` artık Chainlink öncelikli), RTDS feed main.py'ye
+> bağlandı (P1.10). "Binance 5m parity/resolution" diyen satırları DİKKATE ALMA.
+
 **Tarih:** 2026-04-30
 **Sahibi:** Claude (Lead Architect)
 **Tetik:** Heddas direktifi 2026-04-30 — "en güncel ol" + P0.3 audit'in 15m divergence açığı

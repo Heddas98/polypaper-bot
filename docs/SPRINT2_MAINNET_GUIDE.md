@@ -184,7 +184,7 @@ Bot file-channel kill switch ile durur (T11.2 G1 doctrine).
 
 1. **Cloudflare 403 inisial derive** — boot'ta 1 kez log'a düşebilir. Cross-module shared cache devreye girince 60s job'larda spam YOK.
 2. **`balance_allowance 401`** — eğer hala görüyorsan, stored creds yine eski. Bot otomatik derive fallback yapar.
-3. **5m markets resolution divergence** — şu an Binance kullanılıyor (Polymarket de Binance). 15m markets için Chainlink RTDS modülü hazır ama wire edilmedi (P0.12 backlog).
+3. **Resolution feed** — 5m + 15m crypto markets **Chainlink BTC/USD data stream**'e settle olur (2026-05-19 Gamma API ile doğrulandı; eski "Binance" varsayımı yanlıştı). RTDS feed (`data/polymarket_rtds.py`) main.py'ye bağlandı (P1.10); `RTDS_ENABLED` default açık, aktivasyon için bot restart gerekir.
 
 ---
 

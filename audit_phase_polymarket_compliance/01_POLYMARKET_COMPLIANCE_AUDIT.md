@@ -76,8 +76,8 @@
 ### Bulgu L3-002: Reference price feed audit ✅
 - **Dosya:** `data/external_feed.py:33`, `data/candle_collector.py:33`, `core/ai_brain.py:949`
 - **Mevcut:** Binance REST `api.binance.com/api/v3/ticker/price` (10s polling)
-- **Docs:** 5m markets Binance OK, 15m markets Chainlink Data Stream öneri
-- **Status:** ✅ P0.3 audit. 5m parity ✅, 15m P0.12 RTDS modülü ile çözüldü.
+- **Docs:** 5m + 15m markets Chainlink BTC/USD data stream'e settle olur (2026-05-19 düzeltme — eski "5m Binance OK" varsayımı yanlıştı, Gamma API doğruladı)
+- **Status:** ⚠️ P0.3 audit sonucu revize edildi — RTDS Chainlink feed P1.10'da main.py'ye bağlandı.
 
 ### Bulgu L3-003: Polymarket RTDS subscribe ready ✅
 - **Dosya:** `data/polymarket_rtds.py` (P0.12 yeni, 304 satır)

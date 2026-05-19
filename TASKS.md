@@ -1118,13 +1118,13 @@ Hedef: Hiçbir API key/secret log'a, commit'e, Telegram çıktısına sızmıyor
 |-------|--------------|------------|---------|
 | SDK | `pip install py-clob-client-v2`, `from py_clob_client_v2 import ClobClient` | `py-clob-client==0.34.6` (V1) | ⚠️ |
 | Signature types | EOA=0 / POLY_PROXY=1 / GNOSIS_SAFE=2 | signature_type=2 + funder=proxy | ✅ |
-| Crypto fee | `C × 0.072 × p × (1-p)`, peak $1.80, maker rebate %20 | `core/fees_v2.py` bit-identical | ✅ |
+| Crypto fee | `C × 0.07 × p × (1-p)`, peak $1.75, maker rebate %20 | `core/fees_v2.py` bit-identical | ✅ |
 | Heartbeat | POST /heartbeat 5s (10s+5s buffer death) | belirsiz (P0.2) | ⚠️ |
 | Order types | GTC/GTD/FOK/FAK + post-only | OrderType.FOK explicit (Phase B) | ✅ |
 | Tick size + neg_risk | per-market sorgula | `tick_size + neg_risk + builder_code` options dict (Phase A) | ✅ |
 | Min order | $5 | bot çoğunlukla $1 — config var | ⚠️ |
 | Rate limits | POST /order 3500/10s, /book 1500/10s vb. | Phase D Bulgu 8 | ⏳ |
-| Reference price | Binance 1H + Chainlink 15m | belirsiz (P0.3) | ⚠️ |
+| Reference price | 5m+15m → Chainlink data stream (2026-05-19 doğrulandı), hourly → Binance | RTDS feed wire edildi (P1.10) | ✅ |
 | Allowance | 5 approval (pUSD×3 + CTF×2) | Aşama 1+2 SDK ile kısmi | ⚠️ |
 | HTTP 425 (restart window) | gracefully retry | belirsiz | ⚠️ |
 | Float vs Decimal | Decimal zorunlu (float = INVALID_SIGNATURE riski) | belirsiz | ⚠️ |
