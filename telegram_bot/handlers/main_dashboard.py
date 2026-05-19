@@ -21,6 +21,7 @@ from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 from telegram_bot.handlers.live_handler import _live_start_dt, _safe_edit
+from telegram_bot.hub_keyboard import build_main_hub_keyboard
 
 logger = logging.getLogger("polypaper.main_dashboard")
 
@@ -252,27 +253,18 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.debug(f"paper_dashboard build: {_e}")
     text = "📋 <b>PAPER MODE</b> · simülasyon\n\n" + body
 
-    kb = InlineKeyboardMarkup(
+    # 2026-05-19 audit (ölü buton fix): eski elle-yazılmış keyboard 6 ölü
+    # callback içeriyordu (strategies/ai_brain/stats/bt_v2_main/
+    # trades_page:0/suggest — hiçbiri bot.py'de kayıtlı DEĞİLdi). Kanıtlanmış
+    # hub keyboard'a geçildi — tüm `menu_*` callback'leri kayıtlı + çalışır.
+    hub = build_main_hub_keyboard(refresh_callback="main_paper")
+    rows = list(hub.inline_keyboard) + [
         [
-            [
-                InlineKeyboardButton("⚙️ Stratejiler", callback_data="strategies"),
-                InlineKeyboardButton("🤖 AI Brain", callback_data="ai_brain"),
-            ],
-            [
-                InlineKeyboardButton("📈 Stats", callback_data="stats"),
-                InlineKeyboardButton("🎯 Backtest", callback_data="bt_v2_main"),
-            ],
-            [
-                InlineKeyboardButton("📜 Trades", callback_data="trades_page:0"),
-                InlineKeyboardButton("💡 Öneri", callback_data="suggest"),
-            ],
-            [
-                InlineKeyboardButton("🔄 Yenile", callback_data="main_paper"),
-                InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live"),
-            ],
-            [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],
+            InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live"),
+            InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard"),
         ]
-    )
+    ]
+    kb = InlineKeyboardMarkup(rows)
     q = update.callback_query
     if q:
         await _safe_edit(q, text, kb)
@@ -327,11 +319,11 @@ async def _show_bot_settings(q) -> None:
         "  • <code>/risk</code> — risk limits\n"
         "  • <code>/diagnose</code> — sistem health\n"
     )
+    # 2026-05-19 audit: "🔧 Runtime Toggle" butonu (env_toggle_main) ölüydü
+    # — bot.py'de callback handler'ı yok, /envt yalnız komut. Buton kaldırıldı;
+    # metin zaten "/envt" komutunu söylüyor.
     kb = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("🔧 Runtime Toggle", callback_data="env_toggle_main")],
-            [InlineKeyboardButton("◀️ Geri", callback_data="main_dashboard")],
-        ]
+        [[InlineKeyboardButton("◀️ Geri", callback_data="main_dashboard")]]
     )
     try:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)

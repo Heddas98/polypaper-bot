@@ -264,3 +264,58 @@ def test_now_epoch_none_uses_real_time():
     assert isinstance(r, dict)
     # SINCE çok eski → trade grace'ten eski → loss
     assert r["loss_markets"] == 1
+
+
+# ── per_market işlem dökümü (2026-05-19 veri-zenginliği) ─────────────────
+
+
+def test_per_market_detail():
+    """per_market — her market için işlem dökümü (nerede/ne zaman/ne kadar)."""
+    act = [
+        _trade("0xWIN", SINCE + 100, price=0.5, size=2.0, usdc=1.05),
+        _redeem("0xWIN", SINCE + 200, usdc=2.0),
+        _trade("0xLOSS", SINCE + 300, price=0.8, size=1.25, usdc=1.02),
+    ]
+    r = compute_live_pnl(act, SINCE, now_epoch=NOW)
+    pm = r["per_market"]
+    assert len(pm) == 2
+    # yeni → eski sıralı
+    assert pm[0]["ts"] >= pm[1]["ts"]
+    by_cid = {m["condition_id"]: m for m in pm}
+    win = by_cid["0xWIN"]
+    assert win["result"] == "win"
+    assert win["entry_price"] == pytest.approx(0.5)
+    assert win["cost"] == pytest.approx(1.05)
+    assert win["payout"] == pytest.approx(2.0)
+    assert win["net"] == pytest.approx(0.95)
+    assert win["trades"] == 1
+    loss = by_cid["0xLOSS"]
+    assert loss["result"] == "loss"
+    assert loss["payout"] == 0.0
+    assert loss["net"] == pytest.approx(-1.02)
+
+
+def test_per_market_carries_title_and_outcome():
+    """per_market — title + outcome activity event'inden taşınır."""
+    act = [
+        {
+            "type": "TRADE",
+            "condition_id": "0xT",
+            "timestamp": SINCE + 100,
+            "title": "Bitcoin Up or Down - May 18, 2:55PM-3:00PM ET",
+            "outcome": "Up",
+            "price": 0.75,
+            "size": 1.33,
+            "usdc_size": 1.02,
+        },
+        _redeem("0xT", SINCE + 200, usdc=1.33),
+    ]
+    r = compute_live_pnl(act, SINCE, now_epoch=NOW)
+    m = r["per_market"][0]
+    assert "Bitcoin" in m["title"]
+    assert m["outcome"] == "Up"
+    assert m["result"] == "win"
+
+
+def test_per_market_empty_when_no_trades():
+    assert compute_live_pnl([], SINCE, now_epoch=NOW)["per_market"] == []

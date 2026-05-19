@@ -128,6 +128,71 @@ def _live_pnl_block(lp: dict | None) -> str:
     )
 
 
+def _short_market(title: str) -> str:
+    """Uzun market başlığını kısalt — işlem dökümü satırı için.
+
+    'Bitcoin Up or Down - May 18, 2:55PM-3:00PM ET' → 'BTC May 18, 2:55PM…'.
+    """
+    if not title:
+        return "?"
+    low = title.lower()
+    coin = ""
+    for k, v in (
+        ("bitcoin", "BTC"),
+        ("ethereum", "ETH"),
+        ("solana", "SOL"),
+        ("ripple", "XRP"),
+        ("xrp", "XRP"),
+    ):
+        if k in low:
+            coin = v
+            break
+    when = title.split(" - ", 1)[1] if " - " in title else title
+    when = when.replace(" ET", "").strip()
+    out = f"{coin} {when}".strip()
+    return out[:30] if len(out) <= 30 else out[:29] + "…"
+
+
+def _live_pnl_detail_block(per_market: list[dict], limit: int = 12) -> str:
+    """📊 İşlem dökümü — `compute_live_pnl` `per_market` listesini basar.
+
+    Heddas direktifi 2026-05-19 ("nerede ne zaman ne olmuş ne kadar
+    gitmiş"): her bot market'i tek blok — tarih · market · giriş fiyatı +
+    outcome · maliyet→dönüş · net. Yeni → eski sıralı.
+    """
+    if not per_market:
+        return (
+            "📊 <b>İŞLEM DÖKÜMÜ</b>\n"
+            "  <i>henüz bot trade'i yok</i>\n\n"
+        )
+    n = min(limit, len(per_market))
+    lines = [f"📊 <b>İŞLEM DÖKÜMÜ</b> · on-chain · son {n}"]
+    for m in per_market[:limit]:
+        try:
+            ts = int(m.get("ts", 0) or 0)
+        except (TypeError, ValueError):
+            ts = 0
+        when = (
+            datetime.fromtimestamp(ts, UTC).strftime("%m-%d %H:%M")
+            if ts
+            else "—"
+        )
+        res = str(m.get("result", ""))
+        icon = {"win": "🟢", "loss": "🔴", "pending": "⏳"}.get(res, "⚪")
+        title = _short_market(str(m.get("title", "")))
+        outcome = str(m.get("outcome", "")) or "?"
+        entry = float(m.get("entry_price", 0) or 0)
+        cost = float(m.get("cost", 0) or 0)
+        payout = float(m.get("payout", 0) or 0)
+        net = float(m.get("net", 0) or 0)
+        net_str = f"{'+' if net >= 0 else '-'}${abs(net):.2f}"
+        lines.append(
+            f"{icon} <code>{when}</code> · {esc(title)} · {esc(outcome)} @{entry:.2f}\n"
+            f"   ${cost:.2f} → ${payout:.2f}  ·  net <b>{net_str}</b>"
+        )
+    return "\n".join(lines) + "\n\n"
+
+
 def _panel_nav_kb(refresh_cb: str) -> InlineKeyboardMarkup:
     """Faz 2B (2026-05-19): alt-panel navigasyonu — Ana Panel + Yenile.
 
@@ -1081,13 +1146,19 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
                     callback_data=f"live_market_exec:{side}:{asset}:{tf}:{amount_str}",
                 )
             ],
-            [InlineKeyboardButton("❌ İptal", callback_data="live_main")],
+            [
+                # 2026-05-19 Heddas: onay ekranında fiyat yenileme — aynı
+                # amount picker callback'i _show_market_confirm'ü yeniden
+                # çağırır → _peek_market_info taze best_ask/bid çeker.
+                InlineKeyboardButton(
+                    "🔄 Fiyatı Yenile",
+                    callback_data=f"live_market_amount:{side}:{asset}:{tf}:{amount_str}",
+                ),
+                InlineKeyboardButton("❌ İptal", callback_data="live_main"),
+            ],
         ]
     )
-    try:
-        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (TimeoutError, BadRequest, TelegramError):
-        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+    await _safe_edit(q, text, kb)
 
 
 async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
@@ -1972,11 +2043,16 @@ async def _build_market_scan(engine) -> str:
 
 
 async def _build_performance(engine, db) -> str:
-    """📈 Performans paneli (Faz 3 2026-05-19) — bot performansı tek ekranda.
+    """📈 Performans paneli (Faz 3 + 2026-05-19 veri-zenginliği) — bot
+    performansı tek ekranda.
 
-    Birleştirir: on-chain BOT LIVE PnL (gerçek sonuç) + paper↔real
-    kalibrasyon karşılaştırması + son live trade'ler. `_build_compare` ve
-    `_build_history` builder'larını yeniden kullanır (tek kaynak).
+    3 katman: (1) aggregate BOT LIVE PnL (`_live_pnl_block`), (2) on-chain
+    İŞLEM DÖKÜMÜ — per-market detay (`_live_pnl_detail_block`: nerede/ne
+    zaman/ne olmuş/ne kadar), (3) paper↔real kalibrasyon (`_build_compare`).
+
+    Eski `_build_history` (DB `live_trades` kaynaklı) kaldırıldı — tarihsel
+    trade'ler orada yoktu, "9 trade" üstte / "geçmiş yok" altta çelişkisi
+    yaratıyordu (D1 audit). On-chain işlem dökümü gerçek geçmiştir.
     """
     live_pnl = None
     try:
@@ -1995,25 +2071,17 @@ async def _build_performance(engine, db) -> str:
     except Exception as _e:  # noqa: BLE001
         logger.debug(f"_build_performance compare: {_e}")
         compare = "<i>Karşılaştırma alınamadı.</i>"
-    try:
-        history = await _build_history(engine)
-    except Exception as _e:  # noqa: BLE001
-        logger.debug(f"_build_performance history: {_e}")
-        history = "<i>Geçmiş alınamadı.</i>"
 
-    # D1 audit (2026-05-19): on-chain blok TÜM canlı geçmişi kapsar;
-    # alttaki compare/history DB `live_trades`/`executions` kaynaklı —
-    # tarihsel manuel trade'ler (9803037 INSERT fix öncesi) orada yok.
-    # Ayırıcı not, "9 trade" üstte + "henüz live trade yok" altta
-    # çelişkisini açıklar.
+    detail = _live_pnl_detail_block(
+        live_pnl.get("per_market", []) if isinstance(live_pnl, dict) else []
+    )
     return (
         "📈 <b>PERFORMANS</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{_live_pnl_block(live_pnl)}"
-        "<i>⬇️ Aşağısı yalnız DB-kayıtlı trade'ler (otomatik-mirror + "
-        "2026-05-18 sonrası manuel). Bot'un TÜM canlı sonucu yukarıdaki "
-        "on-chain bloktadır.</i>\n\n"
-        f"{compare}\n\n"
-        f"{history}"
+        f"{detail}"
+        "<i>⬇️ Paper↔Real kalibrasyon — DB live_trades kaynaklı (otomatik-"
+        "mirror trade'ler). Manuel trade'ler yukarıdaki on-chain döküm.</i>\n\n"
+        f"{compare}"
     )
 
 
