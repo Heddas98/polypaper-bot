@@ -228,6 +228,63 @@ async def _safe_edit(q, text: str, kb) -> None:
         await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
+async def _fetch_price_deltas(engine, coin: str, tf: str) -> dict:
+    """Heddas direktifi 2026-05-19: coin/tf için fiyat-hareketi istatistiği.
+
+    `engine.candle_collector` (Binance OHLC, zaten toplanıyor — yeni API
+    çağrısı yok) → `compute_price_deltas`. Defensive: candle_collector
+    yok / hata → boş dict, panel yine açılır.
+    """
+    try:
+        cc = getattr(engine, "candle_collector", None)
+        if cc is None or not hasattr(cc, "get_ext_candles"):
+            return {}
+        from data.candle_collector import (
+            BINANCE_SYMBOLS,
+            candles_24h_count,
+            compute_price_deltas,
+        )
+
+        symbol = BINANCE_SYMBOLS.get(coin.upper())
+        if not symbol:
+            return {}
+        # +1: en yeni mum devam eden pencere olabilir — compute_price_deltas
+        # `drop_last` ile onu atar (yalnız tamamlanmış pencereler sayılır).
+        limit = candles_24h_count(tf) + 1
+        candles = await cc.get_ext_candles(symbol, tf, limit=limit)
+        return compute_price_deltas(candles)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"price deltas {coin}/{tf}: {_e}")
+        return {}
+
+
+def _price_delta_block(coin: str, tf: str, st: dict) -> str:
+    """📐 Fiyat hareketi bloğu — `compute_price_deltas` çıktısını basar.
+
+    Market açılış→kapanış delta'sı + son 5/10/24s ortalama |hareket| +
+    net yön + up/down pencere sayısı. İşlem alırken volatilite/eğilim
+    göstergesi. Veri yoksa boş string döner (panel atlar).
+    """
+    if not st or int(st.get("n", 0)) == 0:
+        return ""
+    ld = float(st.get("last_delta", 0.0))
+    ldp = float(st.get("last_delta_pct", 0.0))
+    arrow = "▲" if ld > 0 else ("▼" if ld < 0 else "▬")
+    sign = "+" if ld >= 0 else "-"
+    aa = st.get("avg_abs_pct", {}) or {}
+    net = float(st.get("net_pct_all", 0.0))
+    net_arrow = "▲" if net > 0 else ("▼" if net < 0 else "▬")
+    return (
+        f"📐 <b>{esc(coin)} {esc(tf)} — Fiyat Hareketi</b>\n"
+        f"  Son pencere: {arrow} {sign}${abs(ld):,.0f} ({ldp:+.3f}%)\n"
+        f"  Ort.|hareket|: 5p %{float(aa.get('5', 0)):.3f} · "
+        f"10p %{float(aa.get('10', 0)):.3f} · "
+        f"24s %{float(aa.get('all', 0)):.3f}\n"
+        f"  Net yön 24s: {net_arrow} {net:+.3f}%  ·  "
+        f"↑{int(st.get('up_count', 0))} / ↓{int(st.get('down_count', 0))} pencere\n"
+    )
+
+
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
     # H-05 (2026-05-15 ultra-audit): admin gate — real-money UI.
@@ -1137,6 +1194,12 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
             "order eşleşmeyebilir (\"no match\").\n"
         )
 
+    # 2026-05-19 Heddas: fiyat-hareketi bloğu — son pencere açılış→kapanış
+    # delta'sı + 5/10/24s ortalama |hareket|. İşlem alırken volatilite göstergesi.
+    _delta_blk = _price_delta_block(
+        coin, tf, await _fetch_price_deltas(engine, coin, tf)
+    )
+
     text = (
         f"{side_emoji} <b>LIVE {side} ONAYLA</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1150,6 +1213,7 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
         f"({'best_ask' if side == 'BUY' else 'best_bid'} ± {slip_pct*100:.1f}%)\n"
         f"📊 Beklenen hisse: <b>{shares:.2f}</b>\n"
         f"💸 Tahmini fee: <b>${fee_est:.4f}</b>\n\n"
+        f"{_delta_blk}"
         f"{balance_text}\n"
         f"{book_warn}"
         f"⚡ Tip: FOK (Fill-Or-Kill)\n"
@@ -2077,13 +2141,22 @@ async def _build_market_scan(engine) -> str:
                 odds = scanner.get_current_odds(slug)
         except Exception:  # noqa: BLE001
             odds = None
+        # 2026-05-19 Heddas: kompakt fiyat-hareketi — 24s ortalama |hareket| +
+        # son pencere yön oku. Detaylı blok market BUY onay ekranında.
+        _dl = await _fetch_price_deltas(engine, coin, tf)
+        _dtxt = ""
+        if _dl and int(_dl.get("n", 0)) > 0:
+            _aa = float((_dl.get("avg_abs_pct") or {}).get("all", 0))
+            _ar = {"up": "▲", "down": "▼"}.get(str(_dl.get("last_dir", "")), "▬")
+            _dtxt = f"  ·  {_ar} 24s|Δ| %{_aa:.3f}"
         if odds:
             up = float(odds.get("up_odds", 0) or 0)
             dn = float(odds.get("down_odds", 0) or 0)
-            text += f"  {tf:>3}  Up <b>{up:.2f}</b> / Down <b>{dn:.2f}</b>\n"
+            text += f"  {tf:>3}  Up <b>{up:.2f}</b> / Down <b>{dn:.2f}</b>{_dtxt}\n"
         else:
-            text += f"  {tf:>3}  <i>odds yok</i>\n"
+            text += f"  {tf:>3}  <i>odds yok</i>{_dtxt}\n"
         shown += 1
+    text += "\n<i>Δ = pencere açılış→kapanış fiyat farkı · |Δ| = mutlak " "ortalama (volatilite). Detay → market BUY onay ekranı.</i>"
     return text.rstrip() + "\n"
 
 
