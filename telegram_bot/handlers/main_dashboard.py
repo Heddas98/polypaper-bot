@@ -155,12 +155,11 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
         engine = context.bot_data.get("engine")
         if engine and getattr(engine, "db", None):
             db = engine.db
-            # 2026-05-08 FIX: bot DB schema kullan — executions tablosu (trades degil),
-            # column 'pnl' (pnl_usd degil), strategy status 'started' (active=1 degil).
+            # Settle olan execution status='claimed', aktif strateji status='active'.
             try:
                 async with db.conn.execute(
                     "SELECT COALESCE(SUM(pnl), 0) FROM executions "
-                    "WHERE status='filled' AND date(closed_at) = date('now')"
+                    "WHERE status='claimed' AND date(closed_at) = date('now')"
                 ) as cur:
                     row = await cur.fetchone()
                     if row:
@@ -169,7 +168,7 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
                 pass
             try:
                 async with db.conn.execute(
-                    "SELECT COUNT(*) FROM strategies WHERE status='started'"
+                    "SELECT COUNT(*) FROM strategies WHERE status='active'"
                 ) as cur:
                     row = await cur.fetchone()
                     if row:
