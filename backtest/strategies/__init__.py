@@ -21,6 +21,7 @@ from backtest.strategies.hour_edge import HourEdgeStrategy
 from backtest.strategies.late_convergence import LateConvergenceStrategy
 from backtest.strategies.opening_breakout import OpeningBreakoutStrategy
 from backtest.strategies.orderbook_imbalance import OrderbookImbalanceStrategy
+from backtest.strategies.rule_based import RuleBasedStrategy  # Faz 3 (2026-05-20)
 from backtest.strategies.streak_reversal import StreakReversalStrategy
 from backtest.strategies.taker_flow import TakerFlowStrategy
 
@@ -44,4 +45,5 @@ __all__ = [
     "FundingRateStrategy",
     "CalibrationArbStrategy",
     "CompositeStrategy",
+    "RuleBasedStrategy",
 ]

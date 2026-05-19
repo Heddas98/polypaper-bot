@@ -206,8 +206,10 @@ async def test_build_builder_placeholder():
     db = _db({"FROM live_trades": (0, 0.0, 0.0)})
     text, kb = await _build_builder(db)
     assert "STRATEJİ KURUCU" in text
-    assert "Faz 3-4" in text  # placeholder badge
-    assert "kural cümleleri" in text or "kural" in text.lower()
+    # Faz 3 motor hazır — JSON şeması + field listesi gösterilir
+    assert "Faz 3" in text
+    assert "RuleSet JSON" in text or "JSON" in text
+    assert "kural" in text.lower()
 
 
 @pytest.mark.asyncio

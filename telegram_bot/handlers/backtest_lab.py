@@ -253,10 +253,13 @@ async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
 
 
 async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🛠 Strateji Kurucu paneli — Faz 3-4'te no-code rule builder.
+    """🛠 Strateji Kurucu paneli — Faz 3 motor hazır, Faz 4 UI gelecek.
 
-    Faz 1: önizleme — gelecek yetenekleri listele, kullanıcı bekleyişi
-    olmadan deneyebileceği mevcut stratejileri göster.
+    Faz 3 (`backtest/strategies/rule_based.py`) RuleBasedStrategy + JSON
+    load/save altyapısını sağlar. Bu panel:
+      - Kayıtlı kullanıcı ruleset'lerini listeler (data_store/bt_strategies/)
+      - Mevcut Python stratejilerini örnek olarak gösterir
+      - Faz 4'te inline buton akışı bu panele eklenecek
     """
     gap = await _reality_gap_block(db)
     strat_n, strat_sample = _strategy_count()
@@ -264,22 +267,54 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
     if strat_n > 8:
         sample_txt += f"\n  • <i>...+{strat_n - 8} daha</i>"
 
+    # Kullanıcı ruleset'leri (Faz 3 — list_rulesets)
+    user_rulesets_txt = "<i>Henüz no-code strateji yok.</i>"
+    try:
+        from backtest.strategies.rule_based import list_rulesets
+
+        rs_list = list_rulesets()
+        if rs_list:
+            lines = [
+                f"  • <code>{esc(rs.get('name', '?'))}</code> "
+                f"({esc(rs.get('direction', '?'))}, "
+                f"{len(rs.get('entry', {}).get('conditions', []))} kural)"
+                for rs in rs_list[:8]
+            ]
+            user_rulesets_txt = "\n".join(lines)
+            if len(rs_list) > 8:
+                user_rulesets_txt += f"\n  • <i>...+{len(rs_list) - 8} daha</i>"
+    except Exception as e:  # noqa: BLE001
+        logger.debug("_build_builder rulesets list failed: %s", e)
+
     text = (
         "🛠 <b>STRATEJİ KURUCU</b>\n"
-        "<i>No-code rule builder — Faz 3-4'te aktifleşir</i>\n\n"
+        "<i>No-code rule builder — Faz 3 motor hazır</i>\n\n"
         f"{gap}"
-        "<b>Şu an mevcut</b> — Python-kodlu stratejiler:\n"
+        "<b>Senin kayıtlı kuralların</b> "
+        "(<code>data_store/bt_strategies/</code>):\n"
+        f"{user_rulesets_txt}\n\n"
+        "<b>Python-kodlu stratejiler</b> (mevcut):\n"
         f"{sample_txt}\n\n"
-        "<b>Faz 3-4'te gelecek</b> — kural cümleleri ile no-code:\n"
-        "  • <i>Coin = BTC · TF = 5m · saniye 30–50'de AL</i>\n"
-        "  • <i>Up fiyat ≥ 0.55 → BUY YES, ≥ 0.80 → SELL</i>\n"
-        "  • <i>Saat 22:00, UTC Pazartesi → işlem yap</i>\n"
-        "  • <i>Limit order @ 0.45, 60sn'de fill olmazsa iptal</i>\n"
-        "  • Tüm kurallar AND/OR ile birleştirilir\n"
-        "  • JSON'a kaydedilir → strateji listesine eklenir\n\n"
-        "<i>Yön: Faz 2'de motor filtreleri (saniye/saat/price-trigger),"
-        " Faz 3'te <code>RuleBasedStrategy</code> adaptörü, Faz 4'te"
-        " Telegram'dan inline buton akışıyla kural kurma.</i>"
+        "<b>RuleSet JSON şeması</b> (Faz 3 — şimdi çalışıyor):\n"
+        "<pre>{\n"
+        '  "name": "my_30_50_buy",\n'
+        '  "direction": "up",\n'
+        '  "confidence": 0.7,\n'
+        '  "entry": {\n'
+        '    "logic": "AND",\n'
+        '    "conditions": [\n'
+        '      {"field": "elapsed_seconds", "op": ">=", "value": 30},\n'
+        '      {"field": "elapsed_seconds", "op": "<=", "value": 50},\n'
+        '      {"field": "up_best_ask",     "op": ">=", "value": 0.55}\n'
+        "    ]\n"
+        "  }\n"
+        "}</pre>\n"
+        "Field'lar: elapsed_seconds, elapsed_pct, up_best_bid/ask, "
+        "down_best_bid/ask, spread, binance_price, binance_price_change, "
+        "hour_utc, market_type, coin\n"
+        "Op'lar: <code>== != &lt; &lt;= &gt; &gt;= in not_in</code>\n\n"
+        "<i>Faz 4'te bu sayfaya inline buton akışıyla kural ekleme/silme + "
+        "tek-tık Hızlı Test'e bağlanma gelecek.</i>"
     )
     extra = [
         [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
