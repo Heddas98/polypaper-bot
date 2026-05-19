@@ -10,14 +10,25 @@ PAPER MODE → detaylı dashboard, LIVE MODE → trade istasyonu.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+try:
+    import pytest_asyncio
+
+    _ASYNC_FIXTURE = pytest_asyncio.fixture
+except ImportError:  # pragma: no cover - pytest-asyncio is a dev dep
+    _ASYNC_FIXTURE = pytest.fixture
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 import telegram_bot.handlers.main_dashboard as md
 from telegram_bot.handlers.main_dashboard import (
     _build_main_dashboard_text_kb,
+    _get_paper_summary,
     _is_admin,
     live_dashboard,
     main_callback,
@@ -233,3 +244,122 @@ async def test_live_dashboard_build_fail_fallback(monkeypatch):
     await live_dashboard(update, _ctx(admin=True))
     q.edit_message_text.assert_called_once()
     assert "LIVE MODE" in q.edit_message_text.call_args[0][0]
+
+
+# ── _get_paper_summary — PAPER MODE özet kartı sorguları ─────────────────
+
+
+@_ASYNC_FIXTURE
+async def paper_db():
+    """Gerçek :memory: bot DB + parent user/wallet seed.
+
+    executions/strategies tablolarının user_id/wallet_id NOT NULL FK'leri
+    var (PRAGMA foreign_keys=ON) — parent satırlar önce yazılır.
+    """
+    from db.database import Database
+
+    db = Database(":memory:")
+    await db.initialize()
+    now = datetime.now(UTC).isoformat()
+    await db.conn.execute(
+        "INSERT INTO users (id,telegram_id,created_at) VALUES (?,?,?)",
+        ("u1", 1, now),
+    )
+    await db.conn.execute(
+        "INSERT INTO wallets (id,user_id,created_at) VALUES (?,?,?)",
+        ("w1", "u1", now),
+    )
+    await db.conn.commit()
+    try:
+        yield db
+    finally:
+        await db.close()
+
+
+def _paper_ctx(db):
+    """_get_paper_summary yalnız context.bot_data['engine'].db okur."""
+    return SimpleNamespace(bot_data={"engine": SimpleNamespace(db=db)})
+
+
+async def _add_execution(db, *, eid, status, pnl, closed_at):
+    """closed_at=None → henüz settle olmamış açık pozisyon."""
+    ts = closed_at or datetime.now(UTC).isoformat()
+    await db.conn.execute(
+        "INSERT INTO executions (id,user_id,wallet_id,event_slug,direction,"
+        "trade_amount,status,pnl,closed_at,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (eid, "u1", "w1", f"slug-{eid}", "up", 1.0, status, pnl, closed_at, ts, ts),
+    )
+
+
+async def _add_strategy(db, *, sid, status):
+    now = datetime.now(UTC).isoformat()
+    await db.conn.execute(
+        "INSERT INTO strategies (id,user_id,wallet_id,status,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (sid, "u1", "w1", status, now, now),
+    )
+
+
+@pytest.mark.asyncio
+async def test_paper_summary_daily_pnl_sums_today_claimed(paper_db):
+    """daily_pnl = bugün settle olan ('claimed') execution pnl toplamı.
+
+    Regression: eski sorgu status='filled' arıyordu — 'filled' geçerli bir
+    ExecutionStatus değil (pending/bet_placed/claimed/failed), hiçbir satır
+    eşleşmiyordu, kart hep "Bugün PnL: $0" gösteriyordu.
+    """
+    today = datetime.now(UTC).isoformat()
+    yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    await _add_execution(paper_db, eid="e1", status="claimed", pnl=2.50, closed_at=today)
+    await _add_execution(paper_db, eid="e2", status="claimed", pnl=-1.00, closed_at=today)
+    # dün settle — date(closed_at) filtresi dışlar
+    await _add_execution(paper_db, eid="e3", status="claimed", pnl=99.0, closed_at=yesterday)
+    # açık pozisyon — henüz settle değil, sayılmaz
+    await _add_execution(paper_db, eid="e4", status="bet_placed", pnl=0.0, closed_at=None)
+    await paper_db.conn.commit()
+
+    summary = await _get_paper_summary(_paper_ctx(paper_db))
+
+    assert summary["daily_pnl"] == pytest.approx(1.50)
+    assert summary["pnl_emoji"] == "🟢"
+
+
+@pytest.mark.asyncio
+async def test_paper_summary_daily_pnl_negative_red_emoji(paper_db):
+    """Bugünkü net negatifse kart 🔴 gösterir."""
+    today = datetime.now(UTC).isoformat()
+    await _add_execution(paper_db, eid="e1", status="claimed", pnl=-3.0, closed_at=today)
+    await paper_db.conn.commit()
+
+    summary = await _get_paper_summary(_paper_ctx(paper_db))
+
+    assert summary["daily_pnl"] == pytest.approx(-3.0)
+    assert summary["pnl_emoji"] == "🔴"
+
+
+@pytest.mark.asyncio
+async def test_paper_summary_open_strategies_counts_active(paper_db):
+    """open_strategies = status='active' strateji sayısı.
+
+    Regression: eski sorgu status='started' arıyordu — gerçek aktif statü
+    'active' (db/migrations.py status'leri 'active'e normalize eder),
+    hiçbir satır eşleşmiyordu, kart hep "0 aktif strateji" gösteriyordu.
+    """
+    await _add_strategy(paper_db, sid="s1", status="active")
+    await _add_strategy(paper_db, sid="s2", status="active")
+    await _add_strategy(paper_db, sid="s3", status="stopped")
+    await paper_db.conn.commit()
+
+    summary = await _get_paper_summary(_paper_ctx(paper_db))
+
+    assert summary["open_strategies"] == 2
+
+
+@pytest.mark.asyncio
+async def test_paper_summary_no_engine_safe():
+    """engine yoksa özet kartı çökmez — güvenli default döner."""
+    summary = await _get_paper_summary(SimpleNamespace(bot_data={}))
+
+    assert summary["daily_pnl"] == 0.0
+    assert summary["open_strategies"] == 0
