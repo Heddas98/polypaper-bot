@@ -185,6 +185,45 @@ class VirtualPortfolio:
         self.trades.append(trade)
         return trade
 
+    def close_trade_at_price(self, trade: Trade, exit_price: float) -> Trade:
+        """Faz 2 (2026-05-20): erken kapanış — intermediate fiyatta sell.
+
+        Heddas direktifi: "5m marketteki 30. saniye - 50. saniye al-sat",
+        "X fiyatına gelince al, Y'ye gelince sat" gibi senaryolarda
+        `_run_market` market_close beklemeden pozisyonu erken kapatır.
+
+        PnL = shares × exit_price − cost (amount + entry_fee) − exit_fee
+        exit_fee fee_calc.calculate_fee(exit_price, payout) — sembolu fee
+        modeli kullanır (probability-weighted, Polymarket docs MCP
+        doğrulandı — taker fee her iki yönde de geçerli).
+
+        `trade.exit_price` exit_price'a set edilir (resolution-tabanlı
+        close_trade'in 1.0/0.0 binary değerinin aksine — reporter'da
+        "early exit" trade'leri ayırt edilebilir).
+        """
+        exit_price = max(0.0, min(1.0, float(exit_price)))
+        payout = trade.shares * exit_price
+        exit_fee = self.fee_calc.calculate_fee(exit_price, payout)
+
+        trade.exit_price = exit_price
+        trade.fee = round(trade.fee + exit_fee, 6)  # entry + exit fee
+        trade.pnl = round(payout - trade.amount - trade.fee, 6)
+        trade.won = trade.pnl > 0
+
+        # Balance: shares sold → payout - exit_fee net cash
+        self.balance += max(0.0, payout - exit_fee)
+
+        self.equity_curve.append(round(self.balance, 2))
+
+        if self.balance > self._peak_balance:
+            self._peak_balance = self.balance
+        current_dd = self._peak_balance - self.balance
+        if current_dd > self._max_drawdown:
+            self._max_drawdown = current_dd
+
+        self.trades.append(trade)
+        return trade
+
     def get_stats(self) -> PortfolioStats:
         """Calculate comprehensive portfolio statistics."""
         stats = PortfolioStats()

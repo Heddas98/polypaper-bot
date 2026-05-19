@@ -119,6 +119,28 @@ class ReplayConfig:
     # compressed parquets written by db_archive_job. Opt-in: default False
     # so existing callers behave identically.
     use_archive: bool = False
+    # Faz 2 (2026-05-20): YENİ FİLTRELER — esnek backtest için.
+    # Heddas direktifi: "5m marketteki 30. saniye - 50. saniye al-sat",
+    # "her gün şu saatte ki markette işlem", "X fiyatına gelince al,
+    # Y'ye gelince sat" gibi rastgele senaryoları test edebilelim.
+    # Hepsi default "filtre yok" — eski caller'lar etkilenmez.
+    #
+    # Time-window filters (market window içinde, saniye bazlı):
+    entry_second_min: int = 0  # 0 = alt sınır yok
+    entry_second_max: int = 0  # 0 = üst sınır yok — sinyal sadece [min, max] arasında izinli
+    exit_second_min: int = 0   # 0 = early-exit yok
+    exit_second_max: int = 0   # 0 = early-exit yok; >0 → bu saniyeye gelince force-close
+    #
+    # Schedule filters (market metadata, discovery-time):
+    hour_filter: list = field(default_factory=list)         # [] = hepsi, [22, 23] = sadece 22:00/23:00 UTC başlangıçlı
+    weekday_filter: list = field(default_factory=list)      # [] = hepsi; 0=Mon, 6=Sun (UTC)
+    minute_of_hour_filter: list = field(default_factory=list)  # [] = hepsi; [0, 30] = sadece :00 / :30
+    #
+    # Price-trigger filters (direction-agnostic, snapshot-time, up_best_ask referansı):
+    entry_yes_price_min: float = 0.0   # sinyal sadece up_best_ask ≥ this iken izinli
+    entry_yes_price_max: float = 1.0   # sinyal sadece up_best_ask ≤ this iken izinli
+    exit_yes_price_below: float = 0.0  # 0 = trigger yok; up_best_bid ≤ this → force-close
+    exit_yes_price_above: float = 0.0  # 0 = trigger yok; up_best_bid ≥ this → force-close
 
 
 class ReplayEngine:
@@ -264,6 +286,13 @@ class ReplayEngine:
         for window in market_windows:
             if self.config.max_markets > 0 and self._markets_processed >= self.config.max_markets:
                 break
+
+            # Faz 2 (2026-05-20): schedule filter — hour/weekday/minute_of_hour.
+            # Discovery-time pencere metadata'sına bakar; eşleşmezse YÜKLEMEDEN
+            # atla (büyük performans kazanımı — _load_window_snapshots maliyetli).
+            if not self._market_passes_schedule(window):
+                self._markets_skipped += 1
+                continue
 
             # Load full snapshot data for this window
             snapshots = await self._load_window_snapshots(window)
@@ -632,7 +661,20 @@ class ReplayEngine:
     # Caller satırları (L823-846) zaten kaldırıldı, başka çağıran yok.
 
     def _run_market(self, market: MarketData, raw_snapshots: list[dict], winner: str):
-        """Process a single market episode with real data."""
+        """Process a single market episode with real data.
+
+        Faz 2 (2026-05-20): Heddas direktifi — esnek backtest. Snapshot
+        loop'una eklenenler:
+          • entry_second_min/max — sinyal yalnız bu saniye aralığında izinli
+          • entry_yes_price_min/max — up_best_ask bu aralıkta değilse sinyal blok
+          • exit_second_min/max → bu saniyeye gelince pozisyon force-close
+          • exit_yes_price_below/above → fiyat sınırı aşılınca force-close
+        Filtreler hepsi default "kapalı" (0/empty/0..1) — eski caller'lar
+        etkilenmez.
+
+        Tek-giriş kuralı korundu (Phase 41c "single entry per market").
+        Birden çok sinyal toplama Faz 3-5'te (RuleBasedStrategy / GTC limit).
+        """
         duration = MARKET_DURATIONS.get(market.market_type, 300)
         first_ts = raw_snapshots[0].get("ts_ms", 0)
 
@@ -642,22 +684,95 @@ class ReplayEngine:
         # Process snapshots
         signal: Optional[Signal] = None
         signal_snapshot: Optional[OrderbookSnapshot] = None
+        # Faz 2: early-exit state — entry happened, now scanning for exit
+        exit_snapshot: Optional[OrderbookSnapshot] = None
+        exit_reason: str = ""
+
+        cfg = self.config
+        # Pre-compute "any exit-side filter set?" so the post-entry loop
+        # can short-circuit when there's nothing to watch for.
+        has_exit_filter = (
+            cfg.exit_second_min > 0
+            or cfg.exit_second_max > 0
+            or cfg.exit_yes_price_below > 0.0
+            or cfg.exit_yes_price_above > 0.0
+        )
 
         for raw in raw_snapshots:
             snap = self._convert_snapshot(raw, first_ts, duration)
 
-            # Call strategy
-            result = self._strategy.on_snapshot(snap)
+            # ── Entry-side filtreleri (sinyal yakalanmadıysa) ──
+            if signal is None:
+                # entry_second penceresi
+                if cfg.entry_second_min > 0 and snap.elapsed_seconds < cfg.entry_second_min:
+                    continue
+                if cfg.entry_second_max > 0 and snap.elapsed_seconds > cfg.entry_second_max:
+                    # Window kapandı, daha ileriye gitmeye gerek yok
+                    # (ama exit_filter aktifse exit aramaya devam etmeliyiz —
+                    # ama sinyal yok ki, dolayısıyla loop sonu)
+                    break
 
-            # Becker boost + decision-mode removed 2026-04-29 (Heddas direktifi).
-            # _becker_curves zaten {} (replay_engine_v3 wrapper artık inject
-            # etmiyor — Aşama 3.D backlog). Live engine pure backtest path.
-            if result and signal is None:
-                if result.confidence >= self.config.min_confidence:
-                    if self._direction_ok(result):
+                # entry_yes_price aralığı (direction-agnostic — yes/up_best_ask
+                # üzerinden; "her iki tarafta da geçerli" semantik için
+                # strateji direction'unu daha sonra _direction_ok kontrol eder)
+                if cfg.entry_yes_price_min > 0.0 or cfg.entry_yes_price_max < 1.0:
+                    if snap.up_best_ask <= 0:
+                        # Fiyat henüz oluşmamış — atla
+                        continue
+                    if snap.up_best_ask < cfg.entry_yes_price_min:
+                        continue
+                    if snap.up_best_ask > cfg.entry_yes_price_max:
+                        continue
+
+                # Stratejiye sor
+                result = self._strategy.on_snapshot(snap)
+
+                if result is not None:
+                    if result.confidence >= cfg.min_confidence and self._direction_ok(result):
                         signal = result
                         signal_snapshot = snap
                         self._signals_generated += 1
+                        if not has_exit_filter:
+                            # Exit-filter yoksa snapshot loop'unu erken bitir
+                            # (eski davranış: tek giriş yakalandı → resolution'a
+                            # zıpla). Performans optimizasyonu.
+                            break
+                continue
+
+            # ── Exit-side filtreleri (sinyal yakalandıktan sonra) ──
+            if not has_exit_filter:
+                # Sinyal var ama exit filter yok → loop'a devam etmeye gerek yok
+                break
+
+            # exit_second tetik (force-close at elapsed time)
+            if cfg.exit_second_max > 0 and snap.elapsed_seconds >= cfg.exit_second_max:
+                exit_snapshot = snap
+                exit_reason = f"exit_second_max ({cfg.exit_second_max}s)"
+                break
+            if (
+                cfg.exit_second_min > 0
+                and snap.elapsed_seconds >= cfg.exit_second_min
+                and cfg.exit_second_max == 0
+            ):
+                # Sadece min set edilmiş — min'i aşar aşmaz çıkış (en erken)
+                exit_snapshot = snap
+                exit_reason = f"exit_second_min ({cfg.exit_second_min}s)"
+                break
+
+            # exit_yes_price tetikleri (up_best_bid referansı — sell side)
+            up_bid = snap.up_best_bid
+            if cfg.exit_yes_price_above > 0.0 and up_bid > 0 and up_bid >= cfg.exit_yes_price_above:
+                exit_snapshot = snap
+                exit_reason = f"exit_yes_price_above ({cfg.exit_yes_price_above:.3f})"
+                break
+            if (
+                cfg.exit_yes_price_below > 0.0
+                and up_bid > 0
+                and up_bid <= cfg.exit_yes_price_below
+            ):
+                exit_snapshot = snap
+                exit_reason = f"exit_yes_price_below ({cfg.exit_yes_price_below:.3f})"
+                break
 
         # Resolution
         resolution = Resolution(
@@ -668,7 +783,7 @@ class ReplayEngine:
         if signal and signal_snapshot and winner:
             fill = self.fill_sim.simulate_fill(
                 direction=signal.direction,
-                amount_usd=self.config.trade_amount,
+                amount_usd=cfg.trade_amount,
                 snapshot=signal_snapshot,
                 market_volume=market.volume,
             )
@@ -680,12 +795,29 @@ class ReplayEngine:
                     market_id=market.market_id,
                     coin=market.coin,
                     market_type=market.market_type,
-                    strategy=self.config.strategy_name,
+                    strategy=cfg.strategy_name,
                     hour_utc=market.hour_utc,
                     entry_time_pct=(signal_snapshot.elapsed_pct if signal_snapshot else 0),
                 )
                 if trade:
-                    self.portfolio.close_trade(trade, winner)
+                    if exit_snapshot is not None:
+                        # Faz 2: early-exit @ exit_snapshot price
+                        # Side-aware: UP pozisyon → up_best_bid'de sat
+                        #             DOWN pozisyon → down_best_bid'de sat
+                        if signal.direction == Direction.UP:
+                            sell_price = exit_snapshot.up_best_bid or exit_snapshot.up_best_ask
+                        else:
+                            sell_price = exit_snapshot.down_best_bid or exit_snapshot.down_best_ask
+                        sell_price = max(0.0, min(1.0, sell_price))
+                        trade.metadata = {
+                            **(trade.metadata or {}),
+                            "exit_reason": exit_reason,
+                            "exit_elapsed_seconds": exit_snapshot.elapsed_seconds,
+                        }
+                        self.portfolio.close_trade_at_price(trade, sell_price)
+                    else:
+                        # Standart: market resolution'da kapat
+                        self.portfolio.close_trade(trade, winner)
 
         # Strategy: market close
         self._strategy.on_market_close(market, resolution)
@@ -816,6 +948,56 @@ class ReplayEngine:
         if not self.config.direction_filter:
             return True
         return signal.direction.value == self.config.direction_filter.lower()
+
+    def _market_passes_schedule(self, window: dict) -> bool:
+        """Faz 2 (2026-05-20): hour/weekday/minute_of_hour schedule filtreleri.
+
+        Discovery-time uygulanır — eşleşmeyen market'in snapshot'larını yüklemeden
+        atla. `market_start_time` ISO 8601 (örn "2026-05-19T22:30:00Z") veya slug
+        sonundaki Unix epoch'tan parse edilir. Parse hatasında defansif: filter
+        var ama saat çıkarılamıyor → False (atla, gürültü ekleme).
+
+        Filtrelerden hiçbiri set edilmediyse her zaman True döner.
+        """
+        cfg = self.config
+        if not (cfg.hour_filter or cfg.weekday_filter or cfg.minute_of_hour_filter):
+            return True
+
+        dt: Optional[datetime] = None
+        start_time = window.get("market_start_time") or ""
+        if start_time:
+            try:
+                dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                dt = None
+        if dt is None:
+            # Slug-sonu unix timestamp fallback (eski _build_market_data ile aynı)
+            slug = window.get("slug", "")
+            parts = slug.rsplit("-", 1) if slug else []
+            if len(parts) == 2 and parts[1].isdigit():
+                try:
+                    dt = datetime.fromtimestamp(int(parts[1]), tz=UTC)
+                except (TypeError, ValueError, OSError):
+                    dt = None
+        if dt is None:
+            first_ms = window.get("first_snap_ms", 0) or 0
+            if int(first_ms) > 0:
+                try:
+                    dt = datetime.fromtimestamp(int(first_ms) / 1000, tz=UTC)
+                except (TypeError, ValueError, OSError):
+                    dt = None
+
+        if dt is None:
+            # Filter aktif ama dt çıkarılamadı — defansif (atla)
+            return False
+
+        if cfg.hour_filter and dt.hour not in cfg.hour_filter:
+            return False
+        if cfg.weekday_filter and dt.weekday() not in cfg.weekday_filter:
+            return False
+        if cfg.minute_of_hour_filter and dt.minute not in cfg.minute_of_hour_filter:
+            return False
+        return True
 
     # ═══════════════════════════════════════════════
     #  SUMMARY
