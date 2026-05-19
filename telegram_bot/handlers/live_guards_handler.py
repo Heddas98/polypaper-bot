@@ -60,17 +60,16 @@ def _fmt_bool(flag: bool, true_label: str = "ON", false_label: str = "OFF") -> s
     return true_label if flag else false_label
 
 
-async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """``/live_guards`` (alias ``/lg``) — 6-guard live trading snapshot.
+def build_guards_text(context: ContextTypes.DEFAULT_TYPE) -> str:
+    """6-guard live trading snapshot metnini üretir (saf render).
 
-    Renders runtime values for all 6 Epic 11 T11.2 guards + the
-    ``LIVE_ENABLED`` master switch. Uses the same runtime helpers
-    that the guard sites themselves use so UI and engine can never
-    drift (T6.3 ghost-flag doctrine).
+    2026-05-19 (`/live` Faz 2B): `live_guards_command` içinden ayrıldı —
+    artık `/lg` komutu VE `/live` kokpitinin "🛡 Guards" paneli aynı
+    builder'ı kullanır (tek kaynak, UI drift yok). Runtime ENV her
+    çağrıda yeniden okunur (T6.3 ghost-flag doktrini).
+
+    Returns: Telegram HTML metni (4096 limitine karşı truncate'li).
     """
-    if not _is_admin(context, update.effective_user.id):
-        return await update.message.reply_text("⛔ Sadece admin komutu.")
-
     lines: list[str] = ["🛡️ <b>Live Guards — Runtime Snapshot</b>\n"]
 
     # ── Master switch ─────────────────────────────────────────────
@@ -262,5 +261,18 @@ async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Telegram hard limit 4096 — truncate defensively
     if len(full_text) > 3950:
         full_text = full_text[:3900] + "\n\n... (truncated)"
+    return full_text
 
-    await update.message.reply_text(full_text, parse_mode="HTML")
+
+async def live_guards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """``/live_guards`` (alias ``/lg``) — 6-guard live trading snapshot.
+
+    Renders runtime values for all 6 Epic 11 T11.2 guards + the
+    ``LIVE_ENABLED`` master switch. Uses the same runtime helpers
+    that the guard sites themselves use so UI and engine can never
+    drift (T6.3 ghost-flag doctrine).
+    """
+    if not _is_admin(context, update.effective_user.id):
+        return await update.message.reply_text("⛔ Sadece admin komutu.")
+
+    await update.message.reply_text(build_guards_text(context), parse_mode="HTML")

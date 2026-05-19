@@ -128,6 +128,22 @@ def _live_pnl_block(lp: dict | None) -> str:
     )
 
 
+def _panel_nav_kb(refresh_cb: str) -> InlineKeyboardMarkup:
+    """Faz 2B (2026-05-19): alt-panel navigasyonu — Ana Panel + Yenile.
+
+    `refresh_cb` aynı paneli yeniden çizen callback — Heddas direktifi
+    "yenileme butonları" (her panel canlı veriyi tazeleyebilmeli).
+    """
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main"),
+                InlineKeyboardButton("🔄 Yenile", callback_data=refresh_cb),
+            ]
+        ]
+    )
+
+
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
     # H-05 (2026-05-15 ultra-audit): admin gate — real-money UI.
@@ -291,6 +307,61 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
         except (TimeoutError, BadRequest, TelegramError):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+    # ── Faz 2B/3 (2026-05-19) — trade istasyonu panelleri ────────────
+    elif data == "live_perf":
+        # Faz 3: birleşik performans paneli (on-chain PnL + paper×real + geçmiş)
+        try:
+            text = await _build_performance(engine, db)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_perf: {_ex}")
+            text = _user_error_msg(_ex, "performans paneli")
+        kb = _panel_nav_kb("live_perf")
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+    elif data == "live_risk":
+        # Faz 2B: risk yöneticisi paneli (RiskManager state + limitler)
+        try:
+            text = await _build_risk(engine)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_risk: {_ex}")
+            text = _user_error_msg(_ex, "risk paneli")
+        kb = _panel_nav_kb("live_risk")
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+    elif data == "live_scan":
+        # Faz 2B: piyasa tarama paneli (scanner aktif market'ler + odds)
+        try:
+            text = await _build_market_scan(engine)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_scan: {_ex}")
+            text = _user_error_msg(_ex, "piyasa tarama")
+        kb = _panel_nav_kb("live_scan")
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
+            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+    elif data == "live_guards":
+        # Faz 2B: 6-guard snapshot — /lg builder'ı panel olarak göm
+        try:
+            from telegram_bot.handlers.live_guards_handler import build_guards_text
+
+            text = build_guards_text(context)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_guards: {_ex}")
+            text = _user_error_msg(_ex, "guards paneli")
+        kb = _panel_nav_kb("live_guards")
+        try:
+            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        except (TimeoutError, BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     elif data == "live_main":
@@ -1672,15 +1743,22 @@ async def _build_main(engine, db):
                 )
             ]
         )
+    # 2026-05-19 Faz 2B/3 — trade istasyonu panel satırları.
     kb_rows.extend(
         [
             [
-                InlineKeyboardButton("📊 Paper vs Real", callback_data="live_compare"),
-                InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
+                InlineKeyboardButton("📡 Piyasa Tara", callback_data="live_scan"),
+                InlineKeyboardButton("🛡 Guards", callback_data="live_guards"),
             ],
-            # 2026-05-18 Heddas: live budget reset (2-tap confirmed callback).
-            [InlineKeyboardButton("💰 Budget Reset", callback_data="live_budget_reset")],
-            [InlineKeyboardButton("🔄 Yenile", callback_data="live_main")],
+            [
+                InlineKeyboardButton("📈 Performans", callback_data="live_perf"),
+                InlineKeyboardButton("⚙️ Risk", callback_data="live_risk"),
+            ],
+            [
+                # 2026-05-18 Heddas: live budget reset (2-tap confirmed callback).
+                InlineKeyboardButton("💰 Budget Reset", callback_data="live_budget_reset"),
+                InlineKeyboardButton("🔄 Yenile", callback_data="live_main"),
+            ],
         ]
     )
     kb = InlineKeyboardMarkup(kb_rows)
@@ -1754,8 +1832,176 @@ async def _build_history(engine):
             )
 
     st = engine.live.get_status()
-    text += f"\n💵 Toplam: ${st['total_pnl']:+.4f} | Kalan: ${st.get('remaining', 0):.2f}"
+    # 2026-05-19: `total_pnl` (_total_pnl sayacı) manuel trade'leri kaçırır —
+    # yanıltıcı. Gerçek PnL "📈 Performans" panelindeki on-chain blokta.
+    text += f"\n💵 Risk limiti kalan: ${st.get('remaining', 0):.2f}"
     return text
+
+
+async def _build_risk(engine) -> str:
+    """⚙️ Risk paneli (Faz 2B 2026-05-19) — RiskManager state + limitler.
+
+    `engine.risk` (RiskManager) `get_status()` canlı snapshot'ını basar.
+    Loss-streak PAPER kaynaklıdır (`engine_settlement`'tan beslenir) —
+    kokpit ile aynı etiket. Defensive: risk manager yoksa panel yine açılır.
+    """
+    _risk = getattr(engine, "risk", None)
+    head = "⚙️ <b>RİSK YÖNETİCİSİ</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+    if _risk is None or not hasattr(_risk, "get_status"):
+        return head + "\n<i>Risk manager bağlı değil (engine.risk yok).</i>"
+    try:
+        rs = _risk.get_status()
+    except Exception as _e:  # noqa: BLE001
+        logger.exception(f"_build_risk get_status: {_e}")
+        return head + "\n" + _user_error_msg(_e, "risk durumu")
+
+    halted = bool(rs.get("halted", False))
+    state_line = (
+        f"🛑 <b>HALTED</b> — {esc(str(rs.get('halt_reason', ''))[:80])}"
+        if halted
+        else "✅ Aktif"
+    )
+    limits = rs.get("limits", {}) or {}
+    streak = int(rs.get("loss_streak", 0))
+    streak_max = int(getattr(getattr(_risk, "limits", None), "max_loss_streak", 10))
+    total_exp = float(rs.get("total_exposure", 0.0) or 0.0)
+    max_exp = float(limits.get("max_exposure", 0.0) or 0.0)
+    daily_pnl = float(rs.get("daily_pnl", 0.0) or 0.0)
+    max_dl = float(limits.get("max_daily_loss", 0.0) or 0.0)
+    exp_bar = _progress_bar(total_exp / max_exp if max_exp > 0 else 0.0)
+
+    text = (
+        f"{head}"
+        f"Durum: {state_line}\n\n"
+        f"📊 <b>Pozisyon &amp; Maruziyet</b>\n"
+        f"  Açık pozisyon: {int(rs.get('open_positions', 0))} / "
+        f"{int(limits.get('max_positions', 0))}\n"
+        f"  Maruziyet [{exp_bar}]\n"
+        f"  ${total_exp:.2f} / ${max_exp:.2f}\n\n"
+        f"📉 <b>Günlük</b>\n"
+        f"  PnL: <b>${daily_pnl:+.2f}</b>  (halt eşiği -${max_dl:.2f})\n"
+        f"  Trade: {int(rs.get('daily_trades', 0))}\n\n"
+        f"🔥 <b>Loss-streak</b>: {streak} / {streak_max}  "
+        f"<i>(paper risk-manager)</i>\n\n"
+        f"🎯 <b>Limitler</b>\n"
+        f"  Trade başı max: ${float(limits.get('max_position', 0) or 0):.2f}\n"
+        f"  Bakiye tabanı: ${float(limits.get('balance_floor', 0) or 0):.2f}\n"
+    )
+    tiered = rs.get("tiered_limits", {}) or {}
+    per_asset = tiered.get("per_asset", {}) or {}
+    if per_asset:
+        text += "\n🪙 <b>Asset bazlı maruziyet</b>\n"
+        for asset, info in sorted(per_asset.items()):
+            cur = float((info or {}).get("current", 0) or 0)
+            lim = float((info or {}).get("limit", 0) or 0)
+            text += f"  {esc(str(asset))}: ${cur:.2f} / ${lim:.2f}\n"
+    per_market = (tiered.get("per_market", {}) or {}).get("markets", {}) or {}
+    if per_market:
+        text += f"\n🏷 Aktif market maruziyeti: {len(per_market)} market\n"
+    return text
+
+
+async def _build_market_scan(engine) -> str:
+    """📡 Piyasa Tarama paneli (Faz 2B 2026-05-19) — scanner aktif market'ler.
+
+    `engine.scanner.active_markets` in-memory cache'ini okur (ekstra async
+    fetch YOK — scanner job zaten periyodik tarar). Her `{COIN}_{TF}` için
+    güncel market + up/down odds. Defensive: scanner yoksa panel yine açılır.
+    """
+    head = "📡 <b>PİYASA TARAMA</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+    scanner = getattr(engine, "scanner", None)
+    if scanner is None:
+        return head + "\n<i>Scanner bağlı değil (engine.scanner yok).</i>"
+
+    active = getattr(scanner, "active_markets", {}) or {}
+    last_scan = getattr(scanner, "last_scan", None)
+    try:
+        scan_str = last_scan.strftime("%H:%M:%S UTC") if last_scan else "—"
+    except (AttributeError, ValueError):
+        scan_str = "—"
+    _ws = getattr(scanner, "ws", None)
+    ws_str = "🟢 WS" if (_ws and getattr(_ws, "is_connected", False)) else "⚫ REST"
+    total = sum(len(v or []) for v in active.values())
+    text = f"{head}Son tarama: {scan_str}  ·  {ws_str}  ·  {total} market\n\n"
+
+    if not active or total == 0:
+        return text + "<i>Aktif market yok — scanner henüz tarama yapmadı.</i>"
+
+    # Doğal timeframe sırası (5m→4h) — alfabetik "1h<5m" yerine.
+    _tf_order = {"5m": 0, "15m": 1, "30m": 2, "1h": 3, "4h": 4}
+    keys_sorted = sorted(
+        active,
+        key=lambda k: (
+            str(k).rpartition("_")[0],
+            _tf_order.get(str(k).rpartition("_")[2], 9),
+        ),
+    )
+    last_coin = None
+    shown = 0
+    for key in keys_sorted:
+        mkts = active.get(key) or []
+        if not mkts or shown >= 30:
+            continue
+        coin, _, tf = str(key).rpartition("_")
+        if not coin:  # key has no underscore — skip malformed
+            continue
+        if coin != last_coin:
+            text += f"<b>{esc(coin)}</b>\n"
+            last_coin = coin
+        m = mkts[0] or {}
+        slug = str(m.get("slug", ""))
+        odds = None
+        try:
+            if hasattr(scanner, "get_current_odds"):
+                odds = scanner.get_current_odds(slug)
+        except Exception:  # noqa: BLE001
+            odds = None
+        if odds:
+            up = float(odds.get("up_odds", 0) or 0)
+            dn = float(odds.get("down_odds", 0) or 0)
+            text += f"  {tf:>3}  Up <b>{up:.2f}</b> / Down <b>{dn:.2f}</b>\n"
+        else:
+            text += f"  {tf:>3}  <i>odds yok</i>\n"
+        shown += 1
+    return text.rstrip() + "\n"
+
+
+async def _build_performance(engine, db) -> str:
+    """📈 Performans paneli (Faz 3 2026-05-19) — bot performansı tek ekranda.
+
+    Birleştirir: on-chain BOT LIVE PnL (gerçek sonuç) + paper↔real
+    kalibrasyon karşılaştırması + son live trade'ler. `_build_compare` ve
+    `_build_history` builder'larını yeniden kullanır (tek kaynak).
+    """
+    live_pnl = None
+    try:
+        from data.polymarket_portfolio import compute_live_pnl, read_cached_snapshot
+
+        snap = await read_cached_snapshot(db)
+        if snap and snap.get("activity"):
+            live_pnl = compute_live_pnl(
+                snap["activity"], int(_live_start_dt().timestamp())
+            )
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"_build_performance pnl: {_e}")
+
+    try:
+        compare = await _build_compare(engine)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"_build_performance compare: {_e}")
+        compare = "<i>Karşılaştırma alınamadı.</i>"
+    try:
+        history = await _build_history(engine)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"_build_performance history: {_e}")
+        history = "<i>Geçmiş alınamadı.</i>"
+
+    return (
+        "📈 <b>PERFORMANS</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{_live_pnl_block(live_pnl)}"
+        f"{compare}\n\n"
+        f"{history}"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
