@@ -175,9 +175,18 @@ async def _get_paper_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
                         summary["open_strategies"] = int(row[0] or 0)
             except Exception:
                 pass
-            # Paper balance: ENV display (gerçek paper bakiye trade journal'dan).
-            # Default $10,386 (memory: 1417 trade, +$355 PnL, baseline $10,000)
-            summary["balance"] = float(os.getenv("PAPER_BUDGET_DISPLAY", "10386.0"))
+            # Paper bakiye: primary paper wallet'in canlı DB bakiyesi.
+            # 2026-05-19 audit: eski PAPER_BUDGET_DISPLAY env default'u
+            # ($10,386) doğrulanmamış 2026-04-30 snapshot'tan türemişti (drift).
+            try:
+                async with db.conn.execute(
+                    "SELECT balance FROM wallets WHERE is_primary=1 LIMIT 1"
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row and row[0] is not None:
+                        summary["balance"] = float(row[0])
+            except Exception:
+                pass
         summary["pnl_emoji"] = "🟢" if summary["daily_pnl"] >= 0 else "🔴"
     except Exception as e:  # noqa: BLE001
         logger.debug(f"_get_paper_summary: {e}")
