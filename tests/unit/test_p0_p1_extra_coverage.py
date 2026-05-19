@@ -363,14 +363,15 @@ class TestPolymarketRTDS:
         # No chainlink
         assert rtds.get_price_15m("BTC") == 70000.0
 
-    def test_get_price_5m_binance_only(self):
+    def test_get_price_5m_chainlink_priority(self):
         from data.polymarket_rtds import PolymarketRTDS
 
         rtds = PolymarketRTDS()
         rtds._prices_binance["BTC"] = {"price": 70000.0, "ts": time.time()}
         rtds._prices_chainlink["BTC"] = {"price": 70100.0, "ts": time.time()}
-        # 5m ALWAYS Binance (not Chainlink)
-        assert rtds.get_price_5m("BTC") == 70000.0
+        # 2026-05-19 düzeltme: 5m de Chainlink data stream'e settle olur
+        # (market kuralı Gamma API ile doğrulandı) — get_price_5m Chainlink öncelikli.
+        assert rtds.get_price_5m("BTC") == 70100.0
 
     def test_constants_defined(self):
         """Check WS URL + constants from docs."""

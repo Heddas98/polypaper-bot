@@ -43,6 +43,7 @@ from data.market_recorder import MarketRecorder
 from data.market_scanner import MarketScanner
 from data.odds_feed import OddsFeed
 from data.polymarket_client import PolymarketClient
+from data.polymarket_rtds import PolymarketRTDS  # P1.10: RTDS Chainlink resolution feed
 from data.websocket_client import PolymarketWebSocket
 from db.database import Database
 from telegram_bot.bot import PolyPaperBot
@@ -313,6 +314,14 @@ async def main():
             db=db,  # P0-08-E6: external_prices persist (60s)
         )
 
+    # P1.10 (2026-05-19): Polymarket RTDS — Chainlink data-stream feed.
+    # 5m + 15m crypto market'lerin RESOLUTION feed'i (market kuralı:
+    # "Chainlink data stream BTC/USD, not spot"). external_prices'a
+    # 'rtds_chainlink' / 'rtds_binance' source'larıyla yazar.
+    rtds = None
+    if getattr(settings, "RTDS_ENABLED", True):
+        rtds = PolymarketRTDS(enable_chainlink=True, db=db)
+
     scanner = MarketScanner(settings, poly_client, db, ws_client=ws_client, odds_feed=odds_feed)
     engine = TradingEngine(settings, db, scanner, odds_feed, external_feed=external_feed)
     engine.binance_multistream = binance_ms  # Phase 44a — engine reads features()
@@ -372,6 +381,10 @@ async def main():
         if chainlink_oracle is not None:
             await chainlink_oracle.start(poly_client._client)
 
+        # P1.10: Start Polymarket RTDS WS feed (Chainlink resolution stream)
+        if rtds is not None:
+            await rtds.start()
+
         # Start keep-alive BEFORE engine (Phase 50 P1-04: env-gated)
         if keepalive is not None:
             await keepalive.start()
@@ -401,6 +414,8 @@ async def main():
             await binance_ms.stop()
         if chainlink_oracle is not None:
             await chainlink_oracle.stop()
+        if rtds is not None:
+            await rtds.stop()
         if keepalive is not None:
             await keepalive.stop()
         if ws_client:

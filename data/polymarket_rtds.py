@@ -6,11 +6,14 @@ P0.12 (Heddas direktifi 2026-04-30 "en güncel ol")
 Polymarket RTDS WS subscribe — endpoint: wss://ws-live-data.polymarket.com
 
 İki farklı topic:
-1. crypto_prices — Binance source (5m markets resolution oracle ile uyumlu)
-2. crypto_prices_chainlink — Chainlink Data Stream (15m markets sponsored)
+1. crypto_prices — Binance source (düşük gecikmeli spot referansı)
+2. crypto_prices_chainlink — Chainlink Data Stream — 5m + 15m crypto
+   market'lerin RESOLUTION feed'i. Market kuralları aynen: "Chainlink data
+   stream BTC/USD, not according to other sources or spot markets"
+   (2026-05-19 Gamma API ile doğrulandı; eski "5m=Binance" varsayımı yanlıştı).
 
 Bu modül `data/external_feed.py` Binance REST polling'in WS-push alternatifi.
-Aynı zamanda 15m markets için Chainlink kanonik fiyat sağlar (resolution parity).
+Asıl değeri: 5m + 15m markets'in settle olduğu Chainlink kanonik fiyatını sağlar.
 
 Polymarket docs:
 - https://docs.polymarket.com/market-data/websocket/rtds
@@ -85,16 +88,17 @@ class PolymarketRTDS:
     """Polymarket Real-Time Data Socket WS client.
 
     Two-source price aggregator:
-    - Binance (crypto_prices) — 5m markets resolution parity, low-latency push
-    - Chainlink (crypto_prices_chainlink) — 15m markets resolution parity,
-      Polymarket-sponsored API key required
+    - Chainlink (crypto_prices_chainlink) — 5m + 15m crypto market RESOLUTION
+      feed (market kuralı: "Chainlink data stream BTC/USD, not spot")
+    - Binance (crypto_prices) — düşük gecikmeli spot referansı; resolution
+      feed DEĞİL (2026-05-19 Gamma API doğrulaması)
 
     State:
         self._prices_binance[asset] = {"price": float, "ts": float}
         self._prices_chainlink[asset] = {"price": float, "ts": float}
     """
 
-    def __init__(self, enable_chainlink: bool = True):
+    def __init__(self, enable_chainlink: bool = True, db=None):
         self._prices_binance: dict[str, dict] = {}
         self._prices_chainlink: dict[str, dict] = {}
         self._available = False
@@ -104,6 +108,9 @@ class PolymarketRTDS:
         self._stop_requested = False
         self._task = None
         self._last_msg_ts = 0.0
+        # P1.10 (2026-05-19): external_prices persist. RTDS tick'leri DB'ye
+        # 'rtds_chainlink' / 'rtds_binance' source'larıyla yazılır.
+        self.db = db
 
     async def start(self):
         """Bot startup'ta çağrılır. WS connection task spawn eder."""
@@ -245,21 +252,54 @@ class PolymarketRTDS:
                 for asset, sym in BINANCE_SYMBOLS.items():
                     if symbol == sym:
                         self._prices_binance[asset] = {"price": price, "ts": now}
+                        if self.db is not None:
+                            safe_create_task(
+                                self._persist_async(
+                                    int(now * 1000), f"{asset}USDT", "rtds_binance", price
+                                ),
+                                name="rtds_persist",
+                            )
                         break
             elif topic == CHAINLINK_TOPIC:
                 # Chainlink source — slash-separated (btc/usd, eth/usd)
                 for asset, sym in CHAINLINK_SYMBOLS.items():
                     if symbol == sym:
                         self._prices_chainlink[asset] = {"price": price, "ts": now}
+                        if self.db is not None:
+                            safe_create_task(
+                                self._persist_async(
+                                    int(now * 1000), f"{asset}USD", "rtds_chainlink", price
+                                ),
+                                name="rtds_persist",
+                            )
                         break
+
+    async def _persist_async(self, ts_ms: int, symbol: str, source: str, price: float):
+        """external_prices'a yaz — feed loop'unu bloklamadan (T11.8-B doktrini).
+
+        Kaynak: 'rtds_chainlink' (5m/15m resolution feed) veya 'rtds_binance'
+        (düşük gecikmeli spot referansı). chainlink_oracle.py / external_feed.py
+        / binance_multistream.py'deki _persist_async desenini birebir izler.
+        """
+        if self.db is None or getattr(self.db, "conn", None) is None:
+            return
+        try:
+            await self.db.conn.execute(
+                "INSERT OR REPLACE INTO external_prices "
+                "(ts_ms, symbol, source, price) VALUES (?, ?, ?, ?)",
+                (ts_ms, symbol, source, price),
+            )
+            await self.db.conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
 
     def get_price(self, asset: str, source: str = "auto") -> Optional[float]:
         """Get most recent price for asset.
 
         source:
-        - "binance"   — RTDS Binance feed (5m markets resolution parity)
-        - "chainlink" — RTDS Chainlink feed (15m markets sponsored)
-        - "auto"      — Chainlink if available, else Binance (15m markets prefer)
+        - "chainlink" — RTDS Chainlink feed — 5m + 15m crypto RESOLUTION feed
+        - "binance"   — RTDS Binance feed — düşük gecikmeli spot referansı
+        - "auto"      — Chainlink varsa o, yoksa Binance fallback
 
         Returns None if stale (>PRICE_FRESHNESS_S) or missing.
         """
@@ -285,8 +325,14 @@ class PolymarketRTDS:
         return self.get_price(asset, source="chainlink") or self.get_price(asset, source="binance")
 
     def get_price_5m(self, asset: str) -> Optional[float]:
-        """5m markets için kanonik price — Binance öncelik (resolution parity)."""
-        return self.get_price(asset, source="binance")
+        """5m markets — Chainlink data-stream kanonik fiyatı (resolution parity).
+
+        2026-05-19 düzeltme: 5m BTC up/down market kuralları AÇIKÇA
+        "Chainlink data stream BTC/USD, not spot markets" diyor (Gamma API ile
+        doğrulandı). Eski kod Binance kullanıyordu — yanlıştı. Chainlink
+        öncelik; stale ise Binance fallback.
+        """
+        return self.get_price(asset, source="chainlink") or self.get_price(asset, source="binance")
 
     def get_status(self) -> dict:
         """Telegram /h status için snapshot."""
