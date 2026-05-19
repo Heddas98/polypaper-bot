@@ -268,10 +268,13 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # hub keyboard'a geçildi — tüm `menu_*` callback'leri kayıtlı + çalışır.
     hub = build_main_hub_keyboard(refresh_callback="main_paper")
     rows = list(hub.inline_keyboard) + [
+        # 2026-05-19 Heddas: Piyasa Tara paper'dan da erişilir — fiyat-hareketi
+        # (delta) verisi mod-bağımsız (crypto OHLC). Aynı zengin panel.
         [
+            InlineKeyboardButton("📡 Piyasa Tara", callback_data="live_scan"),
             InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live"),
-            InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard"),
-        ]
+        ],
+        [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],
     ]
     kb = InlineKeyboardMarkup(rows)
     q = update.callback_query
