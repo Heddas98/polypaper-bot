@@ -1121,6 +1121,22 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
             f"❌ <b>YETERSİZ BAKİYE</b> (kalan ${remaining:.2f} &lt; istek ${amount:.2f})\n"
         )
 
+    # 2026-05-19: orderbook-boş uyarısı. BUY → ask, SELL → bid gerekir.
+    # Defter boşsa market order "no match" ile eşleşmez (para gitmez ama
+    # trade atlanır). Onaylamadan önce kullanıcıyı bilgilendir.
+    book_warn = ""
+    if side == "BUY" and not info.get("has_asks", True):
+        book_warn = (
+            "⚠️ <b>Orderbook ince</b> — alış tarafında satıcı görünmüyor, "
+            "order eşleşmeyebilir (\"no match\"). Para riski yok; eşleşmezse "
+            "trade atlanır.\n"
+        )
+    elif side == "SELL" and not info.get("has_bids", True):
+        book_warn = (
+            "⚠️ <b>Orderbook ince</b> — satış tarafında alıcı görünmüyor, "
+            "order eşleşmeyebilir (\"no match\").\n"
+        )
+
     text = (
         f"{side_emoji} <b>LIVE {side} ONAYLA</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1135,6 +1151,7 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
         f"📊 Beklenen hisse: <b>{shares:.2f}</b>\n"
         f"💸 Tahmini fee: <b>${fee_est:.4f}</b>\n\n"
         f"{balance_text}\n"
+        f"{book_warn}"
         f"⚡ Tip: FOK (Fill-Or-Kill)\n"
         f"⚠️ <b>GERÇEK USDC harcanır!</b>\n\nEmin misin?"
     )
@@ -1171,6 +1188,11 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
         "best_bid": 0.0,
         "slug": "",
         "end_iso": "",
+        # 2026-05-19: orderbook gerçekten dolu mu — onay ekranı "no match"
+        # (likidite yok) riskini önceden uyarmak için. Çekilemezse True
+        # varsayılır → yanlış alarm verme.
+        "has_asks": True,
+        "has_bids": True,
     }
     if not hasattr(engine, "scanner"):
         out["error"] = "scanner unavailable"
@@ -1217,6 +1239,10 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
                 if book:
                     asks = book.get("asks") or []
                     bids = book.get("bids") or []
+                    # 2026-05-19: gerçek defter derinliği — boşsa onay
+                    # ekranı "no match" riski uyarısı verir.
+                    out["has_asks"] = bool(asks)
+                    out["has_bids"] = bool(bids)
                     if asks:
                         out["best_ask"] = (
                             float(asks[0][0])
@@ -1289,12 +1315,29 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str, tf: str, a
     elif status == "mock":
         emoji = "🟡"
         title = f"LIVE {side} (MOCK)"
+    elif status.startswith("skip:"):
+        # 2026-05-19: skip = trade ATLANDI — başarısızlık değil, para gitmedi.
+        emoji = "⏭️"
+        title = f"LIVE {side} ATLANDI"
     else:
         emoji = "❌"
         title = f"LIVE {side} BAŞARISIZ"
 
     detail = (result or {}).get("detail") or (result or {}).get("error") or ""
     order_id = (result or {}).get("order_id", "")
+    # 2026-05-19: skip durumlarına kullanıcı-dostu açıklama (ham status yerine).
+    skip_hint = ""
+    if status == "skip:no_liquidity":
+        skip_hint = (
+            "Bu markette şu an order defteri (orderbook) ince — market "
+            "order'ı dolduracak karşı taraf yoktu. <b>Para harcanmadı.</b> "
+            "Birkaç dakika sonra tekrar dene veya daha likit bir "
+            "market/timeframe seç."
+        )
+    elif status.startswith("skip:insufficient_balance"):
+        skip_hint = "Polymarket pUSD bakiyesi yetersiz — deposit gerekli."
+    elif status.startswith("skip:insufficient_allowance"):
+        skip_hint = "Allowance yetersiz — /live panelinden Approve et."
 
     text_post = (
         f"{emoji} <b>{title}</b>\n"
@@ -1305,7 +1348,9 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str, tf: str, a
     )
     if order_id:
         text_post += f"🆔 Order ID: <code>{esc(str(order_id)[:24])}</code>\n"
-    if detail:
+    if skip_hint:
+        text_post += f"\nℹ️ <i>{skip_hint}</i>\n"
+    elif detail:
         text_post += f"\n<i>{esc(detail[:200])}</i>\n"
 
     kb = InlineKeyboardMarkup(
