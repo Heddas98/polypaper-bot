@@ -396,8 +396,12 @@ class PolyPaperBot:
             ("legacy_start", start_command),  # eski davranış için fallback
             ("lh", live_history_command),
             ("livehistory", live_history_command),
-            ("dashboard", dashboard_command),
-            ("d", dashboard_command),
+            # 2026-05-19 Heddas direktifi "tek kapı": /dashboard + /d de
+            # mode-seçim ekranını açar — bot'un tek girişi var, oradan
+            # paper/live dünyalarına dağılır. Eski detaylı dashboard
+            # içeriği PAPER MODE altında gösterilir (dashboard._build).
+            ("dashboard", main_command if _MOD_FIRST_OK else dashboard_command),
+            ("d", main_command if _MOD_FIRST_OK else dashboard_command),
             ("menu", menu_command),
             ("strategies", strategies_command),
             ("s", strategies_command),
@@ -634,6 +638,13 @@ class PolyPaperBot:
             "live_budget_reset",
             "live_budget_reset_confirm",
             "live_budget_reset_cancel",
+            # 2026-05-19 Faz 2B/3 trade istasyonu panelleri — KRİTİK: bu
+            # 4 callback live_callback if/elif zincirinde vardı ama burada
+            # kayıtlı DEĞİLdi → butonlar tamamen tepkisizdi (ölü buton).
+            "live_scan",
+            "live_guards",
+            "live_perf",
+            "live_risk",
         ]:
             self.app.add_handler(CallbackQueryHandler(live_callback, pattern=f"^{pattern}$"))
         # 2026-05-05 Heddas: Market BUY/SELL UI callback'leri

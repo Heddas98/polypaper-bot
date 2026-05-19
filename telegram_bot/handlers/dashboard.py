@@ -113,6 +113,13 @@ async def _build(db, user, engine=None):
 
 
 async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Eski `/dashboard` komutu — 2026-05-19 tek-kapı redesign'dan beri
+    HİÇBİR komuta bağlı DEĞİL (`/dashboard` `/d` → mode-seçim ekranı).
+
+    Detaylı dashboard içeriği artık PAPER MODE altında gösteriliyor
+    (`main_dashboard.paper_dashboard` → `_build` reuse). Bu fonksiyon
+    geriye-dönük uyumluluk için duruyor (banner'lı foto varyantı).
+    """
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
     if not user or not user.accepted_terms:

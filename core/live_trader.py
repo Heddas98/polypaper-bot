@@ -1062,6 +1062,20 @@ class LiveTrader:
             logger.warning("py-clob-client not installed — mock order")
             return {"id": f"MOCK_{token_id[:8]}", "status": "mock"}
         except Exception as e:  # noqa: BLE001
+            # 2026-05-19: "no match" — V2 SDK `calculate_market_price` order
+            # book'ta FOK tutarını dolduracak karşı-taraf likiditesi bulamadı
+            # (ask/bid yok ya da derinlik < amount). BEKLENEBİLİR piyasa
+            # durumu — özellikle 5m/15m crypto market'lerde ince/boş
+            # orderbook. Para kaybı YOK (order hiç post edilmedi). ERROR +
+            # traceback değil, temiz WARNING + skip — bot bir sonraki döngüde
+            # daha likit market dener; manuel trade'de kullanıcıya net mesaj.
+            if "no match" in str(e).lower():
+                logger.warning(
+                    f"  ⏭ CLOB skip — orderbook likiditesi yetersiz "
+                    f"(token={token_id[:12]}…, ${amount:.2f}). Order post "
+                    f"edilmedi, para harcanmadı."
+                )
+                return {"id": "", "status": "skip:no_liquidity"}
             # T1.4 Faz 1: catch-all kept — _sync_order body spans CLOB signature,
             # HTTP post_order, and response parsing. Use logger.exception for traceback.
             # T7.6 Faz 3: yeniden değerlendirildi, Faz 1 kararı doğru — bilinçli umbrella.

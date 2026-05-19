@@ -128,6 +128,106 @@ def _live_pnl_block(lp: dict | None) -> str:
     )
 
 
+def _short_market(title: str) -> str:
+    """Uzun market başlığını kısalt — işlem dökümü satırı için.
+
+    'Bitcoin Up or Down - May 18, 2:55PM-3:00PM ET' → 'BTC May 18, 2:55PM…'.
+    """
+    if not title:
+        return "?"
+    low = title.lower()
+    coin = ""
+    for k, v in (
+        ("bitcoin", "BTC"),
+        ("ethereum", "ETH"),
+        ("solana", "SOL"),
+        ("ripple", "XRP"),
+        ("xrp", "XRP"),
+    ):
+        if k in low:
+            coin = v
+            break
+    when = title.split(" - ", 1)[1] if " - " in title else title
+    when = when.replace(" ET", "").strip()
+    out = f"{coin} {when}".strip()
+    return out[:30] if len(out) <= 30 else out[:29] + "…"
+
+
+def _live_pnl_detail_block(per_market: list[dict], limit: int = 12) -> str:
+    """📊 İşlem dökümü — `compute_live_pnl` `per_market` listesini basar.
+
+    Heddas direktifi 2026-05-19 ("nerede ne zaman ne olmuş ne kadar
+    gitmiş"): her bot market'i tek blok — tarih · market · giriş fiyatı +
+    outcome · maliyet→dönüş · net. Yeni → eski sıralı.
+    """
+    if not per_market:
+        return (
+            "📊 <b>İŞLEM DÖKÜMÜ</b>\n"
+            "  <i>henüz bot trade'i yok</i>\n\n"
+        )
+    n = min(limit, len(per_market))
+    lines = [f"📊 <b>İŞLEM DÖKÜMÜ</b> · on-chain · son {n}"]
+    for m in per_market[:limit]:
+        try:
+            ts = int(m.get("ts", 0) or 0)
+        except (TypeError, ValueError):
+            ts = 0
+        when = (
+            datetime.fromtimestamp(ts, UTC).strftime("%m-%d %H:%M")
+            if ts
+            else "—"
+        )
+        res = str(m.get("result", ""))
+        icon = {"win": "🟢", "loss": "🔴", "pending": "⏳"}.get(res, "⚪")
+        title = _short_market(str(m.get("title", "")))
+        outcome = str(m.get("outcome", "")) or "?"
+        entry = float(m.get("entry_price", 0) or 0)
+        cost = float(m.get("cost", 0) or 0)
+        payout = float(m.get("payout", 0) or 0)
+        net = float(m.get("net", 0) or 0)
+        net_str = f"{'+' if net >= 0 else '-'}${abs(net):.2f}"
+        lines.append(
+            f"{icon} <code>{when}</code> · {esc(title)} · {esc(outcome)} @{entry:.2f}\n"
+            f"   ${cost:.2f} → ${payout:.2f}  ·  net <b>{net_str}</b>"
+        )
+    return "\n".join(lines) + "\n\n"
+
+
+def _panel_nav_kb(refresh_cb: str) -> InlineKeyboardMarkup:
+    """Faz 2B (2026-05-19): alt-panel navigasyonu — Ana Panel + Yenile.
+
+    `refresh_cb` aynı paneli yeniden çizen callback — Heddas direktifi
+    "yenileme butonları" (her panel canlı veriyi tazeleyebilmeli).
+    """
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main"),
+                InlineKeyboardButton("🔄 Yenile", callback_data=refresh_cb),
+            ]
+        ]
+    )
+
+
+async def _safe_edit(q, text: str, kb) -> None:
+    """Callback panel edit — "message not modified" duplicate'ini engelle.
+
+    2026-05-19 (B1 audit): "🔄 Yenile" panel içeriği değişmemişse Telegram
+    `BadRequest: message is not modified` döndürür. Eski desen bunu geniş
+    yakalayıp `reply_text` ile YENİ mesaj atıyordu → her gereksiz
+    yenilemede duplicate panel. Artık "not modified" sessizce yutulur
+    (panel zaten güncel); yalnız gerçek edit hatasında reply fallback.
+    """
+    try:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except BadRequest as e:
+        if "not modified" in str(e).lower():
+            return  # panel zaten güncel — duplicate mesaj atma
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+    except (TimeoutError, TelegramError):
+        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
 async def live_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main live dashboard with toggle buttons."""
     # H-05 (2026-05-15 ultra-audit): admin gate — real-money UI.
@@ -293,13 +393,52 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
+    # ── Faz 2B/3 (2026-05-19) — trade istasyonu panelleri ────────────
+    elif data == "live_perf":
+        # Faz 3: birleşik performans paneli (on-chain PnL + paper×real + geçmiş)
+        try:
+            text = await _build_performance(engine, db)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_perf: {_ex}")
+            text = _user_error_msg(_ex, "performans paneli")
+        kb = _panel_nav_kb("live_perf")
+        await _safe_edit(q, text, kb)
+
+    elif data == "live_risk":
+        # Faz 2B: risk yöneticisi paneli (RiskManager state + limitler)
+        try:
+            text = await _build_risk(engine)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_risk: {_ex}")
+            text = _user_error_msg(_ex, "risk paneli")
+        kb = _panel_nav_kb("live_risk")
+        await _safe_edit(q, text, kb)
+
+    elif data == "live_scan":
+        # Faz 2B: piyasa tarama paneli (scanner aktif market'ler + odds)
+        try:
+            text = await _build_market_scan(engine)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_scan: {_ex}")
+            text = _user_error_msg(_ex, "piyasa tarama")
+        kb = _panel_nav_kb("live_scan")
+        await _safe_edit(q, text, kb)
+
+    elif data == "live_guards":
+        # Faz 2B: 6-guard snapshot — /lg builder'ı panel olarak göm
+        try:
+            from telegram_bot.handlers.live_guards_handler import build_guards_text
+
+            text = build_guards_text(context)
+        except Exception as _ex:  # noqa: BLE001
+            logger.exception(f"live_guards: {_ex}")
+            text = _user_error_msg(_ex, "guards paneli")
+        kb = _panel_nav_kb("live_guards")
+        await _safe_edit(q, text, kb)
+
     elif data == "live_main":
         text, kb = await _build_main(engine, db)
-        try:
-            await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-        except (TimeoutError, BadRequest, TelegramError):
-            # T11.8-B (2026-04-24): same edit fallback pattern as confirm above.
-            await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        await _safe_edit(q, text, kb)
 
     # ═══════════════════════════════════════════════════════════════════
     # 2026-05-05 Heddas direktifi: /live ekranı = LIVE mod manuel trade
@@ -982,6 +1121,22 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
             f"❌ <b>YETERSİZ BAKİYE</b> (kalan ${remaining:.2f} &lt; istek ${amount:.2f})\n"
         )
 
+    # 2026-05-19: orderbook-boş uyarısı. BUY → ask, SELL → bid gerekir.
+    # Defter boşsa market order "no match" ile eşleşmez (para gitmez ama
+    # trade atlanır). Onaylamadan önce kullanıcıyı bilgilendir.
+    book_warn = ""
+    if side == "BUY" and not info.get("has_asks", True):
+        book_warn = (
+            "⚠️ <b>Orderbook ince</b> — alış tarafında satıcı görünmüyor, "
+            "order eşleşmeyebilir (\"no match\"). Para riski yok; eşleşmezse "
+            "trade atlanır.\n"
+        )
+    elif side == "SELL" and not info.get("has_bids", True):
+        book_warn = (
+            "⚠️ <b>Orderbook ince</b> — satış tarafında alıcı görünmüyor, "
+            "order eşleşmeyebilir (\"no match\").\n"
+        )
+
     text = (
         f"{side_emoji} <b>LIVE {side} ONAYLA</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -996,6 +1151,7 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
         f"📊 Beklenen hisse: <b>{shares:.2f}</b>\n"
         f"💸 Tahmini fee: <b>${fee_est:.4f}</b>\n\n"
         f"{balance_text}\n"
+        f"{book_warn}"
         f"⚡ Tip: FOK (Fill-Or-Kill)\n"
         f"⚠️ <b>GERÇEK USDC harcanır!</b>\n\nEmin misin?"
     )
@@ -1007,13 +1163,19 @@ async def _show_market_confirm(q, engine, side: str, asset: str, tf: str, amount
                     callback_data=f"live_market_exec:{side}:{asset}:{tf}:{amount_str}",
                 )
             ],
-            [InlineKeyboardButton("❌ İptal", callback_data="live_main")],
+            [
+                # 2026-05-19 Heddas: onay ekranında fiyat yenileme — aynı
+                # amount picker callback'i _show_market_confirm'ü yeniden
+                # çağırır → _peek_market_info taze best_ask/bid çeker.
+                InlineKeyboardButton(
+                    "🔄 Fiyatı Yenile",
+                    callback_data=f"live_market_amount:{side}:{asset}:{tf}:{amount_str}",
+                ),
+                InlineKeyboardButton("❌ İptal", callback_data="live_main"),
+            ],
         ]
     )
-    try:
-        await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-    except (TimeoutError, BadRequest, TelegramError):
-        await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+    await _safe_edit(q, text, kb)
 
 
 async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
@@ -1026,6 +1188,11 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
         "best_bid": 0.0,
         "slug": "",
         "end_iso": "",
+        # 2026-05-19: orderbook gerçekten dolu mu — onay ekranı "no match"
+        # (likidite yok) riskini önceden uyarmak için. Çekilemezse True
+        # varsayılır → yanlış alarm verme.
+        "has_asks": True,
+        "has_bids": True,
     }
     if not hasattr(engine, "scanner"):
         out["error"] = "scanner unavailable"
@@ -1072,6 +1239,10 @@ async def _peek_market_info(engine, coin: str, direction: str, tf: str) -> dict:
                 if book:
                     asks = book.get("asks") or []
                     bids = book.get("bids") or []
+                    # 2026-05-19: gerçek defter derinliği — boşsa onay
+                    # ekranı "no match" riski uyarısı verir.
+                    out["has_asks"] = bool(asks)
+                    out["has_bids"] = bool(bids)
                     if asks:
                         out["best_ask"] = (
                             float(asks[0][0])
@@ -1144,12 +1315,29 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str, tf: str, a
     elif status == "mock":
         emoji = "🟡"
         title = f"LIVE {side} (MOCK)"
+    elif status.startswith("skip:"):
+        # 2026-05-19: skip = trade ATLANDI — başarısızlık değil, para gitmedi.
+        emoji = "⏭️"
+        title = f"LIVE {side} ATLANDI"
     else:
         emoji = "❌"
         title = f"LIVE {side} BAŞARISIZ"
 
     detail = (result or {}).get("detail") or (result or {}).get("error") or ""
     order_id = (result or {}).get("order_id", "")
+    # 2026-05-19: skip durumlarına kullanıcı-dostu açıklama (ham status yerine).
+    skip_hint = ""
+    if status == "skip:no_liquidity":
+        skip_hint = (
+            "Bu markette şu an order defteri (orderbook) ince — market "
+            "order'ı dolduracak karşı taraf yoktu. <b>Para harcanmadı.</b> "
+            "Birkaç dakika sonra tekrar dene veya daha likit bir "
+            "market/timeframe seç."
+        )
+    elif status.startswith("skip:insufficient_balance"):
+        skip_hint = "Polymarket pUSD bakiyesi yetersiz — deposit gerekli."
+    elif status.startswith("skip:insufficient_allowance"):
+        skip_hint = "Allowance yetersiz — /live panelinden Approve et."
 
     text_post = (
         f"{emoji} <b>{title}</b>\n"
@@ -1160,7 +1348,9 @@ async def _execute_market_trade(q, engine, db, side: str, asset: str, tf: str, a
     )
     if order_id:
         text_post += f"🆔 Order ID: <code>{esc(str(order_id)[:24])}</code>\n"
-    if detail:
+    if skip_hint:
+        text_post += f"\nℹ️ <i>{skip_hint}</i>\n"
+    elif detail:
         text_post += f"\n<i>{esc(detail[:200])}</i>\n"
 
     kb = InlineKeyboardMarkup(
@@ -1672,15 +1862,24 @@ async def _build_main(engine, db):
                 )
             ]
         )
+    # 2026-05-19 Faz 2B/3 — trade istasyonu panel satırları.
     kb_rows.extend(
         [
             [
-                InlineKeyboardButton("📊 Paper vs Real", callback_data="live_compare"),
-                InlineKeyboardButton("📋 Live Geçmiş", callback_data="live_history"),
+                InlineKeyboardButton("📡 Piyasa Tara", callback_data="live_scan"),
+                InlineKeyboardButton("🛡 Guards", callback_data="live_guards"),
             ],
-            # 2026-05-18 Heddas: live budget reset (2-tap confirmed callback).
-            [InlineKeyboardButton("💰 Budget Reset", callback_data="live_budget_reset")],
-            [InlineKeyboardButton("🔄 Yenile", callback_data="live_main")],
+            [
+                InlineKeyboardButton("📈 Performans", callback_data="live_perf"),
+                InlineKeyboardButton("⚙️ Risk", callback_data="live_risk"),
+            ],
+            [
+                # 2026-05-18 Heddas: live budget reset (2-tap confirmed callback).
+                InlineKeyboardButton("💰 Budget Reset", callback_data="live_budget_reset"),
+                InlineKeyboardButton("🔄 Yenile", callback_data="live_main"),
+            ],
+            # 2026-05-19 tek-kapı: kokpit = LIVE MODE ana ekranı, mod-seçime dön.
+            [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],
         ]
     )
     kb = InlineKeyboardMarkup(kb_rows)
@@ -1754,8 +1953,181 @@ async def _build_history(engine):
             )
 
     st = engine.live.get_status()
-    text += f"\n💵 Toplam: ${st['total_pnl']:+.4f} | Kalan: ${st.get('remaining', 0):.2f}"
+    # 2026-05-19: `total_pnl` (_total_pnl sayacı) manuel trade'leri kaçırır —
+    # yanıltıcı. Gerçek PnL "📈 Performans" panelindeki on-chain blokta.
+    text += f"\n💵 Risk limiti kalan: ${st.get('remaining', 0):.2f}"
     return text
+
+
+async def _build_risk(engine) -> str:
+    """⚙️ Risk paneli (Faz 2B 2026-05-19) — RiskManager state + limitler.
+
+    `engine.risk` (RiskManager) `get_status()` canlı snapshot'ını basar.
+    Loss-streak PAPER kaynaklıdır (`engine_settlement`'tan beslenir) —
+    kokpit ile aynı etiket. Defensive: risk manager yoksa panel yine açılır.
+    """
+    _risk = getattr(engine, "risk", None)
+    head = "⚙️ <b>RİSK YÖNETİCİSİ</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+    if _risk is None or not hasattr(_risk, "get_status"):
+        return head + "\n<i>Risk manager bağlı değil (engine.risk yok).</i>"
+    try:
+        rs = _risk.get_status()
+    except Exception as _e:  # noqa: BLE001
+        logger.exception(f"_build_risk get_status: {_e}")
+        return head + "\n" + _user_error_msg(_e, "risk durumu")
+
+    halted = bool(rs.get("halted", False))
+    state_line = (
+        f"🛑 <b>HALTED</b> — {esc(str(rs.get('halt_reason', ''))[:80])}"
+        if halted
+        else "✅ Aktif"
+    )
+    limits = rs.get("limits", {}) or {}
+    streak = int(rs.get("loss_streak", 0))
+    streak_max = int(getattr(getattr(_risk, "limits", None), "max_loss_streak", 10))
+    total_exp = float(rs.get("total_exposure", 0.0) or 0.0)
+    max_exp = float(limits.get("max_exposure", 0.0) or 0.0)
+    daily_pnl = float(rs.get("daily_pnl", 0.0) or 0.0)
+    max_dl = float(limits.get("max_daily_loss", 0.0) or 0.0)
+    exp_bar = _progress_bar(total_exp / max_exp if max_exp > 0 else 0.0)
+
+    text = (
+        f"{head}"
+        f"Durum: {state_line}\n\n"
+        f"📊 <b>Pozisyon &amp; Maruziyet</b>\n"
+        f"  Açık pozisyon: {int(rs.get('open_positions', 0))} / "
+        f"{int(limits.get('max_positions', 0))}\n"
+        f"  Maruziyet [{exp_bar}]\n"
+        f"  ${total_exp:.2f} / ${max_exp:.2f}\n\n"
+        f"📉 <b>Günlük</b>\n"
+        f"  PnL: <b>${daily_pnl:+.2f}</b>  (halt eşiği -${max_dl:.2f})\n"
+        f"  Trade: {int(rs.get('daily_trades', 0))}\n\n"
+        f"🔥 <b>Loss-streak</b>: {streak} / {streak_max}  "
+        f"<i>(paper risk-manager)</i>\n\n"
+        f"🎯 <b>Limitler</b>\n"
+        f"  Trade başı max: ${float(limits.get('max_position', 0) or 0):.2f}\n"
+        f"  Bakiye tabanı: ${float(limits.get('balance_floor', 0) or 0):.2f}\n"
+    )
+    tiered = rs.get("tiered_limits", {}) or {}
+    per_asset = tiered.get("per_asset", {}) or {}
+    if per_asset:
+        text += "\n🪙 <b>Asset bazlı maruziyet</b>\n"
+        for asset, info in sorted(per_asset.items()):
+            cur = float((info or {}).get("current", 0) or 0)
+            lim = float((info or {}).get("limit", 0) or 0)
+            text += f"  {esc(str(asset))}: ${cur:.2f} / ${lim:.2f}\n"
+    per_market = (tiered.get("per_market", {}) or {}).get("markets", {}) or {}
+    if per_market:
+        text += f"\n🏷 Aktif market maruziyeti: {len(per_market)} market\n"
+    return text
+
+
+async def _build_market_scan(engine) -> str:
+    """📡 Piyasa Tarama paneli (Faz 2B 2026-05-19) — scanner aktif market'ler.
+
+    `engine.scanner.active_markets` in-memory cache'ini okur (ekstra async
+    fetch YOK — scanner job zaten periyodik tarar). Her `{COIN}_{TF}` için
+    güncel market + up/down odds. Defensive: scanner yoksa panel yine açılır.
+    """
+    head = "📡 <b>PİYASA TARAMA</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+    scanner = getattr(engine, "scanner", None)
+    if scanner is None:
+        return head + "\n<i>Scanner bağlı değil (engine.scanner yok).</i>"
+
+    active = getattr(scanner, "active_markets", {}) or {}
+    last_scan = getattr(scanner, "last_scan", None)
+    try:
+        scan_str = last_scan.strftime("%H:%M:%S UTC") if last_scan else "—"
+    except (AttributeError, ValueError):
+        scan_str = "—"
+    _ws = getattr(scanner, "ws", None)
+    ws_str = "🟢 WS" if (_ws and getattr(_ws, "is_connected", False)) else "⚫ REST"
+    total = sum(len(v or []) for v in active.values())
+    text = f"{head}Son tarama: {scan_str}  ·  {ws_str}  ·  {total} market\n\n"
+
+    if not active or total == 0:
+        return text + "<i>Aktif market yok — scanner henüz tarama yapmadı.</i>"
+
+    # Doğal timeframe sırası (5m→4h) — alfabetik "1h<5m" yerine.
+    _tf_order = {"5m": 0, "15m": 1, "30m": 2, "1h": 3, "4h": 4}
+    keys_sorted = sorted(
+        active,
+        key=lambda k: (
+            str(k).rpartition("_")[0],
+            _tf_order.get(str(k).rpartition("_")[2], 9),
+        ),
+    )
+    last_coin = None
+    shown = 0
+    for key in keys_sorted:
+        mkts = active.get(key) or []
+        if not mkts or shown >= 30:
+            continue
+        coin, _, tf = str(key).rpartition("_")
+        if not coin:  # key has no underscore — skip malformed
+            continue
+        if coin != last_coin:
+            text += f"<b>{esc(coin)}</b>\n"
+            last_coin = coin
+        m = mkts[0] or {}
+        slug = str(m.get("slug", ""))
+        odds = None
+        try:
+            if hasattr(scanner, "get_current_odds"):
+                odds = scanner.get_current_odds(slug)
+        except Exception:  # noqa: BLE001
+            odds = None
+        if odds:
+            up = float(odds.get("up_odds", 0) or 0)
+            dn = float(odds.get("down_odds", 0) or 0)
+            text += f"  {tf:>3}  Up <b>{up:.2f}</b> / Down <b>{dn:.2f}</b>\n"
+        else:
+            text += f"  {tf:>3}  <i>odds yok</i>\n"
+        shown += 1
+    return text.rstrip() + "\n"
+
+
+async def _build_performance(engine, db) -> str:
+    """📈 Performans paneli (Faz 3 + 2026-05-19 veri-zenginliği) — bot
+    performansı tek ekranda.
+
+    3 katman: (1) aggregate BOT LIVE PnL (`_live_pnl_block`), (2) on-chain
+    İŞLEM DÖKÜMÜ — per-market detay (`_live_pnl_detail_block`: nerede/ne
+    zaman/ne olmuş/ne kadar), (3) paper↔real kalibrasyon (`_build_compare`).
+
+    Eski `_build_history` (DB `live_trades` kaynaklı) kaldırıldı — tarihsel
+    trade'ler orada yoktu, "9 trade" üstte / "geçmiş yok" altta çelişkisi
+    yaratıyordu (D1 audit). On-chain işlem dökümü gerçek geçmiştir.
+    """
+    live_pnl = None
+    try:
+        from data.polymarket_portfolio import compute_live_pnl, read_cached_snapshot
+
+        snap = await read_cached_snapshot(db)
+        if snap and snap.get("activity"):
+            live_pnl = compute_live_pnl(
+                snap["activity"], int(_live_start_dt().timestamp())
+            )
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"_build_performance pnl: {_e}")
+
+    try:
+        compare = await _build_compare(engine)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"_build_performance compare: {_e}")
+        compare = "<i>Karşılaştırma alınamadı.</i>"
+
+    detail = _live_pnl_detail_block(
+        live_pnl.get("per_market", []) if isinstance(live_pnl, dict) else []
+    )
+    return (
+        "📈 <b>PERFORMANS</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{_live_pnl_block(live_pnl)}"
+        f"{detail}"
+        "<i>⬇️ Paper↔Real kalibrasyon — DB live_trades kaynaklı (otomatik-"
+        "mirror trade'ler). Manuel trade'ler yukarıdaki on-chain döküm.</i>\n\n"
+        f"{compare}"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
