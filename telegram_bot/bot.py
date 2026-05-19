@@ -54,6 +54,10 @@ from telegram_bot.handlers.ai_handler import (  # Phase 51 P51-03 Faz-2 Cluster 
 from telegram_bot.handlers.archive_info_handler import (  # Phase 82e Sprint B.2: archive reader diag
     archive_info_command,
 )
+from telegram_bot.handlers.backtest_lab import (  # 2026-05-20: /backtest LAB mode-first
+    backtest_lab_callback,
+    backtest_lab_command,
+)
 from telegram_bot.handlers.backtest_v2 import (  # Phase 51 P51-03 Faz-2 Cluster F
     backtest_replay_command,  # merged from backtest_replay.py
     backtest_v2_callback,
@@ -468,6 +472,11 @@ class PolyPaperBot:
             ("backtest_v2", backtest_v2_cmd),
             ("bt2", backtest_v2_cmd),
             ("compare", compare_cmd),
+            # 2026-05-20 (Heddas direktifi): /backtest LAB mode-first tek kapı.
+            # Eski /backtest_v2 + /backtest_replay legacy alias olarak kalır.
+            ("backtest", backtest_lab_command),
+            ("bt", backtest_lab_command),
+            ("lab", backtest_lab_command),
             # Risk
             ("risk", risk_command),
             ("risk_set", risk_set_command),
@@ -796,6 +805,9 @@ class PolyPaperBot:
         self.app.add_handler(CallbackQueryHandler(autopilot_callback, pattern="^ap_"))
         self.app.add_handler(CallbackQueryHandler(backtest_v2_callback, pattern="^bt2_"))
         self.app.add_handler(CallbackQueryHandler(backtest_v2_config_callback, pattern="^bt2c_"))
+        # 2026-05-20 (Heddas direktifi): /backtest LAB callback dispatcher.
+        # `lab_*` prefix — main/quick/builder/compare/calibrate/legacy/refresh.
+        self.app.add_handler(CallbackQueryHandler(backtest_lab_callback, pattern="^lab_"))
 
         # Phase 79 S2-1: Strategy tester handlers
         for handler in get_test_strategy_handlers():
@@ -906,7 +918,8 @@ class PolyPaperBot:
             BotCommand("stop_all", "Tum stratejileri durdur"),
             # ── Test & Backtest (3) ──
             BotCommand("test_strategy", "Gercek veri test et (/test)"),
-            BotCommand("backtest_v2", "Backtest v2 (alias: /bt2)"),
+            BotCommand("backtest", "Backtest LAB tek kapi (alias: /bt /lab)"),
+            BotCommand("backtest_v2", "Eski Backtest v2 paneli (alias: /bt2)"),
             # /hyperopt + /mc_kelly removed 2026-04-28 (Heddas direktifi)
             # ── Istatistik (3) ──
             BotCommand("stats_hub", "Tum istatistikler (tab menu)"),
@@ -1314,7 +1327,8 @@ class PolyPaperBot:
             "/report — Strateji raporu\n\n"
             "<b>🧪 Test &amp; Backtest</b>\n"
             "/test_strategy — Gercek veri ile test <i>(/test)</i>\n"
-            "/backtest_v2 — Backtest v2 <i>(/bt2)</i>\n\n"
+            "/backtest — Backtest LAB tek kapi <i>(/bt, /lab)</i>\n"
+            "/backtest_v2 — Eski v2 paneli <i>(/bt2)</i>\n\n"
             "<b>📊 Istatistik</b>\n"
             "/stats_hub — Tum istatistikler (tab menu)\n"
             "/daily — Gunluk ozet\n"
