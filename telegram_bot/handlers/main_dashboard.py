@@ -22,13 +22,36 @@ from telegram.ext import ContextTypes
 logger = logging.getLogger("polypaper.main_dashboard")
 
 
-async def main_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """`/start` ve `/main` komutu — mod seçim ekranı.
+def _is_admin(context: ContextTypes.DEFAULT_TYPE, telegram_id: int) -> bool:
+    """Admin gate — mod ekranları gerçek pUSD bakiyesi + canlı durum sızdırır.
 
-    Kullanıcı bot'u ilk kez açtığında bu ekran çıkar.
+    2026-05-19 (tek-kapı redesign): /start /dashboard /d /main hepsi bu
+    ekrana düşüyor; LIVE MODE özeti gerçek bakiyeyi gösterir. settings
+    yoksa fail-closed (deny) — `live_handler._is_admin` ile aynı desen.
+    """
+    settings = context.bot_data.get("settings")
+    if settings is None:
+        logger.warning(
+            "main_dashboard _is_admin: settings missing, denying %s", telegram_id
+        )
+        return False
+    return bool(settings.is_admin(telegram_id))
+
+
+async def main_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`/start` `/main` `/dashboard` `/d` komutu — mod seçim ekranı.
+
+    2026-05-19 "tek kapı": bot'un tek girişi. Kullanıcı her açışta
+    PAPER vs LIVE seçer; seçtiği moda göre kendi menü dünyasına gider.
     Her iki mod'un özet bilgisi gösterilir (bakiye + bugünkü PnL).
     """
     user_id = update.effective_user.id if update.effective_user else 0
+    if not _is_admin(context, user_id):
+        if update.message:
+            await update.message.reply_text("⛔ Admin only.")
+        elif update.callback_query:
+            await update.callback_query.answer("Admin only", show_alert=True)
+        return
     text, kb = await _build_main_dashboard_text_kb(context, user_id)
     if update.message:
         await update.message.reply_text(
@@ -66,6 +89,9 @@ async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     q = update.callback_query
     if not q:
         return
+    if not _is_admin(context, q.from_user.id):
+        await q.answer("Admin only", show_alert=True)
+        return
     await q.answer()
     data = q.data or ""
 
@@ -93,22 +119,25 @@ async def _build_main_dashboard_text_kb(
     live_summary = await _get_live_summary(context)
 
     text = (
-        "🤖 <b>PolyPaper Bot</b>\n"
+        "🤖 <b>PolyPaper Bot — Mod Seçimi</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Hangi modu kullanmak istersin?\n\n"
-        f"📋 <b>PAPER MODE</b>\n"
-        f"  Bakiye: <b>${paper_summary['balance']:.2f}</b> "
-        f"<i>(simülasyon)</i>\n"
-        f"  Bugün PnL: <b>{paper_summary['pnl_emoji']} "
-        f"{paper_summary['daily_pnl']:+.2f}</b>\n"
-        f"  Açık strateji: {paper_summary['open_strategies']}\n\n"
-        f"💰 <b>LIVE MODE</b>\n"
-        f"  Bakiye: <b>${live_summary['balance']:.2f}</b> "
-        f"<i>(gerçek pUSD)</i>\n"
-        f"  Bugün PnL: <b>{live_summary['pnl_emoji']} "
-        f"{live_summary['daily_pnl']:+.2f}</b>\n"
-        f"  Açık pozisyon: {live_summary['open_positions']}\n"
-        f"  Allowance: {live_summary['allowance_status']}\n"
+        "İki ayrı dünya. Hangisinde çalışacaksın?\n\n"
+        "📋 <b>PAPER MODE</b> — Simülasyon\n"
+        "  <i>Sanal parayla strateji geliştir + backtest. Risk yok,\n"
+        "  tüm stratejiler açık, bot 7/24 otomatik trade eder.</i>\n"
+        f"  💵 <b>${paper_summary['balance']:,.2f}</b>  ·  "
+        f"bugün {paper_summary['pnl_emoji']} {paper_summary['daily_pnl']:+.2f}  ·  "
+        f"{paper_summary['open_strategies']} aktif strateji\n\n"
+        "💰 <b>LIVE MODE</b> — Gerçek pUSD\n"
+        "  <i>Polymarket'te gerçek parayla trade istasyonu. Manuel\n"
+        "  BUY/SELL, piyasa/risk/guard panelleri, on-chain PnL.</i>\n"
+        f"  💵 <b>${live_summary['balance']:,.2f}</b>  ·  "
+        f"bugün {live_summary['pnl_emoji']} {live_summary['daily_pnl']:+.2f}  ·  "
+        f"{live_summary['open_positions']} pozisyon  ·  "
+        f"allowance {live_summary['allowance_status']}\n\n"
+        "<i>Seçtiğin mod kendi menü dünyasını açar. Mod seçimi yalnız "
+        "navigasyon — gerçek parayla trading'i LIVE MODE içinde ayrıca, "
+        "açık onayla başlatırsın.</i>"
     )
 
     kb = InlineKeyboardMarkup(
@@ -201,24 +230,31 @@ async def _get_live_summary(context: ContextTypes.DEFAULT_TYPE) -> dict:
 # PAPER MODE Dashboard
 # ════════════════════════════════════════════════════════════════════════
 async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Paper-only menü — strategies, stats, AI Brain, backtest."""
-    paper_summary = await _get_paper_summary(context)
+    """📋 PAPER MODE ana ekranı — detaylı paper dashboard + paper menü.
 
-    text = (
-        "📋 <b>PAPER MODE</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>Bakiye:</b> ${paper_summary['balance']:.2f} <i>(simülasyon)</i>\n"
-        f"<b>Bugün PnL:</b> {paper_summary['pnl_emoji']} "
-        f"{paper_summary['daily_pnl']:+.2f}\n"
-        f"<b>Aktif strateji:</b> {paper_summary['open_strategies']}\n\n"
-        f"<i>Paper trade — gerçek para yok, otomatik bot çalıştırır.</i>"
-    )
+    2026-05-19 (tek-kapı redesign): mevcut `/dashboard` detaylı içeriği
+    (`dashboard._build` — bakiye, all-time/bugün PnL, WR, rejim, risk
+    snapshot) burada gösterilir + paper-scoped menü + LIVE MODE'a geçiş.
+    PAPER MODE'un tek ana ekranı; eski ince özet menüsünün yerine geçti.
+    """
+    engine = context.bot_data.get("engine")
+    db = context.bot_data.get("db") or getattr(engine, "db", None)
+    body = "<i>Dashboard yüklenemedi — /legacy_start ile kayıt ol.</i>"
+    try:
+        from telegram_bot.handlers.dashboard import _build
+
+        user = None
+        if db is not None:
+            uid = update.effective_user.id if update.effective_user else 0
+            user = await db.get_user_by_telegram_id(uid)
+        if user is not None:
+            body = await _build(db, user, engine)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"paper_dashboard build: {_e}")
+    text = "📋 <b>PAPER MODE</b> · simülasyon\n\n" + body
+
     kb = InlineKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton("📊 Dashboard", callback_data="dashboard"),
-                InlineKeyboardButton("📜 Trades", callback_data="trades_page:0"),
-            ],
             [
                 InlineKeyboardButton("⚙️ Stratejiler", callback_data="strategies"),
                 InlineKeyboardButton("🤖 AI Brain", callback_data="ai_brain"),
@@ -228,11 +264,14 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 InlineKeyboardButton("🎯 Backtest", callback_data="bt_v2_main"),
             ],
             [
+                InlineKeyboardButton("📜 Trades", callback_data="trades_page:0"),
                 InlineKeyboardButton("💡 Öneri", callback_data="suggest"),
-                InlineKeyboardButton("📊 Compare", callback_data="live_compare"),
             ],
-            [InlineKeyboardButton("💰 Live'a Geç →", callback_data="main_live")],
-            [InlineKeyboardButton("◀️ Ana Mod Seçimi", callback_data="main_dashboard")],
+            [
+                InlineKeyboardButton("🔄 Yenile", callback_data="main_paper"),
+                InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live"),
+            ],
+            [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],
         ]
     )
     q = update.callback_query
@@ -242,51 +281,35 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         except (BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
     elif update.message:
-        await update.message.reply_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=kb,
-        )
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ════════════════════════════════════════════════════════════════════════
 # LIVE MODE Dashboard
 # ════════════════════════════════════════════════════════════════════════
 async def live_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Live-only menü — BUY/SELL, positions, PnL, redeem, wallet."""
-    live_summary = await _get_live_summary(context)
-    text = (
-        "💰 <b>LIVE MODE</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>Bakiye:</b> ${live_summary['balance']:.2f} pUSD\n"
-        f"<b>Bugün PnL:</b> {live_summary['pnl_emoji']} "
-        f"{live_summary['daily_pnl']:+.2f}\n"
-        f"<b>Açık pozisyon:</b> {live_summary['open_positions']}\n"
-        f"<b>Allowance:</b> {live_summary['allowance_status']}\n\n"
-        f"<i>⚠️ Gerçek pUSD ile trade — dikkat.</i>"
-    )
-    kb = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("🟢 BUY", callback_data="live_market_buy"),
-                InlineKeyboardButton("🔴 SELL", callback_data="live_market_sell"),
-            ],
-            [
-                InlineKeyboardButton("📊 Pozisyonlar", callback_data="live_main"),
-                InlineKeyboardButton("📜 Trades", callback_data="live_history:0"),
-            ],
-            [
-                InlineKeyboardButton("📈 PnL Detay", callback_data="live_pnl"),
-                InlineKeyboardButton("📤 CSV Export", callback_data="live_export_csv"),
-            ],
-            [
-                InlineKeyboardButton("💵 Wallet (Portfolio)", callback_data="live_main"),
-                InlineKeyboardButton("✅ Allowance", callback_data="live_approve_allowance"),
-            ],
-            [InlineKeyboardButton("📋 Paper'a Geç →", callback_data="main_paper")],
-            [InlineKeyboardButton("◀️ Ana Mod Seçimi", callback_data="main_dashboard")],
-        ]
-    )
+    """💰 LIVE MODE ana ekranı — `/live` trade istasyonu kokpiti.
+
+    2026-05-19 (tek-kapı redesign): eski ince live menüsü kaldırıldı.
+    LIVE MODE artık doğrudan `/live` trade istasyonu kokpitini gösterir
+    (`live_handler._build_main`) — tek live ekranı, çift bakım yok.
+    Kokpit kendi keyboard'unda "◀️ Mode Seçimi" butonu taşır.
+    """
+    engine = context.bot_data.get("engine")
+    db = context.bot_data.get("db") or getattr(engine, "db", None)
+    try:
+        from telegram_bot.handlers.live_handler import _build_main
+
+        text, kb = await _build_main(engine, db)
+    except Exception as _e:  # noqa: BLE001
+        logger.debug(f"live_dashboard build: {_e}")
+        text = (
+            "💰 <b>LIVE MODE</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "<i>Trade istasyonu yüklenemedi — /live komutunu dene.</i>"
+        )
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")]]
+        )
     q = update.callback_query
     if q:
         try:
@@ -294,11 +317,7 @@ async def live_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except (BadRequest, TelegramError):
             await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
     elif update.message:
-        await update.message.reply_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=kb,
-        )
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 async def _show_bot_settings(q) -> None:

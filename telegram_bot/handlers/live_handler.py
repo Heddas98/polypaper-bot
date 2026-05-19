@@ -1759,6 +1759,8 @@ async def _build_main(engine, db):
                 InlineKeyboardButton("💰 Budget Reset", callback_data="live_budget_reset"),
                 InlineKeyboardButton("🔄 Yenile", callback_data="live_main"),
             ],
+            # 2026-05-19 tek-kapı: kokpit = LIVE MODE ana ekranı, mod-seçime dön.
+            [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],
         ]
     )
     kb = InlineKeyboardMarkup(kb_rows)
