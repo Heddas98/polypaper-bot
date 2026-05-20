@@ -245,6 +245,19 @@ async def test_build_calibrate_with_7d_trades(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_build_calibrate_includes_polymarket_constants_block():
+    """Faz 6: Kalibrasyon paneli Polymarket sabitleri özetini göstermeli."""
+    db = _db({"FROM live_trades": (0, 0.0, 0.0)})
+    text, kb = await _build_calibrate(db)
+    assert "Polymarket sabitleri" in text
+    assert "crypto taker" in text
+    assert "0.07" in text  # crypto fee rate (docs-verified)
+    assert "tail zones" in text
+    assert "check_polymarket_drift" in text  # script referansı
+    assert "2026-05-20" in text  # son doğrulama tarihi
+
+
+@pytest.mark.asyncio
 async def test_build_legacy_lists_old_commands():
     db = _db({"FROM live_trades": (0, 0.0, 0.0)})
     text, kb = await _build_legacy(db)

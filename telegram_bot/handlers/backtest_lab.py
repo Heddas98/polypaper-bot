@@ -862,12 +862,32 @@ async def _build_calibrate(db) -> tuple[str, InlineKeyboardMarkup]:
         except Exception as e:  # noqa: BLE001
             logger.debug("_build_calibrate 7d query failed: %s", e)
 
+    # Faz 6: Polymarket constants block — drift status (test pin'ler kanıt)
+    constants_block = "<i>Sabitler bloğu okunamadı</i>"
+    try:
+        from core.fees_v2 import CATEGORY_FEES, TAIL_HIGH, TAIL_LOW
+
+        crypto = CATEGORY_FEES.get("crypto", {})
+        constants_block = (
+            "<b>Polymarket sabitleri</b> "
+            "<i>(son docs doğrulaması: 2026-05-20)</i>\n"
+            f"  crypto taker: <code>{crypto.get('taker_rate', '?')}</code> · "
+            f"exp <code>{crypto.get('taker_exp', '?')}</code> · "
+            f"maker rebate <code>{crypto.get('maker_rebate_pct', 0) * 100:.0f}%</code>\n"
+            f"  tail zones: <code>{TAIL_LOW}</code>..<code>{TAIL_HIGH}</code>\n"
+            "  drift check: <code>py scripts/check_polymarket_drift.py</code>\n"
+            "  pin testi: <code>pytest tests/unit/test_polymarket_constants_drift.py</code>"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("_build_calibrate constants block failed: %s", e)
+
     text = (
         "🎯 <b>KALİBRASYON</b>\n"
         "<i>Backtest sonuçları gerçeğe ne kadar yakın?</i>\n\n"
         f"{gap}"
         f"{long_block}\n\n"
-        "<b>Detay</b>:\n"
+        f"{constants_block}\n\n"
+        "<b>Detay komutları</b>:\n"
         "  • <code>/reality_gap</code> (alias <code>/rg</code>) — "
         "nightly rapor + 24h snapshot\n"
         "  • <code>/ref_audit</code> (alias <code>/ra</code>) — "
@@ -880,9 +900,7 @@ async def _build_calibrate(db) -> tuple[str, InlineKeyboardMarkup]:
         f"  <code>REALITY_GAP_ALERT_PCT</code> = "
         f"<code>{os.getenv('REALITY_GAP_ALERT_PCT', '10.0')}</code>%\n"
         f"  <code>REALITY_GAP_WINDOW_H</code> = "
-        f"<code>{os.getenv('REALITY_GAP_WINDOW_H', '168')}</code>h\n\n"
-        "<i>Faz 6'da her LAB run'ı bittiğinde gap blok'u otomatik gösterilir +"
-        " Polymarket docs constant drift CI guard'ı eklenir.</i>"
+        f"<code>{os.getenv('REALITY_GAP_WINDOW_H', '168')}</code>h"
     )
     extra = [
         [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
