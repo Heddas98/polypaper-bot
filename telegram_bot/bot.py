@@ -921,10 +921,14 @@ class PolyPaperBot:
             # Phase 82a hotfix: bulk actions (inline buttons truncate at 100-button cap)
             BotCommand("start_all", "Tum stratejileri baslat"),
             BotCommand("stop_all", "Tum stratejileri durdur"),
-            # ── Test & Backtest (3) ──
-            BotCommand("test_strategy", "Gercek veri test et (/test)"),
-            BotCommand("backtest", "Backtest LAB tek kapi (alias: /bt /lab)"),
-            BotCommand("backtest_v2", "Eski Backtest v2 paneli (alias: /bt2)"),
+            # ── 🧪 Backtest LAB (tek kapi) ──
+            # 2026-05-21 (Heddas direktifi): backtest komutlari tek baslik
+            # altinda toplandi. /backtest LAB tek kapi (alias /bt, /lab),
+            # /backtest_v2 + /bt2 + /backtest_replay + /compare LAB icine
+            # tasindi / yonlendirildi — BotCommand listesinden cikarildi
+            # (yine calisirlar ama menude gozukmezler).
+            BotCommand("backtest", "Backtest LAB — gercek L2 replay (alias: /bt /lab)"),
+            BotCommand("test_strategy", "Stratejiyi gercek veri ile test et (/test)"),
             # /hyperopt + /mc_kelly removed 2026-04-28 (Heddas direktifi)
             # ── Istatistik (3) ──
             BotCommand("stats_hub", "Tum istatistikler (tab menu)"),
@@ -1330,10 +1334,11 @@ class PolyPaperBot:
             "/strategies — Strateji listesi <i>(/s)</i>\n"
             "/quick_strategy — Hizli strateji olustur\n"
             "/report — Strateji raporu\n\n"
-            "<b>🧪 Test &amp; Backtest</b>\n"
-            "/test_strategy — Gercek veri ile test <i>(/test)</i>\n"
+            "<b>🧪 Backtest LAB</b>\n"
             "/backtest — Backtest LAB tek kapi <i>(/bt, /lab)</i>\n"
-            "/backtest_v2 — Eski v2 paneli <i>(/bt2)</i>\n\n"
+            "  ↳ 4 panel: Hizli Test · Strateji Kurucu · Karsilastir · Kalibrasyon\n"
+            "/test_strategy — Stratejiyi gercek veri ile test et <i>(/test)</i>\n"
+            "<i>Eski: /backtest_v2 /bt2 /backtest_replay /compare → LAB icinde</i>\n\n"
             "<b>📊 Istatistik</b>\n"
             "/stats_hub — Tum istatistikler (tab menu)\n"
             "/daily — Gunluk ozet\n"

@@ -176,65 +176,60 @@ async def menu_brain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def menu_backtest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Backtest — consolidated sub-menu with inline buttons."""
+    """Backtest — LAB tek kapi (2026-05-21 Heddas direktifi consolidation).
+
+    Eski 3-tab submenu (Replay / Quick v2 / Karsilastir) silindi —
+    LAB icinde 4 panel (Hizli Test / Strateji Kurucu / Karsilastir /
+    Kalibrasyon) hepsini gercek L2 replay_engine uzerinde sunuyor.
+    """
     q = update.callback_query
     await q.answer()
-    text = (
-        "🧪 <b>Backtest Merkezi</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
-        "Bir motor seç — hepsi inline panelde açılır:\n\n"
-        "🔄 <b>Replay</b>: Gerçek kaydedilmiş L2 orderbook (en gerçekçi)\n"
-        "⚡ <b>Quick v2</b>: Hızlı config paneli, 11 strateji\n"
-        "🏆 <b>Karşılaştır</b>: Tüm strateji PnL sıralaması"
-    )
-    kb = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("🔄 Replay (Gerçek L2)", callback_data="menu_bt_replay")],
-            [InlineKeyboardButton("⚡ Quick v2", callback_data="menu_bt_v2")],
-            [InlineKeyboardButton("🏆 Karşılaştır", callback_data="menu_bt_compare")],
-            [InlineKeyboardButton("⬅️ Ana Menü", callback_data="menu_refresh")],
-        ]
-    )
-    await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+    try:
+        from telegram_bot.handlers.backtest_lab import backtest_lab_command
+
+        await _invoke_command(backtest_lab_command, update, context)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"menu_backtest error: {esc(e)}", exc_info=True)
+        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
 
 
 async def menu_bt_replay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Submenu → open the replay panel."""
+    """LEGACY shim — eski 'Replay' submenu butonu LAB'a yonlendirir."""
     q = update.callback_query
     await q.answer()
     try:
-        from telegram_bot.handlers.backtest_v2 import backtest_replay_command
+        from telegram_bot.handlers.backtest_lab import backtest_lab_command
 
-        await _invoke_command(backtest_replay_command, update, context)
+        await _invoke_command(backtest_lab_command, update, context)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"menu_bt_replay error: {esc(e)}", exc_info=True)
-        await q.message.reply_text("⚠️ Replay yüklenemedi. /backtest_replay dene.")
+        logger.error(f"menu_bt_replay shim error: {esc(e)}", exc_info=True)
+        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
 
 
 async def menu_bt_v2_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Submenu → open backtest v2 panel."""
+    """LEGACY shim — eski 'Quick v2' submenu butonu LAB'a yonlendirir."""
     q = update.callback_query
     await q.answer()
     try:
-        from telegram_bot.handlers.backtest_v2 import backtest_v2_cmd
+        from telegram_bot.handlers.backtest_lab import backtest_lab_command
 
-        await _invoke_command(backtest_v2_cmd, update, context)
+        await _invoke_command(backtest_lab_command, update, context)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"menu_bt_v2 error: {esc(e)}", exc_info=True)
-        await q.message.reply_text("⚠️ Backtest v2 yüklenemedi. /backtest_v2 dene.")
+        logger.error(f"menu_bt_v2 shim error: {esc(e)}", exc_info=True)
+        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
 
 
 async def menu_bt_compare_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Submenu → open compare panel."""
+    """LEGACY shim — eski 'Karsilastir' submenu butonu LAB Karsilastir'e yonlendirir."""
     q = update.callback_query
     await q.answer()
     try:
-        from telegram_bot.handlers.backtest_v2 import compare_cmd
+        from telegram_bot.handlers.backtest_lab import backtest_lab_command
 
-        await _invoke_command(compare_cmd, update, context)
+        await _invoke_command(backtest_lab_command, update, context)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"menu_bt_compare error: {esc(e)}", exc_info=True)
-        await q.message.reply_text("⚠️ Karşılaştır yüklenemedi. /compare dene.")
+        logger.error(f"menu_bt_compare shim error: {esc(e)}", exc_info=True)
+        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
 
 
 async def menu_positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
