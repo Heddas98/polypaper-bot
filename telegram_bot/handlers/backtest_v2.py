@@ -104,9 +104,9 @@ async def compare_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "📊 <b>Strateji Karsilastirma</b> (gercek L2 replay)\n\n"
             "Kullanim: <code>/compare strat1 strat2 [strat3...]</code>\n\n"
-            "Ornek: <code>/compare hour_edge streak_reversal taker_flow</code>\n\n"
-            "<i>Tum kayitli stratejileri karsilastirmak icin /lab → "
-            "Karsilastir paneline gec.</i>",
+            "<i>2026-05-21: hazir Python stratejileri silindi. Su an sadece "
+            "<code>rule_based</code> kayitli. Multi-ruleset karsilastirma "
+            "icin /lab → Karsilastir paneline gec.</i>",
             parse_mode="HTML",
         )
         return
