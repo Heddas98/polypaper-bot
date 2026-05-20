@@ -323,6 +323,14 @@ async def main():
         rtds = PolymarketRTDS(enable_chainlink=True, db=db)
 
     scanner = MarketScanner(settings, poly_client, db, ws_client=ws_client, odds_feed=odds_feed)
+    # 2026-05-21 (Heddas direktifi): ob_snapshots metadata NULL bug fix.
+    # WS client'in _persist_book_snapshot'i scanner.get_token_meta(asset_id)
+    # ile asset/timeframe/slug doldurabilsin diye scanner referansini ata.
+    if ws_client is not None:
+        try:
+            ws_client.attach_scanner(scanner)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"ws_client.attach_scanner failed: {e}")
     engine = TradingEngine(settings, db, scanner, odds_feed, external_feed=external_feed)
     engine.binance_multistream = binance_ms  # Phase 44a — engine reads features()
     engine.chainlink_oracle = chainlink_oracle  # Phase 44b — engine reads parity_break()

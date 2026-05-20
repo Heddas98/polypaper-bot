@@ -50,6 +50,11 @@ class PolymarketWebSocket:
         self._errors: int = 0
         # Phase 19: Real-time callback for OddsFeed bridge
         self._on_price_callback = None  # callable(token_id, price)
+        # 2026-05-21 (Heddas direktifi): scanner reference for ob_snapshots
+        # metadata lookup. Eskiden _persist_book_snapshot asset/timeframe/slug
+        # icin None koyuyordu → 50k+ row NULL → backtest yapamiyor. Scanner
+        # subscribe esnasinda asset_id → (asset, tf, slug) cache'liyor.
+        self._scanner = None  # set via attach_scanner(scanner)
         # Phase 39 (P1.1): Real-time callback for actual trade events
         # Polymarket WS sends `last_trade_price` events with size + side fields.
         # This callback fires only for genuine fills, not price-change ticks.
@@ -604,10 +609,31 @@ class PolymarketWebSocket:
             t *= 1000
         return t
 
+    def attach_scanner(self, scanner) -> None:
+        """2026-05-21 (Heddas direktifi): metadata lookup için scanner referansı.
+
+        main.py'de WS connect ile scanner.start() arasinda çağrılır;
+        scanner subscribe sirasinda asset_id → (asset, tf, slug) cache'ler,
+        _persist_book_snapshot bu cache'i okuyup ob_snapshots metadata
+        kolonlarini doldurur. Defansif: None scanner OK (test/fallback mode).
+        """
+        self._scanner = scanner
+
     async def _persist_book_snapshot(
         self, ts_ms, asset_id, condition_id, best_bid, best_ask, mid, spread, bids, asks, hash_
     ):
         try:
+            # 2026-05-21 Heddas direktifi: asset/timeframe/slug metadata
+            # lookup (NULL bug fix). Scanner cache'inden cek; cache miss
+            # halinde None (eski davranis — eski 50k row'un tutarli olmasi).
+            asset = None
+            timeframe = None
+            slug = None
+            if self._scanner is not None:
+                meta = self._scanner.get_token_meta(asset_id)
+                if meta:
+                    asset, timeframe, slug = meta
+
             await self.db.conn.execute(
                 """INSERT OR REPLACE INTO ob_snapshots
                    (ts_ms, asset_id, condition_id, asset, timeframe, slug,
@@ -618,9 +644,9 @@ class PolymarketWebSocket:
                     ts_ms,
                     asset_id,
                     condition_id,
-                    None,
-                    None,
-                    None,
+                    asset,
+                    timeframe,
+                    slug,
                     best_bid,
                     best_ask,
                     mid,

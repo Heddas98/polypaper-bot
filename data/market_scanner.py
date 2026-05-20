@@ -56,6 +56,12 @@ class MarketScanner:
         self._subscribed_ws_tokens: set[str] = set()
         # Phase 19: token_id → (slug, direction) mapping for real-time OddsFeed
         self._token_slug: dict[str, tuple[str, str]] = {}  # tid → (slug, "up"|"down")
+        # 2026-05-21 (Heddas direktifi): asset_id → (asset, timeframe, slug)
+        # lookup for WebSocket persist_book_snapshot (ob_snapshots metadata
+        # NULL bug fix). market_recorder.py'nin eski snapshot_recorder code
+        # path'i artik kullanilmiyor — WS book event'leri tek INSERT yolu,
+        # buradan metadata cekiyor.
+        self._token_meta: dict[str, tuple[str, str, str]] = {}  # tid → (asset, tf, slug)
 
     async def start(self):
         if self._running:
@@ -80,6 +86,16 @@ class MarketScanner:
             f"| REST poll every {SCAN_INTERVAL_S}s "
             f"| WS→odds_cache bridge ACTIVE (Phase 82e scan-tighten)"
         )
+
+    def get_token_meta(self, asset_id: str) -> tuple[str, str, str] | None:
+        """2026-05-21: WS persist_book_snapshot için metadata lookup.
+
+        Verilen asset_id (token_id) için (asset, timeframe, slug) tuple
+        veya None döner. ob_snapshots NULL bug fix — WS event'inde sadece
+        asset_id var, slug/asset/timeframe scanner'in subscribe esnasinda
+        kaydetti˜i metadata'dan gelir.
+        """
+        return self._token_meta.get(asset_id)
 
     def _on_ws_price(self, token_id: str, price: float):
         """Phase 23 FIX: Only route UP token prices to OddsFeed.
@@ -234,6 +250,9 @@ class MarketScanner:
                             if tid:
                                 direction = "up" if tk == "up_token" else "down"
                                 self._token_slug[tid] = (slug, direction)
+                                # 2026-05-21: asset/tf metadata for WS persist
+                                # (ob_snapshots NULL bug fix)
+                                self._token_meta[tid] = (asset, tf, slug)
             else:
                 self.active_markets.pop(key, None)
 
