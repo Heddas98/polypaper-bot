@@ -1,29 +1,28 @@
 """
-PolyPaper Bot - /backtest LAB (Faz 1: mode-first iskelet)
-==========================================================
+PolyPaper Bot - /backtest LAB
+==============================
 2026-05-20 (Heddas direktifi): backtest modülü çok-fonksiyonel
-"trade istasyonu"na evrilsin. /backtest tek kapı, 4 panel:
+"trade istasyonu". /backtest tek kapı, 4 panel:
 
-    🚀 Hızlı Test       — preset config'lerle replay backtest
-    🛠 Strateji Kurucu  — no-code rule builder (Faz 3-4'te dolar)
-    🆚 Karşılaştır      — multi-strategy /compare
+    🚀 Hızlı Test       — preset config'lerle replay backtest (köprü)
+    🛠 Strateji Kurucu  — Faz 4: JSON paste + listele/sil interaktif
+    🆚 Karşılaştır      — multi-strategy /compare (köprü)
     🎯 Kalibrasyon      — live vs paper reality gap
 
 Eski /backtest_v2 + /backtest_replay legacy alias olarak yaşar.
 
-Faz 1 KAPSAMI: panel navigation iskeleti, reality-gap mini-block,
-mevcut motora köprüler. YENİ filter/strateji özellikleri Faz 2-6.
-Geri uyumluluk: tüm eski komutlar çalışmaya devam eder.
-
 Mimari notlar:
-- Callback prefix `lab_*` (lab_main, lab_quick, lab_builder,
-  lab_compare, lab_calibrate, lab_refresh).
+- Callback prefix `lab_*`. Parametresiz: lab_main/quick/builder/compare/
+  calibrate/legacy/refresh/help_save. Parametreli (Faz 4): lab_show:<name>,
+  lab_del_ask:<name>, lab_del_confirm:<name>. Ad regex-validated.
 - Her panel `_safe_edit` ile yenilenir (B1 audit doktrini —
   "message not modified" sessizce yutulur).
-- Reality-gap mini-block her panelin ÜSTÜNDE — kullanıcı ne
-  yaparsa yapsın paper'ın gerçeğe ne kadar yaklaştığını görür.
-- Quick Test paneli Faz 1'de mevcut /backtest_replay'a yönlendirir;
-  Faz 2'de yeni filtrelerle inline button akışı.
+- Reality-gap mini-block her panelin ÜSTÜNDE — kullanıcı ne yaparsa
+  yapsın paper'ın gerçeğe ne kadar yaklaştığını görür.
+- /lab_save: JSON paste flow — komutun ardından gelen JSON parse +
+  validate + data_store/bt_strategies/{name}.json olarak yazılır.
+  Faz 4b'de inline preset sihirbazı (saniye-aralığı / fiyat-trigger
+  / saat) gelecek; wizard'sız MVP geliştirici-odaklı.
 """
 
 from __future__ import annotations
@@ -253,51 +252,55 @@ async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
 
 
 async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🛠 Strateji Kurucu paneli — Faz 3 motor hazır, Faz 4 UI gelecek.
+    """🛠 Strateji Kurucu paneli — Faz 4: interaktif liste + JSON paste.
 
-    Faz 3 (`backtest/strategies/rule_based.py`) RuleBasedStrategy + JSON
-    load/save altyapısını sağlar. Bu panel:
-      - Kayıtlı kullanıcı ruleset'lerini listeler (data_store/bt_strategies/)
-      - Mevcut Python stratejilerini örnek olarak gösterir
-      - Faz 4'te inline buton akışı bu panele eklenecek
+    Listede her kullanıcı ruleset'i için "🔍 Detay" butonu (sil flow'una
+    açılır). Yeni strateji eklemek için `/lab_save` komutu — JSON paste
+    flow (wizard'sız, geliştirici için en hızlı). Faz 4b'de preset
+    sihirbazı (saniye aralığı, fiyat trigger gibi hazır şablonlar).
     """
     gap = await _reality_gap_block(db)
     strat_n, strat_sample = _strategy_count()
-    sample_txt = "\n".join(f"  • <code>{esc(s)}</code>" for s in strat_sample[:8])
-    if strat_n > 8:
-        sample_txt += f"\n  • <i>...+{strat_n - 8} daha</i>"
+    sample_txt = "\n".join(f"  • <code>{esc(s)}</code>" for s in strat_sample[:6])
+    if strat_n > 6:
+        sample_txt += f"\n  • <i>...+{strat_n - 6} daha</i>"
 
-    # Kullanıcı ruleset'leri (Faz 3 — list_rulesets)
-    user_rulesets_txt = "<i>Henüz no-code strateji yok.</i>"
+    rs_list: list[dict] = []
     try:
         from backtest.strategies.rule_based import list_rulesets
 
         rs_list = list_rulesets()
-        if rs_list:
-            lines = [
-                f"  • <code>{esc(rs.get('name', '?'))}</code> "
-                f"({esc(rs.get('direction', '?'))}, "
-                f"{len(rs.get('entry', {}).get('conditions', []))} kural)"
-                for rs in rs_list[:8]
-            ]
-            user_rulesets_txt = "\n".join(lines)
-            if len(rs_list) > 8:
-                user_rulesets_txt += f"\n  • <i>...+{len(rs_list) - 8} daha</i>"
     except Exception as e:  # noqa: BLE001
         logger.debug("_build_builder rulesets list failed: %s", e)
 
+    if rs_list:
+        lines = []
+        for rs in rs_list[:10]:
+            nm = rs.get("name", "?")
+            cond_n = len(rs.get("entry", {}).get("conditions", []))
+            lines.append(
+                f"  • <code>{esc(nm)}</code> "
+                f"({esc(rs.get('direction', '?'))}, {cond_n} kural)"
+            )
+        if len(rs_list) > 10:
+            lines.append(f"  • <i>...+{len(rs_list) - 10} daha</i>")
+        user_rulesets_txt = "\n".join(lines)
+    else:
+        user_rulesets_txt = "<i>Henüz no-code strateji yok.</i>"
+
     text = (
         "🛠 <b>STRATEJİ KURUCU</b>\n"
-        "<i>No-code rule builder — Faz 3 motor hazır</i>\n\n"
+        "<i>No-code rule builder — JSON paste flow</i>\n\n"
         f"{gap}"
-        "<b>Senin kayıtlı kuralların</b> "
+        "<b>Kayıtlı kuralların</b> "
         "(<code>data_store/bt_strategies/</code>):\n"
         f"{user_rulesets_txt}\n\n"
-        "<b>Python-kodlu stratejiler</b> (mevcut):\n"
+        "<b>Python-kodlu stratejiler</b>:\n"
         f"{sample_txt}\n\n"
-        "<b>RuleSet JSON şeması</b> (Faz 3 — şimdi çalışıyor):\n"
-        "<pre>{\n"
-        '  "name": "my_30_50_buy",\n'
+        "<b>Yeni strateji ekleme</b> — <code>/lab_save</code> komutu:\n"
+        "<pre>/lab_save\n"
+        "{\n"
+        '  "name": "30_50_buy_up",\n'
         '  "direction": "up",\n'
         '  "confidence": 0.7,\n'
         '  "entry": {\n'
@@ -312,14 +315,171 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         "Field'lar: elapsed_seconds, elapsed_pct, up_best_bid/ask, "
         "down_best_bid/ask, spread, binance_price, binance_price_change, "
         "hour_utc, market_type, coin\n"
-        "Op'lar: <code>== != &lt; &lt;= &gt; &gt;= in not_in</code>\n\n"
-        "<i>Faz 4'te bu sayfaya inline buton akışıyla kural ekleme/silme + "
-        "tek-tık Hızlı Test'e bağlanma gelecek.</i>"
+        "Op'lar: <code>== != &lt; &lt;= &gt; &gt;= in not_in</code>"
     )
+
+    # Her ruleset için detay butonu (sil flow'u oradan)
+    detail_rows: list[list[InlineKeyboardButton]] = []
+    for rs in rs_list[:8]:  # Telegram callback inline-data ≤64 byte, 8 buton güvenli
+        nm = rs.get("name", "")
+        if nm:
+            detail_rows.append(
+                [InlineKeyboardButton(f"🔍 {nm}", callback_data=f"lab_show:{nm}")]
+            )
+
     extra = [
+        *detail_rows,
+        [InlineKeyboardButton("📥 /lab_save yardım", callback_data="lab_help_save")],
         [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
     ]
     return text, _panel_nav_kb(extra_rows=extra)
+
+
+async def _build_show_ruleset(name: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Tek bir ruleset'in detayını göster + sil/geri butonları.
+
+    `lab_show:<name>` callback'inden çağrılır. Bilinmeyen ad → builder'a
+    nazik dönüş + bilgilendirme.
+    """
+    from backtest.strategies.rule_based import _NAME_RX, list_rulesets
+
+    if not _NAME_RX.match(name or ""):
+        return (
+            "⚠️ <b>Geçersiz ruleset adı.</b>\nBuilder paneline dön.",
+            _panel_nav_kb(
+                extra_rows=[
+                    [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")]
+                ]
+            ),
+        )
+
+    rs = None
+    for r in list_rulesets():
+        if r.get("name") == name:
+            rs = r
+            break
+    if rs is None:
+        return (
+            f"⚠️ Ruleset bulunamadı: <code>{esc(name)}</code>",
+            _panel_nav_kb(
+                extra_rows=[
+                    [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")]
+                ]
+            ),
+        )
+
+    import json as _json
+
+    pretty = _json.dumps(rs, indent=2, ensure_ascii=False)
+    # Telegram <pre> limit ~4096; pretty likely small ama yine de kırp
+    if len(pretty) > 3000:
+        pretty = pretty[:3000] + "\n... <kesildi>"
+
+    text = (
+        f"🔍 <b>{esc(name)}</b>\n"
+        f"<i>direction: {esc(rs.get('direction', '?'))} · "
+        f"confidence: {rs.get('confidence', '?')} · "
+        f"{len(rs.get('entry', {}).get('conditions', []))} kural</i>\n\n"
+        f"<pre>{esc(pretty)}</pre>\n\n"
+        "<b>Backtest çalıştır</b>:\n"
+        f"<code>/backtest_replay rule_based BTC 5m</code>\n"
+        "<i>(rule_based stratejisi RuleSet'i auto-load eder — Faz 4b'de"
+        " inline tek-tık run gelecek.)</i>"
+    )
+    extra = [
+        [InlineKeyboardButton(f"🗑 Sil ({name})", callback_data=f"lab_del_ask:{name}")],
+        [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
+    ]
+    return text, _panel_nav_kb(extra_rows=extra)
+
+
+async def _build_del_confirm(name: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Silmeden önce 2-tık onayı (live_handler doktrini — destructive actions)."""
+    from backtest.strategies.rule_based import _NAME_RX
+
+    if not _NAME_RX.match(name or ""):
+        return (
+            "⚠️ Geçersiz ruleset adı.",
+            _panel_nav_kb(
+                extra_rows=[[InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")]]
+            ),
+        )
+    text = (
+        f"🗑 <b>Silmek istediğine emin misin?</b>\n\n"
+        f"<code>{esc(name)}.json</code>\n\n"
+        "<i>Bu işlem geri alınamaz (dosya kalıcı silinir).</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ EVET, sil", callback_data=f"lab_del_confirm:{name}"
+                ),
+                InlineKeyboardButton(
+                    "❌ İptal", callback_data=f"lab_show:{name}"
+                ),
+            ],
+            [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
+        ]
+    )
+    return text, kb
+
+
+async def _build_del_done(name: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Silme işlemini yürüt + sonucu göster. Bilgi panel — Kurucu'ya köprü."""
+    from backtest.strategies.rule_based import delete_ruleset
+
+    ok = delete_ruleset(name)
+    if ok:
+        text = (
+            f"✅ <b>Silindi</b>: <code>{esc(name)}.json</code>\n\n"
+            "Kurucu paneline geri dön."
+        )
+    else:
+        text = (
+            f"⚠️ Silinemedi: <code>{esc(name)}</code> "
+            "(zaten yok veya OS hatası — log'da detay).\n\n"
+            "Kurucu paneline geri dön."
+        )
+    return text, _panel_nav_kb(
+        extra_rows=[[InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")]]
+    )
+
+
+async def _build_help_save() -> tuple[str, InlineKeyboardMarkup]:
+    """`/lab_save` komutunun nasıl kullanılacağı — örnek + kural ipuçları."""
+    text = (
+        "📥 <b>/lab_save — JSON paste flow</b>\n\n"
+        "<b>Kullanım</b>: Komutun ARDINDAN bir satır boşluk bırak ve "
+        "geçerli JSON ruleset yapıştır.\n\n"
+        "<b>Basit örnek</b> — sadece saniye 30-50 al:\n"
+        "<pre>/lab_save\n"
+        "{\n"
+        '  "name": "test_30_50",\n'
+        '  "direction": "up",\n'
+        '  "entry": {\n'
+        '    "conditions": [\n'
+        '      {"field": "elapsed_seconds", "op": ">=", "value": 30},\n'
+        '      {"field": "elapsed_seconds", "op": "<=", "value": 50}\n'
+        "    ]\n"
+        "  }\n"
+        "}</pre>\n"
+        "<b>Stop-loss örneği</b> — fiyat 0.30'a düşerse exit "
+        "<i>(exit Faz 2 config knob'u — ReplayConfig.exit_yes_price_below)</i>:\n"
+        "Strateji-bazında değil, backtest config'inde olur — buraya değil"
+        " <code>ReplayConfig</code>'e yazılır.\n\n"
+        "<b>Doğrulama kuralları</b>:\n"
+        "  • name: 1-64 karakter <code>[A-Za-z0-9_-]</code> (dosya güvenli)\n"
+        "  • direction: <code>up</code> veya <code>down</code>\n"
+        "  • confidence: 0.0 - 1.0 (default 0.7)\n"
+        "  • entry.logic: <code>AND</code> veya <code>OR</code> (default AND)\n"
+        "  • entry.conditions: en az 1 koşul\n\n"
+        "Geçerli koşul → <code>data_store/bt_strategies/{name}.json</code>"
+        " olarak kaydedilir, sonra Kurucu listesinde görünür."
+    )
+    return text, _panel_nav_kb(
+        extra_rows=[[InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")]]
+    )
 
 
 async def _build_compare(db) -> tuple[str, InlineKeyboardMarkup]:
@@ -476,6 +636,10 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
     ekranları arası geçiş. Bu yüzden admin gate'i live_handler kadar sıkı
     değil (kötüye kullanım yüzeyi yok); yine de panel render hatasında
     sessizce log + kullanıcıya nazik mesaj.
+
+    Faz 4: Parametreli callback'ler — `lab_show:<name>`, `lab_del_ask:<name>`,
+    `lab_del_confirm:<name>`, `lab_help_save`. İsim regex-validated (path
+    traversal koruması).
     """
     q = update.callback_query
     if q is None:
@@ -486,19 +650,150 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
         pass
 
     data = q.data or ""
+    db = context.bot_data.get("db")
+
+    # 1) Parametresiz panel callback'leri (lab_main, lab_quick, ...)
     builder = _BUILDERS.get(data)
-    if builder is None:
-        logger.warning("backtest_lab_callback: bilinmeyen data=%r", data)
+    if builder is not None:
+        try:
+            text, kb = await builder(db)
+            await _safe_edit(q, text, kb)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("backtest_lab_callback build failed: %s", e)
+            await _safe_edit(
+                q, "⚠️ Panel üretilemedi — log'da detay var.", _main_kb()
+            )
         return
 
-    db = context.bot_data.get("db")
+    # 2) Faz 4 — yardım panelleri (parametresiz)
+    if data == "lab_help_save":
+        try:
+            text, kb = await _build_help_save()
+            await _safe_edit(q, text, kb)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("lab_help_save failed: %s", e)
+            await _safe_edit(q, "⚠️ Yardım açılamadı.", _main_kb())
+        return
+
+    # 3) Faz 4 — parametreli callback'ler (`prefix:name` formatı)
+    if ":" not in data:
+        logger.warning("backtest_lab_callback: bilinmeyen data=%r", data)
+        return
+    action, _, name = data.partition(":")
     try:
-        text, kb = await builder(db)
+        if action == "lab_show":
+            text, kb = await _build_show_ruleset(name)
+        elif action == "lab_del_ask":
+            text, kb = await _build_del_confirm(name)
+        elif action == "lab_del_confirm":
+            text, kb = await _build_del_done(name)
+        else:
+            logger.warning("backtest_lab_callback: bilinmeyen action=%r", action)
+            return
         await _safe_edit(q, text, kb)
     except Exception as e:  # noqa: BLE001
-        logger.exception("backtest_lab_callback build failed: %s", e)
-        await _safe_edit(
-            q,
-            "⚠️ Panel üretilemedi — log'da detay var.",
-            _main_kb(),
+        logger.exception("backtest_lab_callback action %s failed: %s", action, e)
+        await _safe_edit(q, "⚠️ İşlem yapılamadı — log'da detay var.", _main_kb())
+
+
+# ── /lab_save komutu ────────────────────────────────────────
+
+
+async def lab_save_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/lab_save — JSON ruleset paste flow (Faz 4).
+
+    Kullanım:
+        /lab_save
+        {
+          "name": "my_strategy",
+          "direction": "up",
+          "entry": {
+            "conditions": [
+              {"field": "elapsed_seconds", "op": ">=", "value": 30}
+            ]
+          }
+        }
+
+    Komutu izleyen TÜM metin (newline'larla birlikte) JSON olarak parse
+    edilir, doğrulanır, başarılıysa `data_store/bt_strategies/{name}.json`
+    olarak kaydedilir. Geçersizse ham hata mesajı (log'da detay).
+    """
+    import json as _json
+
+    msg = update.message
+    if msg is None:
+        return
+
+    # Komutu çıkar — sadece ilk satırın ilk kelimesi `/lab_save`
+    raw = msg.text or ""
+    # `/lab_save` ya da `/lab_save@botname` — ikisini de yakala
+    parts = raw.split("\n", 1)
+    if not parts:
+        await msg.reply_text(
+            "📥 <code>/lab_save</code> komutunu kullanmak için /lab → "
+            "Strateji Kurucu → 📥 yardım'a bak.",
+            parse_mode="HTML",
         )
+        return
+    first = parts[0].strip()
+    payload = parts[1] if len(parts) > 1 else ""
+
+    # Aynı satırda inline JSON da olabilir: `/lab_save {...}`
+    if not payload:
+        # `/lab_save` veya `/lab_save@bot` sonrasını al
+        after = first.split(maxsplit=1)
+        if len(after) >= 2:
+            payload = after[1]
+
+    payload = (payload or "").strip()
+    if not payload:
+        await msg.reply_text(
+            "📥 <b>JSON eksik.</b>\n\n"
+            "<code>/lab_save</code> komutunu izleyen satırlara geçerli "
+            "ruleset JSON yapıştır. Örnek için /lab → 🛠 Strateji Kurucu "
+            "→ 📥 /lab_save yardım.",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        parsed = _json.loads(payload)
+    except _json.JSONDecodeError as e:
+        await msg.reply_text(
+            f"❌ <b>JSON parse hatası</b>: {esc(str(e))}\n\n"
+            "<i>İpucu: braket/virgül eksiklerini kontrol et.</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        from backtest.strategies.rule_based import save_ruleset
+
+        target = save_ruleset(parsed)
+    except Exception as e:  # noqa: BLE001
+        try:
+            from backtest.strategies.rule_based import RuleSetError as _RSE
+
+            if isinstance(e, _RSE):
+                await msg.reply_text(
+                    f"❌ <b>Ruleset geçersiz</b>: {esc(str(e))}",
+                    parse_mode="HTML",
+                )
+                return
+        except ImportError:
+            pass
+        logger.exception("lab_save_command save failed: %s", e)
+        await msg.reply_text(
+            "⚠️ Ruleset kaydedilemedi — log'da detay var.",
+            parse_mode="HTML",
+        )
+        return
+
+    name = parsed.get("name", "?")
+    await msg.reply_text(
+        f"✅ <b>Kaydedildi</b>: <code>{esc(name)}</code>\n"
+        f"📁 <code>{esc(str(target))}</code>\n\n"
+        f"Backtest çalıştır: <code>/backtest_replay rule_based BTC 5m</code>\n"
+        f"Listele: <code>/lab</code> → 🛠 Strateji Kurucu",
+        parse_mode="HTML",
+    )

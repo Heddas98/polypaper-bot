@@ -57,6 +57,7 @@ from telegram_bot.handlers.archive_info_handler import (  # Phase 82e Sprint B.2
 from telegram_bot.handlers.backtest_lab import (  # 2026-05-20: /backtest LAB mode-first
     backtest_lab_callback,
     backtest_lab_command,
+    lab_save_command,  # Faz 4 — JSON paste flow
 )
 from telegram_bot.handlers.backtest_v2 import (  # Phase 51 P51-03 Faz-2 Cluster F
     backtest_replay_command,  # merged from backtest_replay.py
@@ -477,6 +478,7 @@ class PolyPaperBot:
             ("backtest", backtest_lab_command),
             ("bt", backtest_lab_command),
             ("lab", backtest_lab_command),
+            ("lab_save", lab_save_command),  # Faz 4 — JSON paste ruleset kaydı
             # Risk
             ("risk", risk_command),
             ("risk_set", risk_set_command),

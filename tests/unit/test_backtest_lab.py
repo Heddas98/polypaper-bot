@@ -206,10 +206,11 @@ async def test_build_builder_placeholder():
     db = _db({"FROM live_trades": (0, 0.0, 0.0)})
     text, kb = await _build_builder(db)
     assert "STRATEJİ KURUCU" in text
-    # Faz 3 motor hazır — JSON şeması + field listesi gösterilir
-    assert "Faz 3" in text
-    assert "RuleSet JSON" in text or "JSON" in text
+    # Faz 4: JSON paste flow + /lab_save komut örneği + field listesi
+    assert "/lab_save" in text
+    assert "JSON" in text
     assert "kural" in text.lower()
+    assert "elapsed_seconds" in text  # field örnekleri
 
 
 @pytest.mark.asyncio
@@ -399,3 +400,248 @@ async def test_backtest_lab_callback_builder_exception_safe():
     # En azından answer çağrıldı + bir edit denemesi yapıldı
     q.answer.assert_awaited_once()
     assert q.edit_message_text.await_count >= 1
+
+
+# ── Faz 4 — parametreli callback'ler + /lab_save ────────────
+
+
+@pytest.mark.asyncio
+async def test_callback_lab_show_unknown_name_safe():
+    """lab_show:<bilinmeyen> → nazik geri butonu."""
+    from telegram_bot.handlers.backtest_lab import _build_show_ruleset
+
+    text, kb = await _build_show_ruleset("nonexistent_ruleset_xyz")
+    assert "bulunamadı" in text
+
+
+@pytest.mark.asyncio
+async def test_callback_lab_show_invalid_name_safe():
+    """lab_show:../escape → path traversal koruması."""
+    from telegram_bot.handlers.backtest_lab import _build_show_ruleset
+
+    text, kb = await _build_show_ruleset("../escape")
+    assert "Geçersiz" in text
+
+
+@pytest.mark.asyncio
+async def test_callback_lab_del_ask_renders_confirm():
+    from telegram_bot.handlers.backtest_lab import _build_del_confirm
+
+    text, kb = await _build_del_confirm("test_xyz")
+    assert "emin misin" in text
+    assert "test_xyz" in text
+    # 2 onay butonu: EVET + İptal
+    cb_data = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_del_confirm:test_xyz" in cb_data
+    assert "lab_show:test_xyz" in cb_data
+
+
+@pytest.mark.asyncio
+async def test_callback_lab_help_save_renders():
+    from telegram_bot.handlers.backtest_lab import _build_help_save
+
+    text, kb = await _build_help_save()
+    assert "/lab_save" in text
+    assert "JSON" in text
+    assert "elapsed_seconds" in text  # field örneği
+
+
+@pytest.mark.asyncio
+async def test_callback_dispatcher_routes_parametric():
+    """`lab_show:foo` → _build_show_ruleset('foo') çağrılır."""
+    q = MagicMock()
+    q.data = "lab_show:foo_bar"
+    q.answer = AsyncMock()
+    q.edit_message_text = AsyncMock()
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.callback_query = q
+    context = MagicMock()
+    context.bot_data = {"db": _db()}
+
+    await backtest_lab_callback(update, context)
+    q.answer.assert_awaited_once()
+    q.edit_message_text.assert_awaited()
+    txt = q.edit_message_text.await_args.args[0]
+    # foo_bar bulunmadığı için "bulunamadı" mesajı
+    assert "bulunamadı" in txt
+
+
+@pytest.mark.asyncio
+async def test_callback_dispatcher_unknown_action_noop():
+    """`lab_unknown_action:foo` → sessiz, render YOK."""
+    q = MagicMock()
+    q.data = "lab_unknown_action:foo"
+    q.answer = AsyncMock()
+    q.edit_message_text = AsyncMock()
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.callback_query = q
+    context = MagicMock()
+    context.bot_data = {"db": _db()}
+
+    await backtest_lab_callback(update, context)
+    q.answer.assert_awaited_once()
+    q.edit_message_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_lab_save_command_valid(tmp_path, monkeypatch):
+    """Geçerli JSON → save success + dosya yazıldı."""
+    # save_ruleset default dir'i tmp_path'e yönlendir
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers import backtest_lab as lab_mod
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    msg = MagicMock()
+    msg.reply_text = AsyncMock()
+    msg.text = (
+        "/lab_save\n"
+        '{\n'
+        '  "name": "t4_valid",\n'
+        '  "direction": "up",\n'
+        '  "entry": {\n'
+        '    "conditions": [\n'
+        '      {"field": "elapsed_seconds", "op": ">=", "value": 30}\n'
+        '    ]\n'
+        '  }\n'
+        '}\n'
+    )
+    update = MagicMock()
+    update.message = msg
+    context = MagicMock()
+
+    await lab_mod.lab_save_command(update, context)
+    msg.reply_text.assert_awaited_once()
+    reply = msg.reply_text.await_args.args[0]
+    assert "Kaydedildi" in reply
+    assert "t4_valid" in reply
+    assert (tmp_path / "t4_valid.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_lab_save_command_invalid_json(monkeypatch):
+    """Bozuk JSON → parse hatası, dosya yazılmaz."""
+    from telegram_bot.handlers import backtest_lab as lab_mod
+
+    msg = MagicMock()
+    msg.reply_text = AsyncMock()
+    msg.text = "/lab_save\n{ not valid json"
+    update = MagicMock()
+    update.message = msg
+    context = MagicMock()
+
+    await lab_mod.lab_save_command(update, context)
+    reply = msg.reply_text.await_args.args[0]
+    assert "parse hatası" in reply.lower() or "parse" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_lab_save_command_invalid_ruleset(tmp_path, monkeypatch):
+    """Valid JSON ama invalid ruleset (bad direction) → reddet."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers import backtest_lab as lab_mod
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    msg = MagicMock()
+    msg.reply_text = AsyncMock()
+    msg.text = (
+        '/lab_save\n'
+        '{"name": "bad", "direction": "sideways", "entry": {"conditions": [{"field": "x", "op": "==", "value": 1}]}}'
+    )
+    update = MagicMock()
+    update.message = msg
+    context = MagicMock()
+
+    await lab_mod.lab_save_command(update, context)
+    reply = msg.reply_text.await_args.args[0]
+    assert "geçersiz" in reply.lower() or "invalid" in reply.lower() or "direction" in reply.lower()
+    assert not (tmp_path / "bad.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_lab_save_command_no_payload():
+    """Sadece /lab_save → nazik uyarı."""
+    from telegram_bot.handlers import backtest_lab as lab_mod
+
+    msg = MagicMock()
+    msg.reply_text = AsyncMock()
+    msg.text = "/lab_save"
+    update = MagicMock()
+    update.message = msg
+    context = MagicMock()
+
+    await lab_mod.lab_save_command(update, context)
+    reply = msg.reply_text.await_args.args[0]
+    assert "eksik" in reply.lower() or "yardım" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_lab_save_command_inline_payload(tmp_path, monkeypatch):
+    """`/lab_save {json}` (newline yok, inline) — destek."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers import backtest_lab as lab_mod
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    msg = MagicMock()
+    msg.reply_text = AsyncMock()
+    msg.text = (
+        '/lab_save {"name": "inline_t", "direction": "up", '
+        '"entry": {"conditions": [{"field": "elapsed_seconds", '
+        '"op": ">=", "value": 10}]}}'
+    )
+    update = MagicMock()
+    update.message = msg
+    context = MagicMock()
+
+    await lab_mod.lab_save_command(update, context)
+    reply = msg.reply_text.await_args.args[0]
+    assert "Kaydedildi" in reply
+    assert (tmp_path / "inline_t.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_builder_panel_shows_user_rulesets(tmp_path, monkeypatch):
+    """Listede kayıtlı ruleset'ler ve her biri için Detay butonu."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_builder
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    rb.save_ruleset(
+        {
+            "name": "test_a",
+            "direction": "up",
+            "entry": {
+                "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 30}]
+            },
+        },
+        dir_path=tmp_path,
+    )
+    rb.save_ruleset(
+        {
+            "name": "test_b",
+            "direction": "down",
+            "entry": {
+                "conditions": [
+                    {"field": "elapsed_seconds", "op": ">=", "value": 60}
+                ]
+            },
+        },
+        dir_path=tmp_path,
+    )
+
+    db = _db({"FROM live_trades": (0, 0.0, 0.0)})
+    text, kb = await _build_builder(db)
+    assert "test_a" in text
+    assert "test_b" in text
+    cb_data = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_show:test_a" in cb_data
+    assert "lab_show:test_b" in cb_data
+    assert "lab_help_save" in cb_data
