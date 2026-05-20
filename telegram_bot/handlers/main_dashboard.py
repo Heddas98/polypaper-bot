@@ -269,8 +269,10 @@ async def paper_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     rows = list(hub.inline_keyboard) + [
         # 2026-05-19 Heddas: Piyasa Tara paper'dan da erişilir — fiyat-hareketi
         # (delta) verisi mod-bağımsız (crypto OHLC). Aynı zengin panel.
+        # 2026-05-20 mode-state fix: `live_scan_paper` callback'i — panelin
+        # "Ana Panel" butonu LIVE kokpit yerine PAPER dashboard'a döner.
         [
-            InlineKeyboardButton("📡 Piyasa Tara", callback_data="live_scan"),
+            InlineKeyboardButton("📡 Piyasa Tara", callback_data="live_scan_paper"),
             InlineKeyboardButton("💰 LIVE MODE →", callback_data="main_live"),
         ],
         [InlineKeyboardButton("◀️ Mode Seçimi", callback_data="main_dashboard")],

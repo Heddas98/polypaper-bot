@@ -36,6 +36,24 @@ def test_panel_nav_kb_structure():
     assert row[1].callback_data == "live_risk"  # refresh = aynı panel
 
 
+def test_panel_nav_kb_home_cb_paper():
+    """2026-05-20 mode-state fix: home_cb override edilebilir.
+
+    PAPER MODE'dan açılan paneller "Ana Panel" PAPER dashboard'a dönmeli
+    (LIVE kokpit yerine). home_cb opsiyonel parametresi bu davranışı sağlar.
+    """
+    kb = _panel_nav_kb("live_scan_paper", home_cb="main_paper")
+    row = kb.inline_keyboard[0]
+    assert row[0].callback_data == "main_paper"  # PAPER dashboard
+    assert row[1].callback_data == "live_scan_paper"  # refresh aynı panel
+
+
+def test_panel_nav_kb_default_live_main():
+    """home_cb verilmediğinde LIVE kokpit'e döner (eski davranış korunmuş)."""
+    kb = _panel_nav_kb("live_scan")
+    assert kb.inline_keyboard[0][0].callback_data == "live_main"
+
+
 # ── ⚙️ Risk paneli ───────────────────────────────────────────────────────
 
 

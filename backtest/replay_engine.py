@@ -2,25 +2,23 @@
 PolyPaper Bot - Replay Engine (Phase 37: Hardcore Backtest)
 ===========================================================
 
-BACKTEST ENGINE MAP (Phase 50 clarification)
---------------------------------------------
+BACKTEST ENGINE MAP (2026-05-20 cleanup sonrasi)
+------------------------------------------------
   • backtest/engine_v2.py       → event-driven episodic backtest used by
-                                  /backtest_v2 & /bt2. Owns its own fill
-                                  sim, portfolio, fee model. Independent.
+                                  /backtest_v2 & /bt2. Sentetik snapshot
+                                  (polybacktest API). DEPRECATED Phase 41c.
+                                  Faz B2 cleanup'ta silinecek; /backtest
+                                  LAB tek kapi gercek L2 yolu kullaniyor.
   • backtest/replay_engine.py   → THIS FILE. Base ReplayEngine; replays
                                   ob_snapshots from OUR OWN recorded DB.
-                                  Used directly by /backtest_replay.
-  • backtest/replay_engine_v3.py→ INHERITS from ReplayEngine; adds the
-                                  Phase 47f calibration hooks. Used by
-                                  /becker_build and ab_sweep_phase47f8.
-  • backtest/becker_replay.py   → Phase 50 NEW. Walk-forward backtest
-                                  against Jon-Becker parquet (via
-                                  becker_calibration.db). No ob_snapshots
-                                  needed — pure public trade stream.
-                                  Exposed via /becker_replay.
+                                  Heddas direktifi: en gercekci backtest
+                                  yolu — LAB altyapisinin temeli.
 
-None of the above is dead code. v3 REUSES v1 via inheritance.
-Do NOT delete replay_engine.py — replay_engine_v3 depends on it.
+SILINENLER:
+  • backtest/replay_engine_v3.py → 2026-05-20 silindi. Becker calibration
+                                   kaldirildiktan sonra (2026-04-29) ciplak
+                                   inheritance pass-through olmustu.
+  • backtest/becker_replay.py    → 2026-04-28 silindi (Becker tam kaldirma).
 
 Gerçek kaydedilmiş ob_snapshots verisini kullanarak backtest yapar.
 PolyBackTest API'ye veya sentetik snapshot'lara GEREK YOK.
@@ -62,8 +60,9 @@ from backtest.strategies.base import (
 )
 
 # Becker δ(p) helpers removed 2026-04-29 (Heddas direktifi: Becker tam silme).
-# _apply_becker_boost no-op'a indirgendi, becker_curves attribute kalır
-# (replay_engine_v3 wrapper hala set ediyor — Aşama 3.D'de o da silinecek).
+# replay_engine_v3 wrapper 2026-05-20'de silindi → bu module-level sentinel'lar
+# da artik gereksiz ama silinmiyor: bazi eski testler `_becker_delta_fn` /
+# `_becker_boost_fn` attribute'larini probe ediyor olabilir (defansif).
 _becker_delta_fn = None
 _becker_boost_fn = None
 
@@ -170,11 +169,10 @@ class ReplayEngine:
         self._markets_skipped = 0
         self._signals_generated = 0
         self._total_snapshots = 0
-        # Becker δ(p) consumer + decision-mode removed 2026-04-29 (Heddas
-        # direktifi: Becker tam silme). _becker_curves dict empty kept for
-        # backward-compat with replay_engine_v3 wrapper (Aşama 3.D'de
-        # wrapper da silinecek). Attributes ghost referans için kalır,
-        # _apply_becker_* method'ları silindi.
+        # Becker δ(p) consumer + decision-mode removed 2026-04-29.
+        # replay_engine_v3 wrapper 2026-05-20'de silindi → attribute'lar
+        # artik gereksiz ama defansif tutuluyor (eski test'ler probe edebilir,
+        # boş dict/0 değerler kullaniliyor — yan etkisiz).
         self._becker_curves: dict[str, list] = {}
         self._becker_boost_count = 0
         self._becker_boost_sum = 0.0

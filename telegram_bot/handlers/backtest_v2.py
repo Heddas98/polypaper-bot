@@ -1,34 +1,34 @@
 """
-PolyPaper Bot - Backtest v2 Telegram Handler
-Yeni esnek backtest motoru için Telegram komutları.
-PolyCop AFK-style interactive config panel.
+PolyPaper Bot - Backtest Telegram Handlers (replay-only)
 
-Commands:
-  /backtest_v2                → Interactive config panel
-  /backtest_v2 hour_edge      → Saat bazlı edge testi (eski format)
-  /backtest_v2 streak_reversal → Streak reversal testi (eski format)
-  /backtest_v2 taker_flow     → Taker flow testi (eski format)
-  /backtest_v2 composite      → Multi-signal fusion testi (eski format)
-  /compare hour_edge streak_reversal → İki strateji karşılaştır
+2026-05-21 (Heddas direktifi tam temizlik):
+  • engine_v2 (sentetik snapshot) yolu tamamen silindi.
+  • polybacktest API/gamma_hist bagimliligi kaldirildi.
+  • PolyCop interactive config panel + STRATEGY_CATALOG silindi
+    (config_callback, bt2c_* + bt2_* callback'leri unwired).
+  • /backtest_v2 + /bt2 artik /backtest LAB tek kapisina yonlendiren
+    deprecation shim'ler. Eski engine_v2 yolunu hic cagirmaz.
+  • /compare replay_engine'e refactor edildi (gercek L2 ob_snapshots).
+  • /backtest_replay (Phase 51 P51-03) korundu — replay panel + button
+    flow + multi-strategy compare hepsi replay_engine uzerinde.
 
-T11.8-B (2026-04-24): Every catch in this module is annotated `# noqa:
-BLE001`. Backtest v2 touches ReplayEngine + ParquetWriter + matplotlib +
-DB + asyncio.to_thread + telegram send_photo — heterogeneous failure
-surface across 6+ libraries. T11.6 render policy preserved on user-facing
-reply paths via `render_user_exception()` where present.
+Bu dosya artik SADECE gercek L2 ob_snapshots tabanli backtest yollarini
+icerir — Heddas direktifi "topladığımız veri üstünden yaptığımız backtest
+en gerçekçi olanı".
+
+T11.8-B (2026-04-24): `# noqa: BLE001` koru — replay zinciri ReplayEngine
++ ChartGenerator + asyncio + telegram I/O'yu kapsar.
 """
 
 import asyncio
 import io
 import logging
+from datetime import UTC, datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-)
+from telegram.ext import ContextTypes
 
+from backtest.strategies.base import StrategyRegistryV2
 from telegram_bot.templates.safe_html import esc
 
 logger = logging.getLogger("polypaper.handlers.backtest_v2")
@@ -37,740 +37,8 @@ logger = logging.getLogger("polypaper.handlers.backtest_v2")
 # Maps chat_id -> asyncio.Event to signal cancellation
 _cancel_events: dict[int, asyncio.Event] = {}
 
-# Available strategies and their display names
-STRATEGY_CATALOG = {
-    "hour_edge": ("🕐 Hour Edge", "Saat bazlı yön biası (57.8% WR)"),
-    "streak_reversal": ("🔄 Streak Reversal", "N ardışık aynı yönden sonra ters bet"),
-    "late_convergence": ("⏰ Late Convergence", "Son dakikada dominant yöne bet (96-98.9% WR)"),
-    "taker_flow": ("📊 Taker Flow", "Binance agresif hacim dominansı (62.7% WR)"),
-    "orderbook_imbalance": ("📚 OB Imbalance", "Bid/ask depth asimetrisi (57.6%)"),
-    "fade_rip": ("↩️ Fade the Rip", "Büyük BTC hareketinden sonra ters yön"),
-    "cross_coin": ("🔗 Cross-Coin", "BTC→ETH/SOL korelasyon sinyali"),
-    "opening_breakout": ("💥 Opening Breakout", "İlk dakika breakout ($10+ move)"),
-    "funding_rate": ("💰 Funding Rate", "Binance funding rate sinyali"),
-    "calibration_arb": ("📐 Calibration Arb", "Fiyat-olasılık sapma tespiti"),
-    "composite": ("🧠 Composite", "Birden fazla sinyali birleştir"),
-}
 
-# Available assets
-AVAILABLE_ASSETS = ["BTC", "ETH", "SOL", "XRP"]
-
-# Available timeframes
-AVAILABLE_TIMEFRAMES = ["5m", "15m"]
-
-# Default config
-DEFAULT_CONFIG = {
-    "coin": "BTC",
-    "tf": "5m",
-    "strategy": "composite",
-    "limit": 50,
-}
-
-
-async def backtest_v2_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /backtest_v2 command."""
-    # Phase 41c: soft deprecation banner — point users to /backtest_replay
-    # which uses real L2 orderbook history (Phase 37 ReplayEngine).
-    try:
-        await update.message.reply_text(
-            "⚠️ <b>backtest_v2 deprecated</b>\n\n"
-            "v2 senthetik snapshot kullanır (4/10 realism).\n"
-            "Yeni backtest'ler için <b>/backtest_replay</b> kullan — "
-            "gerçek L2 orderbook geçmişi (9/10 realism).\n\n"
-            "v2 sadece 11 legacy strateji port edilene kadar açık.",
-            parse_mode="HTML",
-        )
-    except Exception:  # noqa: BLE001
-        pass
-    args = context.args if context.args else []
-
-    if not args:
-        # Show interactive config panel
-        if "bt2_config" not in context.user_data:
-            context.user_data["bt2_config"] = DEFAULT_CONFIG.copy()
-        await _show_config_panel(update, context)
-        return
-
-    strategy_name = args[0].lower()
-
-    if strategy_name not in STRATEGY_CATALOG:
-        await update.message.reply_text(
-            f"❌ Bilinmeyen strateji: {esc(strategy_name)}\n\n"
-            f"Mevcut stratejiler:\n" + "\n".join(f"  • {k}" for k in STRATEGY_CATALOG),
-            parse_mode="HTML",
-        )
-        return
-
-    # Parse optional params: /backtest_v2 hour_edge BTC 5m 50 [split]
-    # Phase 47f.10 P3#14: trailing "split" arg triggers train/test 70/30
-    split_mode = False
-    norm_args = list(args)
-    if norm_args and norm_args[-1].lower() == "split":
-        split_mode = True
-        norm_args = norm_args[:-1]
-
-    coin = norm_args[1].upper() if len(norm_args) > 1 else "BTC"
-    market_type = norm_args[2] if len(norm_args) > 2 else "5m"
-    limit = int(norm_args[3]) if len(norm_args) > 3 else 50
-
-    await _run_backtest(update, strategy_name, coin, market_type, limit, split=split_mode)
-
-
-async def compare_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /compare command."""
-    args = context.args if context.args else []
-
-    if len(args) < 2:
-        await update.message.reply_text(
-            "📊 <b>Strateji Karşılaştırma</b>\n\n"
-            "Kullanım: <code>/compare strat1 strat2 [strat3...]</code>\n\n"
-            "Örnek: <code>/compare hour_edge streak_reversal taker_flow</code>",
-            parse_mode="HTML",
-        )
-        return
-
-    # Trailing "split" keyword → train/test split with overfit gate
-    split_mode = False
-    if args and args[-1].lower() == "split":
-        split_mode = True
-        args = args[:-1]
-
-    strategies = [a.lower() for a in args]
-    invalid = [s for s in strategies if s not in STRATEGY_CATALOG]
-    if invalid:
-        await update.message.reply_text(f"❌ Bilinmeyen strateji(ler): {', '.join(invalid)}")
-        return
-
-    await _run_comparison(update, strategies, split=split_mode)
-
-
-async def _show_config_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show interactive PolyCop-style config panel."""
-    config = context.user_data.get("bt2_config", DEFAULT_CONFIG.copy())
-
-    # Build text summary
-    strategy_label, _ = STRATEGY_CATALOG.get(config["strategy"], ("❓", ""))
-    summary = (
-        f"📊 <b>Backtest v2 — Konfigürasyon</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 Strateji: {strategy_label}\n"
-        f"💰 Asset: {config['coin']}\n"
-        f"⏱ Zaman Dilimi: {config['tf']}\n"
-        f"📈 Market Limiti: {config['limit']}\n\n"
-        f"Her parametreyi düzenlemek için butona tıkla."
-    )
-
-    # Build keyboard
-    keyboard = []
-
-    # Row 1: Asset toggle buttons
-    asset_row = []
-    for asset in AVAILABLE_ASSETS:
-        check = "✅" if asset == config["coin"] else ""
-        asset_row.append(
-            InlineKeyboardButton(
-                f"{esc(asset)} {check}".strip(), callback_data=f"bt2c_coin_{esc(asset)}"
-            )
-        )
-    keyboard.append(asset_row)
-
-    # Row 2: Timeframe toggle buttons
-    tf_row = []
-    for tf in AVAILABLE_TIMEFRAMES:
-        check = "✅" if tf == config["tf"] else ""
-        tf_row.append(
-            InlineKeyboardButton(
-                f"{check} {tf}".strip() if check else tf, callback_data=f"bt2c_tf_{tf}"
-            )
-        )
-    keyboard.append(tf_row)
-
-    # Row 3: Limit editing button
-    keyboard.append(
-        [InlineKeyboardButton(f"📈 Limit: {config['limit']}", callback_data="bt2c_limit")]
-    )
-
-    # Row 4-5: Strategy selection (first 6 strategies)
-    strat_items = list(STRATEGY_CATALOG.items())
-    first_6 = strat_items[:6]
-    strat_row1 = []
-    for key, (label, _) in first_6[:3]:
-        check = "✅" if key == config["strategy"] else ""
-        strat_row1.append(
-            InlineKeyboardButton(f"{esc(label)}", callback_data=f"bt2c_strat_{esc(key)}")
-        )
-    if strat_row1:
-        keyboard.append(strat_row1)
-
-    strat_row2 = []
-    for key, (label, _) in first_6[3:]:
-        strat_row2.append(
-            InlineKeyboardButton(f"{esc(label)}", callback_data=f"bt2c_strat_{esc(key)}")
-        )
-    if strat_row2:
-        keyboard.append(strat_row2)
-
-    # More strategies button if needed
-    if len(strat_items) > 6:
-        keyboard.append(
-            [InlineKeyboardButton("📚 Daha Fazla Strateji", callback_data="bt2c_more_strats")]
-        )
-
-    # Row 6: Action buttons
-    keyboard.append(
-        [
-            InlineKeyboardButton("▶️ Backtest Başlat", callback_data="bt2c_run"),
-            InlineKeyboardButton("📊 Karşılaştır", callback_data="bt2c_compare"),
-        ]
-    )
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        summary,
-        reply_markup=reply_markup,
-        parse_mode="HTML",
-    )
-
-
-async def backtest_v2_config_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle new PolyCop-style config callbacks (bt2c_ prefix)."""
-    query = update.callback_query
-    data = query.data
-
-    if "bt2_config" not in context.user_data:
-        context.user_data["bt2_config"] = DEFAULT_CONFIG.copy()
-
-    config = context.user_data["bt2_config"]
-
-    # Asset toggle: bt2c_coin_BTC, bt2c_coin_ETH, etc.
-    if data.startswith("bt2c_coin_"):
-        coin = data[10:]
-        if coin in AVAILABLE_ASSETS:
-            config["coin"] = coin
-            await query.answer(f"✅ {coin} seçildi")
-            await query.edit_message_text(
-                await _build_config_text(config),
-                reply_markup=await _build_config_keyboard(config),
-                parse_mode="HTML",
-            )
-
-    # Timeframe toggle: bt2c_tf_5m, bt2c_tf_15m, etc.
-    elif data.startswith("bt2c_tf_"):
-        tf = data[8:]
-        if tf in AVAILABLE_TIMEFRAMES:
-            config["tf"] = tf
-            await query.answer(f"✅ {tf} seçildi")
-            await query.edit_message_text(
-                await _build_config_text(config),
-                reply_markup=await _build_config_keyboard(config),
-                parse_mode="HTML",
-            )
-
-    # Limit editing: bt2c_limit
-    elif data == "bt2c_limit":
-        await query.answer()
-        context.user_data["bt2_editing_limit"] = True
-        await query.message.reply_text(
-            "📈 <b>Market Limiti</b>\n\n"
-            f"Şu anki değer: {config['limit']}\n\n"
-            "Yeni sayı girin (1-500):",
-            parse_mode="HTML",
-        )
-
-    # Strategy selection: bt2c_strat_STRATNAME
-    elif data.startswith("bt2c_strat_"):
-        strat_name = data[11:]
-        if strat_name in STRATEGY_CATALOG:
-            config["strategy"] = strat_name
-            label, desc = STRATEGY_CATALOG[strat_name]
-            await query.answer(f"✅ {esc(label)} seçildi", show_alert=False)
-            await query.edit_message_text(
-                await _build_config_text(config),
-                reply_markup=await _build_config_keyboard(config),
-                parse_mode="HTML",
-            )
-
-    # More strategies button
-    elif data == "bt2c_more_strats":
-        await query.answer()
-        await _show_all_strategies(query.message, context)
-
-    # Run backtest: bt2c_run
-    elif data == "bt2c_run":
-        await query.answer("⏳ Backtest başlatılıyor...")
-        await _run_backtest(
-            query, config["strategy"], config["coin"], config["tf"], config["limit"]
-        )
-
-    # Compare mode: bt2c_compare
-    elif data == "bt2c_compare":
-        await query.answer()
-        await query.edit_message_text(
-            "📊 <b>Strateji Karşılaştırma</b>\n\n"
-            "Karşılaştırma modu için /compare komutunu kullanın:\n"
-            "<code>/compare hour_edge streak_reversal taker_flow</code>",
-            parse_mode="HTML",
-        )
-
-    # Back to main: bt2c_back_main
-    elif data == "bt2c_back_main":
-        await query.answer()
-        await query.edit_message_text(
-            await _build_config_text(config),
-            reply_markup=await _build_config_keyboard(config),
-            parse_mode="HTML",
-        )
-
-
-async def backtest_v2_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle old-style bt2_ callbacks (backward compatibility)."""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    if not data.startswith("bt2_"):
-        return
-
-    strategy_name = data[4:]  # remove "bt2_" prefix
-
-    if strategy_name not in STRATEGY_CATALOG:
-        await query.edit_message_text(f"❌ Bilinmeyen strateji: {esc(strategy_name)}")
-        return
-
-    label, desc = STRATEGY_CATALOG[strategy_name]
-    await query.edit_message_text(
-        f"⏳ {esc(label)} backtest başlatılıyor...\n"
-        f"📝 {desc}\n\n"
-        f"Coin: BTC | TF: 5m | Limit: 50 market",
-        parse_mode="HTML",
-    )
-
-    # Run the backtest
-    await _run_backtest(query, strategy_name, "BTC", "5m", 50)
-
-
-async def _run_backtest(
-    source, strategy_name: str, coin: str, market_type: str, limit: int, split: bool = False
-):
-    """Execute a backtest and send results.
-
-    If split=True, runs train/test 70/30 split via engine.run_split and
-    reports overfit verdict in addition to overall stats. Phase 47f.10 P3#14.
-    """
-    try:
-        # Import here to avoid circular imports
-        from backtest.analytics.charts import ChartGenerator
-        from backtest.analytics.reporter import BacktestReporter
-        from backtest.data_sources.cache import BacktestCache
-        from backtest.data_sources.gamma_hist import GammaHistClient
-        from backtest.data_sources.polybacktest import PolyBackTestClient
-        from backtest.engine_v2 import BacktestConfig, BacktestEngineV2
-        from backtest.strategies import StrategyRegistryV2
-
-        # Get strategy class
-        strat_cls = StrategyRegistryV2.get(strategy_name)
-        if not strat_cls:
-            await _reply(source, f"❌ Strateji bulunamadı: {esc(strategy_name)}")
-            return
-
-        # Setup config
-        config = BacktestConfig(
-            strategy_name=strategy_name,
-            coin_filter=coin,
-            market_type_filter=market_type,
-            max_markets=limit,
-        )
-
-        # Initialize data sources
-        cache = BacktestCache()
-        await cache.init()
-
-        # Fetch market data
-        await _reply(source, "📡 Veri çekiliyor...")
-
-        gamma = GammaHistClient(cache=cache)
-        await gamma.init()
-
-        markets = await gamma.get_resolved_markets(coin=coin, limit=limit, market_type=market_type)
-
-        if not markets:
-            await _reply(source, f"⚠️ {coin} {market_type} için resolved market bulunamadı.")
-            await gamma.close()
-            return
-
-        # Try to get snapshots from PolyBackTest
-        polybt = PolyBackTestClient(cache=cache)
-        await polybt.init()
-
-        snapshots_by_market = {}
-        for m in markets[:limit]:
-            mid = m.get("market_id", "")
-            snaps = await polybt.get_snapshots(mid, market_dict=m)
-            if snaps:
-                snapshots_by_market[mid] = snaps
-
-        # Run engine
-        await _reply(
-            source,
-            f"🔄 {len(markets)} market üzerinde " f"{esc(strategy_name)} testi çalıştırılıyor...",
-        )
-
-        engine = BacktestEngineV2(config=config)
-
-        # Phase 79 S1-12: Setup cancel event for heavy operations
-        chat_id = source.message.chat.id if hasattr(source, "message") else source.effective_chat.id
-        cancel_evt = asyncio.Event()
-        _cancel_events[chat_id] = cancel_evt
-
-        try:
-            if split:
-                # Progress message with cancel button
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("❌ İptal", callback_data="cancel_backtest")]]
-                )
-                await _reply(
-                    source, "⏳ Backtest çalışıyor... (arka planda)", reply_markup=keyboard
-                )
-                split_result = await asyncio.to_thread(
-                    engine.run_split, markets, snapshots_by_market, 0.70
-                )
-                split_result["test"] or split_result["train"]
-                div = split_result.get("divergence") or {}
-                overfit = split_result.get("overfit", False)
-                verdict = "🔴 <b>OVERFIT</b>" if overfit else "🟢 <b>GENERALIZES</b>"
-                summary = (
-                    f"{verdict}\n"
-                    f"Train: {div.get('train_wr', 0):.1f}% WR / "
-                    f"${div.get('train_pnl', 0):.2f} PnL\n"
-                    f"Test:  {div.get('test_wr', 0):.1f}% WR / "
-                    f"${div.get('test_pnl', 0):.2f} PnL\n"
-                    f"Δ WR: {div.get('wr_delta', 0):+.1f}pp  "
-                    f"sign_flip={div.get('sign_flip', False)}"
-                )
-                await _reply(source, summary, parse_mode="HTML")
-            else:
-                # Progress message with cancel button
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("❌ İptal", callback_data="cancel_backtest")]]
-                )
-                await _reply(
-                    source, "⏳ Backtest çalışıyor... (arka planda)", reply_markup=keyboard
-                )
-                await asyncio.to_thread(engine.run, markets, snapshots_by_market)
-        finally:
-            # Clean up cancel event
-            _cancel_events.pop(chat_id, None)
-
-        # Generate report — use engine's portfolio object (has trades list)
-        reporter = BacktestReporter(engine.portfolio, strategy_name)
-        telegram_summary = reporter.generate_telegram_summary()
-
-        await _reply(source, telegram_summary, parse_mode="HTML")
-
-        # Try to send chart
-        chart_gen = ChartGenerator(engine.portfolio, strategy_name)
-        chart_bytes = chart_gen.equity_curve()
-        if chart_bytes:
-            await _send_photo(source, chart_bytes, f"📈 Equity Curve: {esc(strategy_name)}")
-
-        # Cleanup
-        await polybt.close()
-        await gamma.close()
-
-    except Exception as e:  # noqa: BLE001
-        logger.error("Backtest v2 failed: %s", e, exc_info=True)
-        error_msg = str(e)[:100]
-        await _reply(
-            source,
-            f"❌ <b>Backtest Hatasi</b>\n\nIslem: {esc(strategy_name)}\nDetay: {error_msg}",
-            parse_mode="HTML",
-        )
-
-
-async def _run_comparison(update: Update, strategy_names: list, split: bool = False):
-    """Run multiple backtests and compare.
-
-    split=True → use engine.run_split(train_ratio=0.70) for every strategy
-    and append overfit verdicts per-strategy.
-    """
-    try:
-        from backtest.analytics.comparator import StrategyComparator
-        from backtest.data_sources.cache import BacktestCache
-        from backtest.data_sources.gamma_hist import GammaHistClient
-        from backtest.data_sources.polybacktest import PolyBackTestClient
-        from backtest.engine_v2 import BacktestConfig, BacktestEngineV2
-        from backtest.strategies import StrategyRegistryV2
-
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("❌ İptal", callback_data="cancel_backtest")]]
-        )
-        await update.message.reply_text(
-            f"⏳ {len(strategy_names)} strateji karşılaştırılıyor...", reply_markup=keyboard
-        )
-
-        cache = BacktestCache()
-        await cache.init()
-
-        gamma = GammaHistClient(cache=cache)
-        await gamma.init()
-
-        markets = await gamma.get_resolved_markets("btc", limit=50, market_type="5m")
-        if not markets:
-            await update.message.reply_text("⚠️ Resolved market bulunamadı.")
-            await gamma.close()
-            return
-
-        # Phase 79 S1-12: Setup cancel event for comparison
-        chat_id = update.effective_chat.id
-        cancel_evt = asyncio.Event()
-        _cancel_events[chat_id] = cancel_evt
-
-        try:
-            # Fetch snapshots once, share across all strategies
-            polybt = PolyBackTestClient(cache=cache)
-            await polybt.init()
-
-            snapshots_by_market = {}
-            for m in markets[:50]:
-                mid = m.get("market_id", "")
-                snaps = await polybt.get_snapshots(mid, market_dict=m)
-                if snaps:
-                    snapshots_by_market[mid] = snaps
-
-            comparator = StrategyComparator()
-            overfit_lines = []
-
-            for name in strategy_names:
-                strat_cls = StrategyRegistryV2.get(name)
-                if not strat_cls:
-                    continue
-                cfg = BacktestConfig(
-                    strategy_name=name, coin_filter="btc", market_type_filter="5m", max_markets=50
-                )
-                engine = BacktestEngineV2(config=cfg)
-                if split:
-                    sp = await asyncio.to_thread(
-                        engine.run_split, markets, snapshots_by_market, 0.70
-                    )
-                    div = sp.get("divergence") or {}
-                    is_overfit = sp.get("overfit", False)
-                    badge = "🔴 OVERFIT" if is_overfit else "🟢 OK"
-                    overfit_lines.append(
-                        f"{badge} <b>{esc(name)}</b>: "
-                        f"Δ WR {div.get('wr_delta', 0):+.1f}pp "
-                        f"flip={div.get('sign_flip', False)}"
-                    )
-                else:
-                    await asyncio.to_thread(engine.run, markets, snapshots_by_market)
-                comparator.add_result(name, engine.portfolio)
-
-            result = comparator.compare_telegram()
-            if split and overfit_lines:
-                result = (
-                    "🧪 <b>Train/Test Split (70/30)</b>\n"
-                    + "\n".join(overfit_lines)
-                    + "\n━━━━━━━━━━━━━━━\n"
-                    + result
-                )
-            await update.message.reply_text(result, parse_mode="HTML")
-
-            await polybt.close()
-            await gamma.close()
-        finally:
-            # Clean up cancel event
-            _cancel_events.pop(chat_id, None)
-
-    except Exception as e:  # noqa: BLE001
-        logger.error("Comparison failed: %s", e, exc_info=True)
-        error_msg = str(e)[:100]
-        await update.message.reply_text(
-            f"❌ <b>Karsilastirma Hatasi</b>\n\n"
-            f"Islem: Strateji karsilastir ({len(strategy_names)})\n"
-            f"Detay: {error_msg}",
-            parse_mode="HTML",
-        )
-
-
-async def _build_config_text(config: dict) -> str:
-    """Build the summary text for the config panel."""
-    strategy_label, _ = STRATEGY_CATALOG.get(config["strategy"], ("❓", ""))
-    return (
-        f"📊 <b>Backtest v2 — Konfigürasyon</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 Strateji: {strategy_label}\n"
-        f"💰 Asset: {config['coin']}\n"
-        f"⏱ Zaman Dilimi: {config['tf']}\n"
-        f"📈 Market Limiti: {config['limit']}\n\n"
-        f"Her parametreyi düzenlemek için butona tıkla."
-    )
-
-
-async def _build_config_keyboard(config: dict) -> InlineKeyboardMarkup:
-    """Build the keyboard for the config panel."""
-    keyboard = []
-
-    # Row 1: Asset toggle buttons
-    asset_row = []
-    for asset in AVAILABLE_ASSETS:
-        check = "✅" if asset == config["coin"] else ""
-        asset_row.append(
-            InlineKeyboardButton(
-                f"{esc(asset)} {check}".strip(), callback_data=f"bt2c_coin_{esc(asset)}"
-            )
-        )
-    keyboard.append(asset_row)
-
-    # Row 2: Timeframe toggle buttons
-    tf_row = []
-    for tf in AVAILABLE_TIMEFRAMES:
-        check = "✅" if tf == config["tf"] else ""
-        tf_row.append(
-            InlineKeyboardButton(
-                f"{check} {tf}".strip() if check else tf, callback_data=f"bt2c_tf_{tf}"
-            )
-        )
-    keyboard.append(tf_row)
-
-    # Row 3: Limit editing button
-    keyboard.append(
-        [InlineKeyboardButton(f"📈 Limit: {config['limit']}", callback_data="bt2c_limit")]
-    )
-
-    # Row 4-5: Strategy selection (first 6 strategies)
-    strat_items = list(STRATEGY_CATALOG.items())
-    first_6 = strat_items[:6]
-    strat_row1 = []
-    for key, (label, _) in first_6[:3]:
-        strat_row1.append(
-            InlineKeyboardButton(f"{esc(label)}", callback_data=f"bt2c_strat_{esc(key)}")
-        )
-    if strat_row1:
-        keyboard.append(strat_row1)
-
-    strat_row2 = []
-    for key, (label, _) in first_6[3:]:
-        strat_row2.append(
-            InlineKeyboardButton(f"{esc(label)}", callback_data=f"bt2c_strat_{esc(key)}")
-        )
-    if strat_row2:
-        keyboard.append(strat_row2)
-
-    # More strategies button if needed
-    if len(strat_items) > 6:
-        keyboard.append(
-            [InlineKeyboardButton("📚 Daha Fazla Strateji", callback_data="bt2c_more_strats")]
-        )
-
-    # Row 6: Action buttons
-    keyboard.append(
-        [
-            InlineKeyboardButton("▶️ Backtest Başlat", callback_data="bt2c_run"),
-            InlineKeyboardButton("📊 Karşılaştır", callback_data="bt2c_compare"),
-        ]
-    )
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-async def _show_all_strategies(message, context: ContextTypes.DEFAULT_TYPE):
-    """Show all strategies in a paginated view."""
-    config = context.user_data.get("bt2_config", DEFAULT_CONFIG.copy())
-
-    keyboard = []
-    strat_items = list(STRATEGY_CATALOG.items())
-
-    # Show all strategies in 2 columns
-    for i in range(0, len(strat_items), 2):
-        row = []
-        for key, (label, _) in strat_items[i : i + 2]:
-            "✅" if key == config["strategy"] else ""
-            row.append(
-                InlineKeyboardButton(f"{esc(label)}", callback_data=f"bt2c_strat_{esc(key)}")
-            )
-        keyboard.append(row)
-
-    # Back button
-    keyboard.append([InlineKeyboardButton("← Geri", callback_data="bt2c_back_main")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await message.edit_text(
-        "📚 <b>Tüm Stratejiler</b>\n\n" "Bir strateji seçin:",
-        reply_markup=reply_markup,
-        parse_mode="HTML",
-    )
-
-
-async def _reply(source, text: str, parse_mode: str = "HTML"):
-    """Reply to either a Message or CallbackQuery."""
-    try:
-        if hasattr(source, "message") and source.message:
-            # It's an Update or CallbackQuery
-            if hasattr(source, "edit_message_text"):
-                # CallbackQuery
-                await source.message.reply_text(text, parse_mode=parse_mode)
-            else:
-                await source.message.reply_text(text, parse_mode=parse_mode)
-        elif hasattr(source, "reply_text"):
-            await source.reply_text(text, parse_mode=parse_mode)
-    except Exception as e:  # noqa: BLE001
-        logger.error("Reply failed: %s", e)
-
-
-async def _send_photo(source, photo_bytes: bytes, caption: str = ""):
-    """Send a photo to the chat."""
-    try:
-        bio = io.BytesIO(photo_bytes)
-        bio.name = "chart.png"
-        if hasattr(source, "message") and source.message:
-            await source.message.reply_photo(bio, caption=caption)
-        elif hasattr(source, "reply_photo"):
-            await source.reply_photo(bio, caption=caption)
-    except Exception as e:  # noqa: BLE001
-        logger.error("Send photo failed: %s", e)
-
-
-async def handle_limit_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle limit value input from user."""
-    if not context.user_data.get("bt2_editing_limit"):
-        return
-
-    try:
-        limit_val = int(update.message.text)
-        if 1 <= limit_val <= 500:
-            config = context.user_data.get("bt2_config", DEFAULT_CONFIG.copy())
-            config["limit"] = limit_val
-            context.user_data["bt2_config"] = config
-            context.user_data["bt2_editing_limit"] = False
-
-            await update.message.reply_text(
-                f"✅ <b>Market Limiti</b>\n\n" f"Yeni değer: {limit_val}",
-                parse_mode="HTML",
-            )
-        else:
-            await update.message.reply_text("❌ Lütfen 1 ile 500 arasında bir sayı girin.")
-    except ValueError:
-        await update.message.reply_text("❌ Geçersiz sayı. Lütfen bir rakam girin.")
-
-
-def register_handlers(app):
-    """Register backtest v2 handlers with the Telegram application."""
-    app.add_handler(CommandHandler("backtest_v2", backtest_v2_cmd))
-    app.add_handler(CommandHandler("compare", compare_cmd))
-    # New PolyCop-style config callbacks (bt2c_ prefix)
-    app.add_handler(CallbackQueryHandler(backtest_v2_config_callback, pattern="^bt2c_"))
-    # Old-style callbacks for backward compatibility (bt2_ prefix)
-    app.add_handler(CallbackQueryHandler(backtest_v2_callback, pattern="^bt2_"))
-    logger.info("Backtest v2 handlers registered")
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Phase 51 P51-03 Faz-2 Cluster F — merged from backtest_replay.py
-# ═══════════════════════════════════════════════════════════════════════
-from datetime import UTC
-
-from backtest.strategies.base import StrategyRegistryV2  # noqa: E402
-
-# Strategy display names (subset of most useful for replay)
+# Strategy display names — replay panel ve /compare default listesi
 REPLAY_STRATEGIES = {
     "hour_edge": "🕐 Hour Edge",
     "streak_reversal": "🔄 Streak Reversal",
@@ -784,8 +52,93 @@ REPLAY_STRATEGIES = {
 }
 
 
+# ════════════════════════════════════════════════════════════════════
+# /backtest_v2 + /bt2 → LAB deprecation shim
+# ════════════════════════════════════════════════════════════════════
+
+
+async def backtest_v2_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /backtest_v2 + /bt2 — LAB'a yonlendiren deprecation shim.
+
+    Eski sentetik snapshot motoru (engine_v2) 2026-05-21'de silindi.
+    Komut artik /backtest LAB tek kapisini acar.
+    """
+    try:
+        from telegram_bot.handlers.backtest_lab import backtest_lab_command
+
+        await update.message.reply_text(
+            "ℹ️ <b>/backtest_v2 → /backtest LAB</b>\n\n"
+            "Eski sentetik snapshot motoru kaldirildi. Yeni LAB tek kapi:\n"
+            "  • Gercek L2 replay (en dogru sonuc)\n"
+            "  • No-code Strateji Kurucu\n"
+            "  • Multi-strategy Karsilastir\n"
+            "  • Reality-gap kalibrasyon\n\n"
+            "Yonlendiriliyorsun...",
+            parse_mode="HTML",
+        )
+        await backtest_lab_command(update, context)
+    except Exception:  # noqa: BLE001
+        logger.exception("/backtest_v2 shim failed")
+        await update.message.reply_text(
+            "❌ LAB acilamadi. /backtest komutuyla tekrar dene.",
+            parse_mode="HTML",
+        )
+
+
+# ════════════════════════════════════════════════════════════════════
+# /compare — multi-strategy karsilastirma (replay_engine)
+# ════════════════════════════════════════════════════════════════════
+
+
+async def compare_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /compare command.
+
+    2026-05-21 (Heddas direktifi): engine_v2 (sentetik snapshot) silindi.
+    Compare artik replay_engine (gercek L2 ob_snapshots) kullanir.
+
+    Args: strateji isimleri (StrategyRegistryV2'de kayitli olan herhangi
+    biri — eski hardcoded STRATEGY_CATALOG kisitlamasi kaldirildi).
+    """
+    db = context.bot_data.get("db")
+    args = context.args if context.args else []
+
+    if not db:
+        await update.message.reply_text("⚠️ DB bulunamadi.", parse_mode="HTML")
+        return
+
+    if len(args) < 2:
+        await update.message.reply_text(
+            "📊 <b>Strateji Karsilastirma</b> (gercek L2 replay)\n\n"
+            "Kullanim: <code>/compare strat1 strat2 [strat3...]</code>\n\n"
+            "Ornek: <code>/compare hour_edge streak_reversal taker_flow</code>\n\n"
+            "<i>Tum kayitli stratejileri karsilastirmak icin /lab → "
+            "Karsilastir paneline gec.</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    # Strateji listesini validate et
+    available = set(StrategyRegistryV2.list_all())
+    strategies = [a.lower() for a in args]
+    invalid = [s for s in strategies if s not in available]
+    if invalid:
+        await update.message.reply_text(
+            f"❌ Bilinmeyen strateji(ler): {', '.join(invalid)}\n"
+            "<i>Kayitli stratejileri /strategies veya /lab → Kurucu ile gor.</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    await _run_compare(update, db, strategy_names=strategies)
+
+
+# ════════════════════════════════════════════════════════════════════
+# /backtest_replay (Phase 51 P51-03) — replay panel + execute
+# ════════════════════════════════════════════════════════════════════
+
+
 async def backtest_replay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /backtest_replay command."""
+    """Handle /backtest_replay command — interactive replay panel."""
     args = context.args if context.args else []
     db = context.bot_data.get("db")
 
@@ -807,14 +160,13 @@ async def backtest_replay_command(update: Update, context: ContextTypes.DEFAULT_
         return await update.message.reply_text(
             "⚠️ <b>Yetersiz Veri</b>\n\n"
             f"Kayitli snapshot: {snap_count}\n"
-            f"MarketRecorder'in veri toplamasini bekleyin.\n"
-            f"Her 2 saniyede 1 snapshot kaydedilir.\n\n"
-            f"Durum icin: /recorder",
+            "MarketRecorder'in veri toplamasini bekleyin.\n"
+            "Her 2 saniyede 1 snapshot kaydedilir.\n\n"
+            "Durum icin: /recorder",
             parse_mode="HTML",
         )
 
     if not args:
-        # Show interactive panel
         await _show_replay_panel(update, db, snap_count, market_count)
         return
 
@@ -828,11 +180,6 @@ async def backtest_replay_command(update: Update, context: ContextTypes.DEFAULT_
 
 async def _show_replay_panel(update: Update, db, snap_count: int, market_count: int):
     """Show interactive replay config panel."""
-    # P0-08-E2 (2026-05-09): ob_snapshots v18 schema artık `ts_ms` (INTEGER)
-    # kullanıyor, eski `ts_iso` (TEXT) kaldırıldı. Burası ms epoch'tan ISO'ya
-    # dönüştürerek panel'de göstersin.
-    from datetime import datetime
-
     r = await db.conn.execute_fetchall("SELECT MIN(ts_ms), MAX(ts_ms) FROM ob_snapshots")
 
     def _ms_to_iso(ts_ms):
@@ -853,15 +200,15 @@ async def _show_replay_panel(update: Update, db, snap_count: int, market_count: 
         breakdown += f"  {row[0]} {row[1]}: {row[2]:,} snap\n"
 
     text = (
-        f"🔄 <b>Replay Backtest — Gercek Veri</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🔄 <b>Replay Backtest — Gercek Veri</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📸 Kayitli: <b>{snap_count:,}</b> snapshot\n"
         f"📊 Market: <b>{market_count}</b> benzersiz\n"
         f"🕐 Aralik: {oldest} → {newest}\n\n"
         f"📋 <b>Veri Dagilimi</b>\n{breakdown}\n"
-        f"🎯 <b>Fill Mode:</b> REAL_ORDERBOOK\n"
-        f"<i>Gercek L2 depth walk — VWAP fill</i>\n\n"
-        f"Strateji sec ve baslat:"
+        "🎯 <b>Fill Mode:</b> REAL_ORDERBOOK\n"
+        "<i>Gercek L2 depth walk — VWAP fill</i>\n\n"
+        "Strateji sec ve baslat:"
     )
 
     # Build keyboard — 3 per row
@@ -877,7 +224,7 @@ async def _show_replay_panel(update: Update, db, snap_count: int, market_count: 
     kb_rows.append(
         [
             InlineKeyboardButton(
-                "🏆 Tum Stratejiler Karsilastir", callback_data="replay_compare_all"
+                "🏆 Tum Stratejileri Karsilastir", callback_data="replay_compare_all"
             ),
         ]
     )
@@ -887,7 +234,7 @@ async def _show_replay_panel(update: Update, db, snap_count: int, market_count: 
 
 
 async def replay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle replay button callbacks."""
+    """Handle replay button callbacks (replay_*)."""
     query = update.callback_query
     data = query.data
     db = context.bot_data.get("db")
@@ -898,7 +245,7 @@ async def replay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "replay_compare_all":
         await query.answer("⏳ Tum stratejiler karsilastiriliyor...")
-        await _run_compare_all(query, db)
+        await _run_compare(query, db, strategy_names=None)  # None → REPLAY_STRATEGIES
         return
 
     # replay_STRATEGY_NAME
@@ -913,11 +260,9 @@ async def replay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe: str = ""):
-    """Execute replay backtest and send results."""
+    """Execute single-strategy replay backtest and send results."""
     try:
-        # Import here to avoid circular imports
         from backtest.replay_engine import ReplayConfig, ReplayEngine
-        from backtest.strategies import StrategyRegistryV2  # noqa: triggers auto-registration
 
         # Check strategy exists
         strat_cls = StrategyRegistryV2.get(strategy_name)
@@ -933,9 +278,9 @@ async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe
             source,
             f"🔄 <b>Replay Backtest</b>\n\n"
             f"Strateji: {esc(strategy_name)}\n"
-            f"Fill: REAL_ORDERBOOK (gercek L2 depth)\n"
-            f"Veri: ob_snapshots (canli kayit)\n\n"
-            f"⏳ Hesaplaniyor...",
+            "Fill: REAL_ORDERBOOK (gercek L2 depth)\n"
+            "Veri: ob_snapshots (canli kayit)\n\n"
+            "⏳ Hesaplaniyor...",
         )
 
         config = ReplayConfig(
@@ -974,15 +319,21 @@ async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe
         )
 
 
-async def _run_compare_all(source, db):
-    """Run replay for all strategies and compare."""
+async def _run_compare(source, db, strategy_names: list[str] | None = None):
+    """Run replay for a list of strategies (or REPLAY_STRATEGIES if None) and compare.
+
+    2026-05-21 (Heddas direktifi): tek birleşik fonksiyon. Eski iki ayrı
+    yol (_run_comparison engine_v2 ile, _run_compare_all replay_engine ile)
+    yerine replay_engine üzerinde tek fonksiyon. strategy_names=None ise
+    REPLAY_STRATEGIES default listesini kullanır (button: "Tum Stratejileri").
+    """
     try:
         from backtest.replay_engine import ReplayConfig, ReplayEngine
-        from backtest.strategies import StrategyRegistryV2  # noqa
+
+        names = strategy_names if strategy_names else list(REPLAY_STRATEGIES.keys())
 
         results = []
-
-        for name in REPLAY_STRATEGIES:
+        for name in names:
             strat_cls = StrategyRegistryV2.get(name)
             if not strat_cls:
                 continue
@@ -1031,7 +382,7 @@ async def _run_compare_all(source, db):
 
     except Exception as e:  # noqa: BLE001
         logger.error("Replay compare failed: %s", e, exc_info=True)
-        await _reply(source, f"❌ <b>Karsilastirma Hatasi</b>\n\n" f"Detay: {str(e)[:150]}")
+        await _reply(source, f"❌ <b>Karsilastirma Hatasi</b>\n\nDetay: {str(e)[:150]}")
 
 
 def _format_replay_results(strategy_name: str, summary: dict, stats) -> str:
@@ -1040,32 +391,37 @@ def _format_replay_results(strategy_name: str, summary: dict, stats) -> str:
     pnl_icon = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
 
     text = (
-        f"🔄 <b>Replay Backtest Sonucu</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🔄 <b>Replay Backtest Sonucu</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📌 Strateji: <b>{esc(strategy_name)}</b>\n"
-        f"🎯 Fill Mode: REAL_ORDERBOOK\n"
-        f"📸 Veri: Gercek ob_snapshots\n\n"
-        f"📊 <b>Performans</b>\n"
+        "🎯 Fill Mode: REAL_ORDERBOOK\n"
+        "📸 Veri: Gercek ob_snapshots\n\n"
+        "📊 <b>Performans</b>\n"
         f"  {pnl_icon} PnL: <b>${pnl:+.2f}</b>\n"
         f"  🎯 Win Rate: <b>{summary.get('win_rate', 0):.1f}%</b>\n"
         f"  📈 Trade: {summary['total_trades']} "
         f"({summary['wins']}W/{summary['losses']}L)\n"
         f"  💰 Avg PnL: ${summary.get('avg_pnl', 0):+.4f}\n\n"
-        f"📉 <b>Risk</b>\n"
+        "📉 <b>Risk</b>\n"
         f"  📐 Sharpe: {summary.get('sharpe', 0):.2f}\n"
         f"  📐 Sortino: {summary.get('sortino', 0):.2f}\n"
         f"  📉 Max DD: ${summary.get('max_drawdown', 0):.2f}\n"
         f"  ⚖️ Profit Factor: {summary.get('profit_factor', 0):.2f}\n\n"
-        f"💸 <b>Maliyet</b>\n"
+        "💸 <b>Maliyet</b>\n"
         f"  💰 Fee: ${summary.get('total_fees', 0):.4f}\n"
         f"  📊 Slippage: ${summary.get('total_slippage', 0):.4f}\n\n"
-        f"📸 <b>Veri</b>\n"
+        "📸 <b>Veri</b>\n"
         f"  Market: {summary['markets_processed']} "
         f"(+{summary['markets_skipped']} skip)\n"
         f"  Snapshot: {summary['total_snapshots']:,}\n"
         f"  Sinyal: {summary['signals_generated']}\n"
     )
     return text
+
+
+# ════════════════════════════════════════════════════════════════════
+# Yardımcılar
+# ════════════════════════════════════════════════════════════════════
 
 
 async def _reply(source, text: str, parse_mode: str = "HTML"):
@@ -1096,21 +452,23 @@ async def _send_photo(source, photo_bytes: bytes, caption: str = ""):
         logger.error("Send photo failed: %s", e)
 
 
-# Becker block tam silindi (2026-05-20 cleanup):
-#   - Becker modulu Heddas direktifiyle 2026-04-28'de kaldirilmisti
-#     (Asama 1+2 closure).
-#   - bot.py'da hicbir handler register edilmemis; ai_handler.py +
-#     core/intent_parser.py'daki referanslar da bu commit'te silindi.
-#   - `_run_replay_blocking` icindeki `from backtest.becker_replay import`
-#     cagrildiginda ImportError verecek olu koduydu — komut zaten unwired.
-# Eski 5 fonksiyon: becker_replay_command, _run_replay_blocking,
-# becker_deep_command, becker_zones_command, _fmt_bytes (sonuncusu
-# data_status_handler.py'de zaten kendi tanimina sahip).
+# Becker block tam silindi (2026-05-20 cleanup) — bkz commit 60a53ad.
+# engine_v2 + polybacktest yolu tam silindi (2026-05-21 cleanup) — bu commit.
 
 
-# Phase 79 S1-12: Cancel callback handler for heavy operations
+# ════════════════════════════════════════════════════════════════════
+# Cancel callback (Phase 79 S1-12)
+# ════════════════════════════════════════════════════════════════════
+
+
 async def cancel_operation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle cancel button for /backtest_v2, /compare operations."""
+    """Handle cancel button for heavy /compare or /backtest_replay operations.
+
+    `_cancel_events` map (chat_id → asyncio.Event) replay zincirinde
+    operatorun iptal isimleri icin kullanilir. 2026-05-21'de engine_v2
+    yolu silindigi icin set noktasi azaldi ama event mekanizmasi korunuyor
+    (gelecek long-running replay'ler icin altyapı).
+    """
     chat_id = update.effective_chat.id
     evt = _cancel_events.get(chat_id)
     if evt:
@@ -1121,3 +479,11 @@ async def cancel_operation_callback(update: Update, context: ContextTypes.DEFAUL
         )
     else:
         await update.callback_query.answer("Aktif işlem yok.")
+
+
+# Eski deprecated semboller (backward-compat — yeni bot.py import etmiyor)
+# silinen: backtest_v2_callback, backtest_v2_config_callback,
+# handle_limit_input, register_handlers, _show_config_panel,
+# _run_backtest, _run_comparison, _build_config_text,
+# _build_config_keyboard, _show_all_strategies,
+# STRATEGY_CATALOG, AVAILABLE_ASSETS, AVAILABLE_TIMEFRAMES, DEFAULT_CONFIG.

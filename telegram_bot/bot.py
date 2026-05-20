@@ -61,13 +61,12 @@ from telegram_bot.handlers.backtest_lab import (  # 2026-05-20: /backtest LAB mo
 )
 from telegram_bot.handlers.backtest_v2 import (  # Phase 51 P51-03 Faz-2 Cluster F
     backtest_replay_command,  # merged from backtest_replay.py
-    backtest_v2_callback,
-    backtest_v2_cmd,
-    backtest_v2_config_callback,
-    # Becker commands removed 2026-04-28 (Heddas direktifi: tam kaldırma)
+    backtest_v2_cmd,  # 2026-05-21: LAB'a yonlendiren deprecation shim
+    # Becker commands removed 2026-04-28; engine_v2 yolu removed 2026-05-21.
+    # backtest_v2_callback / backtest_v2_config_callback / handle_limit_input
+    # silindi — eski PolyCop config panel yolu artik LAB tek kapida.
     cancel_operation_callback,  # Phase 79 S1-12: Cancel for backtest/compare
     compare_cmd,
-    handle_limit_input,
     replay_callback,
 )
 from telegram_bot.handlers.brier_handler import brier_command  # Phase 66
@@ -656,6 +655,9 @@ class PolyPaperBot:
             "live_guards",
             "live_perf",
             "live_risk",
+            # 2026-05-20 mode-state fix: PAPER MODE'dan açılan Piyasa Tara
+            # paneli — "Ana Panel" PAPER dashboard'a dönsün (LIVE'a değil).
+            "live_scan_paper",
         ]:
             self.app.add_handler(CallbackQueryHandler(live_callback, pattern=f"^{pattern}$"))
         # 2026-05-05 Heddas: Market BUY/SELL UI callback'leri
@@ -805,8 +807,9 @@ class PolyPaperBot:
         self.app.add_handler(CallbackQueryHandler(analytics_callback, pattern="^show_analytics$"))
         self.app.add_handler(CallbackQueryHandler(optimize_deploy_callback, pattern="^opt_deploy_"))
         self.app.add_handler(CallbackQueryHandler(autopilot_callback, pattern="^ap_"))
-        self.app.add_handler(CallbackQueryHandler(backtest_v2_callback, pattern="^bt2_"))
-        self.app.add_handler(CallbackQueryHandler(backtest_v2_config_callback, pattern="^bt2c_"))
+        # bt2_* + bt2c_* callback'leri silindi 2026-05-21 — engine_v2 yolu
+        # kaldirildi, eski PolyCop config panel artik yok. /backtest_v2
+        # + /bt2 komutlari LAB'a yonlendiren shim.
         # 2026-05-20 (Heddas direktifi): /backtest LAB callback dispatcher.
         # `lab_*` prefix — main/quick/builder/compare/calibrate/legacy/refresh.
         self.app.add_handler(CallbackQueryHandler(backtest_lab_callback, pattern="^lab_"))
@@ -859,8 +862,8 @@ class PolyPaperBot:
         async def _risk_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if context.user_data.get("risk_editing"):
                 return await handle_risk_input(update, context)
-            if context.user_data.get("bt2_editing_limit"):
-                return await handle_limit_input(update, context)
+            # bt2_editing_limit branch silindi 2026-05-21 — engine_v2 config
+            # panel kaldirildi, kullanici limit text input akisi yok.
 
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _risk_text), group=5)
 

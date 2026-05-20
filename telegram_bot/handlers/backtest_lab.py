@@ -1337,8 +1337,11 @@ async def lab_save_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         parsed = _json.loads(payload)
     except _json.JSONDecodeError as e:
+        # noqa: T11.6-OK reason=admin-diagnostic — kullanici JSON'i kendi
+        # yazdi/yapistirdi, parse hatasini gormesi gerek (line/column info
+        # debugging icin sart). admin-only context, info disclosure yok.
         await msg.reply_text(
-            f"❌ <b>JSON parse hatası</b>: {esc(str(e))}\n\n"
+            f"❌ <b>JSON parse hatası</b>: {esc(str(e))}\n\n"  # noqa: T11.6-OK
             "<i>İpucu: braket/virgül eksiklerini kontrol et.</i>",
             parse_mode="HTML",
         )
@@ -1353,8 +1356,11 @@ async def lab_save_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             from backtest.strategies.rule_based import RuleSetError as _RSE
 
             if isinstance(e, _RSE):
+                # noqa: T11.6-OK reason=admin-diagnostic — ruleset validation
+                # mesaji "entry_limit_price 0..1 araliginda olmali" gibi tarif
+                # — kullanicinin schema'sini duzeltmesi icin sart.
                 await msg.reply_text(
-                    f"❌ <b>Ruleset geçersiz</b>: {esc(str(e))}",
+                    f"❌ <b>Ruleset geçersiz</b>: {esc(str(e))}",  # noqa: T11.6-OK
                     parse_mode="HTML",
                 )
                 return

@@ -112,7 +112,6 @@ ALL_MODULES = [
     "backtest.engine_v2",
     "backtest.metrics",
     "backtest.replay_engine",
-    "backtest.replay_engine_v3",
     "backtest.slippage_model",
     "backtest.walk_forward",
     "backtest.analytics.charts",
@@ -830,35 +829,9 @@ def test_replay_engine_class_full():
             continue
 
 
-def test_replay_engine_v3_class_full():
-    try:
-        import backtest.replay_engine_v3 as r3
-    except ImportError:
-        pytest.skip()
-        return
-    for name in dir(r3):
-        if name.startswith("_") or name.isupper():
-            continue
-        obj = getattr(r3, name)
-        if isinstance(obj, type):
-            for ctor in [(), (MagicMock(),), ({},)]:
-                try:
-                    inst = obj(*ctor)
-                    for attr in dir(inst)[:30]:
-                        if attr.startswith("_"):
-                            continue
-                        try:
-                            method = getattr(inst, attr)
-                            if callable(method) and not asyncio.iscoroutinefunction(method):
-                                try:
-                                    method()
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                    break
-                except Exception:
-                    continue
+# test_replay_engine_v3_class_full silindi 2026-05-20 — replay_engine_v3.py
+# Becker calibration kaldirildiktan sonra ciplak inheritance pass-through'tu,
+# dosya silindi. ReplayEngine zaten test_p0_p1_extra_coverage'da test ediliyor.
 
 
 # ════════════════════════════════════════════════════════════════════════

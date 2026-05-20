@@ -6235,7 +6235,6 @@ class TestBacktestEngineModulesSmoke:
         "be_module",
         [
             "replay_engine",
-            "replay_engine_v3",
             "engine_v2",
             "archive_reader",
         ],
@@ -6663,7 +6662,6 @@ class TestBacktestEngineDeepImports:
             "backtest.archive_reader",
             "backtest.engine_v2",
             "backtest.replay_engine",
-            "backtest.replay_engine_v3",
             "backtest.metrics",
             "backtest.simulation.fill_model",
             "backtest.simulation.fee_model_v3",
@@ -8017,7 +8015,6 @@ class TestAllBacktestModulesLoad:
             "backtest.archive_reader",
             "backtest.engine_v2",
             "backtest.replay_engine",
-            "backtest.replay_engine_v3",
             "backtest.slippage_model",
             "backtest.walk_forward",
             "backtest.simulation",
@@ -10776,7 +10773,6 @@ class TestLargeBacktestModules:
             "backtest.replay_engine",
             "backtest.archive_reader",
             "backtest.engine_v2",
-            "backtest.replay_engine_v3",
             "backtest.simulation.fill_model",
             "backtest.data_sources.binance_hist",
             "backtest.data_sources.gamma_hist",
@@ -17930,23 +17926,11 @@ class TestBacktestReplayEngineFull:
             pytest.skip("ReplayEngine API differs")
 
 
-class TestBacktestEngineV2Full:
-    """backtest/engine_v2.py."""
-
-    def test_engine_v2_class(self):
-        from backtest import engine_v2
-
-        # Find any Engine class
-        for name in dir(engine_v2):
-            if "Engine" in name and not name.startswith("_"):
-                obj = getattr(engine_v2, name)
-                if isinstance(obj, type):
-                    for args in [(), (MagicMock(),)]:
-                        try:
-                            obj(*args)
-                            break
-                        except TypeError:
-                            continue
+# TestBacktestEngineV2Full silindi 2026-05-21 — backtest/engine_v2.py
+# Heddas direktifiyle silindi (sentetik snapshot motoru, /backtest LAB
+# replay_engine'e gecti). Diger TestBacktestEngineV2* class'lari
+# `try: import / except: pytest.skip()` deseni kullaniyor — dosya
+# silindiginde sessizce skip oluyorlar.
 
 
 class TestBacktestArchiveReaderFull:

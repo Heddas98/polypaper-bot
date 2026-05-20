@@ -193,16 +193,20 @@ def _live_pnl_detail_block(per_market: list[dict], limit: int = 12) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def _panel_nav_kb(refresh_cb: str) -> InlineKeyboardMarkup:
+def _panel_nav_kb(refresh_cb: str, home_cb: str = "live_main") -> InlineKeyboardMarkup:
     """Faz 2B (2026-05-19): alt-panel navigasyonu — Ana Panel + Yenile.
 
     `refresh_cb` aynı paneli yeniden çizen callback — Heddas direktifi
     "yenileme butonları" (her panel canlı veriyi tazeleyebilmeli).
+
+    2026-05-20 Heddas fix: `home_cb` opsiyonel — default `live_main` (LIVE
+    kokpit). PAPER MODE'dan açılan paneller `home_cb="main_paper"` geçirir
+    → "Ana Panel" PAPER dashboard'a döner. Mode kayması düzeltildi.
     """
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("◀️ Ana Panel", callback_data="live_main"),
+                InlineKeyboardButton("◀️ Ana Panel", callback_data=home_cb),
                 InlineKeyboardButton("🔄 Yenile", callback_data=refresh_cb),
             ]
         ]
@@ -554,14 +558,18 @@ async def live_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = _panel_nav_kb("live_risk")
         await _safe_edit(q, text, kb)
 
-    elif data == "live_scan":
-        # Faz 2B: piyasa tarama paneli (scanner aktif market'ler + odds)
+    elif data in ("live_scan", "live_scan_paper"):
+        # Faz 2B: piyasa tarama paneli (scanner aktif market'ler + odds).
+        # 2026-05-20 mode-state fix: `live_scan_paper` PAPER MODE'dan tetiklenir
+        # → "Ana Panel" PAPER dashboard'a döner. `live_scan` LIVE'dan tetiklenir.
+        # İçerik aynı (delta verisi mod-bağımsız crypto OHLC).
         try:
             text = await _build_market_scan(engine)
         except Exception as _ex:  # noqa: BLE001
             logger.exception(f"live_scan: {_ex}")
             text = _user_error_msg(_ex, "piyasa tarama")
-        kb = _panel_nav_kb("live_scan")
+        home = "main_paper" if data == "live_scan_paper" else "live_main"
+        kb = _panel_nav_kb(data, home_cb=home)
         await _safe_edit(q, text, kb)
 
     elif data == "live_guards":
