@@ -169,7 +169,7 @@
 | `MAX_POSITION_SIZE` | `None` |  | ✅ | `core/engine.py:118`, `core/engine.py:119` |
 | `MAX_STOPS_PER_CYCLE` | `'2'` |  |  | `core/ai_brain.py:1183` |
 | `MAX_TOTAL_EXPOSURE` | `'5000'` |  | ✅ | `core/engine.py:110`, `core/engine.py:111`, `telegram_bot/handlers/diagnose_handler.py:168` (+1 more) |
-| `MAX_WS_TOKENS` | `'200'` |  |  | `data/websocket_client.py:122` |
+| `MAX_WS_TOKENS` | `'200'` |  |  | `data/websocket_client.py:127` |
 | `MCI_ANTISYM_WEIGHT` | `'0.35'` |  |  | `calibration/coherence.py:52` |
 | `MCI_COVERAGE_WEIGHT` | `'0.25'` |  |  | `calibration/coherence.py:53` |
 | `MCI_ENABLED` | `'true'` |  | ✅ | `calibration/coherence.py:49`, `core/signal_fusion.py:391` |
@@ -309,10 +309,10 @@
 | `WHALE_USD_THRESHOLD` | `'1000'` |  | ✅ | `data/market_recorder.py:718` |
 | `WHIPSAW_BAND_HI` | `'0.60'` |  |  | `core/engine_signals.py:431` |
 | `WHIPSAW_BAND_LO` | `'0.40'` |  |  | `core/engine_signals.py:430` |
-| `WS_FORCE_RECONNECT_SEC` | `'300'` |  |  | `data/websocket_client.py:242` |
+| `WS_FORCE_RECONNECT_SEC` | `'300'` |  |  | `data/websocket_client.py:247` |
 | `WS_STALE_MIN_THRESHOLD` | `'0.70'` | ✅ |  | `core/engine_signals.py:422` |
-| `WS_STALE_SEC` | `'60'` |  |  | `data/websocket_client.py:705` |
-| `WS_STALE_THRESHOLD` | `'60.0'` | ✅ |  | `core/engine.py:1161`, `data/websocket_client.py:705`, `telegram_bot/handlers/diagnose_handler.py:173` (+2 more) |
+| `WS_STALE_SEC` | `'60'` |  |  | `data/websocket_client.py:731` |
+| `WS_STALE_THRESHOLD` | `'60.0'` | ✅ |  | `core/engine.py:1161`, `data/websocket_client.py:731`, `telegram_bot/handlers/diagnose_handler.py:173` (+2 more) |
 
 ## Drift Detection
 

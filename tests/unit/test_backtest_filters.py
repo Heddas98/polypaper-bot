@@ -1,27 +1,27 @@
-"""Backtest LAB Faz 2 — replay engine yeni filtreler (2026-05-20).
+"""Backtest LAB Faz 2 — replay engine filtre testleri.
 
-Heddas direktifi: "5m marketteki 30. saniye - 50. saniye al-sat",
-"her gün şu saatte ki markette işlem yap", "X fiyatına gelince al,
-Y'ye gelince sat" gibi rastgele senaryoları test edebilelim.
+⚠️ 2026-05-21 SKIPPED: replay_engine.py silindi (Heddas direktifi),
+yeni minimal `backtest.runner.BacktestRunner` Faz 2 filtre knob'larini
+HENUZ desteklemiyor (entry_second/exit_second/hour_filter/weekday/
+price-trigger). Bu testler yeni motora port edilene kadar skip.
 
-Bu testler 4 grup filtreyi pin'ler:
-  1. Schedule (hour/weekday/minute_of_hour) — discovery-time
-  2. entry_second_min/max — sinyal yalnız bu pencerede
-  3. exit_second_min/max — pozisyon force-close
-  4. entry_yes_price_min/max + exit_yes_price_above/below
-+ VirtualPortfolio.close_trade_at_price PnL matematiği
-
-Tüm filtreler default kapalı — eski caller'ları kırmamalı (regresyon var).
+LAB wizard'da gerek duyulan filtreler runner'a Adim 3 sırasında eklenecek
+(market secimi → sablon → parametre wizard'i).
 """
 
 from __future__ import annotations
 
-from typing import Optional
-from unittest.mock import MagicMock
-
 import pytest
 
-from backtest.replay_engine import ReplayConfig, ReplayEngine
+pytest.skip(
+    "replay_engine silindi 2026-05-21 — yeni runner Faz 2 filtreleri henüz desteklemiyor",
+    allow_module_level=True,
+)
+
+from typing import Optional  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
+
+from backtest.runner import RunConfig  # noqa: E402, F401
 from backtest.simulation.fee_model_v3 import FeeCalculatorV3
 from backtest.simulation.portfolio import Trade, VirtualPortfolio
 from backtest.strategies.base import (

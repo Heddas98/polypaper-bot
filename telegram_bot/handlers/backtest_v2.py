@@ -254,9 +254,14 @@ async def replay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe: str = ""):
-    """Execute single-strategy replay backtest and send results."""
+    """Execute single-strategy replay backtest and send results.
+
+    2026-05-21 (Heddas direktifi): eski replay_engine (schema-broken) silindi,
+    yeni minimal `backtest.runner.BacktestRunner` kullaniliyor. Sadece
+    rule_based stratejisi calisir (11 hazir plugin silindi).
+    """
     try:
-        from backtest.replay_engine import ReplayConfig, ReplayEngine
+        from backtest.runner import BacktestRunner, RunConfig
 
         # Check strategy exists
         strat_cls = StrategyRegistryV2.get(strategy_name)
@@ -264,7 +269,8 @@ async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe
             await _reply(
                 source,
                 f"❌ Strateji bulunamadi: {esc(strategy_name)}\n"
-                f"Mevcut: {', '.join(StrategyRegistryV2.list_all())}",
+                f"Mevcut: {', '.join(StrategyRegistryV2.list_all())}\n"
+                "<i>Kendi kuralini /lab → 🛠 Strateji Kurucu ile yaz.</i>",
             )
             return
 
@@ -272,36 +278,24 @@ async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe
             source,
             f"🔄 <b>Replay Backtest</b>\n\n"
             f"Strateji: {esc(strategy_name)}\n"
-            "Fill: REAL_ORDERBOOK (gercek L2 depth)\n"
-            "Veri: ob_snapshots (canli kayit)\n\n"
+            f"Asset: {esc(asset or 'TÜMÜ')} | TF: {esc(timeframe or 'TÜMÜ')}\n"
+            "Veri: ob_snapshots (modern schema)\n\n"
             "⏳ Hesaplaniyor...",
         )
 
-        config = ReplayConfig(
+        cfg = RunConfig(
+            asset=asset.upper() if asset else "",
+            timeframe=timeframe if timeframe else "",
             strategy_name=strategy_name,
-            fill_mode="real_orderbook",
-            asset_filter=asset,
-            timeframe_filter=timeframe,
+            last_n=100,
         )
 
-        engine = ReplayEngine(db, config)
-        stats = await engine.run()
-        summary = engine.get_summary()
+        runner = BacktestRunner(db)
+        summary = await runner.run(cfg)
 
         # Format results
-        result_text = _format_replay_results(strategy_name, summary, stats)
+        result_text = _format_replay_results(strategy_name, summary)
         await _reply(source, result_text)
-
-        # Try to send equity chart
-        try:
-            from backtest.analytics.charts import ChartGenerator
-
-            chart_gen = ChartGenerator(engine.portfolio, strategy_name)
-            chart_bytes = chart_gen.equity_curve()
-            if chart_bytes:
-                await _send_photo(source, chart_bytes, f"📈 Equity: {esc(strategy_name)} (Replay)")
-        except Exception:  # noqa: BLE001
-            pass  # Charts optional
 
     except Exception as e:  # noqa: BLE001
         logger.error("Replay backtest failed: %s", e, exc_info=True)
@@ -322,23 +316,19 @@ async def _run_compare(source, db, strategy_names: list[str] | None = None):
     REPLAY_STRATEGIES default listesini kullanır (button: "Tum Stratejileri").
     """
     try:
-        from backtest.replay_engine import ReplayConfig, ReplayEngine
+        from backtest.runner import BacktestRunner, RunConfig
 
         names = strategy_names if strategy_names else list(REPLAY_STRATEGIES.keys())
 
-        results = []
+        results: list[tuple[str, object]] = []
         for name in names:
             strat_cls = StrategyRegistryV2.get(name)
             if not strat_cls:
                 continue
 
-            config = ReplayConfig(
-                strategy_name=name,
-                fill_mode="real_orderbook",
-            )
-            engine = ReplayEngine(db, config)
-            await engine.run()
-            summary = engine.get_summary()
+            cfg = RunConfig(strategy_name=name, last_n=100)
+            runner = BacktestRunner(db)
+            summary = await runner.run(cfg)
             results.append((name, summary))
 
         if not results:
@@ -346,30 +336,27 @@ async def _run_compare(source, db, strategy_names: list[str] | None = None):
             return
 
         # Sort by PnL
-        results.sort(key=lambda x: x[1].get("total_pnl", 0), reverse=True)
+        results.sort(key=lambda x: x[1].total_pnl, reverse=True)
 
         text = "🏆 <b>Replay Karsilastirma — Gercek Veri</b>\n"
         text += "━━━━━━━━━━━━━━━━━━━━━\n"
-        text += "<i>Fill: REAL_ORDERBOOK | Data: ob_snapshots</i>\n\n"
+        text += "<i>Veri: ob_snapshots (modern schema)</i>\n\n"
 
         for i, (name, s) in enumerate(results):
             rank = ["🥇", "🥈", "🥉"][i] if i < 3 else f"{i+1}."
             label = REPLAY_STRATEGIES.get(name, name)
-            pnl = s.get("total_pnl", 0)
-            wr = s.get("win_rate", 0)
-            trades = s.get("total_trades", 0)
-            pnl_icon = "🟢" if pnl > 0 else "🔴"
+            pnl_icon = "🟢" if s.total_pnl > 0 else "🔴"
 
             text += (
                 f"{rank} <b>{esc(label)}</b>\n"
-                f"   {pnl_icon} PnL: ${pnl:+.2f} | "
-                f"WR: {wr:.1f}% | "
-                f"Trade: {trades}\n"
+                f"   {pnl_icon} PnL: ${s.total_pnl:+.2f} | "
+                f"WR: {s.win_rate:.1f}% | "
+                f"Trade: {s.n_trades}\n"
             )
 
         text += (
-            f"\n📊 Market: {results[0][1].get('markets_processed', 0)} | "
-            f"Snap: {results[0][1].get('total_snapshots', 0)}"
+            f"\n📊 Market: {results[0][1].n_markets_processed} "
+            f"(+{results[0][1].n_markets_skipped} skip)"
         )
 
         await _reply(source, text)
@@ -379,36 +366,35 @@ async def _run_compare(source, db, strategy_names: list[str] | None = None):
         await _reply(source, f"❌ <b>Karsilastirma Hatasi</b>\n\nDetay: {str(e)[:150]}")
 
 
-def _format_replay_results(strategy_name: str, summary: dict, stats) -> str:
-    """Format replay results for Telegram."""
-    pnl = summary.get("total_pnl", 0)
-    pnl_icon = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
+def _format_replay_results(strategy_name: str, summary) -> str:
+    """Format replay results for Telegram.
+
+    2026-05-21: yeni RunSummary (dataclass) ile uyumlu — eski dict
+    access pattern (summary.get('total_pnl')) yerine attribute access.
+    """
+    pnl_icon = "🟢" if summary.total_pnl > 0 else "🔴" if summary.total_pnl < 0 else "⚪"
+
+    note_block = f"\n<i>⚠️ {esc(summary.note)}</i>" if summary.note else ""
 
     text = (
         "🔄 <b>Replay Backtest Sonucu</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📌 Strateji: <b>{esc(strategy_name)}</b>\n"
-        "🎯 Fill Mode: REAL_ORDERBOOK\n"
-        "📸 Veri: Gercek ob_snapshots\n\n"
+        "📸 Veri: ob_snapshots (modern schema)\n\n"
         "📊 <b>Performans</b>\n"
-        f"  {pnl_icon} PnL: <b>${pnl:+.2f}</b>\n"
-        f"  🎯 Win Rate: <b>{summary.get('win_rate', 0):.1f}%</b>\n"
-        f"  📈 Trade: {summary['total_trades']} "
-        f"({summary['wins']}W/{summary['losses']}L)\n"
-        f"  💰 Avg PnL: ${summary.get('avg_pnl', 0):+.4f}\n\n"
-        "📉 <b>Risk</b>\n"
-        f"  📐 Sharpe: {summary.get('sharpe', 0):.2f}\n"
-        f"  📐 Sortino: {summary.get('sortino', 0):.2f}\n"
-        f"  📉 Max DD: ${summary.get('max_drawdown', 0):.2f}\n"
-        f"  ⚖️ Profit Factor: {summary.get('profit_factor', 0):.2f}\n\n"
+        f"  {pnl_icon} PnL: <b>${summary.total_pnl:+.2f}</b>\n"
+        f"  🎯 Win Rate: <b>{summary.win_rate:.1f}%</b>\n"
+        f"  📈 Trade: {summary.n_trades} "
+        f"({summary.wins}W/{summary.losses}L)\n"
+        f"  💰 Avg PnL: ${summary.avg_pnl:+.4f}\n\n"
         "💸 <b>Maliyet</b>\n"
-        f"  💰 Fee: ${summary.get('total_fees', 0):.4f}\n"
-        f"  📊 Slippage: ${summary.get('total_slippage', 0):.4f}\n\n"
+        f"  💰 Fee: ${summary.fees_total:.4f}\n\n"
         "📸 <b>Veri</b>\n"
-        f"  Market: {summary['markets_processed']} "
-        f"(+{summary['markets_skipped']} skip)\n"
-        f"  Snapshot: {summary['total_snapshots']:,}\n"
-        f"  Sinyal: {summary['signals_generated']}\n"
+        f"  Market discovered: {summary.n_markets_discovered}\n"
+        f"  Market processed: {summary.n_markets_processed} "
+        f"(+{summary.n_markets_skipped} skip)\n"
+        f"  Final balance: ${summary.final_balance:.2f}"
+        f"{note_block}"
     )
     return text
 
