@@ -222,9 +222,9 @@ class StrategyRegistryV2:
     def create(cls, name: str, **params) -> Optional[BaseBacktestStrategy]:
         """Create strategy instance with parameters.
 
-        Phase 81: Eğer backtest registry'de bulamazsa, live strategy'yi
-        adaptör ile sarmalayarak döndürür. Böylece "momentum", "fusion"
-        gibi live stratejiler de backtest'te çalışır.
+        2026-05-21 (Heddas direktifi): live_adapter silindi (Layer 1+2 tam
+        temizlik). Eskiden "momentum", "fusion" gibi live stratejileri
+        wrap'liyordu — bu yol artık yok, sadece backtest registry kullanir.
         """
         klass = cls._strategies.get(name)
         if klass:
@@ -232,35 +232,16 @@ class StrategyRegistryV2:
             if params:
                 instance.params = {**getattr(instance, "params", {}), **params}
             return instance
-
-        # Phase 81: Backtest'te yoksa live adaptörü dene
-        try:
-            from backtest.strategies.live_adapter import get_live_adapter
-
-            adapter = get_live_adapter(name, extra_params=params if params else None)
-            if adapter:
-                logger.info(f"StrategyRegistryV2: '{name}' → live adapter kullanılıyor")
-                return adapter
-        except ImportError:
-            pass
-
         return None
 
     @classmethod
     def list_all(cls) -> list[str]:
-        """Return all registered strategy names (backtest + live)."""
-        names = list(cls._strategies.keys())
-        # Phase 81: Live stratejileri de listele
-        try:
-            from core.strategy_plugins import StrategyRegistry
+        """Return all registered backtest strategy names.
 
-            live_reg = StrategyRegistry()
-            for ln in live_reg.names:
-                if ln not in names:
-                    names.append(ln)
-        except ImportError:
-            pass
-        return names
+        2026-05-21: core.strategy_plugins live registry fallback silindi.
+        Sadece backtest registry icindeki (artik tek: rule_based) doner.
+        """
+        return list(cls._strategies.keys())
 
     @classmethod
     def count(cls) -> int:

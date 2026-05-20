@@ -914,13 +914,14 @@ class PolyPaperBot:
             BotCommand("dashboard", "Ana panel (alias: /d)"),
             BotCommand("menu", "Hub menu"),
             BotCommand("help", "Komutlar + aciklamalar"),
-            # ── Strateji (5) ──
-            BotCommand("strategies", "Strateji listesi (alias: /s)"),
-            BotCommand("quick_strategy", "Hizli strateji olustur"),
-            BotCommand("report", "Strateji yasam dongusu"),
-            # Phase 82a hotfix: bulk actions (inline buttons truncate at 100-button cap)
-            BotCommand("start_all", "Tum stratejileri baslat"),
-            BotCommand("stop_all", "Tum stratejileri durdur"),
+            # ── Strateji ──
+            # 2026-05-21 (Heddas direktifi): tum hazir Python plugin'leri silindi
+            # (hicbiri para kazandirmadi). /strategies komutu hala calisir ama
+            # 0 strateji gosterir. /quick_strategy /report /start_all /stop_all
+            # BotCommand listesinden cikarildi — komut handler'lari hala mevcut
+            # (geri uyumluluk, eski Telegram autocomplete cache'i icin).
+            # Kullanici LAB no-code rule_based ile kendi kurallarini yaziyor.
+            BotCommand("strategies", "Strateji listesi (artik bos — Heddas LAB kullaniyor)"),
             # ── 🧪 Backtest LAB (tek kapi) ──
             # 2026-05-21 (Heddas direktifi): backtest komutlari tek baslik
             # altinda toplandi. /backtest LAB tek kapi (alias /bt, /lab),
@@ -1330,10 +1331,9 @@ class PolyPaperBot:
             "/dashboard — Ana panel <i>(/d)</i>\n"
             "/menu — Hub menu\n"
             "/help — Bu ekran\n\n"
-            "<b>🎯 Strateji</b>\n"
-            "/strategies — Strateji listesi <i>(/s)</i>\n"
-            "/quick_strategy — Hizli strateji olustur\n"
-            "/report — Strateji raporu\n\n"
+            "<b>🎯 Strateji</b> <i>(2026-05-21: hazir plugin'ler silindi)</i>\n"
+            "/strategies — Listele <i>(/s)</i> <i>(bos, LAB rule_based aktif)</i>\n"
+            "<i>Kendi kuralini yaz: /backtest → 🛠 Strateji Kurucu</i>\n\n"
             "<b>🧪 Backtest LAB</b>\n"
             "/backtest — Backtest LAB tek kapi <i>(/bt, /lab)</i>\n"
             "  ↳ 4 panel: Hizli Test · Strateji Kurucu · Karsilastir · Kalibrasyon\n"

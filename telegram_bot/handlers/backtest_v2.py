@@ -38,17 +38,11 @@ logger = logging.getLogger("polypaper.handlers.backtest_v2")
 _cancel_events: dict[int, asyncio.Event] = {}
 
 
-# Strategy display names — replay panel ve /compare default listesi
+# Strategy display names — 2026-05-21 (Heddas direktifi): 11 hazir Python
+# stratejisi silindi (hicbiri para kazandirmadi). Sadece RuleBasedStrategy
+# (LAB no-code kural sistemi) kaldi.
 REPLAY_STRATEGIES = {
-    "hour_edge": "🕐 Hour Edge",
-    "streak_reversal": "🔄 Streak Reversal",
-    "late_convergence": "⏰ Late Conv.",
-    "taker_flow": "📊 Taker Flow",
-    "orderbook_imbalance": "📚 OB Imbalance",
-    "fade_rip": "↩️ Fade Rip",
-    "opening_breakout": "💥 Opening BK",
-    "calibration_arb": "📐 Calib. Arb",
-    "composite": "🧠 Composite",
+    "rule_based": "📋 Rule-based (LAB kurallarini koşturur)",
 }
 
 

@@ -86,21 +86,14 @@ MAX_SCALE_AI = 5.0  # AI strategies: max 5x (experimental)
 MAX_THR_DELTA_HUMAN = 0.05  # Human strategies: tight threshold protection
 MAX_THR_DELTA_AI = 0.15  # AI strategies: more freedom
 MAX_TRADE_AMOUNT = 25.0
-# PROTECTED_STRATEGIES: label → preferred odds_threshold.
-# Purpose: shield against LLM-driven AI Brain mistakes (STOP + TUNE actions).
-#   - A proven winner can weather a short bad streak; we don't want the LLM
-#     acting on noise. Format: {label: target_threshold}.
-#   - NOT a defense against `auto_optimizer` — that runs deterministic
-#     PnL/WR/loss-streak rules which apply to ALL non-classic strategies
-#     (paper AND live). Parity is intentional: self-healing design assumes
-#     live mirrors paper, so if a strategy stops paying in paper, live
-#     should stop too.
-#   - Not tied to LIVE_STRATEGIES (live_trader.py:40). A strategy can be
-#     LIVE without being PROTECTED (e.g. AI_F_* experimental strategies:
-#     they trade real $1 but AI Brain may stop/tune them based on fresh
-#     performance data — deliberate).
-# Decision log: 2026-04-20 Epic 4 T4.4 parity audit (kept as-is).
-PROTECTED_STRATEGIES = {"M_BTC_5m_any_0.92": 0.92, "BTC High-Threshold Pure": 0.80}
+# PROTECTED_STRATEGIES: 2026-05-21 Heddas direktifi ile bosaltildi.
+# Eskiden iki strateji vardi ("M_BTC_5m_any_0.92" + "BTC High-Threshold Pure")
+# ama hicbiri para kazandirmadi (executions'da 0 trade). Tum live strateji
+# plugin'leri silindigi icin defansif filtrenin de bir anlami kalmadi.
+# Dict bos birakildi — AI Brain referansi (ai_brain.py:566, 1212, 1299) hala
+# `PROTECTED_STRATEGIES.get(label)` cagiriyor ama bos dict her zaman None
+# verir, herhangi bir gercek koruma uygulanmaz.
+PROTECTED_STRATEGIES: dict[str, float] = {}
 # Sprint 3 S3-01: ENV-configurable cycle. Default 1h (was 6h).
 # More strategies = more trades = AI can act more often.
 CYCLE_INTERVAL = int(os.getenv("AI_BRAIN_CYCLE", "3600"))

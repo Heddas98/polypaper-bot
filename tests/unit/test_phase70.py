@@ -242,9 +242,12 @@ class TestMCI:
         assert not mci.should_trade
 
 
-# ═══ Penny Contract Strategy Tests ═══
+# ═══ Penny Contract Strategy Tests — 2026-05-21 SKIPPED ═══
+# PennyContractStrategy Heddas direktifiyle silindi (core/strategy_plugins.py
+# bone-thin yapildi). Tum test_penny_* artik silinmis import'a bagli, skip.
 
 
+@pytest.mark.skip(reason="PennyContractStrategy removed 2026-05-21 (Heddas)")
 class TestPennyContract:
     def test_penny_name(self):
         from core.strategy_plugins import PennyContractStrategy

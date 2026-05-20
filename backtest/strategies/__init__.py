@@ -1,4 +1,17 @@
-"""Backtest v2 Strategies — auto-import all strategy modules."""
+"""Backtest Strategies (2026-05-21 Heddas direktifi temizlik sonrasi)
+
+Eski 13 hazir Python class (hour_edge, taker_flow, composite, streak_reversal,
+late_convergence, orderbook_imbalance, fade_rip, cross_coin, opening_breakout,
+funding_rate, calibration_arb, bonding_yield) + live_adapter silindi —
+hicbiri para kazandirmadi, kullanici LAB no-code rule_based ile kendi
+kurallarini yaziyor.
+
+Kalan: BaseBacktestStrategy + RuleBasedStrategy.
+
+StrategyRegistryV2.list_all() artik sadece RuleBasedStrategy'i listeler;
+live_adapter silindigi icin live strategy plugins'e fallback yok
+(bot canli trade'i Asama 4'te zaten kapatildi).
+"""
 
 from backtest.strategies.base import (
     BacktestStrategy,
@@ -10,20 +23,7 @@ from backtest.strategies.base import (
     Signal,
     StrategyRegistryV2,
 )
-from backtest.strategies.calibration_arb import CalibrationArbStrategy
-from backtest.strategies.composite import CompositeStrategy
-from backtest.strategies.cross_coin import CrossCoinStrategy
-from backtest.strategies.fade_rip import FadeRipStrategy
-from backtest.strategies.funding_rate import FundingRateStrategy
-
-# Import strategies to trigger @register decorators
-from backtest.strategies.hour_edge import HourEdgeStrategy
-from backtest.strategies.late_convergence import LateConvergenceStrategy
-from backtest.strategies.opening_breakout import OpeningBreakoutStrategy
-from backtest.strategies.orderbook_imbalance import OrderbookImbalanceStrategy
-from backtest.strategies.rule_based import RuleBasedStrategy  # Faz 3 (2026-05-20)
-from backtest.strategies.streak_reversal import StreakReversalStrategy
-from backtest.strategies.taker_flow import TakerFlowStrategy
+from backtest.strategies.rule_based import RuleBasedStrategy
 
 __all__ = [
     "BacktestStrategy",
@@ -34,16 +34,5 @@ __all__ = [
     "Signal",
     "Resolution",
     "Direction",
-    "HourEdgeStrategy",
-    "StreakReversalStrategy",
-    "LateConvergenceStrategy",
-    "TakerFlowStrategy",
-    "OrderbookImbalanceStrategy",
-    "FadeRipStrategy",
-    "CrossCoinStrategy",
-    "OpeningBreakoutStrategy",
-    "FundingRateStrategy",
-    "CalibrationArbStrategy",
-    "CompositeStrategy",
     "RuleBasedStrategy",
 ]
