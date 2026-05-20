@@ -491,6 +491,23 @@ _HOUR_PICKS = [
     ("22", "22:00 UTC"),
 ]
 
+# Faz 5b: limit preset için fiyat + expire seçenekleri (callback_data ≤64 byte)
+_LIMIT_PRICES = [
+    ("25", "0.25"),
+    ("35", "0.35"),
+    ("45", "0.45"),
+    ("55", "0.55"),
+    ("65", "0.65"),
+    ("75", "0.75"),
+]
+_LIMIT_EXPIRES = [
+    ("0", "Açık (market_close)"),
+    ("30", "30 sn"),
+    ("60", "60 sn"),
+    ("120", "120 sn"),
+    ("240", "240 sn"),
+]
+
 
 def _save_preset_ruleset(ruleset: dict) -> tuple[str, str]:
     """save_ruleset wrapper — başarı/başarısızlık dönüş metni döndürür.
@@ -526,7 +543,7 @@ def _done_kb() -> InlineKeyboardMarkup:
 
 
 async def _build_wiz_menu() -> tuple[str, InlineKeyboardMarkup]:
-    """🧙 Preset sihirbaz menüsü — 3 şablon."""
+    """🧙 Preset sihirbaz menüsü — 4 şablon."""
     text = (
         "🧙 <b>PRESET SİHİRBAZI</b>\n"
         "<i>Hazır şablon → 2-3 tıkla kayıtlı listeye eklenir</i>\n\n"
@@ -536,13 +553,17 @@ async def _build_wiz_menu() -> tuple[str, InlineKeyboardMarkup]:
         "📈 <b>Fiyat ≥ X Al</b>\n"
         "    \"UP fiyat 0.55'i geçince al\" gibi trigger\n\n"
         "🕒 <b>Saat X'te Al</b>\n"
-        "    \"Saat 22 UTC marketinde UP al\" gibi schedule\n"
+        "    \"Saat 22 UTC marketinde UP al\" gibi schedule\n\n"
+        "📋 <b>Limit @ X Al</b>\n"
+        "    GTC limit emir: ask fiyatı X'e düşünce fill, expire sn yoksa"
+        " market_close'a kadar bekler. <i>(Faz 5b)</i>\n"
     )
     kb = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("⏱ Saniye Aralığı", callback_data="lab_pw_sec")],
             [InlineKeyboardButton("📈 Fiyat ≥ X", callback_data="lab_pw_price")],
             [InlineKeyboardButton("🕒 Saat X'te", callback_data="lab_pw_hour")],
+            [InlineKeyboardButton("📋 Limit @ X", callback_data="lab_pw_limit")],
             [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
         ]
     )
@@ -724,6 +745,130 @@ async def _build_wiz_hour_pick(hh: str) -> tuple[str, InlineKeyboardMarkup]:
         ]
     )
     return text, kb
+
+
+# ── Faz 5b — Limit Al preset (3 adım: yön → fiyat → expire) ────
+
+
+async def _build_wiz_limit() -> tuple[str, InlineKeyboardMarkup]:
+    """📋 Limit @ X: önce yön seç."""
+    text = (
+        "📋 <b>Limit @ X Al</b> — GTC limit order preset\n\n"
+        "Hangi yöne emir? <i>(seçtiğin tarafın ask fiyatı, sonraki adımda"
+        " seçeceğin limit'in altına düşünce fill — yoksa expire/market_close.)</i>\n"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⬆ UP", callback_data="lab_pw_limit_dir:up"),
+                InlineKeyboardButton("⬇ DOWN", callback_data="lab_pw_limit_dir:down"),
+            ],
+            [InlineKeyboardButton("◀️ Sihirbaz", callback_data="lab_pw")],
+        ]
+    )
+    return text, kb
+
+
+async def _build_wiz_limit_dir(direction: str) -> tuple[str, InlineKeyboardMarkup]:
+    """📋 Limit fiyatı seç (yön belli)."""
+    if direction not in ("up", "down"):
+        return "❌ Geçersiz yön.", _done_kb()
+    text = (
+        f"📋 <b>Limit @ X Al</b> — yön <b>{direction.upper()}</b>\n\n"
+        f"Hangi fiyatın altına düşünce fill?\n"
+        "<i>Yön UP ise up_best_ask, DOWN ise down_best_ask referansı.</i>\n"
+    )
+    rows = []
+    for cents, label in _LIMIT_PRICES:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"@ {label}",
+                    callback_data=f"lab_pw_limit_price:{direction}:{cents}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("◀️ Yön seç", callback_data="lab_pw_limit")])
+    return text, InlineKeyboardMarkup(rows)
+
+
+async def _build_wiz_limit_price(arg: str) -> tuple[str, InlineKeyboardMarkup]:
+    """📋 Limit expire seçimi. `arg` = "<dir>:<cents>"."""
+    try:
+        direction, cents = arg.split(":", 1)
+        cents_i = int(cents)
+        if direction not in ("up", "down") or not (1 <= cents_i <= 99):
+            raise ValueError("invalid")
+    except (ValueError, AttributeError):
+        return "❌ Geçersiz argüman.", _done_kb()
+
+    threshold = cents_i / 100.0
+    text = (
+        f"📋 <b>Limit @ X Al</b> — {direction.upper()} @ <b>{threshold:.2f}</b>\n\n"
+        "Limit ne kadar süre açık kalsın?\n"
+        "<i>0 = market_close'a kadar açık (en sabırlı). N sn = sinyalden bu kadar"
+        " sn sonra dolmazsa iptal — trade açılmaz.</i>\n"
+    )
+    rows = []
+    for expire, label in _LIMIT_EXPIRES:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"lab_pw_limit_save:{direction}:{cents}:{expire}",
+                )
+            ]
+        )
+    rows.append(
+        [InlineKeyboardButton("◀️ Fiyat seç", callback_data=f"lab_pw_limit_dir:{direction}")]
+    )
+    return text, InlineKeyboardMarkup(rows)
+
+
+async def _build_wiz_limit_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
+    """📋 Limit preset'i kaydet. `arg` = "<dir>:<cents>:<expire>"."""
+    try:
+        parts = arg.split(":")
+        if len(parts) != 3:
+            raise ValueError("3-part expected")
+        direction, cents, expire = parts
+        cents_i = int(cents)
+        expire_i = int(expire)
+        if direction not in ("up", "down") or not (1 <= cents_i <= 99) or expire_i < 0:
+            raise ValueError("range")
+    except (ValueError, AttributeError):
+        return "❌ Geçersiz argüman.", _done_kb()
+
+    threshold = cents_i / 100.0
+    expire_tag = "open" if expire_i == 0 else f"{expire_i}s"
+    name = f"limit_{cents_i}c_{direction}_{expire_tag}"
+
+    ruleset: dict = {
+        "name": name,
+        "version": "1.0",
+        "direction": direction,
+        "confidence": 0.7,
+        "description": (
+            f"Preset: GTC limit @ {threshold:.2f} {direction.upper()}, "
+            f"expire={'market_close' if expire_i == 0 else f'{expire_i}s'}"
+        ),
+        # Limit emirler genelde herhangi bir snap'te yakalanmalı — basit koşul
+        # (ilk snap'te sinyal atar, sonraki snap'lerde limit fill bekler).
+        # Strateji default'unda "her snap"'te ateşleme olmaz, bu yüzden minimal
+        # ama her zaman geçen bir entry condition kullanıyoruz.
+        "entry": {
+            "logic": "AND",
+            "conditions": [
+                {"field": "elapsed_seconds", "op": ">=", "value": 0},
+            ],
+        },
+        "entry_limit_price": threshold,
+    }
+    if expire_i > 0:
+        ruleset["entry_limit_expire_seconds"] = expire_i
+
+    status, _ = _save_preset_ruleset(ruleset)
+    return status, _done_kb()
 
 
 async def _build_wiz_hour_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
@@ -993,13 +1138,14 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
             )
         return
 
-    # 2) Faz 4 — yardım panelleri + Faz 4b preset sihirbazı (parametresiz)
+    # 2) Faz 4 — yardım panelleri + Faz 4b/5b preset sihirbazı (parametresiz)
     _PARAMETERLESS_BUILDERS = {
         "lab_help_save": _build_help_save,
         "lab_pw": _build_wiz_menu,
         "lab_pw_sec": _build_wiz_sec,
         "lab_pw_price": _build_wiz_price,
         "lab_pw_hour": _build_wiz_hour,
+        "lab_pw_limit": _build_wiz_limit,  # Faz 5b
     }
     pl_builder = _PARAMETERLESS_BUILDERS.get(data)
     if pl_builder is not None:
@@ -1033,6 +1179,13 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
             text, kb = await _build_wiz_hour_pick(arg)
         elif action == "lab_pw_hour_save":
             text, kb = await _build_wiz_hour_save(arg)
+        # Faz 5b — Limit Al preset (3 adim akisi)
+        elif action == "lab_pw_limit_dir":
+            text, kb = await _build_wiz_limit_dir(arg)
+        elif action == "lab_pw_limit_price":
+            text, kb = await _build_wiz_limit_price(arg)
+        elif action == "lab_pw_limit_save":
+            text, kb = await _build_wiz_limit_save(arg)
         else:
             logger.warning("backtest_lab_callback: bilinmeyen action=%r", action)
             return

@@ -817,6 +817,123 @@ async def test_wiz_dispatcher_route_sec_save(tmp_path, monkeypatch):
     assert (tmp_path / "sec_30_60_up.json").exists()
 
 
+# ── Faz 5b — Limit Al preset ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_wiz_limit_menu():
+    from telegram_bot.handlers.backtest_lab import _build_wiz_limit
+
+    text, kb = await _build_wiz_limit()
+    assert "Limit @ X" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw_limit_dir:up" in cb
+    assert "lab_pw_limit_dir:down" in cb
+
+
+@pytest.mark.asyncio
+async def test_wiz_limit_dir_then_price_then_save(tmp_path, monkeypatch):
+    """End-to-end: yön → fiyat → expire → save."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import (
+        _build_wiz_limit_dir,
+        _build_wiz_limit_price,
+        _build_wiz_limit_save,
+    )
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    # Step 1: yön seç → fiyat butonları
+    text, kb = await _build_wiz_limit_dir("up")
+    assert "UP" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert any("lab_pw_limit_price:up:" in c for c in cb)
+
+    # Step 2: fiyat seç → expire butonları
+    text, kb = await _build_wiz_limit_price("up:55")
+    assert "0.55" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert any("lab_pw_limit_save:up:55:" in c for c in cb)
+
+    # Step 3: expire seç → kaydet
+    text, kb = await _build_wiz_limit_save("up:55:60")
+    assert "Kaydedildi" in text
+    saved = tmp_path / "limit_55c_up_60s.json"
+    assert saved.exists()
+    loaded = rb.load_ruleset(saved)
+    assert loaded["direction"] == "up"
+    assert loaded["entry_limit_price"] == 0.55
+    assert loaded["entry_limit_expire_seconds"] == 60
+
+
+@pytest.mark.asyncio
+async def test_wiz_limit_save_open_no_expire(tmp_path, monkeypatch):
+    """expire=0 → ruleset'te `entry_limit_expire_seconds` alanı YOK (market_close)."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_wiz_limit_save
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    text, _ = await _build_wiz_limit_save("up:45:0")
+    assert "Kaydedildi" in text
+    saved = tmp_path / "limit_45c_up_open.json"
+    assert saved.exists()
+    loaded = rb.load_ruleset(saved)
+    assert loaded["entry_limit_price"] == 0.45
+    assert "entry_limit_expire_seconds" not in loaded
+
+
+@pytest.mark.asyncio
+async def test_wiz_limit_save_invalid_args(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_wiz_limit_save
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    text, _ = await _build_wiz_limit_save("invalid")
+    assert "Geçersiz" in text
+    text, _ = await _build_wiz_limit_save("sideways:55:60")
+    assert "Geçersiz" in text
+    text, _ = await _build_wiz_limit_save("up:101:60")  # cents>99
+    assert "Geçersiz" in text
+    text, _ = await _build_wiz_limit_save("up:55:-5")  # expire<0
+    assert "Geçersiz" in text
+    assert list(tmp_path.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_wiz_menu_includes_limit_button():
+    from telegram_bot.handlers.backtest_lab import _build_wiz_menu
+
+    text, kb = await _build_wiz_menu()
+    assert "Limit @ X" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw_limit" in cb
+
+
+@pytest.mark.asyncio
+async def test_wiz_dispatcher_route_limit_save(tmp_path, monkeypatch):
+    """Dispatcher lab_pw_limit_save'i routes ediyor."""
+    import backtest.strategies.rule_based as rb
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    q = MagicMock()
+    q.data = "lab_pw_limit_save:up:45:60"
+    q.answer = AsyncMock()
+    q.edit_message_text = AsyncMock()
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.callback_query = q
+    context = MagicMock()
+    context.bot_data = {"db": _db()}
+
+    await backtest_lab_callback(update, context)
+    edited = q.edit_message_text.await_args.args[0]
+    assert "Kaydedildi" in edited
+    assert (tmp_path / "limit_45c_up_60s.json").exists()
+
+
 @pytest.mark.asyncio
 async def test_wiz_dispatcher_route_pw_menu():
     """Dispatcher lab_pw'yi _build_wiz_menu'ya yönlendiriyor."""

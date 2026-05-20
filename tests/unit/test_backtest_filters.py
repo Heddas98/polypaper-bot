@@ -599,3 +599,108 @@ def test_run_market_market_order_unaffected_by_limit_default():
     # entry_price = midpoint(0.65, 0.60) + slippage ≈ 0.625 + 0.023 = 0.648
     assert t.entry_price > 0.60
     assert t.entry_price < 0.70
+
+
+# ── Faz 5b — Signal.metadata limit override eder ────────────
+
+
+def test_run_market_signal_metadata_limit_overrides_cfg():
+    """Strateji signal.metadata.entry_limit_price → cfg.entry_limit_price OVERRIDE.
+
+    Cfg=0.30 (yüksek) ama strateji metadata=0.50 → fill 0.50'de yapılır.
+    """
+    from backtest.strategies.base import (
+        BaseBacktestStrategy,
+        Direction,
+        Signal,
+        StrategyRegistryV2,
+    )
+
+    class _MetaLimitStrategy(BaseBacktestStrategy):
+        name = "_test_meta_limit"
+        version = "1.0"
+
+        def on_market_open(self, market):
+            self._signal_emitted = False
+
+        def on_snapshot(self, snap):
+            if self._signal_emitted:
+                return None
+            self._signal_emitted = True
+            return Signal(
+                direction=Direction.UP,
+                confidence=1.0,
+                entry_price=snap.up_best_ask or 0.5,
+                reason="test",
+                metadata={"entry_limit_price": 0.50, "entry_limit_expire_seconds": 0},
+            )
+
+    StrategyRegistryV2.register(_MetaLimitStrategy)
+    cfg = ReplayConfig(
+        strategy_name="_test_meta_limit",
+        trade_amount=1.0,
+        fill_mode="midpoint",
+        entry_limit_price=0.30,  # cfg default
+    )
+    eng = ReplayEngine(db=MagicMock(), config=cfg)
+    eng._setup()
+
+    snapshots = [
+        _snap(0,        up_ask=0.65, up_bid=0.60),  # sinyal yakala
+        _snap(10_000,   up_ask=0.48, up_bid=0.45),  # ≤ 0.50 (metadata!), FILL
+        _snap(20_000,   up_ask=0.28, up_bid=0.25),  # would have triggered cfg 0.30 alone
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    assert len(eng.portfolio.trades) == 1
+    t = eng.portfolio.trades[0]
+    # Metadata 0.50 etkili oldu → snap[1]'de fill 0.48 (cur_ask, çünkü < 0.50)
+    assert t.metadata.get("entry_type") == "limit"
+    assert t.metadata.get("entry_limit_price") == 0.50  # signal metadata değeri
+    assert t.entry_price == pytest.approx(0.48, abs=0.01)
+
+
+def test_run_market_signal_metadata_expire_overrides_cfg():
+    """Strateji metadata.entry_limit_expire_seconds → cfg override."""
+    from backtest.strategies.base import (
+        BaseBacktestStrategy,
+        Direction,
+        Signal,
+        StrategyRegistryV2,
+    )
+
+    class _MetaExpireStrategy(BaseBacktestStrategy):
+        name = "_test_meta_expire"
+        version = "1.0"
+
+        def on_market_open(self, market):
+            self._signal_emitted = False
+
+        def on_snapshot(self, snap):
+            if self._signal_emitted:
+                return None
+            self._signal_emitted = True
+            return Signal(
+                direction=Direction.UP,
+                confidence=1.0,
+                entry_price=0.5,
+                reason="test",
+                metadata={"entry_limit_price": 0.30, "entry_limit_expire_seconds": 5},
+            )
+
+    StrategyRegistryV2.register(_MetaExpireStrategy)
+    cfg = ReplayConfig(
+        strategy_name="_test_meta_expire",
+        trade_amount=1.0,
+        fill_mode="midpoint",
+    )
+    eng = ReplayEngine(db=MagicMock(), config=cfg)
+    eng._setup()
+
+    snapshots = [
+        _snap(0,        up_ask=0.65, up_bid=0.60),  # sinyal @ 0sn
+        _snap(10_000,   up_ask=0.50, up_bid=0.45),  # 10sn: expire 5sn aşıldı
+        _snap(20_000,   up_ask=0.25, up_bid=0.20),  # 20sn: artık fill olabilirdi
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    # Expire'a takıldı → trade YOK
+    assert len(eng.portfolio.trades) == 0

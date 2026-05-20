@@ -705,7 +705,14 @@ class ReplayEngine:
             or cfg.exit_yes_price_below > 0.0
             or cfg.exit_yes_price_above > 0.0
         )
-        entry_is_limit = cfg.entry_limit_price > 0.0
+        # Faz 5b (2026-05-20): per-strateji limit override.
+        # ReplayConfig default'lar; signal.metadata'da varsa onlar baskın
+        # (RuleBasedStrategy ruleset'in `entry_limit_price` alanını
+        # `_run_market`'a böyle iletir — Faz 5'in cfg knob'u backward-compat).
+        # `effective_limit_*` değişkenleri sinyal yakalanınca güncellenir.
+        effective_limit_price = cfg.entry_limit_price
+        effective_limit_expire = cfg.entry_limit_expire_seconds
+        entry_is_limit = effective_limit_price > 0.0
 
         for raw in raw_snapshots:
             snap = self._convert_snapshot(raw, first_ts, duration)
@@ -735,19 +742,36 @@ class ReplayEngine:
                         signal = result
                         signal_snapshot = snap
                         self._signals_generated += 1
+                        # Faz 5b: signal.metadata limit override eder (cfg default'undan)
+                        sig_meta = result.metadata or {}
+                        if "entry_limit_price" in sig_meta:
+                            try:
+                                effective_limit_price = float(sig_meta["entry_limit_price"])
+                            except (TypeError, ValueError):
+                                pass
+                        if "entry_limit_expire_seconds" in sig_meta:
+                            try:
+                                effective_limit_expire = int(
+                                    sig_meta["entry_limit_expire_seconds"]
+                                )
+                            except (TypeError, ValueError):
+                                pass
+                        entry_is_limit = effective_limit_price > 0.0
                         # Faz 5: limit ya da exit-filter yoksa erken bitir
                         if not entry_is_limit and not has_exit_filter:
                             break
                 continue
 
-            # ── Phase 2 (Faz 5): GTC limit fill bekleme ──
+            # ── Phase 2 (Faz 5/5b): GTC limit fill bekleme ──
+            # `effective_limit_*` Phase 1'de sinyal alınınca güncellenir
+            # (signal.metadata > cfg.entry_limit_*). Per-strateji override.
             if entry_is_limit and limit_fill_snapshot is None:
                 # Expire kontrolü (sinyalden bu yana geçen süre)
-                if cfg.entry_limit_expire_seconds > 0 and signal_snapshot is not None:
+                if effective_limit_expire > 0 and signal_snapshot is not None:
                     elapsed_since_signal = (
                         snap.elapsed_seconds - signal_snapshot.elapsed_seconds
                     )
-                    if elapsed_since_signal >= cfg.entry_limit_expire_seconds:
+                    if elapsed_since_signal >= effective_limit_expire:
                         # Limit expired — entry iptal, trade açılmaz
                         signal = None
                         break
@@ -757,10 +781,10 @@ class ReplayEngine:
                     cur_ask = snap.up_best_ask
                 else:
                     cur_ask = snap.down_best_ask
-                if cur_ask > 0 and cur_ask <= cfg.entry_limit_price:
+                if cur_ask > 0 and cur_ask <= effective_limit_price:
                     # Fill at current ask (limit_price tavanı — `min`)
                     limit_fill_snapshot = snap
-                    limit_fill_price = min(cur_ask, cfg.entry_limit_price)
+                    limit_fill_price = min(cur_ask, effective_limit_price)
                     if not has_exit_filter:
                         # Limit doldu + exit-filter yok → loop bitir
                         break
@@ -843,12 +867,13 @@ class ReplayEngine:
                     entry_time_pct=(entry_snapshot.elapsed_pct if entry_snapshot else 0),
                 )
                 if trade:
-                    # Faz 5: limit fill metadata ekle (reporter için)
+                    # Faz 5/5b: limit fill metadata ekle (reporter için).
+                    # effective_limit_price signal.metadata override sonrası değer.
                     if entry_is_limit and limit_fill_snapshot is not None:
                         trade.metadata = {
                             **(trade.metadata or {}),
                             "entry_type": "limit",
-                            "entry_limit_price": cfg.entry_limit_price,
+                            "entry_limit_price": effective_limit_price,
                             "entry_fill_elapsed_seconds": limit_fill_snapshot.elapsed_seconds,
                         }
                     if exit_snapshot is not None:

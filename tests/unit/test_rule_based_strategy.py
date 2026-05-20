@@ -473,3 +473,121 @@ def test_delete_ruleset_missing(tmp_path: Path):
 def test_delete_ruleset_invalid_name(tmp_path: Path):
     """../escape gibi adlar reddedilmeli — path traversal koruması."""
     assert delete_ruleset("../escape", dir_path=tmp_path) is False
+
+
+# ── Faz 5b — RuleSet limit alanları ─────────────────────────
+
+
+def test_validate_accepts_optional_limit_fields():
+    rs = _valid_ruleset()
+    rs["entry_limit_price"] = 0.45
+    rs["entry_limit_expire_seconds"] = 60
+    out = validate_ruleset(rs)
+    assert out["entry_limit_price"] == 0.45
+    assert out["entry_limit_expire_seconds"] == 60
+
+
+def test_validate_rejects_limit_price_out_of_range():
+    rs = _valid_ruleset()
+    rs["entry_limit_price"] = 1.5  # >= 1.0
+    with pytest.raises(RuleSetError):
+        validate_ruleset(rs)
+    rs["entry_limit_price"] = 0.0  # not > 0
+    with pytest.raises(RuleSetError):
+        validate_ruleset(rs)
+
+
+def test_validate_rejects_negative_expire():
+    rs = _valid_ruleset()
+    rs["entry_limit_price"] = 0.50
+    rs["entry_limit_expire_seconds"] = -10
+    with pytest.raises(RuleSetError):
+        validate_ruleset(rs)
+
+
+def test_validate_rejects_non_numeric_limit():
+    rs = _valid_ruleset()
+    rs["entry_limit_price"] = "high"
+    with pytest.raises(RuleSetError):
+        validate_ruleset(rs)
+
+
+def test_validate_no_limit_fields_default_ok():
+    """Limit alanları opsiyonel — yoksa eski davranış."""
+    rs = _valid_ruleset()  # limit yok
+    out = validate_ruleset(rs)
+    assert "entry_limit_price" not in out
+    assert "entry_limit_expire_seconds" not in out
+
+
+def test_rulebased_strategy_propagates_limit_to_signal_metadata():
+    """RuleSet'te limit varsa Signal.metadata'ya geçirilmeli."""
+    s = RuleBasedStrategy.from_ruleset(
+        {
+            "name": "limit_test",
+            "direction": "up",
+            "entry": {
+                "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 0}]
+            },
+            "entry_limit_price": 0.45,
+            "entry_limit_expire_seconds": 60,
+        }
+    )
+    s.on_market_open(_market())
+    sig = s.on_snapshot(_snap())
+    assert sig is not None
+    assert sig.metadata.get("entry_limit_price") == 0.45
+    assert sig.metadata.get("entry_limit_expire_seconds") == 60
+
+
+def test_rulebased_strategy_omits_metadata_when_no_limit():
+    """Limit yoksa metadata'da bu alanlar olmamalı."""
+    s = RuleBasedStrategy.from_ruleset(
+        {
+            "name": "no_limit",
+            "direction": "up",
+            "entry": {
+                "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 0}]
+            },
+        }
+    )
+    s.on_market_open(_market())
+    sig = s.on_snapshot(_snap())
+    assert sig is not None
+    assert "entry_limit_price" not in (sig.metadata or {})
+    assert "entry_limit_expire_seconds" not in (sig.metadata or {})
+
+
+def test_rulebased_strategy_ignores_invalid_limit_silently():
+    """Invalid limit (out of range, non-numeric) sessizce skip — strateji yine çalışır."""
+    s = RuleBasedStrategy.from_ruleset(
+        {
+            "name": "bad_limit",
+            "direction": "up",
+            "entry": {
+                "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 0}]
+            },
+            "entry_limit_price": "not-numeric",
+            "entry_limit_expire_seconds": "also-bad",
+        }
+    )
+    s.on_market_open(_market())
+    sig = s.on_snapshot(_snap())
+    assert sig is not None
+    # Sessiz skip
+    assert "entry_limit_price" not in (sig.metadata or {})
+    assert "entry_limit_expire_seconds" not in (sig.metadata or {})
+
+
+def test_validate_limit_price_at_boundary():
+    """Sınır: 0.0 değil, 1.0 değil — strictly 0 < lp < 1."""
+    rs = _valid_ruleset()
+    rs["entry_limit_price"] = 0.001  # OK
+    out = validate_ruleset(rs)
+    assert out["entry_limit_price"] == 0.001
+    rs["entry_limit_price"] = 0.999  # OK
+    out = validate_ruleset(rs)
+    assert out["entry_limit_price"] == 0.999
+    rs["entry_limit_price"] = 1.0  # FAIL (not strictly < 1)
+    with pytest.raises(RuleSetError):
+        validate_ruleset(rs)

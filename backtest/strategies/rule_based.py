@@ -234,15 +234,34 @@ class RuleBasedStrategy(BaseBacktestStrategy):
             confidence = 0.7
         confidence = max(0.0, min(1.0, confidence))
 
+        # Faz 5b (2026-05-20): RuleSet'te limit alanları varsa Signal.metadata'ya
+        # geçir — `_run_market` bunu okuyup ReplayConfig default'undan ÖNCE
+        # uygular (per-strateji limit, multi-strategy compare için kritik).
+        meta = {
+            "ruleset_name": self.params.get("name", "unnamed"),
+            "ruleset_version": self.params.get("version", ""),
+        }
+        if "entry_limit_price" in self.params:
+            try:
+                lp = float(self.params["entry_limit_price"])
+                if 0.0 < lp < 1.0:
+                    meta["entry_limit_price"] = lp
+            except (TypeError, ValueError):
+                pass
+        if "entry_limit_expire_seconds" in self.params:
+            try:
+                es = int(self.params["entry_limit_expire_seconds"])
+                if es > 0:
+                    meta["entry_limit_expire_seconds"] = es
+            except (TypeError, ValueError):
+                pass
+
         return Signal(
             direction=d,
             confidence=confidence,
             entry_price=entry_price,
             reason=f"rule:{self.params.get('name', 'unnamed')}",
-            metadata={
-                "ruleset_name": self.params.get("name", "unnamed"),
-                "ruleset_version": self.params.get("version", ""),
-            },
+            metadata=meta,
         )
 
 
@@ -299,8 +318,8 @@ def validate_ruleset(ruleset: Any) -> dict:
     if logic not in ("AND", "OR"):
         raise RuleSetError("ruleset.entry.logic 'AND' veya 'OR' olmalı")
 
-    # Normalized kopya (alanlar varsayılanlarla)
-    return {
+    # Faz 5b: opsiyonel limit alanları — validate ama "yok" hâli serbest
+    out: dict = {
         "name": name,
         "version": str(ruleset.get("version", "1.0")),
         "description": str(ruleset.get("description", "")),
@@ -311,6 +330,33 @@ def validate_ruleset(ruleset: Any) -> dict:
             "conditions": [dict(c) for c in conditions],
         },
     }
+    if "entry_limit_price" in ruleset:
+        try:
+            lp = float(ruleset["entry_limit_price"])
+        except (TypeError, ValueError) as e:
+            raise RuleSetError(
+                f"ruleset.entry_limit_price sayısal olmalı (geldi: "
+                f"{ruleset['entry_limit_price']!r})"
+            ) from e
+        if not (0.0 < lp < 1.0):
+            raise RuleSetError(
+                f"ruleset.entry_limit_price 0..1 aralığında olmalı (geldi: {lp})"
+            )
+        out["entry_limit_price"] = lp
+    if "entry_limit_expire_seconds" in ruleset:
+        try:
+            es = int(ruleset["entry_limit_expire_seconds"])
+        except (TypeError, ValueError) as e:
+            raise RuleSetError(
+                f"ruleset.entry_limit_expire_seconds tamsayı olmalı (geldi: "
+                f"{ruleset['entry_limit_expire_seconds']!r})"
+            ) from e
+        if es < 0:
+            raise RuleSetError(
+                f"ruleset.entry_limit_expire_seconds negatif olamaz (geldi: {es})"
+            )
+        out["entry_limit_expire_seconds"] = es
+    return out
 
 
 def load_ruleset(path: Path) -> dict:
