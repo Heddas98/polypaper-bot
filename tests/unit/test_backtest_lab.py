@@ -607,6 +607,236 @@ async def test_lab_save_command_inline_payload(tmp_path, monkeypatch):
     assert (tmp_path / "inline_t.json").exists()
 
 
+# ── Faz 4b — Preset sihirbazları ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_wiz_menu_renders():
+    from telegram_bot.handlers.backtest_lab import _build_wiz_menu
+
+    text, kb = await _build_wiz_menu()
+    assert "PRESET SİHİRBAZI" in text
+    cb_data = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw_sec" in cb_data
+    assert "lab_pw_price" in cb_data
+    assert "lab_pw_hour" in cb_data
+
+
+@pytest.mark.asyncio
+async def test_wiz_sec_menu_shows_window_buttons():
+    from telegram_bot.handlers.backtest_lab import _build_wiz_sec
+
+    text, kb = await _build_wiz_sec()
+    assert "Saniye Aralığı" in text
+    cb_data = [b.callback_data for row in kb.inline_keyboard for b in row]
+    # En az bir UP ve DOWN save callback'i bulunmalı
+    assert any("lab_pw_sec_save:" in c and ":up" in c for c in cb_data)
+    assert any("lab_pw_sec_save:" in c and ":down" in c for c in cb_data)
+
+
+@pytest.mark.asyncio
+async def test_wiz_sec_save_creates_file(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_wiz_sec_save
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    text, kb = await _build_wiz_sec_save("30_60:up")
+    assert "Kaydedildi" in text
+    saved = tmp_path / "sec_30_60_up.json"
+    assert saved.exists()
+    # Doğrula: dosya geçerli ruleset
+    loaded = rb.load_ruleset(saved)
+    assert loaded["name"] == "sec_30_60_up"
+    assert loaded["direction"] == "up"
+    conds = loaded["entry"]["conditions"]
+    assert {"field": "elapsed_seconds", "op": ">=", "value": 30} in conds
+    assert {"field": "elapsed_seconds", "op": "<=", "value": 60} in conds
+
+
+@pytest.mark.asyncio
+async def test_wiz_sec_save_invalid_args(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_wiz_sec_save
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    # max ≤ min
+    text, _ = await _build_wiz_sec_save("60_30:up")
+    assert "Geçersiz" in text
+    # bilinmeyen direction
+    text, _ = await _build_wiz_sec_save("30_60:sideways")
+    assert "Geçersiz" in text
+    # bozuk format
+    text, _ = await _build_wiz_sec_save("bozuk")
+    assert "Geçersiz" in text
+    assert list(tmp_path.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_wiz_price_dir_then_save(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import (
+        _build_wiz_price,
+        _build_wiz_price_dir,
+        _build_wiz_price_save,
+    )
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    # Step 1: menu
+    text, kb = await _build_wiz_price()
+    assert "Fiyat" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw_price_dir:up" in cb
+    assert "lab_pw_price_dir:down" in cb
+
+    # Step 2: dir seçildi → eşik butonları
+    text, kb = await _build_wiz_price_dir("up")
+    assert "UP" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert any("lab_pw_price_save:up:" in c for c in cb)
+
+    # Step 3: save
+    text, _ = await _build_wiz_price_save("up:55")
+    assert "Kaydedildi" in text
+    saved = tmp_path / "price_above_55c_up.json"
+    assert saved.exists()
+    loaded = rb.load_ruleset(saved)
+    assert loaded["direction"] == "up"
+    assert loaded["entry"]["conditions"][0] == {
+        "field": "up_best_ask", "op": ">=", "value": 0.55
+    }
+
+
+@pytest.mark.asyncio
+async def test_wiz_price_save_invalid_args(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_wiz_price_save
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    text, _ = await _build_wiz_price_save("invalid")
+    assert "Geçersiz" in text
+    text, _ = await _build_wiz_price_save("sideways:55")
+    assert "Geçersiz" in text
+    text, _ = await _build_wiz_price_save("up:101")  # 101c > 99
+    assert "Geçersiz" in text
+    assert list(tmp_path.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_wiz_hour_pick_then_save(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import (
+        _build_wiz_hour,
+        _build_wiz_hour_pick,
+        _build_wiz_hour_save,
+    )
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    # Step 1: saat seç menüsü
+    text, kb = await _build_wiz_hour()
+    assert "Saat" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert any("lab_pw_hour_pick:" in c for c in cb)
+
+    # Step 2: saat seçildi → yön sor
+    text, kb = await _build_wiz_hour_pick("22")
+    assert "22:00 UTC" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw_hour_save:22:up" in cb
+    assert "lab_pw_hour_save:22:down" in cb
+
+    # Step 3: save
+    text, _ = await _build_wiz_hour_save("22:down")
+    assert "Kaydedildi" in text
+    saved = tmp_path / "hour_22_down.json"
+    assert saved.exists()
+    loaded = rb.load_ruleset(saved)
+    assert loaded["direction"] == "down"
+    assert loaded["entry"]["conditions"][0] == {
+        "field": "hour_utc", "op": "==", "value": 22
+    }
+
+
+@pytest.mark.asyncio
+async def test_wiz_hour_invalid_pick():
+    from telegram_bot.handlers.backtest_lab import _build_wiz_hour_pick
+
+    text, _ = await _build_wiz_hour_pick("99")
+    assert "Geçersiz" in text
+
+
+@pytest.mark.asyncio
+async def test_wiz_hour_save_invalid_args(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_wiz_hour_save
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    text, _ = await _build_wiz_hour_save("99:up")
+    assert "Geçersiz" in text
+    text, _ = await _build_wiz_hour_save("22:sideways")
+    assert "Geçersiz" in text
+
+
+@pytest.mark.asyncio
+async def test_wiz_dispatcher_route_sec_save(tmp_path, monkeypatch):
+    """End-to-end: callback dispatcher lab_pw_sec_save'i route ediyor."""
+    import backtest.strategies.rule_based as rb
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+
+    q = MagicMock()
+    q.data = "lab_pw_sec_save:30_60:up"
+    q.answer = AsyncMock()
+    q.edit_message_text = AsyncMock()
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.callback_query = q
+    context = MagicMock()
+    context.bot_data = {"db": _db()}
+
+    await backtest_lab_callback(update, context)
+    q.edit_message_text.assert_awaited()
+    edited = q.edit_message_text.await_args.args[0]
+    assert "Kaydedildi" in edited
+    assert (tmp_path / "sec_30_60_up.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_wiz_dispatcher_route_pw_menu():
+    """Dispatcher lab_pw'yi _build_wiz_menu'ya yönlendiriyor."""
+    q = MagicMock()
+    q.data = "lab_pw"
+    q.answer = AsyncMock()
+    q.edit_message_text = AsyncMock()
+    q.message = MagicMock()
+    q.message.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.callback_query = q
+    context = MagicMock()
+    context.bot_data = {"db": _db()}
+
+    await backtest_lab_callback(update, context)
+    edited = q.edit_message_text.await_args.args[0]
+    assert "PRESET SİHİRBAZI" in edited
+
+
+@pytest.mark.asyncio
+async def test_builder_panel_shows_wizard_button(tmp_path, monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_builder
+
+    monkeypatch.setattr(rb, "_DEFAULT_DIR", tmp_path)
+    db = _db({"FROM live_trades": (0, 0.0, 0.0)})
+    text, kb = await _build_builder(db)
+    cb_data = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw" in cb_data  # 🧙 Preset Sihirbazı
+    assert "Preset Sihirbazı" in text or "Sihirbaz" in text
+
+
 @pytest.mark.asyncio
 async def test_builder_panel_shows_user_rulesets(tmp_path, monkeypatch):
     """Listede kayıtlı ruleset'ler ve her biri için Detay butonu."""

@@ -13,16 +13,24 @@ Eski /backtest_v2 + /backtest_replay legacy alias olarak yaşar.
 
 Mimari notlar:
 - Callback prefix `lab_*`. Parametresiz: lab_main/quick/builder/compare/
-  calibrate/legacy/refresh/help_save. Parametreli (Faz 4): lab_show:<name>,
-  lab_del_ask:<name>, lab_del_confirm:<name>. Ad regex-validated.
+  calibrate/legacy/refresh/help_save + lab_pw/pw_sec/pw_price/pw_hour
+  (preset sihirbazı menüleri). Parametreli (Faz 4 + 4b):
+  lab_show:<name>, lab_del_ask:<name>, lab_del_confirm:<name>,
+  lab_pw_sec_save:<window>:<dir>, lab_pw_price_dir:<dir>,
+  lab_pw_price_save:<dir>:<cents>, lab_pw_hour_pick:<hh>,
+  lab_pw_hour_save:<hh>:<dir>. Ad regex-validated, state'siz tasarım
+  (tüm seçim callback_data'da encoded — `context.user_data` kullanmaz).
 - Her panel `_safe_edit` ile yenilenir (B1 audit doktrini —
   "message not modified" sessizce yutulur).
 - Reality-gap mini-block her panelin ÜSTÜNDE — kullanıcı ne yaparsa
   yapsın paper'ın gerçeğe ne kadar yaklaştığını görür.
 - /lab_save: JSON paste flow — komutun ardından gelen JSON parse +
   validate + data_store/bt_strategies/{name}.json olarak yazılır.
-  Faz 4b'de inline preset sihirbazı (saniye-aralığı / fiyat-trigger
-  / saat) gelecek; wizard'sız MVP geliştirici-odaklı.
+- Faz 4b preset sihirbazları: 🧙 Preset Sihirbazı menüsünden 3 şablon —
+  ⏱ Saniye Aralığı (window + direction → save), 📈 Fiyat ≥ X
+  (direction → threshold → save), 🕒 Saat X'te (hour → direction →
+  save). Auto-naming (sec_30_60_up, price_above_55c_up, hour_22_down).
+  2-3 tıkla kayıt — geliştirici JSON yazma derdinden kurtulur.
 """
 
 from __future__ import annotations
@@ -297,7 +305,10 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         f"{user_rulesets_txt}\n\n"
         "<b>Python-kodlu stratejiler</b>:\n"
         f"{sample_txt}\n\n"
-        "<b>Yeni strateji ekleme</b> — <code>/lab_save</code> komutu:\n"
+        "<b>Yeni strateji</b> — 2 yol:\n"
+        "  🧙 <b>Preset Sihirbazı</b> (en hızlı — 2-3 tık)\n"
+        "  📥 Manuel JSON: <code>/lab_save</code> komutu\n\n"
+        "<b>JSON formatı</b>:\n"
         "<pre>/lab_save\n"
         "{\n"
         '  "name": "30_50_buy_up",\n'
@@ -329,6 +340,7 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
 
     extra = [
         *detail_rows,
+        [InlineKeyboardButton("🧙 Preset Sihirbazı", callback_data="lab_pw")],
         [InlineKeyboardButton("📥 /lab_save yardım", callback_data="lab_help_save")],
         [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
     ]
@@ -444,6 +456,304 @@ async def _build_del_done(name: str) -> tuple[str, InlineKeyboardMarkup]:
     return text, _panel_nav_kb(
         extra_rows=[[InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")]]
     )
+
+
+# ── Faz 4b — Preset sihirbazları (state'siz, callback'te encoded) ───
+
+
+# Preset pencereler ve eşikler — kompakt seçenek listesi
+_SEC_WINDOWS = [
+    ("10_30", "10-30sn"),
+    ("30_50", "30-50sn"),
+    ("30_60", "30-60sn"),
+    ("60_120", "60-120sn"),
+    ("120_180", "120-180sn"),
+    ("180_240", "180-240sn"),
+    ("240_290", "240-290sn"),
+]
+
+_PRICE_THRESHOLDS = [
+    ("25", "0.25"),
+    ("35", "0.35"),
+    ("45", "0.45"),
+    ("55", "0.55"),
+    ("65", "0.65"),
+    ("75", "0.75"),
+    ("85", "0.85"),
+]
+
+_HOUR_PICKS = [
+    ("00", "00:00 UTC"),
+    ("06", "06:00 UTC"),
+    ("12", "12:00 UTC"),
+    ("14", "14:00 UTC"),
+    ("18", "18:00 UTC"),
+    ("22", "22:00 UTC"),
+]
+
+
+def _save_preset_ruleset(ruleset: dict) -> tuple[str, str]:
+    """save_ruleset wrapper — başarı/başarısızlık dönüş metni döndürür.
+
+    Returns: (status_text_html, name)
+    """
+    from backtest.strategies.rule_based import RuleSetError, save_ruleset
+
+    name = ruleset.get("name", "?")
+    try:
+        target = save_ruleset(ruleset)
+        return (
+            f"✅ <b>Kaydedildi</b>: <code>{esc(name)}</code>\n"
+            f"📁 <code>{esc(str(target))}</code>\n\n"
+            f"Backtest çalıştır:\n"
+            f"<code>/backtest_replay rule_based BTC 5m</code>"
+        ), name
+    except RuleSetError as e:
+        return f"❌ Geçersiz ruleset: {esc(str(e))}", name
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_save_preset_ruleset failed: %s", e)
+        return "⚠️ Kaydedilemedi — log'da detay var.", name
+
+
+def _done_kb() -> InlineKeyboardMarkup:
+    """Preset save sonrası dönüş butonları."""
+    return _panel_nav_kb(
+        extra_rows=[
+            [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
+            [InlineKeyboardButton("🧙 Başka preset", callback_data="lab_pw")],
+        ]
+    )
+
+
+async def _build_wiz_menu() -> tuple[str, InlineKeyboardMarkup]:
+    """🧙 Preset sihirbaz menüsü — 3 şablon."""
+    text = (
+        "🧙 <b>PRESET SİHİRBAZI</b>\n"
+        "<i>Hazır şablon → 2-3 tıkla kayıtlı listeye eklenir</i>\n\n"
+        "<b>Şablonlar:</b>\n\n"
+        "⏱ <b>Saniye Aralığı Al</b>\n"
+        "    \"30-50 saniye arası UP al\" gibi pencere-bazlı\n\n"
+        "📈 <b>Fiyat ≥ X Al</b>\n"
+        "    \"UP fiyat 0.55'i geçince al\" gibi trigger\n\n"
+        "🕒 <b>Saat X'te Al</b>\n"
+        "    \"Saat 22 UTC marketinde UP al\" gibi schedule\n"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⏱ Saniye Aralığı", callback_data="lab_pw_sec")],
+            [InlineKeyboardButton("📈 Fiyat ≥ X", callback_data="lab_pw_price")],
+            [InlineKeyboardButton("🕒 Saat X'te", callback_data="lab_pw_hour")],
+            [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
+        ]
+    )
+    return text, kb
+
+
+async def _build_wiz_sec() -> tuple[str, InlineKeyboardMarkup]:
+    """⏱ Saniye-aralığı: pencere + yön (her satırda UP/DOWN buton çifti)."""
+    text = (
+        "⏱ <b>Saniye Aralığı Al</b>\n\n"
+        "Hangi pencere ve yönde sinyal istiyorsun?\n"
+        "<i>(Sinyal yalnız bu pencerede izinli — pencere dışında strateji"
+        " hareket etmez.)</i>\n"
+    )
+    rows = []
+    for window, label in _SEC_WINDOWS:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"⬆ UP {label}", callback_data=f"lab_pw_sec_save:{window}:up"
+                ),
+                InlineKeyboardButton(
+                    "⬇ DOWN", callback_data=f"lab_pw_sec_save:{window}:down"
+                ),
+            ]
+        )
+    rows.append([InlineKeyboardButton("◀️ Sihirbaz", callback_data="lab_pw")])
+    return text, InlineKeyboardMarkup(rows)
+
+
+async def _build_wiz_sec_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
+    """⏱ Saniye preset'i kaydet. `arg` = "<min>_<max>:<dir>"."""
+    try:
+        window, direction = arg.split(":", 1)
+        min_s, max_s = window.split("_", 1)
+        min_i = int(min_s)
+        max_i = int(max_s)
+        if direction not in ("up", "down") or min_i < 0 or max_i <= min_i:
+            raise ValueError("invalid args")
+    except (ValueError, AttributeError):
+        return "❌ Geçersiz sihirbaz parametresi.", _done_kb()
+
+    name = f"sec_{min_i}_{max_i}_{direction}"
+    ruleset = {
+        "name": name,
+        "version": "1.0",
+        "direction": direction,
+        "confidence": 0.7,
+        "description": f"Preset: {direction.upper()} al, saniye {min_i}-{max_i}",
+        "entry": {
+            "logic": "AND",
+            "conditions": [
+                {"field": "elapsed_seconds", "op": ">=", "value": min_i},
+                {"field": "elapsed_seconds", "op": "<=", "value": max_i},
+            ],
+        },
+    }
+    status, _ = _save_preset_ruleset(ruleset)
+    return status, _done_kb()
+
+
+async def _build_wiz_price() -> tuple[str, InlineKeyboardMarkup]:
+    """📈 Fiyat ≥ X: önce yön seç (sonraki adım eşik seçimi)."""
+    text = (
+        "📈 <b>Fiyat ≥ X Al</b>\n\n"
+        "Hangi yöne al? <i>(UP fiyat referans alınır — up_best_ask ≥ eşik"
+        " olunca sinyal.)</i>\n"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⬆ UP", callback_data="lab_pw_price_dir:up"),
+                InlineKeyboardButton("⬇ DOWN", callback_data="lab_pw_price_dir:down"),
+            ],
+            [InlineKeyboardButton("◀️ Sihirbaz", callback_data="lab_pw")],
+        ]
+    )
+    return text, kb
+
+
+async def _build_wiz_price_dir(direction: str) -> tuple[str, InlineKeyboardMarkup]:
+    """📈 Fiyat eşiği seç."""
+    if direction not in ("up", "down"):
+        return "❌ Geçersiz yön.", _done_kb()
+    text = (
+        f"📈 <b>Fiyat ≥ X Al</b> — yön <b>{direction.upper()}</b>\n\n"
+        "Eşik fiyatı seç (UP token referans):\n"
+    )
+    rows = []
+    for cents, label in _PRICE_THRESHOLDS:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"≥ {label}",
+                    callback_data=f"lab_pw_price_save:{direction}:{cents}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("◀️ Yön seç", callback_data="lab_pw_price")])
+    return text, InlineKeyboardMarkup(rows)
+
+
+async def _build_wiz_price_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
+    """📈 Fiyat preset'i kaydet. `arg` = "<dir>:<cents>"."""
+    try:
+        direction, cents = arg.split(":", 1)
+        cents_i = int(cents)
+        if direction not in ("up", "down") or not (1 <= cents_i <= 99):
+            raise ValueError("invalid args")
+    except (ValueError, AttributeError):
+        return "❌ Geçersiz sihirbaz parametresi.", _done_kb()
+
+    threshold = cents_i / 100.0
+    name = f"price_above_{cents_i}c_{direction}"
+    ruleset = {
+        "name": name,
+        "version": "1.0",
+        "direction": direction,
+        "confidence": 0.7,
+        "description": (
+            f"Preset: {direction.upper()} al, up_best_ask ≥ {threshold:.2f}"
+        ),
+        "entry": {
+            "logic": "AND",
+            "conditions": [
+                {"field": "up_best_ask", "op": ">=", "value": threshold},
+            ],
+        },
+    }
+    status, _ = _save_preset_ruleset(ruleset)
+    return status, _done_kb()
+
+
+async def _build_wiz_hour() -> tuple[str, InlineKeyboardMarkup]:
+    """🕒 Saat X'te: önce saat seç (sonra yön)."""
+    text = (
+        "🕒 <b>Saat X'te Al</b>\n\n"
+        "Hangi UTC saatte sinyal çıksın?\n"
+        "<i>(market.hour_utc bu saate eşitse strateji aktif.)</i>\n"
+    )
+    rows = []
+    pairs = [_HOUR_PICKS[i : i + 3] for i in range(0, len(_HOUR_PICKS), 3)]
+    for triple in pairs:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label, callback_data=f"lab_pw_hour_pick:{hh}"
+                )
+                for hh, label in triple
+            ]
+        )
+    rows.append([InlineKeyboardButton("◀️ Sihirbaz", callback_data="lab_pw")])
+    return text, InlineKeyboardMarkup(rows)
+
+
+async def _build_wiz_hour_pick(hh: str) -> tuple[str, InlineKeyboardMarkup]:
+    """🕒 Saat seçildi → yön sor."""
+    try:
+        hour_i = int(hh)
+        if not (0 <= hour_i <= 23):
+            raise ValueError()
+    except ValueError:
+        return "❌ Geçersiz saat.", _done_kb()
+    text = (
+        f"🕒 <b>Saat {hour_i:02d}:00 UTC marketleri</b>\n\n"
+        "Yön?\n"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "⬆ UP", callback_data=f"lab_pw_hour_save:{hh}:up"
+                ),
+                InlineKeyboardButton(
+                    "⬇ DOWN", callback_data=f"lab_pw_hour_save:{hh}:down"
+                ),
+            ],
+            [InlineKeyboardButton("◀️ Saat seç", callback_data="lab_pw_hour")],
+        ]
+    )
+    return text, kb
+
+
+async def _build_wiz_hour_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
+    """🕒 Saat preset'i kaydet. `arg` = "<hh>:<dir>"."""
+    try:
+        hh, direction = arg.split(":", 1)
+        hour_i = int(hh)
+        if direction not in ("up", "down") or not (0 <= hour_i <= 23):
+            raise ValueError("invalid args")
+    except (ValueError, AttributeError):
+        return "❌ Geçersiz sihirbaz parametresi.", _done_kb()
+
+    name = f"hour_{hour_i:02d}_{direction}"
+    ruleset = {
+        "name": name,
+        "version": "1.0",
+        "direction": direction,
+        "confidence": 0.7,
+        "description": (
+            f"Preset: {direction.upper()} al, market saat {hour_i:02d}:00 UTC"
+        ),
+        "entry": {
+            "logic": "AND",
+            "conditions": [
+                {"field": "hour_utc", "op": "==", "value": hour_i},
+            ],
+        },
+    }
+    status, _ = _save_preset_ruleset(ruleset)
+    return status, _done_kb()
 
 
 async def _build_help_save() -> tuple[str, InlineKeyboardMarkup]:
@@ -665,28 +975,46 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
             )
         return
 
-    # 2) Faz 4 — yardım panelleri (parametresiz)
-    if data == "lab_help_save":
+    # 2) Faz 4 — yardım panelleri + Faz 4b preset sihirbazı (parametresiz)
+    _PARAMETERLESS_BUILDERS = {
+        "lab_help_save": _build_help_save,
+        "lab_pw": _build_wiz_menu,
+        "lab_pw_sec": _build_wiz_sec,
+        "lab_pw_price": _build_wiz_price,
+        "lab_pw_hour": _build_wiz_hour,
+    }
+    pl_builder = _PARAMETERLESS_BUILDERS.get(data)
+    if pl_builder is not None:
         try:
-            text, kb = await _build_help_save()
+            text, kb = await pl_builder()
             await _safe_edit(q, text, kb)
         except Exception as e:  # noqa: BLE001
-            logger.exception("lab_help_save failed: %s", e)
-            await _safe_edit(q, "⚠️ Yardım açılamadı.", _main_kb())
+            logger.exception("backtest_lab_callback parametersiz %s failed: %s", data, e)
+            await _safe_edit(q, "⚠️ Panel açılamadı.", _main_kb())
         return
 
-    # 3) Faz 4 — parametreli callback'ler (`prefix:name` formatı)
+    # 3) Faz 4/4b — parametreli callback'ler (`prefix:arg` formatı)
     if ":" not in data:
         logger.warning("backtest_lab_callback: bilinmeyen data=%r", data)
         return
-    action, _, name = data.partition(":")
+    action, _, arg = data.partition(":")
     try:
         if action == "lab_show":
-            text, kb = await _build_show_ruleset(name)
+            text, kb = await _build_show_ruleset(arg)
         elif action == "lab_del_ask":
-            text, kb = await _build_del_confirm(name)
+            text, kb = await _build_del_confirm(arg)
         elif action == "lab_del_confirm":
-            text, kb = await _build_del_done(name)
+            text, kb = await _build_del_done(arg)
+        elif action == "lab_pw_sec_save":
+            text, kb = await _build_wiz_sec_save(arg)
+        elif action == "lab_pw_price_dir":
+            text, kb = await _build_wiz_price_dir(arg)
+        elif action == "lab_pw_price_save":
+            text, kb = await _build_wiz_price_save(arg)
+        elif action == "lab_pw_hour_pick":
+            text, kb = await _build_wiz_hour_pick(arg)
+        elif action == "lab_pw_hour_save":
+            text, kb = await _build_wiz_hour_save(arg)
         else:
             logger.warning("backtest_lab_callback: bilinmeyen action=%r", action)
             return
