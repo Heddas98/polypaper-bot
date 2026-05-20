@@ -171,13 +171,6 @@ COMMAND_CATALOG: tuple[CommandSpec, ...] = (
         example_args="BTC > 0.6",
     ),
     CommandSpec(
-        "/becker_replay",
-        "Walk-forward Becker replay (train/test split)",
-        ("becker", "walk forward", "replay", "backtest becker"),
-        takes_args=True,
-        example_args="hour_edge BTC 5m",
-    ),
-    CommandSpec(
         "/compare",
         "Strateji karşılaştırma (replay veya backtest)",
         ("karşılaştır", "kıyasla", "compare", "karşı"),

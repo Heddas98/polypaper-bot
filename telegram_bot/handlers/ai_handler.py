@@ -11,7 +11,7 @@ real command via `core.intent_parser.parse_intent()`. Three outcomes:
   3. No match → show the catalog and ask the user to rephrase.
 
 Phase 51 P51-05 piggy-backs on the same handler for natural-language
-backtest queries: any intent that resolves to `/compare`, `/becker_replay`,
+backtest queries: any intent that resolves to `/compare`, `/backtest`,
 `/backtest_v2`, or `/bt2` is treated as a backtest query and we forward
 the extracted args directly to the mapped handler.
 
@@ -65,7 +65,6 @@ async def _invoke_mapped_command(
     # Lazy import — avoids circular import with bot.py
     from telegram_bot.handlers.backtest_v2 import (
         backtest_v2_cmd,
-        becker_replay_command,
         compare_cmd,
     )
     from telegram_bot.handlers.dashboard import (
@@ -112,7 +111,6 @@ async def _invoke_mapped_command(
         "/autopilot": autopilot_command,
         "/alerts": alerts_list_cmd,
         "/alert": alert_set_cmd,
-        "/becker_replay": becker_replay_command,
         "/compare": compare_cmd,
         "/backtest_v2": backtest_v2_cmd,
         "/bt2": backtest_v2_cmd,

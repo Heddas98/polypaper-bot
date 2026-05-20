@@ -51,15 +51,11 @@ FILTER_REGISTRY = [
         "desc": "Minimum ikna skoru filtresi",
         "risk": "medium",
     },
-    {
-        "key": "becker_calib",
-        "label": "📊 Becker Calibration",
-        "env": "BECKER_CALIB_ENABLED",
-        "type": "bool",
-        "default": "true",
-        "desc": "Becker δ(p) olasılık düzeltmesi",
-        "risk": "low",
-    },
+    # Becker Calibration filter dropped 2026-05-20 (cleanup):
+    # core.becker_calibration silindi (2026-04-29), BECKER_CALIB_ENABLED
+    # env'i .env.example'da "kaldırıldı" notuyla işaretli, engine_signals.py
+    # ona bakan dead code da temizlendi → UI toggle'ı zombie idi (hiçbir
+    # davranis degisikligi tetiklemiyordu).
     {
         "key": "optimism_tax",
         "label": "🏷 Optimism Tax",
@@ -93,7 +89,7 @@ FILTER_REGISTRY = [
         "env": "SMART_EXIT_ENABLED",
         "type": "bool",
         "default": "true",
-        "desc": "Becker δ(p) bazlı otomatik çıkış (edge+stoploss)",
+        "desc": "Olasılık-bazlı otomatik çıkış (edge + stoploss)",
         "risk": "high",
     },
     # ── Value-cycle filters ──
