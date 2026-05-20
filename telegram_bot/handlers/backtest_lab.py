@@ -317,9 +317,9 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         '  "entry": {\n'
         '    "logic": "AND",\n'
         '    "conditions": [\n'
-        '      {"field": "elapsed_seconds", "op": ">=", "value": 30},\n'
-        '      {"field": "elapsed_seconds", "op": "<=", "value": 50},\n'
-        '      {"field": "up_best_ask",     "op": ">=", "value": 0.55}\n'
+        '      {"field": "elapsed_seconds", "op": "&gt;=", "value": 30},\n'
+        '      {"field": "elapsed_seconds", "op": "&lt;=", "value": 50},\n'
+        '      {"field": "up_best_ask",     "op": "&gt;=", "value": 0.55}\n'
         "    ]\n"
         "  }\n"
         "}</pre>\n"
@@ -914,8 +914,8 @@ async def _build_help_save() -> tuple[str, InlineKeyboardMarkup]:
         '  "direction": "up",\n'
         '  "entry": {\n'
         '    "conditions": [\n'
-        '      {"field": "elapsed_seconds", "op": ">=", "value": 30},\n'
-        '      {"field": "elapsed_seconds", "op": "<=", "value": 50}\n'
+        '      {"field": "elapsed_seconds", "op": "&gt;=", "value": 30},\n'
+        '      {"field": "elapsed_seconds", "op": "&lt;=", "value": 50}\n'
         "    ]\n"
         "  }\n"
         "}</pre>\n"
