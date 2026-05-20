@@ -36,10 +36,15 @@ from telegram_bot.handlers.backtest_lab import (
 
 
 class _Cursor:
-    """`async with db.conn.execute(...) as cur: await cur.fetchone()` mock."""
+    """`async with db.conn.execute(...) as cur: await cur.fetchone/fetchall()` mock.
 
-    def __init__(self, row):
-        self._row = row
+    Faz 6b: rows tek satır ise fetchone() o satırı döner, fetchall() [row]; çoklu
+    satır ise fetchone() ilk satırı, fetchall() tümünü döner.
+    """
+
+    def __init__(self, row_or_rows):
+        # Tek tuple/None → fetchone semantik; list → multi-row
+        self._rows = row_or_rows
 
     async def __aenter__(self):
         return self
@@ -48,7 +53,14 @@ class _Cursor:
         return None
 
     async def fetchone(self):
-        return self._row
+        if isinstance(self._rows, list):
+            return self._rows[0] if self._rows else None
+        return self._rows
+
+    async def fetchall(self):
+        if isinstance(self._rows, list):
+            return self._rows
+        return [self._rows] if self._rows is not None else []
 
 
 class _Conn:
@@ -61,9 +73,11 @@ class _Conn:
     def execute(self, query, params=None):
         if self._raise_on and self._raise_on in query:
             raise RuntimeError("simulated db error")
-        for needle, row in self._map.items():
+        # Faz 6b: en uzun needle'a göre öncelikli match (overlap'i önler — örn
+        # "GROUP BY strategy_label" "FROM live_trades"'in icinde aramadan)
+        for needle in sorted(self._map.keys(), key=len, reverse=True):
             if needle in query:
-                return _Cursor(row)
+                return _Cursor(self._map[needle])
         return _Cursor(None)
 
 
@@ -255,6 +269,85 @@ async def test_build_calibrate_includes_polymarket_constants_block():
     assert "tail zones" in text
     assert "check_polymarket_drift" in text  # script referansı
     assert "2026-05-20" in text  # son doğrulama tarihi
+
+
+# ── Faz 6b — Per-strateji reality-gap ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_per_strategy_drift_block_no_db():
+    from telegram_bot.handlers.backtest_lab import _per_strategy_drift_block
+
+    block = await _per_strategy_drift_block(None, 0.66)
+    assert block == ""
+
+
+@pytest.mark.asyncio
+async def test_per_strategy_drift_block_no_rows():
+    from telegram_bot.handlers.backtest_lab import _per_strategy_drift_block
+
+    db = _db({"GROUP BY strategy_label": []})
+    block = await _per_strategy_drift_block(db, 0.66)
+    assert block == ""
+
+
+@pytest.mark.asyncio
+async def test_per_strategy_drift_block_with_strategies(monkeypatch):
+    """3 strateji → her biri için satır + 2'si yeşil 1'i sarı (drift > %10)."""
+    from telegram_bot.handlers.backtest_lab import _per_strategy_drift_block
+
+    monkeypatch.setenv("REALITY_GAP_ALERT_PCT", "10.0")
+    db = _db(
+        {
+            "GROUP BY strategy_label": [
+                # (label, n, paper, live)
+                ("classic_btc", 10, 5.0, 3.3),   # exp 3.3 vs live 3.3 → 0%, 🟢
+                ("hour_edge", 7, 4.0, 1.0),      # exp 2.64 vs 1.0 → -62%, 🟡
+                ("rule_based", 5, 1.0, 0.5),     # exp 0.66 vs 0.5 → -24%, 🟡
+            ]
+        }
+    )
+    block = await _per_strategy_drift_block(db, 0.66)
+    assert "Strateji bazında drift" in block
+    assert "classic_btc" in block
+    assert "hour_edge" in block
+    assert "rule_based" in block
+    assert "(10t)" in block  # classic_btc trade sayısı
+    assert "🟢" in block  # en azından bir yeşil
+    assert "🟡" in block  # en azından bir sarı
+
+
+@pytest.mark.asyncio
+async def test_per_strategy_drift_block_db_error_silent():
+    from telegram_bot.handlers.backtest_lab import _per_strategy_drift_block
+
+    db = _db(raise_on="GROUP BY strategy_label")
+    block = await _per_strategy_drift_block(db, 0.66)
+    # Hata → boş satır (sessiz fallback, panel patlamaz)
+    assert block == ""
+
+
+@pytest.mark.asyncio
+async def test_build_calibrate_includes_per_strategy_block(monkeypatch):
+    """Kalibrasyon paneli per-strateji breakdown'ını göstermeli.
+
+    `_db` sort-by-length-desc kullanır → uzun needle ("GROUP BY...") önce eşleşir
+    per-strateji query'sine, kısa needle ("FROM live_trades") aggregate'a düşer.
+    """
+    monkeypatch.setenv("REALITY_GAP_MULT", "0.66")
+    db = _db(
+        {
+            "FROM live_trades": (5, 8.0, 5.0),  # 24h + 7g aggregate
+            "GROUP BY strategy_label": [
+                ("hour_edge", 3, 5.0, 3.3),
+                ("classic_btc", 2, 3.0, 1.7),
+            ],
+        }
+    )
+    text, kb = await _build_calibrate(db)
+    assert "Strateji bazında drift" in text
+    assert "hour_edge" in text
+    assert "classic_btc" in text
 
 
 @pytest.mark.asyncio

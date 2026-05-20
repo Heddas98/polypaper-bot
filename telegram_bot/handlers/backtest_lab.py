@@ -962,10 +962,84 @@ async def _build_compare(db) -> tuple[str, InlineKeyboardMarkup]:
     return text, _panel_nav_kb(extra_rows=extra)
 
 
+async def _per_strategy_drift_block(db, mult: float, top_n: int = 5) -> str:
+    """Faz 6b (2026-05-20): live_trades GROUP BY strategy_label — top N drift.
+
+    Heddas direktifi devam: hangi stratejinin paper'a uymayan live PnL ürettiğini
+    panel-üstünde gör. Pencere 7g (24h'i Faz 1 mini-block zaten gösteriyor).
+    Sadece settled trade'ler dahil.
+
+    Hata olursa boş satır (sessiz fallback).
+    """
+    if db is None or getattr(db, "conn", None) is None:
+        return ""
+    try:
+        from datetime import UTC, datetime, timedelta
+
+        since = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        async with db.conn.execute(
+            """SELECT strategy_label,
+                      COUNT(*) AS n,
+                      COALESCE(SUM(paper_pnl), 0) AS paper,
+                      COALESCE(SUM(pnl), 0) AS live
+               FROM live_trades
+               WHERE settled_at IS NOT NULL AND settled_at >= ?
+               GROUP BY strategy_label
+               ORDER BY n DESC
+               LIMIT ?""",
+            (since, top_n),
+        ) as cur:
+            rows = await cur.fetchall()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("_per_strategy_drift_block failed: %s", e)
+        return ""
+
+    if not rows:
+        return ""
+
+    # Defansif: 4-element olmayan row'lar atlanır (mock/legacy data güvenliği)
+    valid_rows = [r for r in rows if r is not None and len(r) >= 4]
+    if not valid_rows:
+        return ""
+
+    lines = ["<b>Strateji bazında drift (7g)</b>:"]
+    for row in valid_rows:
+        label = str(row[0] or "?")
+        n = int(row[1] or 0)
+        paper = float(row[2] or 0.0)
+        live = float(row[3] or 0.0)
+        expected = paper * mult
+        if abs(expected) > 0.01:
+            drift_pct = (live - expected) / abs(expected) * 100.0
+            pct_str = f"{drift_pct:+.0f}%"
+        else:
+            pct_str = "n/a"
+        # Renk: ±10% eşiği aşmış mı?
+        try:
+            alert_pct = float(os.getenv("REALITY_GAP_ALERT_PCT", "10.0"))
+        except (TypeError, ValueError):
+            alert_pct = 10.0
+        if abs(expected) > 0.01 and abs((live - expected) / abs(expected) * 100.0) > alert_pct:
+            icon = "🟡"
+        elif n == 0:
+            icon = "⚪"
+        else:
+            icon = "🟢"
+        lines.append(
+            f"  {icon} <code>{esc(label)}</code> "
+            f"({n}t) "
+            f"exp <code>${expected:+.2f}</code> "
+            f"vs <code>${live:+.2f}</code> "
+            f"({pct_str})"
+        )
+    return "\n".join(lines)
+
+
 async def _build_calibrate(db) -> tuple[str, InlineKeyboardMarkup]:
     """🎯 Kalibrasyon paneli — reality_gap detayı + ek metrikler.
 
-    Üstteki mini-block + nightly rapor referansı + manuel komut.
+    Üstteki mini-block + nightly rapor referansı + manuel komut + Faz 6b'de
+    eklenen per-strateji drift breakdown.
     """
     gap = await _reality_gap_block(db)
 
@@ -1026,11 +1100,16 @@ async def _build_calibrate(db) -> tuple[str, InlineKeyboardMarkup]:
     except Exception as e:  # noqa: BLE001
         logger.debug("_build_calibrate constants block failed: %s", e)
 
+    # Faz 6b: per-strateji drift breakdown (live_trades GROUP BY strategy_label)
+    per_strat = await _per_strategy_drift_block(db, mult)
+    per_strat_block = f"{per_strat}\n\n" if per_strat else ""
+
     text = (
         "🎯 <b>KALİBRASYON</b>\n"
         "<i>Backtest sonuçları gerçeğe ne kadar yakın?</i>\n\n"
         f"{gap}"
         f"{long_block}\n\n"
+        f"{per_strat_block}"
         f"{constants_block}\n\n"
         "<b>Detay komutları</b>:\n"
         "  • <code>/reality_gap</code> (alias <code>/rg</code>) — "
