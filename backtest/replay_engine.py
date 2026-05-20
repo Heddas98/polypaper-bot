@@ -141,6 +141,13 @@ class ReplayConfig:
     entry_yes_price_max: float = 1.0   # sinyal sadece up_best_ask ≤ this iken izinli
     exit_yes_price_below: float = 0.0  # 0 = trigger yok; up_best_bid ≤ this → force-close
     exit_yes_price_above: float = 0.0  # 0 = trigger yok; up_best_bid ≥ this → force-close
+    # Faz 5 (2026-05-20): GTC limit order — sinyal yakalandiktan SONRA bu
+    # fiyatta limit emir post edilir (immediate fill yerine). Sonraki
+    # snapshot'lar walking edilir; ilgili tarafın ask'i bu fiyatın altına
+    # düşerse fill olur (current_ask, limit_price'tan iyiyse ondan fill).
+    # Heddas direktifi: "limit orderlı backtests" — gerçek GTC akışı.
+    entry_limit_price: float = 0.0           # 0 = market (immediate); >0 = GTC limit @ this
+    entry_limit_expire_seconds: int = 0      # 0 = market_close'a kadar; >0 = bu sn sonra expire
 
 
 class ReplayEngine:
@@ -663,17 +670,17 @@ class ReplayEngine:
     def _run_market(self, market: MarketData, raw_snapshots: list[dict], winner: str):
         """Process a single market episode with real data.
 
-        Faz 2 (2026-05-20): Heddas direktifi — esnek backtest. Snapshot
-        loop'una eklenenler:
-          • entry_second_min/max — sinyal yalnız bu saniye aralığında izinli
-          • entry_yes_price_min/max — up_best_ask bu aralıkta değilse sinyal blok
-          • exit_second_min/max → bu saniyeye gelince pozisyon force-close
-          • exit_yes_price_below/above → fiyat sınırı aşılınca force-close
-        Filtreler hepsi default "kapalı" (0/empty/0..1) — eski caller'lar
-        etkilenmez.
+        Faz 2-5 state machine (single market window):
+          Phase 1 — sinyal arama (entry-side filters: saniye/fiyat aralığı)
+          Phase 2 (Faz 5, OPSİYONEL) — entry_limit_price > 0 ise GTC limit fill
+                  bekleme; sonraki snap'lerde ilgili ask ≤ limit_price olursa
+                  fill, expire seconds ile iptal
+          Phase 3 — exit-side filters (saniye / fiyat trigger)
+          Resolution — açılmış trade close (early-exit price ya da binary)
 
-        Tek-giriş kuralı korundu (Phase 41c "single entry per market").
-        Birden çok sinyal toplama Faz 3-5'te (RuleBasedStrategy / GTC limit).
+        Tek-giriş kuralı korundu (Phase 41c). Birden çok sinyal toplama
+        Faz 6+'da. Tüm yeni cfg knob'ları default kapalı; eski caller'lar
+        etkilenmedi.
         """
         duration = MARKET_DURATIONS.get(market.market_type, 300)
         first_ts = raw_snapshots[0].get("ts_ms", 0)
@@ -681,43 +688,39 @@ class ReplayEngine:
         # Strategy: market open
         self._strategy.on_market_open(market)
 
-        # Process snapshots
+        # State variables
         signal: Optional[Signal] = None
         signal_snapshot: Optional[OrderbookSnapshot] = None
-        # Faz 2: early-exit state — entry happened, now scanning for exit
+        # Faz 5: limit fill state
+        limit_fill_snapshot: Optional[OrderbookSnapshot] = None
+        limit_fill_price: float = 0.0
+        # Faz 2: early-exit state
         exit_snapshot: Optional[OrderbookSnapshot] = None
         exit_reason: str = ""
 
         cfg = self.config
-        # Pre-compute "any exit-side filter set?" so the post-entry loop
-        # can short-circuit when there's nothing to watch for.
         has_exit_filter = (
             cfg.exit_second_min > 0
             or cfg.exit_second_max > 0
             or cfg.exit_yes_price_below > 0.0
             or cfg.exit_yes_price_above > 0.0
         )
+        entry_is_limit = cfg.entry_limit_price > 0.0
 
         for raw in raw_snapshots:
             snap = self._convert_snapshot(raw, first_ts, duration)
 
-            # ── Entry-side filtreleri (sinyal yakalanmadıysa) ──
+            # ── Phase 1: Entry-side filtreleri + sinyal yakalama ──
             if signal is None:
                 # entry_second penceresi
                 if cfg.entry_second_min > 0 and snap.elapsed_seconds < cfg.entry_second_min:
                     continue
                 if cfg.entry_second_max > 0 and snap.elapsed_seconds > cfg.entry_second_max:
-                    # Window kapandı, daha ileriye gitmeye gerek yok
-                    # (ama exit_filter aktifse exit aramaya devam etmeliyiz —
-                    # ama sinyal yok ki, dolayısıyla loop sonu)
                     break
 
-                # entry_yes_price aralığı (direction-agnostic — yes/up_best_ask
-                # üzerinden; "her iki tarafta da geçerli" semantik için
-                # strateji direction'unu daha sonra _direction_ok kontrol eder)
+                # entry_yes_price aralığı
                 if cfg.entry_yes_price_min > 0.0 or cfg.entry_yes_price_max < 1.0:
                     if snap.up_best_ask <= 0:
-                        # Fiyat henüz oluşmamış — atla
                         continue
                     if snap.up_best_ask < cfg.entry_yes_price_min:
                         continue
@@ -732,19 +735,42 @@ class ReplayEngine:
                         signal = result
                         signal_snapshot = snap
                         self._signals_generated += 1
-                        if not has_exit_filter:
-                            # Exit-filter yoksa snapshot loop'unu erken bitir
-                            # (eski davranış: tek giriş yakalandı → resolution'a
-                            # zıpla). Performans optimizasyonu.
+                        # Faz 5: limit ya da exit-filter yoksa erken bitir
+                        if not entry_is_limit and not has_exit_filter:
                             break
                 continue
 
-            # ── Exit-side filtreleri (sinyal yakalandıktan sonra) ──
+            # ── Phase 2 (Faz 5): GTC limit fill bekleme ──
+            if entry_is_limit and limit_fill_snapshot is None:
+                # Expire kontrolü (sinyalden bu yana geçen süre)
+                if cfg.entry_limit_expire_seconds > 0 and signal_snapshot is not None:
+                    elapsed_since_signal = (
+                        snap.elapsed_seconds - signal_snapshot.elapsed_seconds
+                    )
+                    if elapsed_since_signal >= cfg.entry_limit_expire_seconds:
+                        # Limit expired — entry iptal, trade açılmaz
+                        signal = None
+                        break
+
+                # Fill kontrolü — ilgili tarafın ask'i limit'in altına düştü mü?
+                if signal.direction == Direction.UP:
+                    cur_ask = snap.up_best_ask
+                else:
+                    cur_ask = snap.down_best_ask
+                if cur_ask > 0 and cur_ask <= cfg.entry_limit_price:
+                    # Fill at current ask (limit_price tavanı — `min`)
+                    limit_fill_snapshot = snap
+                    limit_fill_price = min(cur_ask, cfg.entry_limit_price)
+                    if not has_exit_filter:
+                        # Limit doldu + exit-filter yok → loop bitir
+                        break
+                continue
+
+            # ── Phase 3: Exit-side filtreleri (signal var, varsa limit fill oldu) ──
             if not has_exit_filter:
-                # Sinyal var ama exit filter yok → loop'a devam etmeye gerek yok
                 break
 
-            # exit_second tetik (force-close at elapsed time)
+            # exit_second tetik
             if cfg.exit_second_max > 0 and snap.elapsed_seconds >= cfg.exit_second_max:
                 exit_snapshot = snap
                 exit_reason = f"exit_second_max ({cfg.exit_second_max}s)"
@@ -754,7 +780,6 @@ class ReplayEngine:
                 and snap.elapsed_seconds >= cfg.exit_second_min
                 and cfg.exit_second_max == 0
             ):
-                # Sadece min set edilmiş — min'i aşar aşmaz çıkış (en erken)
                 exit_snapshot = snap
                 exit_reason = f"exit_second_min ({cfg.exit_second_min}s)"
                 break
@@ -779,14 +804,32 @@ class ReplayEngine:
             winner=Direction.UP if winner == "UP" else Direction.DOWN,
         )
 
-        # Execute trade if signal was generated
-        if signal and signal_snapshot and winner:
-            fill = self.fill_sim.simulate_fill(
-                direction=signal.direction,
-                amount_usd=cfg.trade_amount,
-                snapshot=signal_snapshot,
-                market_volume=market.volume,
-            )
+        # Execute trade if signal was generated AND (market entry OR limit filled)
+        entry_succeeded = signal is not None and (not entry_is_limit or limit_fill_snapshot is not None)
+        if entry_succeeded and signal_snapshot and winner:
+            # Faz 5: limit fill için manuel FillResult (fill_sim bypass)
+            if entry_is_limit and limit_fill_snapshot is not None:
+                from backtest.simulation.fill_model import FillResult
+
+                shares = cfg.trade_amount / limit_fill_price if limit_fill_price > 0 else 0
+                fill = FillResult(
+                    filled=True,
+                    fill_price=round(limit_fill_price, 4),
+                    slippage=0.0,  # limit emir, exact-price fill (maker tarafı)
+                    fill_amount=cfg.trade_amount,
+                    shares=round(shares, 4),
+                    reason=f"limit fill @ {limit_fill_price:.4f}",
+                    is_maker=True,
+                )
+                entry_snapshot = limit_fill_snapshot
+            else:
+                fill = self.fill_sim.simulate_fill(
+                    direction=signal.direction,
+                    amount_usd=cfg.trade_amount,
+                    snapshot=signal_snapshot,
+                    market_volume=market.volume,
+                )
+                entry_snapshot = signal_snapshot
 
             if fill.filled:
                 trade = self.portfolio.open_trade(
@@ -797,13 +840,18 @@ class ReplayEngine:
                     market_type=market.market_type,
                     strategy=cfg.strategy_name,
                     hour_utc=market.hour_utc,
-                    entry_time_pct=(signal_snapshot.elapsed_pct if signal_snapshot else 0),
+                    entry_time_pct=(entry_snapshot.elapsed_pct if entry_snapshot else 0),
                 )
                 if trade:
+                    # Faz 5: limit fill metadata ekle (reporter için)
+                    if entry_is_limit and limit_fill_snapshot is not None:
+                        trade.metadata = {
+                            **(trade.metadata or {}),
+                            "entry_type": "limit",
+                            "entry_limit_price": cfg.entry_limit_price,
+                            "entry_fill_elapsed_seconds": limit_fill_snapshot.elapsed_seconds,
+                        }
                     if exit_snapshot is not None:
-                        # Faz 2: early-exit @ exit_snapshot price
-                        # Side-aware: UP pozisyon → up_best_bid'de sat
-                        #             DOWN pozisyon → down_best_bid'de sat
                         if signal.direction == Direction.UP:
                             sell_price = exit_snapshot.up_best_bid or exit_snapshot.up_best_ask
                         else:
@@ -816,7 +864,6 @@ class ReplayEngine:
                         }
                         self.portfolio.close_trade_at_price(trade, sell_price)
                     else:
-                        # Standart: market resolution'da kapat
                         self.portfolio.close_trade(trade, winner)
 
         # Strategy: market close

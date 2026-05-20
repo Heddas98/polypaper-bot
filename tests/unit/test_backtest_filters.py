@@ -445,3 +445,157 @@ def test_run_market_baseline_no_regression():
     assert t.exit_price == 0.0
     assert t.pnl < 0
     assert "exit_reason" not in (t.metadata or {})
+
+
+# ── Faz 5 — GTC limit order simülasyonu ─────────────────────
+
+
+def test_run_market_limit_fills_when_ask_drops():
+    """Sinyal yakalanır → limit @ 0.50 post → fiyat 0.50'ye düşünce fill."""
+    eng = _engine_for_run(entry_limit_price=0.50)
+    snapshots = [
+        _snap(0,        up_ask=0.65, up_bid=0.60),   # sinyal: ask>limit, fill bekle
+        _snap(10_000,   up_ask=0.55, up_bid=0.50),   # hala üstte
+        _snap(20_000,   up_ask=0.48, up_bid=0.43),   # ask < 0.50, FILL
+        _snap(30_000,   up_ask=0.40, up_bid=0.35),
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    assert len(eng.portfolio.trades) == 1
+    t = eng.portfolio.trades[0]
+    # Fill at min(0.48, 0.50) = 0.48 (current ask iyi olduğu için ondan)
+    assert t.entry_price == pytest.approx(0.48, abs=0.01)
+    # Metadata: limit entry tipini kaydetmiş
+    assert t.metadata.get("entry_type") == "limit"
+    assert t.metadata.get("entry_limit_price") == 0.50
+    # WIN: ask düşse de binary UP=1.0 settle (exit yok, market_close)
+    assert t.exit_price == 1.0
+
+
+def test_run_market_limit_never_fills_no_trade():
+    """Ask hiç limit'in altına düşmezse trade açılmaz."""
+    eng = _engine_for_run(entry_limit_price=0.20)
+    snapshots = [
+        _snap(0,        up_ask=0.65, up_bid=0.60),
+        _snap(10_000,   up_ask=0.55, up_bid=0.50),
+        _snap(20_000,   up_ask=0.48, up_bid=0.43),
+        _snap(30_000,   up_ask=0.40, up_bid=0.35),
+        _snap(40_000,   up_ask=0.30, up_bid=0.25),  # hiç 0.20'nin altı yok
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    assert len(eng.portfolio.trades) == 0
+
+
+def test_run_market_limit_expires_no_trade():
+    """entry_limit_expire_seconds = 15 → 15sn sonra fill olmadıysa iptal."""
+    eng = _engine_for_run(entry_limit_price=0.30, entry_limit_expire_seconds=15)
+    snapshots = [
+        _snap(0,        up_ask=0.65, up_bid=0.60),   # sinyal @ 0sn
+        _snap(10_000,   up_ask=0.50, up_bid=0.45),   # 10sn: hala bekliyor
+        _snap(20_000,   up_ask=0.45, up_bid=0.40),   # 20sn: 15sn aştı, EXPIRE
+        _snap(30_000,   up_ask=0.25, up_bid=0.20),   # 30sn: artık fill olabilirdi ama expired
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    assert len(eng.portfolio.trades) == 0
+
+
+def test_run_market_limit_down_side():
+    """DOWN sinyal için limit — down_best_ask referans alınır."""
+    # Strategy hep UP atar; DOWN test'i için direction_filter ile UP'i blokla?
+    # Aslında daha basit: strategy DOWN atan yeni bir test class lazım.
+    # Mevcut _AlwaysEntryStrategy UP atıyor; quick kludge: signal eli alınır
+    # ama _run_market signal.direction'a göre fill side'ı seçer; UP test'imizde
+    # bu zaten kanıtlandı. DOWN için ayrı kanıt: down_best_ask referansını
+    # kontrol ederiz.
+    eng = _engine_for_run()  # baseline strategy
+    # Hile: direction_filter=down → UP signal eler. Limit DOWN için lazım,
+    # strategy DOWN üretmiyor. Yerine direct unit test:
+    # _run_market'ın DOWN-side fill yolunu test etmek için strategy DOWN
+    # atan bir test class registry'e ekleyelim.
+    from backtest.strategies.base import (
+        BaseBacktestStrategy,
+        Direction,
+        Signal,
+        StrategyRegistryV2,
+    )
+
+    class _DownStrategy(BaseBacktestStrategy):
+        name = "_test_down_entry"
+        version = "1.0"
+
+        def on_market_open(self, market):
+            self._signal_emitted = False
+
+        def on_snapshot(self, snap):
+            if self._signal_emitted:
+                return None
+            self._signal_emitted = True
+            return Signal(
+                direction=Direction.DOWN,
+                confidence=1.0,
+                entry_price=snap.down_best_ask or 0.5,
+                reason="test_down",
+            )
+
+    StrategyRegistryV2.register(_DownStrategy)
+    cfg = ReplayConfig(
+        strategy_name="_test_down_entry",
+        trade_amount=1.0,
+        fill_mode="midpoint",
+        entry_limit_price=0.30,
+    )
+    eng2 = ReplayEngine(db=MagicMock(), config=cfg)
+    eng2._setup()
+
+    snapshots = [
+        # down_best_ask kompakt değişiyor — 1.0 - up_ask + 0.01 (helper formula)
+        _snap(0,        up_ask=0.65, down_ask=0.40),   # down_ask=0.40 > 0.30, bekle
+        _snap(10_000,   up_ask=0.55, down_ask=0.50),   # hala üstte
+        _snap(20_000,   up_ask=0.45, down_ask=0.28),   # down_ask < 0.30, FILL
+    ]
+    eng2._run_market(_market(), snapshots, "DOWN")
+    assert len(eng2.portfolio.trades) == 1
+    t = eng2.portfolio.trades[0]
+    assert t.direction == "down"
+    assert t.entry_price == pytest.approx(0.28, abs=0.01)
+    assert t.metadata.get("entry_type") == "limit"
+
+
+def test_run_market_limit_with_exit_filter():
+    """Limit fill + exit_second — ikisi de devrede."""
+    eng = _engine_for_run(
+        entry_limit_price=0.50,
+        exit_second_max=40,  # 40sn'de zorla çıkış
+    )
+    snapshots = [
+        _snap(0,        up_ask=0.65, up_bid=0.60),  # sinyal
+        _snap(10_000,   up_ask=0.60, up_bid=0.55),
+        _snap(20_000,   up_ask=0.45, up_bid=0.40),  # FILL @ 0.45
+        _snap(30_000,   up_ask=0.55, up_bid=0.50),
+        _snap(40_000,   up_ask=0.70, up_bid=0.65),  # EXIT @ 0.65 (up_best_bid)
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    assert len(eng.portfolio.trades) == 1
+    t = eng.portfolio.trades[0]
+    # Limit fill
+    assert t.metadata.get("entry_type") == "limit"
+    assert t.entry_price == pytest.approx(0.45, abs=0.01)
+    # Exit (40sn early-close, not market_close)
+    assert t.exit_price == pytest.approx(0.65, abs=0.01)
+    assert "exit_second_max" in t.metadata.get("exit_reason", "")
+
+
+def test_run_market_market_order_unaffected_by_limit_default():
+    """entry_limit_price=0 (default) → market entry, eski davranış."""
+    eng = _engine_for_run()  # default
+    snapshots = [
+        _snap(0, up_ask=0.65, up_bid=0.60),
+        _snap(10_000, up_ask=0.55),
+    ]
+    eng._run_market(_market(), snapshots, "UP")
+    assert len(eng.portfolio.trades) == 1
+    t = eng.portfolio.trades[0]
+    # Standart market entry — fill_mode=midpoint
+    assert t.metadata.get("entry_type") != "limit"
+    # entry_price = midpoint(0.65, 0.60) + slippage ≈ 0.625 + 0.023 = 0.648
+    assert t.entry_price > 0.60
+    assert t.entry_price < 0.70
