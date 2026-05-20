@@ -207,51 +207,107 @@ async def _build_main(db) -> tuple[str, InlineKeyboardMarkup]:
     if strat_n > 5:
         sample_txt += f", …+{strat_n - 5}"
 
+    # Kullanıcı ruleset'i sayısını ayrı bilelim — hazır stratejiler ayrı kaynak
+    user_rs_n = 0
+    try:
+        from backtest.strategies.rule_based import list_rulesets
+
+        user_rs_n = len(list_rulesets())
+    except Exception as e:  # noqa: BLE001
+        logger.debug("_build_main rulesets count failed: %s", e)
+
     text = (
         "🧪 <b>BACKTEST LAB</b>\n"
-        "<i>Tek kapı — mode-first paradigma</i>\n\n"
+        "<i>Gerçek L2 orderbook üzerinde backtest</i>\n\n"
         f"{gap}"
         "📦 <b>Veri kaynağı:</b>\n"
         f"  ob_snapshots: {ob}\n"
-        f"  strateji: <code>{strat_n}</code> kayıtlı ({sample_txt})\n\n"
+        f"  📋 Kendi kuralların: <b>{user_rs_n}</b> kayıtlı ruleset\n"
+        f"  📚 Hazır referans: <b>{strat_n}</b> Python stratejisi\n\n"
         "Hangi panele girmek istersin?\n\n"
-        "🚀 <b>Hızlı Test</b> — son N market, preset config\n"
-        "🛠 <b>Strateji Kurucu</b> — kural-bazlı no-code "
-        "<i>(Faz 3-4)</i>\n"
-        "🆚 <b>Karşılaştır</b> — iki+ stratejiyi yan yana\n"
+        "🚀 <b>Hızlı Test</b> — kendi kuralın veya hazır strateji ile koş\n"
+        "🛠 <b>Strateji Kurucu</b> — no-code kural yaz (sihirbaz veya JSON)\n"
+        "🆚 <b>Karşılaştır</b> — iki+ kural/strateji yan yana\n"
         "🎯 <b>Kalibrasyon</b> — paper × MULT vs live drift\n"
     )
     return text, _main_kb()
 
 
 async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🚀 Hızlı Test paneli — preset config'lerle replay backtest.
+    """🚀 Hızlı Test paneli — kullanıcının kendi kuralları öncelikli.
 
-    Faz 1: mevcut /backtest_replay komutuna köprü. Her preset için
-    çalıştırılacak komut metnini gösterir (kullanıcı kopya-yapıştır
-    edebilir veya butonla doğrudan komut çağrısı — Faz 2'de inline).
+    Heddas direktifi 2026-05-21: "ben hazır assetleri kullanmak
+    istemiyorum". Bu yüzden:
+      • Kullanıcı ruleset'leri ÖN PLANDA — her biri için tek-tık komut
+      • Hazır Python stratejileri (hour_edge, taker_flow, ...) ARKA
+        PLANDA — opsiyonel, referans/karşılaştırma için duruyor
+      • Hiç ruleset yoksa: Kurucu'ya net yönlendirme
     """
     gap = await _reality_gap_block(db)
     ob = await _ob_snapshots_summary(db)
-    strat_n, _ = _strategy_count()
 
-    text = (
-        "🚀 <b>HIZLI TEST</b>\n"
-        "<i>Preset config ile gerçek L2 replay backtest</i>\n\n"
-        f"{gap}"
-        f"📦 Veri: {ob} · strateji: <code>{strat_n}</code>\n\n"
-        "<b>Önerilen presetler</b> (kopya/yapıştır veya buton):\n\n"
-        "1️⃣  Son 100 BTC 5m market — varsayılan strateji\n"
-        "    <code>/backtest_replay hour_edge BTC 5m</code>\n\n"
-        "2️⃣  Son 200 ETH 5m market\n"
-        "    <code>/backtest_replay hour_edge ETH 5m</code>\n\n"
-        "3️⃣  Son 100 BTC 15m market\n"
-        "    <code>/backtest_replay hour_edge BTC 15m</code>\n\n"
-        "4️⃣  Tüm stratejileri karşılaştır (son 100 BTC 5m)\n"
-        "    <code>/compare</code>\n\n"
-        "<i>Faz 2'de bu paneller inline butonlarla doğrudan koşar,"
-        " saniye-aralığı / saat / weekday / price-trigger filtreleri eklenir.</i>"
+    # Kullanıcı ruleset'leri (data_store/bt_strategies/)
+    user_rulesets: list[dict] = []
+    try:
+        from backtest.strategies.rule_based import list_rulesets
+
+        user_rulesets = list_rulesets()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("_build_quick rulesets list failed: %s", e)
+
+    lines = [
+        "🚀 <b>HIZLI TEST</b>",
+        "<i>Gerçek L2 ob_snapshots üzerinde replay backtest</i>",
+        "",
+        gap.rstrip(),
+        "",
+        f"📦 Veri: {ob}",
+        "",
+    ]
+
+    if user_rulesets:
+        lines.append("<b>📋 Kendi kuralların</b> — koşturmak için kopyala-yapıştır:")
+        for rs in user_rulesets[:8]:
+            nm = rs.get("name", "?")
+            direction = rs.get("direction", "?")
+            cond_n = len(rs.get("entry", {}).get("conditions", []))
+            lines.append(
+                f"  • <code>{esc(nm)}</code> "
+                f"({esc(direction)}, {cond_n} kural)\n"
+                f"    <code>/backtest_replay rule_based BTC 5m</code>"
+            )
+        if len(user_rulesets) > 8:
+            lines.append(f"  <i>...+{len(user_rulesets) - 8} daha</i>")
+        lines.append("")
+        lines.append(
+            "<i>Not: rule_based stratejisi en son kaydettiğin "
+            "ruleset'i auto-load eder. Birden fazla ruleset için "
+            "şimdilik tek tek koş.</i>"
+        )
+    else:
+        lines.append(
+            "<b>📋 Kendi kuralların:</b> <i>henüz yok</i>\n\n"
+            "🛠 <b>Strateji Kurucu</b>'ya geç — 2-3 tıkla preset "
+            "sihirbazı veya JSON paste ile kendi kuralını yaz."
+        )
+
+    lines.append("")
+    lines.append(
+        "<b>📚 Hazır referans stratejileri</b> "
+        "<i>(opsiyonel, Heddas kullanmıyor)</i>"
     )
+    lines.append(
+        "  Eski Python class'ları (hour_edge, taker_flow, composite, "
+        "streak_reversal...) — referans/karşılaştırma için duruyor. "
+        "Kullanmak istemezsen yok say."
+    )
+    lines.append(
+        "  Liste için: <code>/strategies</code> · "
+        "Koşturmak için: <code>/backtest_replay &lt;ad&gt; BTC 5m</code>"
+    )
+
+    text = "\n".join(lines)
+
     extra = [
         [InlineKeyboardButton("🛠 Strateji Kurucu", callback_data="lab_builder")],
         [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
@@ -298,14 +354,18 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
 
     text = (
         "🛠 <b>STRATEJİ KURUCU</b>\n"
-        "<i>No-code rule builder — JSON paste flow</i>\n\n"
+        "<i>No-code rule builder — sihirbaz veya JSON</i>\n\n"
         f"{gap}"
-        "<b>Kayıtlı kuralların</b> "
+        "<b>📋 Kendi kuralların</b> "
         "(<code>data_store/bt_strategies/</code>):\n"
         f"{user_rulesets_txt}\n\n"
-        "<b>Python-kodlu stratejiler</b>:\n"
-        f"{sample_txt}\n\n"
-        "<b>Yeni strateji</b> — 2 yol:\n"
+        "<b>📚 Hazır Python stratejileri</b> "
+        "<i>(referans için — plugin değil, repo'nun kendi class'ları)</i>:\n"
+        f"{sample_txt}\n"
+        "<i>Bunlar geliştiricinin yazdığı sabit Python sınıfları (örn. "
+        "hour_edge = saatlik bias, taker_flow = hacim sinyali). "
+        "Sen kendi kurallarını yapıyorsan kullanmana gerek yok.</i>\n\n"
+        "<b>Yeni kural</b> — 2 yol:\n"
         "  🧙 <b>Preset Sihirbazı</b> (en hızlı — 2-3 tık)\n"
         "  📥 Manuel JSON: <code>/lab_save</code> komutu\n\n"
         "<b>JSON formatı</b>:\n"
@@ -395,8 +455,8 @@ async def _build_show_ruleset(name: str) -> tuple[str, InlineKeyboardMarkup]:
         f"<pre>{esc(pretty)}</pre>\n\n"
         "<b>Backtest çalıştır</b>:\n"
         f"<code>/backtest_replay rule_based BTC 5m</code>\n"
-        "<i>(rule_based stratejisi RuleSet'i auto-load eder — Faz 4b'de"
-        " inline tek-tık run gelecek.)</i>"
+        "<i>rule_based stratejisi en son kaydettiğin RuleSet'i auto-load "
+        "eder. Birden fazla için tek tek koş.</i>"
     )
     extra = [
         [InlineKeyboardButton(f"🗑 Sil ({name})", callback_data=f"lab_del_ask:{name}")],
@@ -556,7 +616,7 @@ async def _build_wiz_menu() -> tuple[str, InlineKeyboardMarkup]:
         "    \"Saat 22 UTC marketinde UP al\" gibi schedule\n\n"
         "📋 <b>Limit @ X Al</b>\n"
         "    GTC limit emir: ask fiyatı X'e düşünce fill, expire sn yoksa"
-        " market_close'a kadar bekler. <i>(Faz 5b)</i>\n"
+        " market_close'a kadar bekler.\n"
     )
     kb = InlineKeyboardMarkup(
         [
@@ -919,10 +979,9 @@ async def _build_help_save() -> tuple[str, InlineKeyboardMarkup]:
         "    ]\n"
         "  }\n"
         "}</pre>\n"
-        "<b>Stop-loss örneği</b> — fiyat 0.30'a düşerse exit "
-        "<i>(exit Faz 2 config knob'u — ReplayConfig.exit_yes_price_below)</i>:\n"
-        "Strateji-bazında değil, backtest config'inde olur — buraya değil"
-        " <code>ReplayConfig</code>'e yazılır.\n\n"
+        "<b>Stop-loss notu</b>: fiyat eşiğinde exit (örn. 0.30'a düşünce sat) "
+        "strateji-bazında değil, ReplayConfig knob'undadır — "
+        "<code>exit_yes_price_below</code> alanı (motor seviyesinde).\n\n"
         "<b>Doğrulama kuralları</b>:\n"
         "  • name: 1-64 karakter <code>[A-Za-z0-9_-]</code> (dosya güvenli)\n"
         "  • direction: <code>up</code> veya <code>down</code>\n"
@@ -938,22 +997,50 @@ async def _build_help_save() -> tuple[str, InlineKeyboardMarkup]:
 
 
 async def _build_compare(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🆚 Karşılaştır paneli — mevcut /compare köprüsü."""
+    """🆚 Karşılaştır paneli — /compare köprüsü.
+
+    Heddas direktifi 2026-05-21: hazır asset kullanmıyor, kendi kuralları
+    var. Örnekler de kullanıcı ruleset'lerinden çekilsin (varsa).
+    """
     gap = await _reality_gap_block(db)
-    strat_n, _ = _strategy_count()
+
+    # Kullanıcı ruleset adları — örnek komutta hazır class ismi yerine onları öner
+    user_rs_names: list[str] = []
+    try:
+        from backtest.strategies.rule_based import list_rulesets
+
+        user_rs_names = [rs.get("name", "") for rs in list_rulesets()[:3] if rs.get("name")]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("_build_compare rulesets list failed: %s", e)
+
+    if len(user_rs_names) >= 2:
+        # Kullanıcının kendi ruleset'leri ile örnek (rule_based kuralları aynı
+        # ad'a takar — şu an /compare ile multi-ruleset koşturmak için
+        # rule_based stratejisi her ruleset için ayrı kayıtlı olmalı.
+        # Bu mevcut UX limiti — örnek yine de gerçek isimler.)
+        usage_example = (
+            f"  <code>/compare rule_based rule_based</code>\n"
+            f"  <i>(her ikisi de en son kayıtlı kuralı yükler — multi-ruleset"
+            f" karşılaştırma backlog'da; şimdilik birer-birer çalıştır)</i>"
+        )
+    else:
+        usage_example = (
+            "  <code>/compare ad1 ad2 ad3</code> "
+            "<i>(kendi ruleset adların — önce Kurucu'da kaydet)</i>"
+        )
 
     text = (
         "🆚 <b>KARŞILAŞTIR</b>\n"
-        "<i>2+ stratejiyi aynı veri üzerinde yan yana</i>\n\n"
+        "<i>2+ kuralı/stratejiyi aynı veri üzerinde yan yana</i>\n\n"
         f"{gap}"
-        f"📦 Kayıtlı strateji: <code>{strat_n}</code>\n\n"
+        f"📋 Kendi kuralın: <b>{len(user_rs_names)}+</b> kayıtlı\n\n"
         "<b>Kullanım</b>:\n"
-        "  <code>/compare hour_edge composite streak_reversal</code>\n\n"
-        "Train/test 70/30 bölmesi için sonuna <code>split</code> ekle:\n"
-        "  <code>/compare hour_edge composite split</code>\n\n"
-        "Çıktı: her strateji için WR, PnL, Sharpe, max drawdown +"
-        " ortak veri üzerinde sıralanmış tablo.\n\n"
-        "<i>Faz 4'te kurucu-üretimi stratejiler de bu listede çıkar.</i>"
+        f"{usage_example}\n\n"
+        "Train/test 70/30 bölmesi için sonuna <code>split</code> ekle.\n\n"
+        "Çıktı: her strateji için WR, PnL, Sharpe, max drawdown + "
+        "ortak veri üzerinde sıralanmış tablo.\n\n"
+        "<i>Hazır referans Python stratejileri ile karşılaştırmak istersen "
+        "<code>/strategies</code> listesinden adlarını al.</i>"
     )
     extra = [
         [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
