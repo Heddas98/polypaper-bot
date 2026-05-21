@@ -212,8 +212,13 @@ async def test_build_quick_smoke():
     db = _db({"FROM live_trades": (0, 0.0, 0.0), "FROM ob_snapshots": (100, 0, 0)})
     text, kb = await _build_quick(db)
     assert "HIZLI TEST" in text
-    assert "/backtest_replay" in text  # legacy command bridge
+    # Adım 3: copy-paste komut bridge kaldırıldı — buton-driven
+    # (Heddas "komut gibi yazmakla uğraşmayayım")
+    assert "/backtest_replay" not in text
     assert isinstance(kb, InlineKeyboardMarkup)
+    # Kurucu butonu her zaman mevcut (filesystem'den bağımsız stabil kontrol)
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_builder" in cbs
 
 
 # ── Adım 3 — _humanize_conditions + inline backtest ─────────
@@ -256,6 +261,43 @@ async def test_run_inline_backtest_invalid_params():
     assert "Geçersiz" in text
     # Geçersiz isim (path traversal)
     text, kb = await _run_inline_backtest("../escape", "BTC", "5m", _db())
+    assert "Geçersiz" in text
+
+
+def test_scope_buttons():
+    """Adım 3 — kapsam (last_n) butonları: 4 seçenek, aktif ✅, tümü=0."""
+    from telegram_bot.handlers.backtest_lab import _scope_buttons
+
+    row = _scope_buttons("my_rs", "BTC", "5m", 200)
+    assert len(row) == 4
+    cbs = [b.callback_data for b in row]
+    assert "lab_btr:my_rs:BTC:5m:50" in cbs
+    assert "lab_btr:my_rs:BTC:5m:200" in cbs
+    assert "lab_btr:my_rs:BTC:5m:500" in cbs
+    assert "lab_btr:my_rs:BTC:5m:0" in cbs  # tümü
+    # aktif kapsam ✅ ile işaretli (yalnız biri)
+    active = [b.text for b in row if b.text.startswith("✅")]
+    assert active == ["✅200"]
+    # n=0 etiketi "tümü"
+    assert any(b.text in ("tümü", "✅tümü") for b in row)
+
+
+def test_scope_buttons_all_active():
+    """last_n=0 (tümü) seçiliyse 'tümü' butonu ✅ olur."""
+    from telegram_bot.handlers.backtest_lab import _scope_buttons
+
+    row = _scope_buttons("rs", "ETH", "15m", 0)
+    active = [b.text for b in row if b.text.startswith("✅")]
+    assert active == ["✅tümü"]
+
+
+@pytest.mark.asyncio
+async def test_run_inline_backtest_last_n_kwarg():
+    """_run_inline_backtest last_n kwarg'ını kabul eder (imza pin'i)."""
+    from telegram_bot.handlers.backtest_lab import _run_inline_backtest
+
+    # last_n verilse de geçersiz asset guard'ı önce döner (crash yok)
+    text, kb = await _run_inline_backtest("x", "DOGE", "5m", _db(), last_n=500)
     assert "Geçersiz" in text
 
 

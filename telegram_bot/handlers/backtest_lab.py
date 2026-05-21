@@ -266,25 +266,28 @@ async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
         "",
     ]
 
+    # Adım 3 (Heddas: "komut gibi yazmakla uğraşmayayım") — her ruleset bir
+    # buton; tıkla → detay + tek-tık market backtest + kapsam seçimi.
+    rs_buttons: list[list[InlineKeyboardButton]] = []
     if user_rulesets:
-        lines.append("<b>📋 Kendi kuralların</b> — koşturmak için kopyala-yapıştır:")
+        lines.append(
+            "<b>📋 Kendi kuralların</b> — aşağıdaki butona bas → "
+            "backtest et (komut yok):"
+        )
         for rs in user_rulesets[:8]:
             nm = rs.get("name", "?")
             direction = rs.get("direction", "?")
             cond_n = len(rs.get("entry", {}).get("conditions", []))
             lines.append(
                 f"  • <code>{esc(nm)}</code> "
-                f"({esc(direction)}, {cond_n} kural)\n"
-                f"    <code>/backtest_replay rule_based BTC 5m</code>"
+                f"({esc(direction)}, {cond_n} kural)"
             )
+            if nm and nm != "?":
+                rs_buttons.append(
+                    [InlineKeyboardButton(f"🔍 {nm}", callback_data=f"lab_show:{nm}")]
+                )
         if len(user_rulesets) > 8:
-            lines.append(f"  <i>...+{len(user_rulesets) - 8} daha</i>")
-        lines.append("")
-        lines.append(
-            "<i>Not: rule_based stratejisi en son kaydettiğin "
-            "ruleset'i auto-load eder. Birden fazla ruleset için "
-            "şimdilik tek tek koş.</i>"
-        )
+            lines.append(f"  <i>...+{len(user_rulesets) - 8} daha (Kurucu'da)</i>")
     else:
         lines.append(
             "<b>📋 Kendi kuralların:</b> <i>henüz yok</i>\n\n"
@@ -292,24 +295,10 @@ async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
             "sihirbazı veya JSON paste ile kendi kuralını yaz."
         )
 
-    lines.append("")
-    lines.append(
-        "<b>📚 Hazır referans stratejileri</b> "
-        "<i>(opsiyonel, Heddas kullanmıyor)</i>"
-    )
-    lines.append(
-        "  Eski Python class'ları (hour_edge, taker_flow, composite, "
-        "streak_reversal...) — referans/karşılaştırma için duruyor. "
-        "Kullanmak istemezsen yok say."
-    )
-    lines.append(
-        "  Liste için: <code>/strategies</code> · "
-        "Koşturmak için: <code>/backtest_replay &lt;ad&gt; BTC 5m</code>"
-    )
-
     text = "\n".join(lines)
 
     extra = [
+        *rs_buttons,
         [InlineKeyboardButton("🛠 Strateji Kurucu", callback_data="lab_builder")],
         [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
     ]
@@ -520,11 +509,36 @@ def _humanize_conditions(rs: dict) -> str:
     return joiner.join(lines) if len(lines) > 1 else "\n".join(lines)
 
 
-async def _run_inline_backtest(name: str, asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
+# Backtest kapsam (last_n) seçenekleri — Heddas Adım 3: "kaç market taransın?"
+_SCOPE_OPTIONS = (50, 200, 500, 0)  # 0 = tümü (unlimited)
+
+
+def _scope_buttons(name: str, asset: str, tf: str, last_n: int) -> list[InlineKeyboardButton]:
+    """Kapsam (last_n) re-run butonları — sonuç ekranında kaç market taranacağını
+    tek tıkla değiştir. Aktif kapsam ✅ ile işaretli.
+
+    `lab_btr:<name>:<asset>:<tf>:<n>` callback'i üretir (n=0 → tümü).
+    """
+    row: list[InlineKeyboardButton] = []
+    for n in _SCOPE_OPTIONS:
+        lbl = "tümü" if n == 0 else str(n)
+        if n == last_n:
+            lbl = f"✅{lbl}"
+        row.append(
+            InlineKeyboardButton(lbl, callback_data=f"lab_btr:{name}:{asset}:{tf}:{n}")
+        )
+    return row
+
+
+async def _run_inline_backtest(
+    name: str, asset: str, tf: str, db, last_n: int = 200
+) -> tuple[str, InlineKeyboardMarkup]:
     """Ruleset'i inline backtest et — komut yok, tek tık (Heddas 2026-05-21).
 
-    `lab_bt:<name>:<asset>:<tf>` callback'inden çağrılır. Ruleset yüklenir,
-    BacktestRunner ile koşulur, zengin sonuç tablosu döner.
+    `lab_bt:<name>:<asset>:<tf>` (varsayılan son 200) veya
+    `lab_btr:<name>:<asset>:<tf>:<n>` (kapsam seçili) callback'inden çağrılır.
+    Ruleset yüklenir, BacktestRunner ile koşulur, zengin sonuç tablosu +
+    kapsam değiştirme butonları döner. last_n=0 → tüm market'ler.
     """
     from backtest.strategies.rule_based import _NAME_RX, list_rulesets
 
@@ -554,7 +568,7 @@ async def _run_inline_backtest(name: str, asset: str, tf: str, db) -> tuple[str,
 
         cfg = RunConfig(
             asset=asset, timeframe=tf, strategy_name="rule_based",
-            strategy_params=rs, last_n=200,
+            strategy_params=rs, last_n=max(0, last_n),
         )
         summary = await BacktestRunner(db).run(cfg)
     except Exception as e:  # noqa: BLE001
@@ -588,14 +602,24 @@ async def _run_inline_backtest(name: str, asset: str, tf: str, db) -> tuple[str,
             f"  Final bakiye: ${summary.final_balance:.2f}"
         )
 
+    scope_lbl = "tümü" if cfg.last_n <= 0 else f"son {cfg.last_n}"
     text = (
         f"🚀 <b>Backtest Sonucu</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📋 Strateji: <code>{esc(name)}</code> ({esc(dir_lbl)})\n"
-        f"🎯 Market: <b>{esc(asset)} {esc(tf)}</b> · son {cfg.last_n}\n\n"
-        f"{body}"
+        f"🎯 Market: <b>{esc(asset)} {esc(tf)}</b> · {scope_lbl}\n\n"
+        f"{body}\n\n"
+        "<i>🔁 Kaç market taransın? Aşağıdan kapsam değiştir.</i>"
     )
-    return text, back_kb
+    # Kapsam (last_n) değiştirme butonları — Heddas Adım 3
+    result_kb = _panel_nav_kb(
+        extra_rows=[
+            _scope_buttons(name, asset, tf, cfg.last_n),
+            [InlineKeyboardButton("◀️ Strateji detayı", callback_data=f"lab_show:{name}")],
+            [InlineKeyboardButton("🛠 Kurucu", callback_data="lab_builder")],
+        ]
+    )
+    return text, result_kb
 
 
 async def _build_del_confirm(name: str) -> tuple[str, InlineKeyboardMarkup]:
@@ -1999,6 +2023,30 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 except (BadRequest, TelegramError):
                     pass
                 text, kb = await _run_inline_backtest(bt_name, bt_asset, bt_tf, db)
+        elif action == "lab_btr":
+            # lab_btr:<name>:<asset>:<tf>:<n> — kapsam (last_n) seçili backtest
+            parts = arg.split(":")
+            if len(parts) != 4:
+                text, kb = "⚠️ Geçersiz backtest parametresi.", _main_kb()
+            else:
+                bt_name, bt_asset, bt_tf, bt_n = parts
+                try:
+                    n_val = max(0, int(bt_n))
+                except (TypeError, ValueError):
+                    n_val = 200
+                scope_txt = "tümü" if n_val == 0 else f"son {n_val}"
+                try:
+                    await q.edit_message_text(
+                        f"⏳ <b>{esc(bt_asset)} {esc(bt_tf)}</b> backtest "
+                        f"çalışıyor ({esc(scope_txt)})...\n"
+                        f"<i>Strateji: {esc(bt_name)}</i>",
+                        parse_mode="HTML",
+                    )
+                except (BadRequest, TelegramError):
+                    pass
+                text, kb = await _run_inline_backtest(
+                    bt_name, bt_asset, bt_tf, db, last_n=n_val
+                )
         elif action == "lab_cb":
             # lab_cb:<asset>:<tf>:<dir>:<mode> — candle/martingale backtest
             parts = arg.split(":")
