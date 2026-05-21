@@ -201,14 +201,9 @@ async def _ob_snapshots_summary(db) -> str:
 async def _build_main(db) -> tuple[str, InlineKeyboardMarkup]:
     """Mode-select ekran — 4 panel + reality-gap + meta özet."""
     gap = await _reality_gap_block(db)
-    strat_n, strat_sample = _strategy_count()
     ob = await _ob_snapshots_summary(db)
 
-    sample_txt = ", ".join(esc(s) for s in strat_sample[:5]) or "<i>yok</i>"
-    if strat_n > 5:
-        sample_txt += f", …+{strat_n - 5}"
-
-    # Kullanıcı ruleset'i sayısını ayrı bilelim — hazır stratejiler ayrı kaynak
+    # Kayıtlı no-code ruleset sayısı — LAB'ın tek strateji kaynağı.
     user_rs_n = 0
     try:
         from backtest.strategies.rule_based import list_rulesets
@@ -223,26 +218,26 @@ async def _build_main(db) -> tuple[str, InlineKeyboardMarkup]:
         f"{gap}"
         "📦 <b>Veri kaynağı:</b>\n"
         f"  ob_snapshots: {ob}\n"
-        f"  📋 Kendi kuralların: <b>{user_rs_n}</b> kayıtlı ruleset\n"
-        f"  📚 Hazır referans: <b>{strat_n}</b> Python stratejisi\n\n"
+        f"  📋 Kendi kuralların: <b>{user_rs_n}</b> kayıtlı ruleset\n\n"
         "Hangi panele girmek istersin?\n\n"
-        "🚀 <b>Hızlı Test</b> — kendi kuralın veya hazır strateji ile koş\n"
+        "🚀 <b>Hızlı Test</b> — kendi kuralını L2 veri üzerinde koş\n"
         "🛠 <b>Strateji Kurucu</b> — no-code kural yaz (sihirbaz veya JSON)\n"
-        "🆚 <b>Karşılaştır</b> — iki+ kural/strateji yan yana\n"
+        "🆚 <b>Karşılaştır</b> — iki+ kuralı yan yana\n"
         "🎯 <b>Kalibrasyon</b> — paper × MULT vs live drift\n"
     )
     return text, _main_kb()
 
 
 async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🚀 Hızlı Test paneli — kullanıcının kendi kuralları öncelikli.
+    """🚀 Hızlı Test paneli — kullanıcının kendi kuralları.
 
     Heddas direktifi 2026-05-21: "ben hazır assetleri kullanmak
     istemiyorum". Bu yüzden:
-      • Kullanıcı ruleset'leri ÖN PLANDA — her biri için tek-tık komut
-      • Hazır Python stratejileri (hour_edge, taker_flow, ...) ARKA
-        PLANDA — opsiyonel, referans/karşılaştırma için duruyor
+      • Kullanıcı ruleset'leri ÖN PLANDA — her biri için tek-tık buton
       • Hiç ruleset yoksa: Kurucu'ya net yönlendirme
+
+    Not: 2026-05-21 strateji temizliğinden sonra hazır/sabit Python
+    stratejisi yok; tek motor `rule_based` (kullanıcı kuralları).
     """
     gap = await _reality_gap_block(db)
     ob = await _ob_snapshots_summary(db)
@@ -314,10 +309,6 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
     sihirbazı (saniye aralığı, fiyat trigger gibi hazır şablonlar).
     """
     gap = await _reality_gap_block(db)
-    strat_n, strat_sample = _strategy_count()
-    sample_txt = "\n".join(f"  • <code>{esc(s)}</code>" for s in strat_sample[:6])
-    if strat_n > 6:
-        sample_txt += f"\n  • <i>...+{strat_n - 6} daha</i>"
 
     rs_list: list[dict] = []
     try:
@@ -349,12 +340,8 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         "<b>📋 Kendi kuralların</b> "
         "(<code>data_store/bt_strategies/</code>):\n"
         f"{user_rulesets_txt}\n\n"
-        "<b>📚 Hazır Python stratejileri</b> "
-        "<i>(referans için — plugin değil, repo'nun kendi class'ları)</i>:\n"
-        f"{sample_txt}\n"
-        "<i>Bunlar geliştiricinin yazdığı sabit Python sınıfları (örn. "
-        "hour_edge = saatlik bias, taker_flow = hacim sinyali). "
-        "Sen kendi kurallarını yapıyorsan kullanmana gerek yok.</i>\n\n"
+        "<i>Hazır/sabit strateji yok — tüm kurallar <code>rule_based</code> "
+        "motoruyla, senin tanımına göre çalışır.</i>\n\n"
         "<b>Yeni kural</b> — 2 yol:\n"
         "  🧙 <b>Preset Sihirbazı</b> (en hızlı — 2-3 tık)\n"
         "  📥 Manuel JSON: <code>/lab_save</code> komutu\n\n"
@@ -1196,8 +1183,8 @@ async def _build_compare(db) -> tuple[str, InlineKeyboardMarkup]:
         "Train/test 70/30 bölmesi için sonuna <code>split</code> ekle.\n\n"
         "Çıktı: her strateji için WR, PnL, Sharpe, max drawdown + "
         "ortak veri üzerinde sıralanmış tablo.\n\n"
-        "<i>Hazır referans Python stratejileri ile karşılaştırmak istersen "
-        "<code>/strategies</code> listesinden adlarını al.</i>"
+        "<i>Karşılaştırmak için önce Kurucu'da en az iki kural kaydet — "
+        "hazır/sabit strateji yok.</i>"
     )
     extra = [
         [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
