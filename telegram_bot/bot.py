@@ -848,19 +848,10 @@ class PolyPaperBot:
             CallbackQueryHandler(mode_callback, pattern="^mode_(set_|refresh|nav_)")
         )
 
-        # P0-03 (2026-05-08): "wallet_key_" pattern removed alongside the
-        # corresponding inline button in start.py. The placeholder handler
-        # never returned a real private key, but the registration kept the
-        # surface area alive for typo-based or stale-keyboard callbacks.
-        for pat in [
-            "show_api",
-            "share_pnl",
-            "import_wallet",
-            "wallet_info_",
-            "wallet_delete_",
-            "select_wallet_",
-        ]:
-            self.app.add_handler(CallbackQueryHandler(self._ph(pat), pattern=f"^{pat}"))
+        # 2026-05-22: "_ph" placeholder kayitlari (show_api / share_pnl /
+        # import_wallet / wallet_info_ / wallet_delete_ / select_wallet_)
+        # kaldirildi. Hepsi "Yakinda!" doner butonlardi; start.py'deki
+        # butonlar da silindi (bkz _send_wallets). Orphan kayit kalmadi.
 
         # Parameter info callbacks
         self.app.add_handler(CallbackQueryHandler(info_callback, pattern="^info_"))
@@ -1286,12 +1277,6 @@ class PolyPaperBot:
             await self.app.updater.stop()
             await self.app.stop()
             await self.app.shutdown()
-
-    def _ph(self, name):
-        async def h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            await update.callback_query.answer(f"🚧 {name} - Yakinda!", show_alert=True)
-
-        return h
 
     async def _ap_redirect(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
