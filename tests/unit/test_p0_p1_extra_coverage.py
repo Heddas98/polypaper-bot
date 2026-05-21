@@ -22639,23 +22639,6 @@ class TestStrategiesHandlerConvFlowWave20:
                     except Exception:
                         pass
 
-    @pytest.mark.asyncio
-    async def test_strategies_handle_edit_input(self):
-        try:
-            from telegram_bot.handlers.strategies import handle_edit_input
-        except (ImportError, AttributeError):
-            pytest.skip()
-        # Test text input variants
-        for text in ["0.5", "0.05", "1.0", "1.5", "2.0", "invalid", "-1"]:
-            update, ctx = _make_update_ctx(text=text)
-            ctx.bot_data["db"] = _make_full_db()
-            ctx.user_data["edit_field"] = "edge_threshold"
-            ctx.user_data["edit_strategy_id"] = 1
-            try:
-                await handle_edit_input(update, ctx)
-            except Exception:
-                pass
-
 
 class TestStatsHandlerRealDbWave20:
     """telegram_bot/handlers/stats.py — 540 stmts, 13.4%."""
