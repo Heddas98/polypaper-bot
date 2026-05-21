@@ -109,7 +109,16 @@ class BacktestRunner:
             trade_amount=cfg.trade_amount,
             fee_calculator=self.fee_calc,
         )
-        self._strategy = StrategyRegistryV2.create(cfg.strategy_name, **cfg.strategy_params)
+        # 2026-05-21: RuleBasedStrategy ruleset dict'i from_ruleset() ile
+        # yüklenir — generic create(name, **params) `name` argüman çakışması
+        # verir (ruleset'in kendi "name" alanı var). Diğer stratejiler (yok
+        # artık ama API korunur) generic create ile.
+        if cfg.strategy_name == "rule_based" and cfg.strategy_params:
+            from backtest.strategies.rule_based import RuleBasedStrategy
+
+            self._strategy = RuleBasedStrategy.from_ruleset(cfg.strategy_params)
+        else:
+            self._strategy = StrategyRegistryV2.create(cfg.strategy_name)
         if not self._strategy:
             available = StrategyRegistryV2.list_all()
             raise ValueError(
@@ -173,9 +182,10 @@ class BacktestRunner:
             losses=stats.losses,
             win_rate=stats.win_rate,
             total_pnl=stats.total_pnl,
-            avg_pnl=(stats.total_pnl / n_trades) if n_trades > 0 else 0.0,
+            avg_pnl=getattr(stats, "avg_pnl", 0.0),
             fees_total=getattr(stats, "total_fees", 0.0),
-            final_balance=stats.final_balance,
+            # PortfolioStats'te final_balance yok — initial + pnl hesapla
+            final_balance=cfg.initial_balance + stats.total_pnl,
         )
 
     # ─── Discovery ──────────────────────────────────────────
@@ -205,9 +215,13 @@ class BacktestRunner:
         if cfg.timeframe:
             query += " AND timeframe = ?"
             params.append(cfg.timeframe)
+        # 2026-05-21: token_count >= 1 (eskiden >= 2). Mevcut veride her
+        # condition_id'de genelde TEK token (UP) snapshot'i var — DOWN tarafi
+        # WS'de ayri subscribe edilmiyor/kaydedilmiyor. Binary market oldugu
+        # icin DOWN fiyati UP'tan turetilir (_load_merged_snapshots'ta).
         query += f"""
             GROUP BY condition_id
-            HAVING snap_count >= {cfg.min_snapshots} AND token_count >= 2
+            HAVING snap_count >= {cfg.min_snapshots} AND token_count >= 1
             ORDER BY first_ts DESC
         """
         if cfg.last_n > 0:
@@ -297,20 +311,16 @@ class BacktestRunner:
         if not rows:
             return []
 
-        # İki token'i belirle — ilk gördüğümüz UP, ikincisi DOWN (heuristic).
-        # Doğru ayrım için scanner.get_token_meta() yapardık ama runner'ın
-        # scanner referansı yok (CLI'da hep mevcut değil); merged sonuç
-        # UP/DOWN simetrik olduğu için strategy davranışı aynı.
+        # 2026-05-21: token sayisini belirle. Mevcut veride genelde TEK
+        # token (UP) var; nadiren iki (UP+DOWN). İlk gördüğümüz = UP varsay.
         seen_tokens: list[str] = []
         for r in rows:
             if r[1] not in seen_tokens:
                 seen_tokens.append(r[1])
             if len(seen_tokens) == 2:
                 break
-        if len(seen_tokens) < 2:
-            return []
         up_token = seen_tokens[0]
-        down_token = seen_tokens[1]
+        down_token = seen_tokens[1] if len(seen_tokens) >= 2 else None
 
         first_ts = rows[0][0]
         merged: dict[int, dict] = {}
@@ -339,9 +349,19 @@ class BacktestRunner:
             d = merged[ts]
             d["remaining_seconds"] = max(0.0, total_dur - d["elapsed_seconds"])
             d["elapsed_pct"] = (d["elapsed_seconds"] / total_dur) if total_dur > 0 else 0.0
-            # UP veya DOWN eksikse skip (snapshot tamamlanmamış)
-            if "up_best_ask" not in d or "down_best_ask" not in d:
+            # UP tarafı yoksa snapshot atla (entry referansı yok)
+            if "up_best_ask" not in d:
                 continue
+            # 2026-05-21: DOWN tarafı yoksa binary market matematiğiyle türet.
+            # Polymarket binary: UP_token + DOWN_token ≈ 1.0 (spread hariç).
+            # down_ask ≈ 1 − up_bid, down_bid ≈ 1 − up_ask (karşı taraf).
+            if "down_best_ask" not in d:
+                up_bid = d.get("up_best_bid", 0.0)
+                up_ask = d.get("up_best_ask", 0.0)
+                d["down_best_ask"] = max(0.0, 1.0 - up_bid) if up_bid > 0 else 0.0
+                d["down_best_bid"] = max(0.0, 1.0 - up_ask) if up_ask > 0 else 0.0
+            if "up_best_bid" not in d:
+                d["up_best_bid"] = 0.0
             snaps.append(OrderbookSnapshot(**d))
         return snaps
 
