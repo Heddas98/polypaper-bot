@@ -274,10 +274,38 @@ async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe
             )
             return
 
+        # 2026-05-21: rule_based icin kayitli ruleset yukle. /backtest_replay
+        # rule_based komutu strategy_params vermez → bos default → 0 trade.
+        # Kullanicinin en son kaydettigi ruleset'i otomatik yukle (birden
+        # fazlaysa Adim 3 wizard'da secim gelir). Hic ruleset yoksa uyar.
+        strategy_params: dict = {}
+        loaded_ruleset_name = ""
+        if strategy_name == "rule_based":
+            from backtest.strategies.rule_based import list_rulesets
+
+            rulesets = list_rulesets()
+            if not rulesets:
+                await _reply(
+                    source,
+                    "⚠️ <b>Kayitli kural yok</b>\n\n"
+                    "rule_based stratejisi bir kural seti gerektirir.\n"
+                    "Once <code>/lab</code> → 🛠 Strateji Kurucu → 🧙 Preset "
+                    "Sihirbazi ile bir kural olustur, sonra tekrar dene.",
+                )
+                return
+            strategy_params = rulesets[0]  # en son / ilk kayitli
+            loaded_ruleset_name = strategy_params.get("name", "?")
+
+        rs_line = (
+            f"Kural seti: <code>{esc(loaded_ruleset_name)}</code>\n"
+            if loaded_ruleset_name
+            else ""
+        )
         await _reply(
             source,
             f"🔄 <b>Replay Backtest</b>\n\n"
             f"Strateji: {esc(strategy_name)}\n"
+            f"{rs_line}"
             f"Asset: {esc(asset or 'TÜMÜ')} | TF: {esc(timeframe or 'TÜMÜ')}\n"
             "Veri: ob_snapshots (modern schema)\n\n"
             "⏳ Hesaplaniyor...",
@@ -287,6 +315,7 @@ async def _run_replay(source, db, strategy_name: str, asset: str = "", timeframe
             asset=asset.upper() if asset else "",
             timeframe=timeframe if timeframe else "",
             strategy_name=strategy_name,
+            strategy_params=strategy_params,
             last_n=100,
         )
 
