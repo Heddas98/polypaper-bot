@@ -301,6 +301,88 @@ async def test_run_inline_backtest_last_n_kwarg():
     assert "Geçersiz" in text
 
 
+def test_done_kb_with_name_has_market_buttons():
+    """Adım 3 — kaydedilen strateji adıyla market test butonları gelir."""
+    from telegram_bot.handlers.backtest_lab import _done_kb
+
+    kb = _done_kb("sec_30_60_up")
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_bt:sec_30_60_up:BTC:5m" in cbs
+    assert "lab_bt:sec_30_60_up:ETH:15m" in cbs
+    assert "lab_builder" in cbs  # nav korunur
+
+
+def test_done_kb_no_name_no_market_buttons():
+    """Ad yok / geçersiz (kayıt başarısız) → test butonu gösterme."""
+    from telegram_bot.handlers.backtest_lab import _done_kb
+
+    for nm in (None, "", "../escape"):
+        kb = _done_kb(nm)
+        cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+        assert not any(c.startswith("lab_bt:") for c in cbs)
+        assert "lab_builder" in cbs
+
+
+def test_save_preset_ruleset_success_no_command(monkeypatch, tmp_path):
+    """Başarılı kayıt metni komut bridge içermez (Heddas: buton-driven)."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _save_preset_ruleset
+
+    real_save = rb.save_ruleset
+    monkeypatch.setattr(
+        rb, "save_ruleset", lambda rs, dir_path=None: real_save(rs, dir_path=tmp_path)
+    )
+    rs = {
+        "name": "tmp_test", "version": "1.0", "direction": "up", "confidence": 0.7,
+        "entry": {"logic": "AND",
+                  "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 0}]},
+    }
+    txt, name = _save_preset_ruleset(rs)
+    assert name == "tmp_test"
+    assert "Kaydedildi" in txt
+    assert "/backtest_replay" not in txt
+
+
+def test_save_preset_ruleset_invalid_empty_name():
+    """Geçersiz ruleset → name='' (test butonu bastırılır)."""
+    from telegram_bot.handlers.backtest_lab import _save_preset_ruleset
+
+    txt, name = _save_preset_ruleset(
+        {"name": "x", "direction": "bad", "entry": {"conditions": []}}
+    )
+    assert name == ""
+
+
+@pytest.mark.asyncio
+async def test_build_show_ruleset_stat_block(monkeypatch):
+    """Strateji detayında son backtest statı görünür (yoksa 'henüz')."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_show_ruleset
+
+    fake_rs = {
+        "name": "demo_rs", "direction": "up", "confidence": 0.7,
+        "entry": {"logic": "AND",
+                  "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 30}]},
+    }
+    monkeypatch.setattr(rb, "list_rulesets", lambda *a, **k: [fake_rs])
+
+    monkeypatch.setattr(rb, "load_backtest_stat", lambda *a, **k: None)
+    text, kb = await _build_show_ruleset("demo_rs")
+    assert "Henüz backtest edilmedi" in text
+
+    monkeypatch.setattr(
+        rb, "load_backtest_stat",
+        lambda *a, **k: {
+            "runs": 3, "last_market": "BTC 5m", "last_scope": "son 200",
+            "last_pnl": -2.04, "last_win_rate": 50.0, "last_n_trades": 6, "last_ts": 0,
+        },
+    )
+    text, kb = await _build_show_ruleset("demo_rs")
+    assert "Son backtest" in text
+    assert "3× çalıştırıldı" in text
+    assert "BTC 5m" in text
+
+
 @pytest.mark.asyncio
 async def test_build_candle_menu():
     from telegram_bot.handlers.backtest_lab import _build_candle_menu

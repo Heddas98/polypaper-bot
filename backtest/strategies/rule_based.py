@@ -46,6 +46,7 @@ import json
 import logging
 import operator
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -385,6 +386,8 @@ def list_rulesets(dir_path: Optional[Path] = None) -> list[dict]:
         return []
     results: list[dict] = []
     for fp in sorted(d.glob("*.json")):
+        if fp.name.startswith("_"):
+            continue  # _stats.json gibi meta dosyaları ruleset sanma
         try:
             results.append(load_ruleset(fp))
         except (json.JSONDecodeError, RuleSetError, OSError) as e:
@@ -406,3 +409,77 @@ def delete_ruleset(name: str, dir_path: Optional[Path] = None) -> bool:
         return True
     except OSError:
         return False
+
+
+# ─── Backtest istatistikleri (Adım 3: "kaç backtest, son PnL") ───
+# data_store/bt_strategies/_stats.json — {name: {runs, last_*}} sözlüğü.
+# Ayrı meta dosya (ruleset şemasını kirletmez; list_rulesets `_` prefix'i atlar).
+
+_STATS_NAME = "_stats.json"
+
+
+def _stats_path(dir_path: Optional[Path] = None) -> Path:
+    d = Path(dir_path) if dir_path else _DEFAULT_DIR
+    return d / _STATS_NAME
+
+
+def load_all_stats(dir_path: Optional[Path] = None) -> dict:
+    """Tüm strateji backtest istatistiklerini oku (name → stat dict).
+
+    Bozuk/eksik dosya → boş dict (asla patlamaz).
+    """
+    p = _stats_path(dir_path)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("load_all_stats bozuk dosya: %s", e)
+        return {}
+
+
+def load_backtest_stat(name: str, dir_path: Optional[Path] = None) -> Optional[dict]:
+    """Tek strateji için son backtest istatistiği (yoksa None)."""
+    if not _NAME_RX.match(name or ""):
+        return None
+    rec = load_all_stats(dir_path).get(name)
+    return rec if isinstance(rec, dict) else None
+
+
+def record_backtest_stat(
+    name: str,
+    market: str,
+    scope: str,
+    pnl: float,
+    win_rate: float,
+    n_trades: int,
+    dir_path: Optional[Path] = None,
+) -> None:
+    """Bir backtest run'ını kaydet — runs sayacı + son sonuç özeti.
+
+    Path-güvenli (name regex-validate). Yazma/okuma hatası sessizce yutulur
+    (backtest sonucu gösterimini asla bloklamaz).
+    """
+    if not _NAME_RX.match(name or ""):
+        return
+    stats = load_all_stats(dir_path)
+    prev = stats.get(name)
+    runs = (int(prev.get("runs", 0)) + 1) if isinstance(prev, dict) else 1
+    stats[name] = {
+        "runs": runs,
+        "last_market": str(market)[:32],
+        "last_scope": str(scope)[:32],
+        "last_pnl": round(float(pnl), 2),
+        "last_win_rate": round(float(win_rate), 1),
+        "last_n_trades": int(n_trades),
+        "last_ts": int(time.time()),
+    }
+    p = _stats_path(dir_path)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps(stats, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError as e:
+        logger.warning("record_backtest_stat yazılamadı: %s", e)

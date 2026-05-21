@@ -319,13 +319,25 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         logger.debug("_build_builder rulesets list failed: %s", e)
 
     if rs_list:
+        try:
+            from backtest.strategies.rule_based import load_all_stats
+
+            all_stats = load_all_stats()
+        except Exception:  # noqa: BLE001
+            all_stats = {}
         lines = []
         for rs in rs_list[:10]:
             nm = rs.get("name", "?")
             cond_n = len(rs.get("entry", {}).get("conditions", []))
+            st = all_stats.get(nm)
+            runs_txt = (
+                f" · {int(st['runs'])}× test"
+                if isinstance(st, dict) and st.get("runs")
+                else ""
+            )
             lines.append(
                 f"  • <code>{esc(nm)}</code> "
-                f"({esc(rs.get('direction', '?'))}, {cond_n} kural)"
+                f"({esc(rs.get('direction', '?'))}, {cond_n} kural){runs_txt}"
             )
         if len(rs_list) > 10:
             lines.append(f"  • <i>...+{len(rs_list) - 10} daha</i>")
@@ -429,12 +441,30 @@ async def _build_show_ruleset(name: str) -> tuple[str, InlineKeyboardMarkup]:
     direction = rs.get("direction", "?")
     dir_emoji = "⬆️" if direction == "up" else "⬇️" if direction == "down" else "↕️"
 
+    # Adım 3: son backtest statı (kaç kez, son PnL/WR)
+    from backtest.strategies.rule_based import load_backtest_stat
+
+    stat = load_backtest_stat(name)
+    if stat:
+        lp = float(stat.get("last_pnl", 0) or 0)
+        pe = "🟢" if lp > 0 else "🔴" if lp < 0 else "⚪"
+        stat_block = (
+            f"📊 <b>Son backtest</b>: {esc(str(stat.get('last_market', '?')))} · "
+            f"{esc(str(stat.get('last_scope', '?')))}\n"
+            f"   {pe} PnL ${lp:+.2f} · WR {float(stat.get('last_win_rate', 0) or 0):.0f}% · "
+            f"{int(stat.get('last_n_trades', 0) or 0)} trade · "
+            f"{int(stat.get('runs', 0) or 0)}× çalıştırıldı\n\n"
+        )
+    else:
+        stat_block = "📊 <i>Henüz backtest edilmedi.</i>\n\n"
+
     text = (
         f"🔍 <b>{esc(name)}</b>\n"
         f"{dir_emoji} Yön: <b>{esc(direction.upper())}</b> · "
         f"güven: {rs.get('confidence', 0.7)}\n\n"
         "<b>Kurallar:</b>\n"
         f"{cond_lines}\n\n"
+        f"{stat_block}"
         "<b>🚀 Backtest et</b> — market seç (tek tık, komut yok):"
     )
     # Market backtest butonları — 2026-05-21 Heddas: komut yazma yok, tuş
@@ -590,6 +620,17 @@ async def _run_inline_backtest(
         )
 
     scope_lbl = "tümü" if cfg.last_n <= 0 else f"son {cfg.last_n}"
+    # Adım 3: strateji statları — anlamlı run'ı kaydet (kaç kez, son PnL)
+    if summary.n_markets_discovered > 0:
+        try:
+            from backtest.strategies.rule_based import record_backtest_stat
+
+            record_backtest_stat(
+                name, f"{asset} {tf}", scope_lbl,
+                summary.total_pnl, summary.win_rate, summary.n_trades,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("record_backtest_stat atlandı: %s", e)
     text = (
         f"🚀 <b>Backtest Sonucu</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -726,24 +767,41 @@ def _save_preset_ruleset(ruleset: dict) -> tuple[str, str]:
         return (
             f"✅ <b>Kaydedildi</b>: <code>{esc(name)}</code>\n"
             f"📁 <code>{esc(str(target))}</code>\n\n"
-            f"Backtest çalıştır:\n"
-            f"<code>/backtest_replay rule_based BTC 5m</code>"
+            "🚀 <b>Hemen test et</b> — aşağıdan market seç (komut yok):"
         ), name
     except RuleSetError as e:
-        return f"❌ Geçersiz ruleset: {esc(str(e))}", name
+        return f"❌ Geçersiz ruleset: {esc(str(e))}", ""
     except Exception as e:  # noqa: BLE001
         logger.exception("_save_preset_ruleset failed: %s", e)
-        return "⚠️ Kaydedilemedi — log'da detay var.", name
+        return "⚠️ Kaydedilemedi — log'da detay var.", ""
 
 
-def _done_kb() -> InlineKeyboardMarkup:
-    """Preset save sonrası dönüş butonları."""
-    return _panel_nav_kb(
-        extra_rows=[
-            [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
-            [InlineKeyboardButton("🧙 Başka preset", callback_data="lab_pw")],
-        ]
-    )
+def _done_kb(name: str | None = None) -> InlineKeyboardMarkup:
+    """Preset save sonrası dönüş butonları + (kaydedildiyse) market seç → test.
+
+    Adım 3 (Heddas: "aşama aşama market seçeyim"): strateji kaydedilince
+    market seç + tek-tıkla backtest et — oluşturma → test tek akışta.
+    `name` verilmezse/geçersizse (kayıt başarısız) test butonu gösterilmez.
+    """
+    from backtest.strategies.rule_based import _NAME_RX
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if name and _NAME_RX.match(name):
+        rows.append(
+            [
+                InlineKeyboardButton("🟠 BTC 5m", callback_data=f"lab_bt:{name}:BTC:5m"),
+                InlineKeyboardButton("🟠 BTC 15m", callback_data=f"lab_bt:{name}:BTC:15m"),
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton("🟠 BTC 1h", callback_data=f"lab_bt:{name}:BTC:1h"),
+                InlineKeyboardButton("🔵 ETH 15m", callback_data=f"lab_bt:{name}:ETH:15m"),
+            ]
+        )
+    rows.append([InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")])
+    rows.append([InlineKeyboardButton("🧙 Başka preset", callback_data="lab_pw")])
+    return _panel_nav_kb(extra_rows=rows)
 
 
 async def _build_wiz_menu() -> tuple[str, InlineKeyboardMarkup]:
@@ -825,8 +883,8 @@ async def _build_wiz_sec_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
             ],
         },
     }
-    status, _ = _save_preset_ruleset(ruleset)
-    return status, _done_kb()
+    status, sv_name = _save_preset_ruleset(ruleset)
+    return status, _done_kb(sv_name)
 
 
 async def _build_wiz_price() -> tuple[str, InlineKeyboardMarkup]:
@@ -897,8 +955,8 @@ async def _build_wiz_price_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
             ],
         },
     }
-    status, _ = _save_preset_ruleset(ruleset)
-    return status, _done_kb()
+    status, sv_name = _save_preset_ruleset(ruleset)
+    return status, _done_kb(sv_name)
 
 
 async def _build_wiz_hour() -> tuple[str, InlineKeyboardMarkup]:
@@ -1071,8 +1129,8 @@ async def _build_wiz_limit_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
     if expire_i > 0:
         ruleset["entry_limit_expire_seconds"] = expire_i
 
-    status, _ = _save_preset_ruleset(ruleset)
-    return status, _done_kb()
+    status, sv_name = _save_preset_ruleset(ruleset)
+    return status, _done_kb(sv_name)
 
 
 async def _build_wiz_hour_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
@@ -1101,8 +1159,8 @@ async def _build_wiz_hour_save(arg: str) -> tuple[str, InlineKeyboardMarkup]:
             ],
         },
     }
-    status, _ = _save_preset_ruleset(ruleset)
-    return status, _done_kb()
+    status, sv_name = _save_preset_ruleset(ruleset)
+    return status, _done_kb(sv_name)
 
 
 async def _build_help_save() -> tuple[str, InlineKeyboardMarkup]:
