@@ -1395,10 +1395,178 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
             [InlineKeyboardButton("🎲 BTC 5m — Martingale ×4 (güvenli)", callback_data="lab_cb:BTC:5m:up:m4")],
             [InlineKeyboardButton("🎲 BTC 1h — Martingale ×6", callback_data="lab_cb:BTC:1h:up:m6")],
             [InlineKeyboardButton("🎲 BTC 15m — Martingale ×6", callback_data="lab_cb:BTC:15m:up:m6")],
+            [InlineKeyboardButton("⚙️ Özel Martingale Kurucu", callback_data="lab_mw:BTC:5m:up:m6:50:0")],
             [InlineKeyboardButton("◀️ Ana Panel", callback_data="lab_main")],
         ]
     )
     return text, kb
+
+
+# ── ⚙️ Martingale Kurucu (tek panel, cycle butonlar) ────────
+
+# Cycle değer listeleri — buton her basışta bir sonrakine döner
+_MW_ASSETS = ["BTC", "ETH", "SOL", "XRP"]
+_MW_TFS = ["5m", "15m", "1h"]
+_MW_DIRS = ["up", "down", "follow_trend", "fade_trend"]
+_MW_MODES = ["flat", "m4", "m6", "m8", "mUL"]
+_MW_ENTRIES = [45, 50, 55, 60]  # cents
+_MW_STOPS = [0, 5, 7, 9]  # 0 = kapalı
+
+
+def _cycle(lst: list, cur):
+    """Listede cur'dan bir sonraki değere dön (sona gelince başa)."""
+    try:
+        i = lst.index(cur)
+        return lst[(i + 1) % len(lst)]
+    except ValueError:
+        return lst[0]
+
+
+_DIR_LABEL = {
+    "up": "UP", "down": "DOWN", "follow_trend": "Trend takip", "fade_trend": "Trend ters",
+}
+_MODE_LABEL = {
+    "flat": "Flat (sabit)", "m4": "Martingale ×4", "m6": "Martingale ×6",
+    "m8": "Martingale ×8", "mUL": "Martingale ∞",
+}
+
+
+async def _build_mart_config(
+    asset: str, tf: str, direction: str, mode: str, entry_cents: int, stop: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """⚙️ Martingale kurucu — tek panel, tüm parametreler cycle buton.
+
+    Heddas direktifi: "tek menüden ayarlayalım, neye bastığımda ne değişir
+    anlayabileyim." Her buton ilgili parametreyi bir sonraki değere döndürür
+    + paneli yeniden çizer (state callback_data'da encoded — state'siz).
+    """
+    entry = entry_cents / 100.0
+    stop_lbl = "kapalı" if stop == 0 else f"{stop} ardışıkta dur"
+    mart = mode != "flat"
+
+    text = (
+        "⚙️ <b>MARTINGALE KURUCU</b>\n"
+        "<i>Her butona bas → değer değişir. Hazırsan ÇALIŞTIR.</i>\n\n"
+        "<b>Mevcut ayar:</b>\n"
+        f"  🪙 Asset: <b>{esc(asset)}</b>\n"
+        f"  ⏱ Zaman dilimi: <b>{esc(tf)}</b>\n"
+        f"  🧭 Yön: <b>{esc(_DIR_LABEL.get(direction, direction))}</b>\n"
+        f"  🎲 Mod: <b>{esc(_MODE_LABEL.get(mode, mode))}</b>\n"
+        f"  💵 Giriş fiyatı: <b>{entry:.2f}</b> "
+        "<i>(50c'den giremezsin — gerçek giriş farklı; farklı fiyat = farklı sonuç)</i>\n"
+        f"  🛑 Trend-stop: <b>{esc(stop_lbl)}</b>"
+    )
+    if mart:
+        text += (
+            "\n\n<i>🎲 Martingale: kaybedince 2× katla, kazanınca 1$'a reset. "
+            "Trend-stop: N ardışık aynı yön sonrası bahis durur (uzun trend "
+            "martingale'i iflas ettirir — koruma).</i>"
+        )
+
+    def _st(a, t, d, m, e, s):
+        return f"lab_mw:{a}:{t}:{d}:{m}:{e}:{s}"
+
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"🪙 {asset} ▸", callback_data=_st(_cycle(_MW_ASSETS, asset), tf, direction, mode, entry_cents, stop)
+                ),
+                InlineKeyboardButton(
+                    f"⏱ {tf} ▸", callback_data=_st(asset, _cycle(_MW_TFS, tf), direction, mode, entry_cents, stop)
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"🧭 {_DIR_LABEL.get(direction, direction)} ▸",
+                    callback_data=_st(asset, tf, _cycle(_MW_DIRS, direction), mode, entry_cents, stop),
+                ),
+                InlineKeyboardButton(
+                    f"🎲 {_MODE_LABEL.get(mode, mode)} ▸",
+                    callback_data=_st(asset, tf, direction, _cycle(_MW_MODES, mode), entry_cents, stop),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"💵 {entry:.2f} ▸", callback_data=_st(asset, tf, direction, mode, _cycle(_MW_ENTRIES, entry_cents), stop)
+                ),
+                InlineKeyboardButton(
+                    f"🛑 {stop_lbl} ▸", callback_data=_st(asset, tf, direction, mode, entry_cents, _cycle(_MW_STOPS, stop))
+                ),
+            ],
+            [InlineKeyboardButton("🚀 ÇALIŞTIR", callback_data=f"lab_mwrun:{asset}:{tf}:{direction}:{mode}:{entry_cents}:{stop}")],
+            [InlineKeyboardButton("◀️ Candle menü", callback_data="lab_candle")],
+        ]
+    )
+    return text, kb
+
+
+async def _run_mart_config(
+    asset: str, tf: str, direction: str, mode: str, entry_cents: int, stop: int, db
+) -> tuple[str, InlineKeyboardMarkup]:
+    """⚙️ Kurucu ayarlarıyla candle backtest çalıştır → zengin sonuç.
+
+    `lab_mwrun:<asset>:<tf>:<dir>:<mode>:<entry>:<stop>` callback'inden.
+    Sonuç ekranında "◀️ Ayarlara dön" ile aynı state'e geri dönülür
+    (parametre ince-ayar döngüsü).
+    """
+    back_kb = _panel_nav_kb(
+        extra_rows=[
+            [InlineKeyboardButton("◀️ Ayarlara dön", callback_data=f"lab_mw:{asset}:{tf}:{direction}:{mode}:{entry_cents}:{stop}")],
+            [InlineKeyboardButton("🎲 Candle menü", callback_data="lab_candle")],
+        ]
+    )
+    if asset not in _MW_ASSETS or tf not in _MW_TFS or db is None or getattr(db, "conn", None) is None:
+        return "⚠️ Geçersiz parametre veya DB yok.", back_kb
+
+    martingale = mode != "flat"
+    max_levels = {"m4": 4, "m6": 6, "m8": 8, "mUL": 0}.get(mode, 6)
+    entry = entry_cents / 100.0
+
+    try:
+        from backtest.candle_runner import CandleBacktestRunner, CandleRunConfig
+
+        cfg = CandleRunConfig(
+            asset=asset, timeframe=tf, bet_direction=direction,
+            entry_price=entry, martingale=martingale, max_levels=max_levels,
+            stop_after_streak=stop, last_n=500,
+        )
+        s = await CandleBacktestRunner(db).run(cfg)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_run_mart_config failed: %s", e)
+        return f"⚠️ Hata: <i>{esc(type(e).__name__)}</i>", back_kb
+
+    if s.n_markets == 0:
+        return f"<i>{esc(s.note)}</i>", back_kb
+
+    pnl_icon = "🟢" if s.total_pnl > 0 else "🔴" if s.total_pnl < 0 else "⚪"
+    mode_lbl = _MODE_LABEL.get(mode, mode)
+    stop_lbl = "kapalı" if stop == 0 else f"{stop} ardışık"
+
+    mart_block = ""
+    if martingale:
+        mart_block = (
+            "\n🎲 <b>Martingale</b>\n"
+            f"  Max bet: <b>${s.max_bet:.0f}</b> · en derin: {s.max_level_reached} · "
+            f"bust: {s.busts}×\n"
+        )
+        if s.busts > 0:
+            mart_block += f"  ⚠️ <i>{s.busts} bust = gerçekte {s.busts} sermaye iflası</i>\n"
+
+    text = (
+        "🚀 <b>Martingale Backtest Sonucu</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚙️ {esc(asset)} {esc(tf)} · {esc(_DIR_LABEL.get(direction, direction))} · "
+        f"{esc(mode_lbl)} · giriş {entry:.2f} · stop {esc(stop_lbl)}\n"
+        f"📦 {s.n_markets} market · UP %{s.up_pct:.1f}\n\n"
+        "📊 <b>Sonuç</b>\n"
+        f"  {pnl_icon} PnL: <b>${s.total_pnl:+.2f}</b>\n"
+        f"  🎯 WR: {s.win_rate:.1f}% · {s.n_trades} trade ({s.wins}W/{s.losses}L)\n"
+        f"{mart_block}\n"
+        f"🔢 Üstüste aynı yön: max <b>{s.max_streak}</b>\n\n"
+        "<i>Parametreyi değiştirip tekrar dene → 'Ayarlara dön'.</i>"
+    )
+    return text, back_kb
 
 
 async def _run_candle_backtest(
@@ -1604,6 +1772,29 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 except (BadRequest, TelegramError):
                     pass
                 text, kb = await _run_candle_backtest(cb_asset, cb_tf, cb_dir, cb_mode, db)
+        elif action == "lab_mw":
+            # lab_mw:<asset>:<tf>:<dir>:<mode>:<entry>:<stop> — kurucu cycle panel
+            parts = arg.split(":")
+            if len(parts) != 6:
+                text, kb = "⚠️ Geçersiz kurucu parametresi.", _main_kb()
+            else:
+                a, t, d, m, e, s = parts
+                text, kb = await _build_mart_config(a, t, d, m, int(e), int(s))
+        elif action == "lab_mwrun":
+            # lab_mwrun:<asset>:<tf>:<dir>:<mode>:<entry>:<stop> — kurucu çalıştır
+            parts = arg.split(":")
+            if len(parts) != 6:
+                text, kb = "⚠️ Geçersiz kurucu parametresi.", _main_kb()
+            else:
+                a, t, d, m, e, s = parts
+                try:
+                    await q.edit_message_text(
+                        f"⏳ <b>{esc(a)} {esc(t)}</b> martingale backtest çalışıyor...",
+                        parse_mode="HTML",
+                    )
+                except (BadRequest, TelegramError):
+                    pass
+                text, kb = await _run_mart_config(a, t, d, m, int(e), int(s), db)
         elif action == "lab_show":
             text, kb = await _build_show_ruleset(arg)
         elif action == "lab_del_ask":
