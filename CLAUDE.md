@@ -20,7 +20,16 @@
 
 ## Mevcut Faz
 
-**`/live` trade istasyonu + mode-first UX redesign tamamlandı** (2026-05-18/19) — kokpit, 4 panel, mode-first tek-kapı, on-chain PnL hep canlı. Aktif backlog: P0-04 (Budget 2FA), M-08 (test monolith böl). P1-01 (coverage) + P1-02 (AI Brain microservice) sürüyor.
+**BACKTEST LAB yeniden inşası + RADİKAL strateji temizliği** (2026-05-21) — Heddas direktifi: "para kazandırmayan tüm hazır stratejileri sil, backtest'i sıfırdan kur, kendi edge'lerimizi bulalım". **DURUM ÖZETİ**:
+- 🔴 **Bot otomatik trade YAPMAZ** — 20 live plugin + 11 backtest class + 72 DB stratejisi + PROTECTED_STRATEGIES hepsi silindi (Heddas: "hiçbiri para kazandırmadı"). `core/strategy_plugins.py` bone-thin (boş registry). Manuel `/buy /sell` + LAB backtest + cüzdan/recon ÇALIŞIR.
+- 🟢 **Backtest LAB tam fonksiyonel** — `/backtest` `/bt` `/lab` tek kapı. İki motor: **tick** (`backtest/runner.py`, ob_snapshots, saniye kuralları) + **candle** (`backtest/candle_runner.py`, candles_ext Binance, market-level + martingale + streak). Eski `replay_engine.py` + `engine_v2.py` + `data_sources/` silindi (schema-broken).
+- 🟢 **No-code strateji**: `RuleBasedStrategy` (JSON kural) + LAB Strateji Kurucu (preset sihirbazları: saniye/fiyat/saat/limit) + insan-okunur kural gösterimi + tek-tık inline backtest (komut yok).
+- 🟢 **Candle/Martingale paneli**: candles_ext değerlendirildi (2600+ BTC 5m candle), streak dağılımı + martingale tuzak sayıları (max_bet/bust/iflas uyarısı).
+- 🟢 **Veri kayıt fix**: ob_snapshots metadata NULL bug (scanner→WS lookup) + DOWN token REST snapshot (WS DOWN book event yollamıyor → scanner her market UP+DOWN full depth REST çeker).
+- **KALAN backtest backlog**: martingale parametre wizard (base bet/entry/stop_after_streak buton-takımı), limit-emir martingale sim, Adım 3 wizard (market-aware oluşturma + tek-menü konsolidasyon), live için ayrı strateji oluşturucu (RuleBasedStrategy live'a port).
+- **Veri durumu**: tick `ob_snapshots` az (restart sonrası UP+DOWN ile zenginleşir) · candle `candles_ext` zengin (2600+ BTC 5m) · `candles_poly` BTC 1h=80 market. DB backup: `polypaper.db.bak-pre-strategy-cleanup-20260521-013021`.
+
+**ESKİ FAZ (referans):** `/live` trade istasyonu + mode-first UX redesign (2026-05-18/19) — kokpit, 4 panel, mode-first tek-kapı, on-chain PnL. Aktif backlog: P0-04 (Budget 2FA), M-08 (test monolith böl). P1-01 (coverage) + P1-02 (AI Brain microservice) sürüyor.
 - P1-01: Coverage source genişletme (%42 → %60 ratchet, şu an %44.06 toplam ama kritik path <%30).
 - P1-02: AI Brain microservice (Wave 1+2a+2b+2c kapalı, Wave 3 approval queue backlog).
 - Açık P0 eski: P0-02 (keyring), P0-04 (LIVE_BUDGET 2FA), P0-08 (5m default OFF) — mainnet blocker değil.
@@ -87,7 +96,7 @@ Solo proje — sadece **Heddas**. Dış ekip yok.
 
 - **STRICT CLEANUP mod**: Spekülasyon yok. Her iddia → dosya + satır numarası.
 - **"Para kazanana kadar para harcamayacağız"** — $0 cost ilkesi, her batch budget-aware.
-- **Mainnet protected**: `core/ai_brain.py::PROTECTED_STRATEGIES` ve `PROTECTED_STRATEGY_TYPES={"classic"}` dokunulmaz.
+- **Mainnet trade DURDU (2026-05-21)**: Heddas direktifiyle tüm hazır stratejiler + `PROTECTED_STRATEGIES` silindi (artık `{}`). Bot otomatik trade YAPMAZ — manuel `/buy /sell` + LAB backtest aktif. `PROTECTED_STRATEGY_TYPES` (`core/auto_optimizer.py`, env-driven "classic") ghost kaldı, etkisi yok (DB'de strateji yok). Eski doktrin "PROTECTED dokunulmaz" GEÇERSİZ.
 - **Her commit + her PR**: Türkçe `feat/fix/docs/chore/test/deps` prefix.
 - **Memory landmarks**: Büyük closure'larda `data_store/.auto-memory/project_*.md` doss çıkarılır.
 - **Yapı**: Roadmap (`02_POLYPAPER_YOL_HARITASI.md`) → progress log (`03_POLYPAPER_PROGRESS_LOG.md`) + cleanup TASKS (`TASKS.md`) → memory landmark.
@@ -96,7 +105,7 @@ Solo proje — sadece **Heddas**. Dış ekip yok.
 
 ## Anahtar Komutlar (Telegram)
 
-`/start` `/main` `/dashboard` `/d` (hepsi → mode-seçim ekranı, 2026-05-19 tek-kapı) · `/live` (LIVE trade istasyonu kokpiti) · `/strategies` `/s` · `/buy` `/sell` · `/envt` `/env_toggle` (37 whitelist param) · `/lg` `/live_guards` (6 guard snapshot) · `/rg` `/reality_gap` (paper×0.66 vs live) · `/ra` `/ref_audit` (reference price audit) · `/recon` `/rc` (pUSD on-chain vs DB) · `/drt` (REST timing).
+`/start` `/main` `/dashboard` `/d` (hepsi → mode-seçim ekranı, 2026-05-19 tek-kapı) · `/live` (LIVE trade istasyonu kokpiti) · **`/backtest` `/bt` `/lab`** (Backtest LAB tek kapı — 2026-05-21: Hızlı Test/Candle-Martingale/Strateji Kurucu/Karşılaştır/Kalibrasyon) · `/buy` `/sell` (manuel mainnet trade) · `/strategies` `/s` (artık boş — stratejiler silindi) · `/backtest_v2` `/bt2` (LAB'a yönlendiren shim) · `/backtest_replay` `/compare` (rule_based runner) · `/envt` `/env_toggle` · `/lg` `/live_guards` · `/rg` `/reality_gap` · `/ra` `/ref_audit` · `/recon` `/rc` · `/drt`. **Kaldırılan**: `/quick_strategy` `/report` `/start_all` `/stop_all` (strateji sistemi silindi).
 
 ## Kritik Açık İşler (P0 — 2026-05-13 audit gerçek)
 
@@ -111,7 +120,7 @@ Solo proje — sadece **Heddas**. Dış ekip yok.
 - **P0-10** `fees_v2.py` precision 4 → 5 decimal (docs: smallest 0.00001 USDC)
 - **P0-11** AI Advisor service auth (X-Internal-Key, `services/ai_advisor/app.py` hiç auth yok)
 - **P0-12** Polymarket constant drift CI guard (haftalık docs MCP karşılaştır)
-- **P0-13** `PROTECTED_STRATEGIES` audit (`core/ai_brain.py:102` sadece 2 entry)
+- ~~**P0-13** `PROTECTED_STRATEGIES` audit~~ ✅ MOOT 2026-05-21 (tüm stratejiler + PROTECTED silindi)
 - **P0-14** AI Brain "10min cycle" log → "1h cycle" (`core/ai_brain.py:163` vs `:105`)
 - **P0-15** `dashboard.html` git'e ekle (97KB untracked)
 
