@@ -175,6 +175,39 @@ async def test_run_tf_aggregate_15m():
 
 
 @pytest.mark.asyncio
+async def test_scan_edges():
+    """Edge tarama train/test split — her (tf,dir) için sonuç döner."""
+    # 100 candle, çoğu up (trend) → up sinyali train+test pozitif olabilir
+    rows = []
+    price = 100.0
+    for i in range(100):
+        op = price
+        cl = price + 1 if i % 3 != 0 else price - 1  # 2/3 up
+        rows.append((1_700_000_000 + i * 300, op, cl))
+        price = cl
+    db = _db(rows)
+    results = await CandleBacktestRunner(db).scan_edges(
+        "BTC", timeframes=("5m",), directions=("up", "down"), min_markets=10
+    )
+    # 2 yön sonucu
+    assert len(results) == 2
+    r_up = next(r for r in results if r["direction"] == "up")
+    assert "train_pnl" in r_up
+    assert "test_pnl" in r_up
+    assert "is_edge" in r_up
+    assert r_up["n"] == 100
+
+
+@pytest.mark.asyncio
+async def test_scan_edges_insufficient_data():
+    """Az market → skip flag."""
+    db = _db([(1_700_000_000 + i * 300, 100.0, 101.0) for i in range(5)])
+    results = await CandleBacktestRunner(db).scan_edges("BTC", timeframes=("5m",), min_markets=40)
+    assert len(results) == 1
+    assert results[0]["skip"] is True
+
+
+@pytest.mark.asyncio
 async def test_run_ms_timestamp_normalize():
     """open_ts ms cinsindeyse saniyeye normalize (OSError önler)."""
     rows = [(1_700_000_000_000 + i * 300_000, 100.0, 101.0) for i in range(6)]

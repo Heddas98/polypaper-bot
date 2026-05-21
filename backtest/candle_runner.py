@@ -146,6 +146,55 @@ class CandleBacktestRunner:
         res.final_balance = round(res.total_pnl, 4)
         return res
 
+    # ─── Edge tarama (train/test split) ─────────────────────
+
+    async def scan_edges(
+        self,
+        asset: str,
+        timeframes: tuple[str, ...] = ("5m", "15m", "1h"),
+        directions: tuple[str, ...] = ("up", "down", "follow_trend", "fade_trend"),
+        train_ratio: float = 0.7,
+        min_markets: int = 40,
+    ) -> list[dict]:
+        """2026-05-21 (Heddas: "kendi edge'imizi bulalım") — sinyal tarayıcı.
+
+        Her (tf, direction) kombinasyonunu train/test split ile FLAT simüle
+        eder. Gerçek edge = hem train hem test (OOS) pozitif. Çoğu kombinasyon
+        OOS'ta çöker (fee + random) — overfit tuzağını sayılarla gösterir.
+
+        Returns: dict listesi (tf, direction, n, train_pnl, test_pnl,
+        train_wr, test_wr, is_edge).
+        """
+        results: list[dict] = []
+        for tf in timeframes:
+            cfg = CandleRunConfig(asset=asset, timeframe=tf, last_n=0)
+            markets = await self._load_markets(cfg)
+            if len(markets) < min_markets:
+                results.append({"tf": tf, "direction": "-", "n": len(markets), "skip": True})
+                continue
+            sp = int(len(markets) * train_ratio)
+            train, test = markets[:sp], markets[sp:]
+            for d in directions:
+                cfg.bet_direction = d
+                tr = self._simulate_flat(train, cfg)
+                te = self._simulate_flat(test, cfg)
+                results.append(
+                    {
+                        "tf": tf,
+                        "direction": d,
+                        "n": len(markets),
+                        "n_train": len(train),
+                        "n_test": len(test),
+                        "train_pnl": round(tr.total_pnl, 2),
+                        "test_pnl": round(te.total_pnl, 2),
+                        "train_wr": round(tr.win_rate, 1),
+                        "test_wr": round(te.win_rate, 1),
+                        "is_edge": tr.total_pnl > 0 and te.total_pnl > 0,
+                        "skip": False,
+                    }
+                )
+        return results
+
     # ─── Veri yükleme ───────────────────────────────────────
 
     async def _load_markets(self, cfg: CandleRunConfig) -> list[CandleMarket]:

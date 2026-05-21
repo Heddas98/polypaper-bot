@@ -1396,10 +1396,91 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
             [InlineKeyboardButton("🎲 BTC 1h — Martingale ×6", callback_data="lab_cb:BTC:1h:up:m6")],
             [InlineKeyboardButton("🎲 BTC 15m — Martingale ×6", callback_data="lab_cb:BTC:15m:up:m6")],
             [InlineKeyboardButton("⚙️ Özel Martingale Kurucu", callback_data="lab_mw:BTC:5m:up:m6:50:0")],
+            [InlineKeyboardButton("🔬 Edge Tarama (BTC)", callback_data="lab_edge:BTC")],
             [InlineKeyboardButton("◀️ Ana Panel", callback_data="lab_main")],
         ]
     )
     return text, kb
+
+
+async def _build_edge_scan(asset: str, db) -> tuple[str, InlineKeyboardMarkup]:
+    """🔬 Edge Tarama — train/test split ile basit sinyalleri tara.
+
+    Heddas direktifi: "kendimiz edge bulalım." Her (tf, yön) kombinasyonu
+    %70 train / %30 test (OOS). Gerçek edge = ikisi de pozitif (✅). Çoğu
+    OOS'ta çöker — overfit + fee gerçeğini sayılarla gösterir (dürüst araç).
+    """
+    asset_kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🟠 BTC", callback_data="lab_edge:BTC"),
+                InlineKeyboardButton("🔵 ETH", callback_data="lab_edge:ETH"),
+            ],
+            [InlineKeyboardButton("◀️ Candle menü", callback_data="lab_candle")],
+        ]
+    )
+    if asset not in ("BTC", "ETH", "SOL", "XRP"):
+        return "⚠️ Geçersiz asset.", asset_kb
+    if db is None or getattr(db, "conn", None) is None:
+        return "⚠️ DB bağlantısı yok.", asset_kb
+
+    try:
+        from backtest.candle_runner import CandleBacktestRunner
+
+        results = await CandleBacktestRunner(db).scan_edges(asset)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_build_edge_scan failed: %s", e)
+        return f"⚠️ Tarama hatası: <i>{esc(type(e).__name__)}</i>", asset_kb
+
+    _dir_short = {"up": "UP", "down": "DOWN", "follow_trend": "trend→", "fade_trend": "trend←"}
+    lines = [
+        f"🔬 <b>EDGE TARAMA — {esc(asset)}</b>",
+        "<i>%70 train / %30 test (OOS). ✅ = ikisi de pozitif (gerçek edge).</i>",
+        "",
+    ]
+    edge_found = False
+    cur_tf = None
+    for r in results:
+        if r.get("skip"):
+            lines.append(f"<b>{esc(r['tf'])}</b>: {r['n']} market — yetersiz (≥40 gerek)")
+            continue
+        if r["tf"] != cur_tf:
+            cur_tf = r["tf"]
+            lines.append(f"\n<b>{esc(cur_tf)}</b> ({r['n_train']}tr/{r['n_test']}te):")
+        flag = "✅" if r["is_edge"] else ("⚠️" if r["train_pnl"] > 0 else "")
+        if r["is_edge"]:
+            edge_found = True
+        lines.append(
+            f"  {_dir_short.get(r['direction'], r['direction']):6} "
+            f"tr <code>${r['train_pnl']:+.0f}</code> · "
+            f"te <code>${r['test_pnl']:+.0f}</code> "
+            f"(WR{r['test_wr']:.0f}%) {flag}"
+        )
+
+    lines.append("")
+    if edge_found:
+        lines.append(
+            "✅ <i>OOS-dayanıklı sinyal var ama küçük örneklem dikkat — "
+            "daha çok veri toplandıkça (özellikle 1h) doğrula. Edge varsa "
+            "⚙️ Martingale Kurucu'da o yön + tf ile dene.</i>"
+        )
+    else:
+        lines.append(
+            "❌ <i>OOS-dayanıklı basit edge YOK — beklenen sonuç. 50c adil "
+            "para + fee = negatif EV. Edge için: daha çok veri, sofistike "
+            "sinyal (volatilite/hacim), veya farklı yaklaşım gerek.</i>"
+        )
+
+    kb = _panel_nav_kb(
+        extra_rows=[
+            [
+                InlineKeyboardButton("🟠 BTC", callback_data="lab_edge:BTC"),
+                InlineKeyboardButton("🔵 ETH", callback_data="lab_edge:ETH"),
+            ],
+            [InlineKeyboardButton("🎲 Candle menü", callback_data="lab_candle")],
+        ]
+    )
+    return "\n".join(lines), kb
 
 
 # ── ⚙️ Martingale Kurucu (tek panel, cycle butonlar) ────────
@@ -1772,6 +1853,17 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 except (BadRequest, TelegramError):
                     pass
                 text, kb = await _run_candle_backtest(cb_asset, cb_tf, cb_dir, cb_mode, db)
+        elif action == "lab_edge":
+            # lab_edge:<asset> — edge tarama (train/test split)
+            try:
+                await q.edit_message_text(
+                    f"⏳ <b>{esc(arg)}</b> edge taraması çalışıyor "
+                    "(tüm tf × yön, train/test)...",
+                    parse_mode="HTML",
+                )
+            except (BadRequest, TelegramError):
+                pass
+            text, kb = await _build_edge_scan(arg, db)
         elif action == "lab_mw":
             # lab_mw:<asset>:<tf>:<dir>:<mode>:<entry>:<stop> — kurucu cycle panel
             parts = arg.split(":")
