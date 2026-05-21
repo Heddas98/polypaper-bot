@@ -911,14 +911,14 @@ class PolyPaperBot:
             BotCommand("dashboard", "Ana panel (alias: /d)"),
             BotCommand("menu", "Hub menu"),
             BotCommand("help", "Komutlar + aciklamalar"),
-            # ── Strateji ──
-            # 2026-05-21 (Heddas direktifi): tum hazir Python plugin'leri silindi
-            # (hicbiri para kazandirmadi). /strategies komutu hala calisir ama
-            # 0 strateji gosterir. /quick_strategy /report /start_all /stop_all
-            # BotCommand listesinden cikarildi — komut handler'lari hala mevcut
-            # (geri uyumluluk, eski Telegram autocomplete cache'i icin).
+            # ── Strateji yuzeyi GIZLENDI (2026-05-22, Heddas #7 "gizle") ──
+            # Strateji plugin'leri 2026-05-21'de silinmisti (bos registry,
+            # auto-trade kapali). Bu turdaki TUM komutlar (/strategies,
+            # /quick_strategy, /report, /start_all, /stop_all, /test_strategy,
+            # /canary, /promote, /demote, /brain, /analyze, /experiment_*)
+            # BotCommand menusunden cikarildi. Handler'lar dormant kalir
+            # (geri uyumluluk + ileride RuleBasedStrategy live-port icin).
             # Kullanici LAB no-code rule_based ile kendi kurallarini yaziyor.
-            BotCommand("strategies", "Strateji listesi (artik bos — Heddas LAB kullaniyor)"),
             # ── 🧪 Backtest LAB (tek kapi) ──
             # 2026-05-21 (Heddas direktifi): backtest komutlari tek baslik
             # altinda toplandi. /backtest LAB tek kapi (alias /bt, /lab),
@@ -926,7 +926,6 @@ class PolyPaperBot:
             # tasindi / yonlendirildi — BotCommand listesinden cikarildi
             # (yine calisirlar ama menude gozukmezler).
             BotCommand("backtest", "Backtest LAB — gercek L2 replay (alias: /bt /lab)"),
-            BotCommand("test_strategy", "Stratejiyi gercek veri ile test et (/test)"),
             # /hyperopt + /mc_kelly removed 2026-04-28 (Heddas direktifi)
             # ── Istatistik (3) ──
             BotCommand("stats_hub", "Tum istatistikler (tab menu)"),
@@ -938,9 +937,8 @@ class PolyPaperBot:
             BotCommand("risk_hub", "Risk yonetimi (tab menu)"),
             BotCommand("kill", "Acil durdur"),
             BotCommand("resume", "Devam et"),
-            # ── AI & Analiz (2) ──
-            BotCommand("brain", "AI Brain paneli"),
-            BotCommand("analyze", "AI analiz baslat"),
+            # ── AI (1) ── /brain + /analyze gizlendi (strateji yuzeyi #7)
+            BotCommand("ai", "Turkce dogal-dil komut (alias /nl)"),
             # ── Sistem (2) ──
             BotCommand("health", "Modul sagligi (/h)"),
             BotCommand("ws", "WebSocket durumu"),
@@ -957,14 +955,10 @@ class PolyPaperBot:
             BotCommand("db_cleanup", "DB cleanup (manuel, /dbc)"),
             BotCommand("db_archive", "OB arsiv (nightly, /dba)"),
             BotCommand("health_check", "Eski health check (job durumu, /hc)"),
-            BotCommand("canary", "Canary stage yonetimi"),
-            BotCommand("promote", "Stage yukselt"),
-            BotCommand("demote", "Stage geri al"),
             BotCommand("filters", "Trade filtre paneli (on/off, alias: /f)"),
             BotCommand("diagnose", "Trade pipeline tani raporu"),
             # Becker BotCommand entries removed 2026-04-28 (Heddas direktifi)
-            BotCommand("experiment_apply", "Experiment sonucunu uygula"),
-            BotCommand("experiment_discard", "Experiment sonucunu iptal et"),
+            # experiment_apply/discard gizlendi 2026-05-22 (strateji yuzeyi #7)
             # /hyperopt_all + /hyperopt_status removed 2026-04-28 (Heddas direktifi)
         ]
 
@@ -1322,13 +1316,12 @@ class PolyPaperBot:
             "/dashboard — Ana panel <i>(/d)</i>\n"
             "/menu — Hub menu\n"
             "/help — Bu ekran\n\n"
-            "<b>🎯 Strateji</b> <i>(2026-05-21: hazir plugin'ler silindi)</i>\n"
-            "/strategies — Listele <i>(/s)</i> <i>(bos, LAB rule_based aktif)</i>\n"
-            "<i>Kendi kuralini yaz: /backtest → 🛠 Strateji Kurucu</i>\n\n"
+            "<b>🎯 Strateji</b> <i>(devre disi — 2026-05-22 gizlendi)</i>\n"
+            "<i>Strateji sistemi kapali (bos registry, auto-trade yok).</i>\n"
+            "<i>Kendi kuralini yaz: /backtest → 🛠 Strateji Kurucu (LAB)</i>\n\n"
             "<b>🧪 Backtest LAB</b>\n"
             "/backtest — Backtest LAB tek kapi <i>(/bt, /lab)</i>\n"
             "  ↳ 4 panel: Hizli Test · Strateji Kurucu · Karsilastir · Kalibrasyon\n"
-            "/test_strategy — Stratejiyi gercek veri ile test et <i>(/test)</i>\n"
             "<i>Eski: /backtest_v2 /bt2 /backtest_replay /compare → LAB icinde</i>\n\n"
             "<b>📊 Istatistik</b>\n"
             "/stats_hub — Tum istatistikler (tab menu)\n"
@@ -1338,9 +1331,8 @@ class PolyPaperBot:
             "/risk_hub — Risk yonetimi (tab menu)\n"
             "/kill — Acil durdur\n"
             "/resume — Devam et\n\n"
-            "<b>🧠 AI &amp; Analiz</b>\n"
-            "/brain — AI Brain kontrol paneli\n"
-            "/analyze — AI analiz baslat\n\n"
+            "<b>🧠 AI</b>\n"
+            "/ai — Turkce dogal-dil komut <i>(/nl)</i>\n\n"
             "<b>⚙️ Sistem</b>\n"
             "/health — Modul sagligi <i>(/h)</i>\n"
             "/ws — WebSocket durumu\n\n"
