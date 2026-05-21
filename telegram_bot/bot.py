@@ -570,8 +570,11 @@ class PolyPaperBot:
             ("reality_gap", reality_gap_command),
             ("rg", reality_gap_command),
             # 2026-04-29 Aşama 3.B: top-level mode toggle (Paper/Real)
+            # 2026-05-21 fix: ("m", mode_command) kaldirildi. /m zaten line
+            # 433'te monitor_command'a kayitliydi; PTB ayni grupta ilk eslesen
+            # handler'i calistirir → mode'un /m alias'i HIC atesleneMIYORDU
+            # (sessiz golgeleme). /m = monitor (davranis degismedi). /mode kalir.
             ("mode", mode_command),
-            ("m", mode_command),
             # Phase 74b: Per-strategy lifecycle
             ("lifecycle", lifecycle_command),
             ("lc", lifecycle_command),
@@ -939,7 +942,7 @@ class PolyPaperBot:
             BotCommand("daily", "Gunluk ozet"),
             BotCommand("trades", "Son trade listesi"),
             BotCommand("portfolio", "Polymarket gercek cuzdan (alias: /pf)"),
-            BotCommand("mode", "Paper/Real mode toggle (alias: /m)"),
+            BotCommand("mode", "Mode secim ekrani (paper/live)"),
             # ── Risk & Kontrol (3) ──
             BotCommand("risk_hub", "Risk yonetimi (tab menu)"),
             BotCommand("kill", "Acil durdur"),
