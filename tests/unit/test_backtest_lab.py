@@ -88,15 +88,16 @@ def _db(row_map: dict | None = None, raise_on: str | None = None):
 # ── Keyboard structure ──────────────────────────────────────
 
 
-def test_main_kb_has_4_panels_plus_legacy():
+def test_main_kb_has_panels_plus_legacy():
     kb = _main_kb()
     assert isinstance(kb, InlineKeyboardMarkup)
-    # 4 panel + legacy = 5 rows, her biri 1 buton
+    # 5 panel + legacy = 6 rows (candle eklendi 2026-05-21)
     rows = kb.inline_keyboard
-    assert len(rows) == 5
+    assert len(rows) == 6
     callbacks = [r[0].callback_data for r in rows]
     assert callbacks == [
         "lab_quick",
+        "lab_candle",
         "lab_builder",
         "lab_compare",
         "lab_calibrate",
@@ -256,6 +257,29 @@ async def test_run_inline_backtest_invalid_params():
     # Geçersiz isim (path traversal)
     text, kb = await _run_inline_backtest("../escape", "BTC", "5m", _db())
     assert "Geçersiz" in text
+
+
+@pytest.mark.asyncio
+async def test_build_candle_menu():
+    from telegram_bot.handlers.backtest_lab import _build_candle_menu
+
+    text, kb = await _build_candle_menu(_db())
+    assert "CANDLE / MARTINGALE" in text
+    assert "Martingale" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_cb:BTC:5m:up:flat" in cb
+    assert "lab_cb:BTC:5m:up:m6" in cb
+    assert "lab_cb:BTC:1h:up:m6" in cb
+
+
+@pytest.mark.asyncio
+async def test_run_candle_backtest_invalid():
+    from telegram_bot.handlers.backtest_lab import _run_candle_backtest
+
+    text, kb = await _run_candle_backtest("DOGE", "5m", "up", "m6", _db())
+    assert "Geçersiz" in text
+    text, kb = await _run_candle_backtest("BTC", "5m", "up", "m6", None)
+    assert "DB" in text
 
 
 @pytest.mark.asyncio

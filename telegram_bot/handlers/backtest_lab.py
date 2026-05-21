@@ -68,10 +68,11 @@ def _panel_nav_kb(extra_rows: list[list[InlineKeyboardButton]] | None = None) ->
 
 
 def _main_kb() -> InlineKeyboardMarkup:
-    """Mode-select ekranı keyboard'u — 4 panel + legacy köprü."""
+    """Mode-select ekranı keyboard'u — paneller + legacy köprü."""
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
+            [InlineKeyboardButton("🚀 Hızlı Test (tick)", callback_data="lab_quick")],
+            [InlineKeyboardButton("🎲 Candle / Martingale", callback_data="lab_candle")],
             [InlineKeyboardButton("🛠 Strateji Kurucu", callback_data="lab_builder")],
             [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
             [InlineKeyboardButton("🎯 Kalibrasyon", callback_data="lab_calibrate")],
@@ -1368,6 +1369,114 @@ async def _build_legacy(db) -> tuple[str, InlineKeyboardMarkup]:
     return text, _panel_nav_kb()
 
 
+# ── 🎲 Candle / Martingale (market-level, candles_ext) ──────
+
+
+async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
+    """🎲 Candle/Martingale menü — hazır kombinasyonlar (tek tık).
+
+    Heddas direktifi: "candle'ları topluyoruz, kullanalım" + martingale.
+    candles_ext (Binance gerçek yön) 2600+ market — tick'ten çok zengin.
+    """
+    text = (
+        "🎲 <b>CANDLE / MARTINGALE BACKTEST</b>\n"
+        "<i>candles_ext (Binance gerçek yön) — market-level</i>\n\n"
+        "Her candle = bir market (close&gt;open → UP kazandı). 2600+ BTC 5m "
+        "market — tick backtest'ten (7 market) çok daha zengin.\n\n"
+        "🎲 <b>Martingale</b>: kaybedince 2× katla, kazanınca reset.\n"
+        "⚠️ <i>50c'de matematiksel negatif EV — sayılarla göreceksin "
+        "(max streak, bust, max bet). Kumar tuzağını ölç.</i>\n\n"
+        "Bir kombinasyon seç:"
+    )
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 BTC 5m — Flat UP (streak analizi)", callback_data="lab_cb:BTC:5m:up:flat")],
+            [InlineKeyboardButton("🎲 BTC 5m — Martingale ×6", callback_data="lab_cb:BTC:5m:up:m6")],
+            [InlineKeyboardButton("🎲 BTC 5m — Martingale ×4 (güvenli)", callback_data="lab_cb:BTC:5m:up:m4")],
+            [InlineKeyboardButton("🎲 BTC 1h — Martingale ×6", callback_data="lab_cb:BTC:1h:up:m6")],
+            [InlineKeyboardButton("🎲 BTC 15m — Martingale ×6", callback_data="lab_cb:BTC:15m:up:m6")],
+            [InlineKeyboardButton("◀️ Ana Panel", callback_data="lab_main")],
+        ]
+    )
+    return text, kb
+
+
+async def _run_candle_backtest(
+    asset: str, tf: str, direction: str, mode: str, db
+) -> tuple[str, InlineKeyboardMarkup]:
+    """`lab_cb:<asset>:<tf>:<dir>:<mode>` — candle backtest çalıştır.
+
+    mode: flat | m4 | m6 | m8 | mUL (martingale tavan katlama).
+    """
+    back_kb = _panel_nav_kb(
+        extra_rows=[[InlineKeyboardButton("◀️ Candle menü", callback_data="lab_candle")]]
+    )
+    if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in ("5m", "15m", "1h"):
+        return "⚠️ Geçersiz parametre.", back_kb
+    if db is None or getattr(db, "conn", None) is None:
+        return "⚠️ DB bağlantısı yok.", back_kb
+
+    martingale = mode != "flat"
+    max_levels = {"m4": 4, "m6": 6, "m8": 8, "mUL": 0}.get(mode, 6)
+
+    try:
+        from backtest.candle_runner import CandleBacktestRunner, CandleRunConfig
+
+        cfg = CandleRunConfig(
+            asset=asset, timeframe=tf, bet_direction=direction,
+            martingale=martingale, max_levels=max_levels, last_n=500,
+        )
+        s = await CandleBacktestRunner(db).run(cfg)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_run_candle_backtest failed: %s", e)
+        return f"⚠️ Hata: <i>{esc(type(e).__name__)}</i>", back_kb
+
+    if s.n_markets == 0:
+        return f"<i>{esc(s.note)}</i>", back_kb
+
+    pnl_icon = "🟢" if s.total_pnl > 0 else "🔴" if s.total_pnl < 0 else "⚪"
+
+    # Streak dağılımı (Heddas: "üstüste kaç market")
+    streak_lines = []
+    for k in sorted(s.streak_dist):
+        streak_lines.append(f"  {k} ardışık: {s.streak_dist[k]}×")
+    streak_block = "\n".join(streak_lines[-8:]) if streak_lines else "  <i>yok</i>"
+
+    mode_lbl = "Flat (sabit bahis)" if not martingale else (
+        f"Martingale ×{max_levels}" if max_levels > 0 else "Martingale ∞"
+    )
+
+    mart_block = ""
+    if martingale:
+        mart_block = (
+            "\n🎲 <b>Martingale</b>\n"
+            f"  Max bet ulaşılan: <b>${s.max_bet:.0f}</b>\n"
+            f"  En derin katlama: {s.max_level_reached}\n"
+            f"  Bust (tavana çarpma): {s.busts}×\n"
+        )
+        if s.busts > 0:
+            mart_block += (
+                f"  ⚠️ <i>{s.busts} kez tavana çarptı = {s.busts} büyük kayıp. "
+                "Gerçekte bu sermaye iflası demek.</i>\n"
+            )
+
+    text = (
+        f"🎲 <b>Candle Backtest</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 {esc(asset)} {esc(tf)} · yön {esc(direction.upper())} · {esc(mode_lbl)}\n"
+        f"📦 {s.n_markets} market (son {cfg.last_n}) · UP %{s.up_pct:.1f}\n\n"
+        "📊 <b>Sonuç</b>\n"
+        f"  {pnl_icon} PnL: <b>${s.total_pnl:+.2f}</b>\n"
+        f"  🎯 WR: {s.win_rate:.1f}% · {s.n_trades} trade ({s.wins}W/{s.losses}L)\n"
+        f"{mart_block}\n"
+        f"🔢 <b>Üstüste aynı yön (max {s.max_streak})</b>\n"
+        f"{streak_block}\n\n"
+        "<i>candles_ext Binance gerçek yön — Polymarket up/down Chainlink/"
+        "Binance fiyatına settle olur.</i>"
+    )
+    return text, back_kb
+
+
 # ── Public entry points ─────────────────────────────────────
 
 
@@ -1393,6 +1502,7 @@ _BUILDERS = {
     "lab_main": _build_main,
     "lab_refresh": _build_main,
     "lab_quick": _build_quick,
+    "lab_candle": _build_candle_menu,  # 2026-05-21 Heddas: candle/martingale
     "lab_builder": _build_builder,
     "lab_compare": _build_compare,
     "lab_calibrate": _build_calibrate,
@@ -1478,6 +1588,22 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 except (BadRequest, TelegramError):
                     pass
                 text, kb = await _run_inline_backtest(bt_name, bt_asset, bt_tf, db)
+        elif action == "lab_cb":
+            # lab_cb:<asset>:<tf>:<dir>:<mode> — candle/martingale backtest
+            parts = arg.split(":")
+            if len(parts) != 4:
+                text, kb = "⚠️ Geçersiz candle parametresi.", _main_kb()
+            else:
+                cb_asset, cb_tf, cb_dir, cb_mode = parts
+                try:
+                    await q.edit_message_text(
+                        f"⏳ <b>{esc(cb_asset)} {esc(cb_tf)}</b> candle backtest "
+                        "çalışıyor...",
+                        parse_mode="HTML",
+                    )
+                except (BadRequest, TelegramError):
+                    pass
+                text, kb = await _run_candle_backtest(cb_asset, cb_tf, cb_dir, cb_mode, db)
         elif action == "lab_show":
             text, kb = await _build_show_ruleset(arg)
         elif action == "lab_del_ask":

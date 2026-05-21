@@ -106,6 +106,7 @@ class CandleRunSummary:
     # Veri istatistiği
     max_streak: int = 0
     up_pct: float = 0.0
+    streak_dist: dict = field(default_factory=dict)  # streak uzunluğu → kaç kez
     note: str = ""
 
 
@@ -141,6 +142,7 @@ class CandleBacktestRunner:
         res.n_markets = len(markets)
         res.max_streak = max_streak
         res.up_pct = up_pct
+        res.streak_dist = streak_distribution(dirs)
         res.final_balance = round(res.total_pnl, 4)
         return res
 
