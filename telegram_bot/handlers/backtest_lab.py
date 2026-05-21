@@ -1396,11 +1396,82 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
             [InlineKeyboardButton("🎲 BTC 1h — Martingale ×6", callback_data="lab_cb:BTC:1h:up:m6")],
             [InlineKeyboardButton("🎲 BTC 15m — Martingale ×6", callback_data="lab_cb:BTC:15m:up:m6")],
             [InlineKeyboardButton("⚙️ Özel Martingale Kurucu", callback_data="lab_mw:BTC:5m:up:m6:50:0")],
-            [InlineKeyboardButton("🔬 Edge Tarama (BTC)", callback_data="lab_edge:BTC")],
+            [InlineKeyboardButton("🔬 Edge Tarama — basit (BTC)", callback_data="lab_edge:BTC")],
+            [InlineKeyboardButton("🧠 Akıllı Edge — koşullu (BTC)", callback_data="lab_sedge:BTC:5m")],
             [InlineKeyboardButton("◀️ Ana Panel", callback_data="lab_main")],
         ]
     )
     return text, kb
+
+
+async def _build_smart_edge(asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
+    """🧠 Akıllı Edge — koşullu sinyal tarayıcı (önceki hareket/volatilite).
+
+    Heddas #1 (sofistike sinyal): basit yön edge'i yok, bir üst seviye —
+    önceki candle'ın hareketine/volatilitesine bağlı 6 hipotez (reversal/
+    momentum/vol) train/test split. Mean-reversion (büyük düşüş→al) çıktı.
+    """
+    nav = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("BTC 5m", callback_data="lab_sedge:BTC:5m"),
+                InlineKeyboardButton("BTC 15m", callback_data="lab_sedge:BTC:15m"),
+                InlineKeyboardButton("BTC 1h", callback_data="lab_sedge:BTC:1h"),
+            ],
+            [InlineKeyboardButton("◀️ Candle menü", callback_data="lab_candle")],
+        ]
+    )
+    if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in ("5m", "15m", "1h"):
+        return "⚠️ Geçersiz parametre.", nav
+    if db is None or getattr(db, "conn", None) is None:
+        return "⚠️ DB bağlantısı yok.", nav
+
+    try:
+        from backtest.candle_runner import CandleBacktestRunner
+
+        res = await CandleBacktestRunner(db).scan_conditional_edges(asset, tf)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_build_smart_edge failed: %s", e)
+        return f"⚠️ Tarama hatası: <i>{esc(type(e).__name__)}</i>", nav
+
+    if res and res[0].get("skip"):
+        return (
+            f"🧠 <b>AKILLI EDGE — {esc(asset)} {esc(tf)}</b>\n\n"
+            f"<i>{res[0]['n']} market — yetersiz (≥60 gerek). Bot daha çok "
+            "veri toplamalı (özellikle 1h).</i>",
+            nav,
+        )
+
+    lines = [
+        f"🧠 <b>AKILLI EDGE — {esc(asset)} {esc(tf)}</b>",
+        "<i>Önceki candle hareketine bağlı 6 hipotez. %70 train/%30 test.</i>",
+        "<i>✅ = ikisi pozitif + test ≥20 trade (OOS-dayanıklı).</i>",
+        "",
+    ]
+    edge_found = False
+    for x in res:
+        flag = "✅" if x["is_edge"] else ("⚠️" if x["train_pnl"] > 0 else "")
+        if x["is_edge"]:
+            edge_found = True
+        lines.append(
+            f"  {esc(x['name']):20} "
+            f"tr <code>${x['train_pnl']:+.0f}</code>·"
+            f"te <code>${x['test_pnl']:+.0f}</code> "
+            f"(WR{x['test_wr']:.0f}% {x['n_test']}t) {flag}"
+        )
+    lines.append("")
+    if edge_found:
+        lines.append(
+            "✅ <i>OOS-dayanıklı sinyal! 'rev↑' = önceki candle büyük düştüyse "
+            "sonraki market UP al (mean-reversion / dip-buying). Birden çok TF'de "
+            "tutuyorsa güçlü. AMA örneklem küçük — canlı doğrula, abartma.</i>"
+        )
+    else:
+        lines.append(
+            "❌ <i>Bu TF'de OOS-dayanıklı koşullu sinyal yok. Diğer TF'leri dene "
+            "ya da daha çok veri bekle.</i>"
+        )
+    return "\n".join(lines), nav
 
 
 async def _build_edge_scan(asset: str, db) -> tuple[str, InlineKeyboardMarkup]:
@@ -1854,7 +1925,7 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                     pass
                 text, kb = await _run_candle_backtest(cb_asset, cb_tf, cb_dir, cb_mode, db)
         elif action == "lab_edge":
-            # lab_edge:<asset> — edge tarama (train/test split)
+            # lab_edge:<asset> — basit edge tarama (train/test split)
             try:
                 await q.edit_message_text(
                     f"⏳ <b>{esc(arg)}</b> edge taraması çalışıyor "
@@ -1864,6 +1935,22 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
             except (BadRequest, TelegramError):
                 pass
             text, kb = await _build_edge_scan(arg, db)
+        elif action == "lab_sedge":
+            # lab_sedge:<asset>:<tf> — akıllı (koşullu) edge tarama
+            parts = arg.split(":")
+            if len(parts) != 2:
+                text, kb = "⚠️ Geçersiz parametre.", _main_kb()
+            else:
+                se_asset, se_tf = parts
+                try:
+                    await q.edit_message_text(
+                        f"⏳ <b>{esc(se_asset)} {esc(se_tf)}</b> akıllı edge "
+                        "taraması (koşullu sinyaller)...",
+                        parse_mode="HTML",
+                    )
+                except (BadRequest, TelegramError):
+                    pass
+                text, kb = await _build_smart_edge(se_asset, se_tf, db)
         elif action == "lab_mw":
             # lab_mw:<asset>:<tf>:<dir>:<mode>:<entry>:<stop> — kurucu cycle panel
             parts = arg.split(":")

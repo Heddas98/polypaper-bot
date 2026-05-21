@@ -36,13 +36,16 @@ def _db(rows):
 
 
 def _candles_5m_alternating(n=20, start_ts=1_700_000_000):
-    """n adet 5m candle — sırayla up/down (open_ts saniye)."""
+    """n adet 5m candle — sırayla up/down. 6 sütun: ts,open,high,low,close,vol
+    (2026-05-21: _load_markets artık high/low/volume çekiyor)."""
     rows = []
     price = 100.0
     for i in range(n):
         op = price
         cl = price + 1 if i % 2 == 0 else price - 1  # even=up, odd=down
-        rows.append((start_ts + i * 300, op, cl))
+        hi = max(op, cl) + 0.5
+        lo = min(op, cl) - 0.5
+        rows.append((start_ts + i * 300, op, hi, lo, cl, 1000.0))
         price = cl
     return rows
 
@@ -183,7 +186,7 @@ async def test_scan_edges():
     for i in range(100):
         op = price
         cl = price + 1 if i % 3 != 0 else price - 1  # 2/3 up
-        rows.append((1_700_000_000 + i * 300, op, cl))
+        rows.append((1_700_000_000 + i * 300, op, max(op, cl) + 0.5, min(op, cl) - 0.5, cl, 1000.0))
         price = cl
     db = _db(rows)
     results = await CandleBacktestRunner(db).scan_edges(
@@ -199,9 +202,45 @@ async def test_scan_edges():
 
 
 @pytest.mark.asyncio
+async def test_scan_conditional_edges():
+    """Koşullu sinyal tarama — 6 hipotez, prev_body/range sinyalleri."""
+    # 120 candle, büyük düşüş sonrası up eğilimli (rev↑ kârlı olmalı)
+    rows = []
+    price = 100.0
+    for i in range(120):
+        op = price
+        # i%4==0: büyük düşüş, sonraki: toparlanma
+        if i % 4 == 0:
+            cl = price * 0.997  # büyük down
+        elif i % 4 == 1:
+            cl = price * 1.004  # toparlanma (rev↑ yakalar)
+        else:
+            cl = price + (0.5 if i % 2 == 0 else -0.5)
+        # high/low/volume sütunları da gerekli (yeni _load_markets)
+        hi = max(op, cl) * 1.001
+        lo = min(op, cl) * 0.999
+        rows.append((1_700_000_000 + i * 300, op, hi, lo, cl, 1000.0))
+        price = cl
+    db = _db(rows)
+    res = await CandleBacktestRunner(db).scan_conditional_edges("BTC", "5m", min_markets=20)
+    # 6 sinyal sonucu (skip değil)
+    assert len(res) == 6
+    names = [r["name"] for r in res]
+    assert any("rev↑" in n for n in names)
+    assert all("train_pnl" in r and "test_pnl" in r for r in res)
+
+
+@pytest.mark.asyncio
+async def test_scan_conditional_insufficient():
+    db = _db([(1_700_000_000 + i * 300, 100.0, 101.0, 99.0, 100.5, 1.0) for i in range(10)])
+    res = await CandleBacktestRunner(db).scan_conditional_edges("BTC", "5m", min_markets=60)
+    assert res[0]["skip"] is True
+
+
+@pytest.mark.asyncio
 async def test_scan_edges_insufficient_data():
     """Az market → skip flag."""
-    db = _db([(1_700_000_000 + i * 300, 100.0, 101.0) for i in range(5)])
+    db = _db([(1_700_000_000 + i * 300, 100.0, 101.5, 99.5, 101.0, 1.0) for i in range(5)])
     results = await CandleBacktestRunner(db).scan_edges("BTC", timeframes=("5m",), min_markets=40)
     assert len(results) == 1
     assert results[0]["skip"] is True
@@ -210,7 +249,7 @@ async def test_scan_edges_insufficient_data():
 @pytest.mark.asyncio
 async def test_run_ms_timestamp_normalize():
     """open_ts ms cinsindeyse saniyeye normalize (OSError önler)."""
-    rows = [(1_700_000_000_000 + i * 300_000, 100.0, 101.0) for i in range(6)]
+    rows = [(1_700_000_000_000 + i * 300_000, 100.0, 101.5, 99.5, 101.0, 1000.0) for i in range(6)]
     db = _db(rows)
     s = await CandleBacktestRunner(db).run(
         CandleRunConfig(asset="BTC", timeframe="5m", bet_direction="up", last_n=0)

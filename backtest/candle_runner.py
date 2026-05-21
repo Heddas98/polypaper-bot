@@ -65,6 +65,13 @@ class CandleMarket:
     direction: str  # "up" (close>open) | "down" | "flat"
     hour_utc: int
     weekday: int  # 0=Pzt ... 6=Paz
+    # 2026-05-21 sofistike sinyal alanları (candles_ext high/low/volume'dan)
+    range_pct: float = 0.0  # (high−low)/open — bu candle'ın volatilitesi
+    body_pct: float = 0.0  # (close−open)/open — işaretli hareket büyüklüğü
+    volume: float = 0.0
+    # Önceki market'ten taşınan sinyaller (karar ANINDA bilinebilir — leak yok)
+    prev_body_pct: float = 0.0  # önceki candle hareketi (yön + büyüklük)
+    prev_range_pct: float = 0.0  # önceki candle volatilitesi
 
 
 @dataclass
@@ -195,6 +202,69 @@ class CandleBacktestRunner:
                 )
         return results
 
+    async def scan_conditional_edges(
+        self, asset: str, timeframe: str, train_ratio: float = 0.7, min_markets: int = 60
+    ) -> list[dict]:
+        """2026-05-21 (Heddas #1: sofistike sinyal) — koşullu edge tarayıcı.
+
+        Basit yön sinyalinde edge yok (kanıtlandı). Bu, ÖNCEKİ candle'ın
+        hareketine/volatilitesine bağlı 6 hipotezi train/test ile tarar:
+          • reversal (büyük hareket sonrası ters) — mean-reversion
+          • momentum (yön devam) — trend-following
+          • volatilite-koşullu (düşük/yüksek vol'da farklı davranış)
+
+        Karar ANINDA bilinen veriyle (prev_body, prev_range) — look-ahead
+        leak YOK. Eşik/medyan TRAIN'den hesaplanır (test'e sızdırmaz).
+        """
+        cfg = CandleRunConfig(asset=asset, timeframe=timeframe, last_n=0)
+        markets = await self._load_markets(cfg)
+        if len(markets) < min_markets:
+            return [{"skip": True, "n": len(markets)}]
+
+        sp = int(len(markets) * train_ratio)
+        train, test = markets[:sp], markets[sp:]
+
+        # Eşikler TRAIN'den (leak yok)
+        body_thr = 0.0015  # %0.15 "büyük hareket"
+        train_ranges = sorted(m.prev_range_pct for m in train if m.prev_range_pct > 0)
+        vol_med = train_ranges[len(train_ranges) // 2] if train_ranges else 0.003
+
+        # 6 koşullu sinyal (her biri: market → bet_dir | None)
+        signals = {
+            "rev↑ prev↓big→UP": lambda m: "up" if m.prev_body_pct < -body_thr else None,
+            "rev↓ prev↑big→DOWN": lambda m: "down" if m.prev_body_pct > body_thr else None,
+            "mom↑ prev↑→UP": lambda m: "up" if m.prev_body_pct > 0 else None,
+            "mom↓ prev↓→DOWN": lambda m: "down" if m.prev_body_pct < 0 else None,
+            "lowvol-mom": lambda m: (
+                ("up" if m.prev_body_pct > 0 else "down")
+                if m.prev_range_pct < vol_med and m.prev_body_pct != 0
+                else None
+            ),
+            "highvol-rev": lambda m: (
+                ("down" if m.prev_body_pct > 0 else "up")
+                if m.prev_range_pct > vol_med and m.prev_body_pct != 0
+                else None
+            ),
+        }
+
+        results: list[dict] = []
+        for name, fn in signals.items():
+            tr = _simulate_signal(train, fn, cfg)
+            te = _simulate_signal(test, fn, cfg)
+            results.append(
+                {
+                    "name": name,
+                    "n_train": tr["n"],
+                    "n_test": te["n"],
+                    "train_pnl": round(tr["pnl"], 2),
+                    "test_pnl": round(te["pnl"], 2),
+                    "test_wr": round(te["wr"], 1),
+                    "is_edge": tr["pnl"] > 0 and te["pnl"] > 0 and te["n"] >= 20,
+                    "skip": False,
+                }
+            )
+        return results
+
     # ─── Veri yükleme ───────────────────────────────────────
 
     async def _load_markets(self, cfg: CandleRunConfig) -> list[CandleMarket]:
@@ -202,9 +272,10 @@ class CandleBacktestRunner:
         symbol = _BINANCE_SYMBOL.get(cfg.asset.upper())
         if not symbol:
             return []
-        # Binance candles_ext sadece 5m tutuyor — 5m çek, aggregate et
+        # Binance candles_ext sadece 5m tutuyor — 5m çek (high/low/volume
+        # dahil — sofistike sinyaller için), hedef TF'ye aggregate et
         rows = await self.db.conn.execute_fetchall(
-            "SELECT open_ts, open, close FROM candles_ext "
+            "SELECT open_ts, open, high, low, close, volume FROM candles_ext "
             "WHERE symbol=? AND interval='5m' ORDER BY open_ts ASC",
             (symbol,),
         )
@@ -213,19 +284,22 @@ class CandleBacktestRunner:
 
         agg = _TF_AGG.get(cfg.timeframe, 1)
         markets: list[CandleMarket] = []
-        # agg'lik gruplar halinde birleştir (open=ilk, close=son)
+        # agg'lik gruplar halinde birleştir (open=ilk, high=max, low=min,
+        # close=son, volume=toplam)
         for i in range(0, len(rows) - agg + 1, agg):
             group = rows[i : i + agg]
             if len(group) < agg:
                 break
             open_ts = int(group[0][0])
-            # ts ms cinsinden olabilir (>10^11) — saniyeye normalize et
-            if open_ts > 10_000_000_000:
+            if open_ts > 10_000_000_000:  # ms → saniye
                 open_ts = open_ts // 1000
             open_price = float(group[0][1])
-            close_price = float(group[-1][2])
+            close_price = float(group[-1][4])
             if open_price <= 0 or close_price <= 0:
                 continue
+            high = max(float(g[2]) for g in group)
+            low = min(float(g[3]) for g in group)
+            volume = sum(float(g[5] or 0) for g in group)
             if close_price > open_price:
                 direction = "up"
             elif close_price < open_price:
@@ -235,7 +309,7 @@ class CandleBacktestRunner:
             try:
                 dt = datetime.fromtimestamp(open_ts, tz=UTC)
             except (OSError, ValueError, OverflowError):
-                continue  # bozuk ts — atla
+                continue
             markets.append(
                 CandleMarket(
                     ts=open_ts,
@@ -244,8 +318,16 @@ class CandleBacktestRunner:
                     direction=direction,
                     hour_utc=dt.hour,
                     weekday=dt.weekday(),
+                    range_pct=(high - low) / open_price if open_price else 0.0,
+                    body_pct=(close_price - open_price) / open_price if open_price else 0.0,
+                    volume=volume,
                 )
             )
+
+        # prev_* sinyalleri — önceki market'in body/range (karar anında bilinir)
+        for j in range(1, len(markets)):
+            markets[j].prev_body_pct = markets[j - 1].body_pct
+            markets[j].prev_range_pct = markets[j - 1].range_pct
 
         # Son N market
         if cfg.last_n > 0 and len(markets) > cfg.last_n:
@@ -391,6 +473,26 @@ def _trade_pnl(bet_dir: str, actual_dir: str, bet: float, entry: float, fee_rate
     if bet_dir == actual_dir:
         return shares * 1.0 - bet - fee  # payout − maliyet − fee
     return -(bet + fee)  # tüm bet + fee kaybı
+
+
+def _simulate_signal(markets: list, signal_fn, cfg: CandleRunConfig) -> dict:
+    """Koşullu sinyal FLAT simülasyonu — signal_fn(market)→bet_dir|None.
+
+    None = o market'te işlem yok (segment dışı). Döner: {pnl, n, wr}.
+    """
+    pnl = 0.0
+    wins = trades = 0
+    for m in markets:
+        if m.direction == "flat":
+            continue
+        bet_dir = signal_fn(m)
+        if bet_dir is None:
+            continue
+        pnl += _trade_pnl(bet_dir, m.direction, cfg.base_bet, cfg.entry_price, cfg.fee_rate)
+        trades += 1
+        if bet_dir == m.direction:
+            wins += 1
+    return {"pnl": pnl, "n": trades, "wr": (100.0 * wins / trades) if trades else 0.0}
 
 
 def _max_streak(dirs: list[str]) -> int:
