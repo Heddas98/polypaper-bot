@@ -447,22 +447,154 @@ async def _build_show_ruleset(name: str) -> tuple[str, InlineKeyboardMarkup]:
     if len(pretty) > 3000:
         pretty = pretty[:3000] + "\n... <kesildi>"
 
+    # Kuralları insan-okunur özetle (JSON yerine)
+    cond_lines = _humanize_conditions(rs)
+    direction = rs.get("direction", "?")
+    dir_emoji = "⬆️" if direction == "up" else "⬇️" if direction == "down" else "↕️"
+
     text = (
         f"🔍 <b>{esc(name)}</b>\n"
-        f"<i>direction: {esc(rs.get('direction', '?'))} · "
-        f"confidence: {rs.get('confidence', '?')} · "
-        f"{len(rs.get('entry', {}).get('conditions', []))} kural</i>\n\n"
-        f"<pre>{esc(pretty)}</pre>\n\n"
-        "<b>Backtest çalıştır</b>:\n"
-        f"<code>/backtest_replay rule_based BTC 5m</code>\n"
-        "<i>rule_based stratejisi en son kaydettiğin RuleSet'i auto-load "
-        "eder. Birden fazla için tek tek koş.</i>"
+        f"{dir_emoji} Yön: <b>{esc(direction.upper())}</b> · "
+        f"güven: {rs.get('confidence', 0.7)}\n\n"
+        "<b>Kurallar:</b>\n"
+        f"{cond_lines}\n\n"
+        "<b>🚀 Backtest et</b> — market seç (tek tık, komut yok):"
     )
+    # Market backtest butonları — 2026-05-21 Heddas: komut yazma yok, tuş
     extra = [
-        [InlineKeyboardButton(f"🗑 Sil ({name})", callback_data=f"lab_del_ask:{name}")],
+        [
+            InlineKeyboardButton("🟠 BTC 5m", callback_data=f"lab_bt:{name}:BTC:5m"),
+            InlineKeyboardButton("🟠 BTC 15m", callback_data=f"lab_bt:{name}:BTC:15m"),
+        ],
+        [
+            InlineKeyboardButton("🟠 BTC 1h", callback_data=f"lab_bt:{name}:BTC:1h"),
+            InlineKeyboardButton("🔵 ETH 15m", callback_data=f"lab_bt:{name}:ETH:15m"),
+        ],
+        [InlineKeyboardButton("🗑 Sil", callback_data=f"lab_del_ask:{name}")],
         [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
     ]
     return text, _panel_nav_kb(extra_rows=extra)
+
+
+def _humanize_conditions(rs: dict) -> str:
+    """RuleSet conditions'ı insan-okunur satırlara çevir (JSON yerine).
+
+    Heddas direktifi 2026-05-21: "isimleri daha açıklayıcı olsun" —
+    {"field":"elapsed_seconds","op":">=","value":30} yerine
+    "⏱ Market açılışından 30sn sonra" gibi.
+    """
+    entry = rs.get("entry", {})
+    conds = entry.get("conditions", [])
+    if not conds:
+        return "  <i>(koşul yok — strateji ateşlemez)</i>"
+    logic = entry.get("logic", "AND")
+    # Alan → insan-okunur etiket
+    field_labels = {
+        "elapsed_seconds": "⏱ Market saniyesi",
+        "elapsed_pct": "⏱ Market ilerleme %",
+        "up_best_ask": "📈 UP alış fiyatı",
+        "up_best_bid": "📈 UP satış fiyatı",
+        "down_best_ask": "📉 DOWN alış fiyatı",
+        "down_best_bid": "📉 DOWN satış fiyatı",
+        "spread": "↔️ Spread",
+        "binance_price": "💲 Binance fiyatı",
+        "binance_price_change": "📊 Binance değişim %",
+        "hour_utc": "🕐 UTC saat",
+        "market_type": "📐 Market türü",
+        "coin": "🪙 Coin",
+    }
+    op_labels = {
+        ">=": "≥", "<=": "≤", ">": ">", "<": "<",
+        "==": "=", "!=": "≠", "in": "içinde", "not_in": "dışında",
+    }
+    lines = []
+    for c in conds:
+        if not isinstance(c, dict):
+            continue
+        fld = field_labels.get(c.get("field", ""), c.get("field", "?"))
+        op = op_labels.get(c.get("op", ""), c.get("op", "?"))
+        val = c.get("value", "?")
+        lines.append(f"  • {fld} {op} <b>{esc(str(val))}</b>")
+    joiner = "\n  <i>VE</i>\n" if logic == "AND" else "\n  <i>VEYA</i>\n"
+    return joiner.join(lines) if len(lines) > 1 else "\n".join(lines)
+
+
+async def _run_inline_backtest(name: str, asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
+    """Ruleset'i inline backtest et — komut yok, tek tık (Heddas 2026-05-21).
+
+    `lab_bt:<name>:<asset>:<tf>` callback'inden çağrılır. Ruleset yüklenir,
+    BacktestRunner ile koşulur, zengin sonuç tablosu döner.
+    """
+    from backtest.strategies.rule_based import _NAME_RX, list_rulesets
+
+    back_kb = _panel_nav_kb(
+        extra_rows=[
+            [InlineKeyboardButton("◀️ Strateji detayı", callback_data=f"lab_show:{name}")],
+            [InlineKeyboardButton("🛠 Kurucu", callback_data="lab_builder")],
+        ]
+    )
+
+    if not _NAME_RX.match(name or "") or asset not in ("BTC", "ETH", "SOL", "XRP"):
+        return "⚠️ Geçersiz backtest parametresi.", back_kb
+
+    rs = None
+    for r in list_rulesets():
+        if r.get("name") == name:
+            rs = r
+            break
+    if rs is None:
+        return f"⚠️ Ruleset bulunamadı: <code>{esc(name)}</code>", back_kb
+
+    if db is None or getattr(db, "conn", None) is None:
+        return "⚠️ DB bağlantısı yok — backtest yapılamadı.", back_kb
+
+    try:
+        from backtest.runner import BacktestRunner, RunConfig
+
+        cfg = RunConfig(
+            asset=asset, timeframe=tf, strategy_name="rule_based",
+            strategy_params=rs, last_n=200,
+        )
+        summary = await BacktestRunner(db).run(cfg)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_run_inline_backtest failed: %s", e)
+        return (
+            f"⚠️ Backtest hatası: <i>{esc(type(e).__name__)}</i> — log'da detay.",
+            back_kb,
+        )
+
+    pnl_icon = "🟢" if summary.total_pnl > 0 else "🔴" if summary.total_pnl < 0 else "⚪"
+    dir_lbl = rs.get("direction", "?").upper()
+
+    if summary.n_markets_discovered == 0:
+        body = (
+            f"<i>{esc(summary.note or 'Bu market/TF için yeterli veri yok.')}</i>\n\n"
+            "Bot daha çok veri toplamalı (1-2 saat) ya da başka market/TF dene."
+        )
+    else:
+        body = (
+            "📊 <b>Performans</b>\n"
+            f"  {pnl_icon} PnL: <b>${summary.total_pnl:+.2f}</b>\n"
+            f"  🎯 Win Rate: <b>{summary.win_rate:.1f}%</b>\n"
+            f"  📈 Trade: {summary.n_trades} "
+            f"({summary.wins}W / {summary.losses}L)\n"
+            f"  💰 Ort. PnL/trade: ${summary.avg_pnl:+.4f}\n"
+            f"  💸 Toplam fee: ${summary.fees_total:.4f}\n\n"
+            "📦 <b>Kapsam</b>\n"
+            f"  Taranan market: {summary.n_markets_discovered}\n"
+            f"  İşlenen: {summary.n_markets_processed} "
+            f"(+{summary.n_markets_skipped} atlandı)\n"
+            f"  Final bakiye: ${summary.final_balance:.2f}"
+        )
+
+    text = (
+        f"🚀 <b>Backtest Sonucu</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📋 Strateji: <code>{esc(name)}</code> ({esc(dir_lbl)})\n"
+        f"🎯 Market: <b>{esc(asset)} {esc(tf)}</b> · son {cfg.last_n}\n\n"
+        f"{body}"
+    )
+    return text, back_kb
 
 
 async def _build_del_confirm(name: str) -> tuple[str, InlineKeyboardMarkup]:
@@ -1019,9 +1151,9 @@ async def _build_compare(db) -> tuple[str, InlineKeyboardMarkup]:
         # rule_based stratejisi her ruleset için ayrı kayıtlı olmalı.
         # Bu mevcut UX limiti — örnek yine de gerçek isimler.)
         usage_example = (
-            f"  <code>/compare rule_based rule_based</code>\n"
-            f"  <i>(her ikisi de en son kayıtlı kuralı yükler — multi-ruleset"
-            f" karşılaştırma backlog'da; şimdilik birer-birer çalıştır)</i>"
+            "  <code>/compare rule_based rule_based</code>\n"
+            "  <i>(her ikisi de en son kayıtlı kuralı yükler — multi-ruleset"
+            " karşılaştırma backlog'da; şimdilik birer-birer çalıştır)</i>"
         )
     else:
         usage_example = (
@@ -1329,7 +1461,24 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     action, _, arg = data.partition(":")
     try:
-        if action == "lab_show":
+        if action == "lab_bt":
+            # lab_bt:<name>:<asset>:<tf> — inline backtest (db gerek)
+            parts = arg.split(":")
+            if len(parts) != 3:
+                text, kb = "⚠️ Geçersiz backtest parametresi.", _main_kb()
+            else:
+                bt_name, bt_asset, bt_tf = parts
+                # "Hesaplanıyor" ara-mesajı (uzun sürebilir)
+                try:
+                    await q.edit_message_text(
+                        f"⏳ <b>{esc(bt_asset)} {esc(bt_tf)}</b> backtest "
+                        f"çalışıyor...\n<i>Strateji: {esc(bt_name)}</i>",
+                        parse_mode="HTML",
+                    )
+                except (BadRequest, TelegramError):
+                    pass
+                text, kb = await _run_inline_backtest(bt_name, bt_asset, bt_tf, db)
+        elif action == "lab_show":
             text, kb = await _build_show_ruleset(arg)
         elif action == "lab_del_ask":
             text, kb = await _build_del_confirm(arg)

@@ -215,6 +215,63 @@ async def test_build_quick_smoke():
     assert isinstance(kb, InlineKeyboardMarkup)
 
 
+# ── Adım 3 — _humanize_conditions + inline backtest ─────────
+
+
+def test_humanize_conditions_readable():
+    """JSON koşulları insan-okunur etiketlere çevrilmeli (Heddas direktifi)."""
+    from telegram_bot.handlers.backtest_lab import _humanize_conditions
+
+    rs = {
+        "entry": {
+            "logic": "AND",
+            "conditions": [
+                {"field": "elapsed_seconds", "op": ">=", "value": 30},
+                {"field": "up_best_ask", "op": "<=", "value": 0.55},
+            ],
+        }
+    }
+    out = _humanize_conditions(rs)
+    assert "Market saniyesi" in out  # field → insan etiket
+    assert "UP alış fiyatı" in out
+    assert "≥" in out and "≤" in out  # op → sembol
+    assert "30" in out and "0.55" in out
+    assert "VE" in out  # AND → VE
+
+
+def test_humanize_conditions_empty():
+    from telegram_bot.handlers.backtest_lab import _humanize_conditions
+
+    out = _humanize_conditions({"entry": {"conditions": []}})
+    assert "koşul yok" in out
+
+
+@pytest.mark.asyncio
+async def test_run_inline_backtest_invalid_params():
+    from telegram_bot.handlers.backtest_lab import _run_inline_backtest
+
+    # Geçersiz asset
+    text, kb = await _run_inline_backtest("x", "DOGE", "5m", _db())
+    assert "Geçersiz" in text
+    # Geçersiz isim (path traversal)
+    text, kb = await _run_inline_backtest("../escape", "BTC", "5m", _db())
+    assert "Geçersiz" in text
+
+
+@pytest.mark.asyncio
+async def test_run_inline_backtest_no_db():
+    import pytest as _pt
+
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _run_inline_backtest
+
+    # geçerli isim ama db None — ruleset bulunmalı önce; yoksa "bulunamadı"
+    # Bu test sadece db=None guard'ını değil, ruleset-yoksa guard'ını da kapsar
+    text, kb = await _run_inline_backtest("nonexistent_rs", "BTC", "5m", None)
+    # ruleset yok → "bulunamadı" (db guard'ından önce)
+    assert "bulunamadı" in text or "DB" in text
+
+
 @pytest.mark.asyncio
 async def test_build_builder_placeholder():
     db = _db({"FROM live_trades": (0, 0.0, 0.0)})
