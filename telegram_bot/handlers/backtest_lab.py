@@ -1398,10 +1398,70 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
             [InlineKeyboardButton("⚙️ Martingale/Edge Kurucu", callback_data="lab_mw:BTC:5m:rev_up:m6:50:0:15")],
             [InlineKeyboardButton("🔬 Edge Tarama — basit (BTC)", callback_data="lab_edge:BTC")],
             [InlineKeyboardButton("🧠 Akıllı Edge — koşullu (BTC)", callback_data="lab_sedge:BTC:5m")],
+            [InlineKeyboardButton("🔍 rev↑ Koşul Analizi (BTC)", callback_data="lab_revc:BTC:1h")],
             [InlineKeyboardButton("◀️ Ana Panel", callback_data="lab_main")],
         ]
     )
     return text, kb
+
+
+async def _build_rev_analysis(asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
+    """🔍 rev↑ Koşul Analizi — saat/volatilite segmentlerinde rev↑ gücü.
+
+    Heddas #2: rev↑ edge'ini daralt — hangi saat/vol'da güçlü? Araştırma
+    sonucu: rev↑ doğal yüksek-vol sinyal, saat filtresi örneklemi böler
+    (zayıflatır). Bu panel onu sayılarla gösterir.
+    """
+    nav = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("BTC 5m", callback_data="lab_revc:BTC:5m"),
+                InlineKeyboardButton("BTC 15m", callback_data="lab_revc:BTC:15m"),
+                InlineKeyboardButton("BTC 1h", callback_data="lab_revc:BTC:1h"),
+            ],
+            [InlineKeyboardButton("◀️ Candle menü", callback_data="lab_candle")],
+        ]
+    )
+    if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in ("5m", "15m", "1h"):
+        return "⚠️ Geçersiz parametre.", nav
+    if db is None or getattr(db, "conn", None) is None:
+        return "⚠️ DB bağlantısı yok.", nav
+
+    try:
+        from backtest.candle_runner import CandleBacktestRunner
+
+        res = await CandleBacktestRunner(db).scan_rev_conditions(asset, tf)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("_build_rev_analysis failed: %s", e)
+        return f"⚠️ Hata: <i>{esc(type(e).__name__)}</i>", nav
+
+    if res and res[0].get("skip"):
+        return (
+            f"🔍 <b>rev↑ KOŞUL ANALİZİ — {esc(asset)} {esc(tf)}</b>\n\n"
+            f"<i>{res[0]['n']} market — yetersiz (≥60 gerek).</i>",
+            nav,
+        )
+
+    lines = [
+        f"🔍 <b>rev↑ KOŞUL ANALİZİ — {esc(asset)} {esc(tf)}</b>",
+        "<i>rev↑'i saat/vol segmentinde test et. ✅ = OOS+ (≥10 trade).</i>",
+        "",
+    ]
+    for x in res:
+        flag = "✅" if x["is_edge"] else ("⚠️" if x["train_pnl"] > 0 else "")
+        lines.append(
+            f"  {esc(x['name']):14} "
+            f"tr <code>${x['train_pnl']:+.0f}</code>·"
+            f"te <code>${x['test_pnl']:+.0f}</code> "
+            f"(WR{x['test_wr']:.0f}% {x['n_test']}t) {flag}"
+        )
+    lines.append("")
+    lines.append(
+        "<i>💡 rev↑ doğal yüksek-vol sinyal (büyük düşüş = yüksek vol). "
+        "Saat filtresi genelde örneklemi böler → zayıflar. 'tüm saatler' "
+        "+ 'yüksek vol' en sağlam. Az-trade segmentlere güvenme.</i>"
+    )
+    return "\n".join(lines), nav
 
 
 async def _build_smart_edge(asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
@@ -1725,6 +1785,16 @@ async def _run_mart_config(
         if s.busts > 0:
             mart_block += f"  ⚠️ <i>{s.busts} bust = gerçekte {s.busts} sermaye iflası</i>\n"
 
+    # #1 Limit-emir dürüstlüğü: entry 0.50 değilse gerçek fill garantisi yok
+    limit_note = ""
+    if entry_cents != 50:
+        limit_note = (
+            f"\n⚠️ <i>Giriş {entry:.2f} = limit emir varsayımı. Bu candle "
+            "backtest Binance fiyatı kullanır, Polymarket orderbook DEĞİL — "
+            f"gerçekte odds {entry:.2f}'ye gelmezse FILL OLMAZ (trade "
+            "gerçekleşmez). Tam fill-sim için tick veri (ob_snapshots) gerekir.</i>"
+        )
+
     text = (
         "🚀 <b>Backtest Sonucu</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1735,7 +1805,8 @@ async def _run_mart_config(
         f"  {pnl_icon} PnL: <b>${s.total_pnl:+.2f}</b>\n"
         f"  🎯 WR: {s.win_rate:.1f}% · {s.n_trades} trade ({s.wins}W/{s.losses}L)\n"
         f"{mart_block}\n"
-        f"🔢 Üstüste aynı yön: max <b>{s.max_streak}</b>\n\n"
+        f"🔢 Üstüste aynı yön: max <b>{s.max_streak}</b>\n"
+        f"{limit_note}\n\n"
         "<i>Parametreyi değiştirip tekrar dene → 'Ayarlara dön'.</i>"
     )
     return text, back_kb
@@ -1955,6 +2026,22 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
             except (BadRequest, TelegramError):
                 pass
             text, kb = await _build_edge_scan(arg, db)
+        elif action == "lab_revc":
+            # lab_revc:<asset>:<tf> — rev↑ koşul analizi (saat/vol)
+            parts = arg.split(":")
+            if len(parts) != 2:
+                text, kb = "⚠️ Geçersiz parametre.", _main_kb()
+            else:
+                rc_asset, rc_tf = parts
+                try:
+                    await q.edit_message_text(
+                        f"⏳ <b>{esc(rc_asset)} {esc(rc_tf)}</b> rev↑ koşul "
+                        "analizi (saat/vol)...",
+                        parse_mode="HTML",
+                    )
+                except (BadRequest, TelegramError):
+                    pass
+                text, kb = await _build_rev_analysis(rc_asset, rc_tf, db)
         elif action == "lab_sedge":
             # lab_sedge:<asset>:<tf> — akıllı (koşullu) edge tarama
             parts = arg.split(":")

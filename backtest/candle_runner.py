@@ -268,6 +268,69 @@ class CandleBacktestRunner:
             )
         return results
 
+    async def scan_rev_conditions(
+        self,
+        asset: str,
+        timeframe: str,
+        rev_threshold: float = 0.0015,
+        train_ratio: float = 0.7,
+        min_markets: int = 60,
+    ) -> list[dict]:
+        """2026-05-21 (Heddas #2): rev↑ edge'ini saat/volatilite segmentlerinde
+        tara — hangi KOŞULDA daha güçlü?
+
+        rev_up (önceki büyük düşüş → UP) bahsini 6-saatlik dilimler + vol
+        segment (düşük/yüksek prev_range) içinde train/test eder. Edge'i
+        daraltmak için: belki sadece belli saatlerde / belli vol'da kârlı.
+        Eşik TRAIN-median (leak yok).
+        """
+        cfg = CandleRunConfig(
+            asset=asset, timeframe=timeframe, bet_direction="rev_up",
+            rev_threshold=rev_threshold, last_n=0,
+        )
+        markets = await self._load_markets(cfg)
+        if len(markets) < min_markets:
+            return [{"skip": True, "n": len(markets)}]
+
+        sp = int(len(markets) * train_ratio)
+        train, test = markets[:sp], markets[sp:]
+        train_ranges = sorted(m.prev_range_pct for m in train if m.prev_range_pct > 0)
+        vol_med = train_ranges[len(train_ranges) // 2] if train_ranges else 0.003
+
+        # rev_up sinyali (sabit) + segment filtreleri
+        def rev_fn(m):
+            return "up" if m.prev_body_pct < -rev_threshold else None
+
+        segments = {
+            "tüm saatler": lambda m: True,
+            "00-06 UTC": lambda m: 0 <= m.hour_utc < 6,
+            "06-12 UTC": lambda m: 6 <= m.hour_utc < 12,
+            "12-18 UTC": lambda m: 12 <= m.hour_utc < 18,
+            "18-24 UTC": lambda m: 18 <= m.hour_utc < 24,
+            "düşük vol": lambda m: m.prev_range_pct < vol_med,
+            "yüksek vol": lambda m: m.prev_range_pct >= vol_med,
+        }
+
+        results: list[dict] = []
+        for name, seg_fn in segments.items():
+            def combined(m, _seg=seg_fn):
+                return rev_fn(m) if _seg(m) else None
+
+            tr = _simulate_signal(train, combined, cfg)
+            te = _simulate_signal(test, combined, cfg)
+            results.append(
+                {
+                    "name": name,
+                    "train_pnl": round(tr["pnl"], 2),
+                    "test_pnl": round(te["pnl"], 2),
+                    "test_wr": round(te["wr"], 1),
+                    "n_test": te["n"],
+                    "is_edge": tr["pnl"] > 0 and te["pnl"] > 0 and te["n"] >= 10,
+                    "skip": False,
+                }
+            )
+        return results
+
     # ─── Veri yükleme ───────────────────────────────────────
 
     async def _load_markets(self, cfg: CandleRunConfig) -> list[CandleMarket]:

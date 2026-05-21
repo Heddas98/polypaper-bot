@@ -363,6 +363,18 @@ async def test_build_smart_edge_invalid():
 
 
 @pytest.mark.asyncio
+async def test_build_rev_analysis_invalid():
+    from telegram_bot.handlers.backtest_lab import _build_rev_analysis
+
+    text, kb = await _build_rev_analysis("DOGE", "5m", _db())
+    assert "Geçersiz" in text
+    text, kb = await _build_rev_analysis("BTC", "99x", _db())
+    assert "Geçersiz" in text
+    text, kb = await _build_rev_analysis("BTC", "5m", None)
+    assert "DB" in text
+
+
+@pytest.mark.asyncio
 async def test_run_inline_backtest_no_db():
     import pytest as _pt
 

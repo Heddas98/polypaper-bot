@@ -255,3 +255,44 @@ async def test_run_ms_timestamp_normalize():
         CandleRunConfig(asset="BTC", timeframe="5m", bet_direction="up", last_n=0)
     )
     assert s.n_markets == 6  # ms ts patlamadı
+
+
+# ── scan_rev_conditions (Heddas #2: rev↑ saat/vol segment) ───
+
+
+@pytest.mark.asyncio
+async def test_scan_rev_conditions():
+    """rev↑ koşul analizi — 7 segment (tüm/4 saat dilimi/düşük-yüksek vol)."""
+    # 120 candle, büyük düşüş sonrası toparlanma (rev↑ kârlı olmalı)
+    rows = []
+    price = 100.0
+    for i in range(120):
+        op = price
+        if i % 4 == 0:
+            cl = price * 0.997  # büyük down
+        elif i % 4 == 1:
+            cl = price * 1.004  # toparlanma (rev↑ yakalar)
+        else:
+            cl = price + (0.5 if i % 2 == 0 else -0.5)
+        hi = max(op, cl) * 1.001
+        lo = min(op, cl) * 0.999
+        rows.append((1_700_000_000 + i * 300, op, hi, lo, cl, 1000.0))
+        price = cl
+    db = _db(rows)
+    res = await CandleBacktestRunner(db).scan_rev_conditions("BTC", "5m", min_markets=20)
+    # 7 segment: tüm saatler + 4 saat dilimi + düşük/yüksek vol
+    assert len(res) == 7
+    names = [r["name"] for r in res]
+    assert "tüm saatler" in names
+    assert "yüksek vol" in names
+    assert "düşük vol" in names
+    assert all("train_pnl" in r and "test_pnl" in r for r in res)
+    assert all("test_wr" in r and "n_test" in r and "is_edge" in r for r in res)
+
+
+@pytest.mark.asyncio
+async def test_scan_rev_conditions_insufficient():
+    db = _db([(1_700_000_000 + i * 300, 100.0, 101.0, 99.0, 100.5, 1.0) for i in range(10)])
+    res = await CandleBacktestRunner(db).scan_rev_conditions("BTC", "5m", min_markets=60)
+    assert res[0]["skip"] is True
+    assert res[0]["n"] == 10
