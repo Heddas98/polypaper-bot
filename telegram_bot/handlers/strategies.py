@@ -42,7 +42,41 @@ async def _deny_callback(update: Update) -> None:
         await q.answer("⛔ Admin only", show_alert=True)
 
 
+# 2026-05-22 (Heddas #7 "gizle"): strateji sistemi devre disi. Plugin
+# registry bos (2026-05-21), bot auto-trade etmiyor → burada strateji
+# olusturmak/calistirmak ise yaramaz. Guard kullanici-dostu uyari gosterir
+# + erken doner. Yeniden acmak: STRATEGY_SYSTEM_DISABLED=False + registry doldur.
+STRATEGY_SYSTEM_DISABLED = True
+
+_STRATEGY_DISABLED_MSG = (
+    "🚫 <b>Strateji sistemi devre dışı</b>\n\n"
+    "Hazır strateji plugin'leri kaldırıldı (hiçbiri kâr etmedi) ve bot "
+    "otomatik trade etmiyor. Burada strateji oluşturmak/çalıştırmak işe yaramaz.\n\n"
+    "✅ Bunun yerine:\n"
+    "• <b>/backtest</b> → 🛠 Strateji Kurucu — kendi kuralını yaz + test et\n"
+    "• <b>/buy</b> · <b>/sell</b> — manuel mainnet trade\n"
+    "• <b>/live</b> — trade istasyonu"
+)
+
+
+async def _strategy_disabled_reply(update: Update) -> bool:
+    """Strateji sistemi kapaliysa uyari gonderir + True doner (caller erken donmeli)."""
+    if not STRATEGY_SYSTEM_DISABLED:
+        return False
+    msg = getattr(update, "message", None)
+    if msg is None:
+        q = getattr(update, "callback_query", None)
+        if q is not None:
+            await q.answer()
+            msg = getattr(q, "message", None)
+    if msg is not None:
+        await msg.reply_text(_STRATEGY_DISABLED_MSG, parse_mode="HTML")
+    return True
+
+
 async def strategies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _strategy_disabled_reply(update):
+        return
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
     if not user:
@@ -52,6 +86,8 @@ async def strategies_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def strategies_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _strategy_disabled_reply(update):
+        return
     q = update.callback_query
     await q.answer()
     db: Database = context.bot_data["db"]
@@ -417,6 +453,8 @@ def _quick_strategy_usage_text() -> str:
 
 
 async def quick_strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _strategy_disabled_reply(update):
+        return
     db: Database = context.bot_data["db"]
     user = await db.get_user_by_telegram_id(update.effective_user.id)
     if not user:

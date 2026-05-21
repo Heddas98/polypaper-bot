@@ -246,6 +246,11 @@ def _build_confirm_keyboard(data: dict, edit_mode: bool = False) -> InlineKeyboa
 
 async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the Strategy Builder from /strategies → Add Strategy."""
+    # 2026-05-22 (Heddas #7): strateji sistemi devre disi — olusturma engellendi.
+    from telegram_bot.handlers.strategies import _strategy_disabled_reply
+
+    if await _strategy_disabled_reply(update):
+        return ConversationHandler.END
     query = update.callback_query
     if query:
         await query.answer()
@@ -755,6 +760,11 @@ async def confirm_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def start_edit_builder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Phase 19.5: Edit existing strategy using SAME builder interface."""
+    # 2026-05-22 (Heddas #7): strateji sistemi devre disi — duzenleme engellendi.
+    from telegram_bot.handlers.strategies import _strategy_disabled_reply
+
+    if await _strategy_disabled_reply(update):
+        return ConversationHandler.END
     query = update.callback_query
     sid = query.data.replace("edit_strat_", "")
     await query.answer()
