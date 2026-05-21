@@ -1365,8 +1365,7 @@ class PolyPaperBot:
         alias_text = (
             "<b>📌 Diger Komutlar (Alias)</b>\n"
             "Hala calisir ama menu'de gozukmez:\n"
-            "<code>/lifecycle (/lc), /risks (/rs), /kelly, /pattern, /markov, "
-            "/capital (/cap), /experiment (/exp)</code>\n\n"
+            "<code>/lifecycle (/lc), /kelly, /patterns, /experiment (/exp), /rs</code>\n\n"
         )
 
         # Admin section
