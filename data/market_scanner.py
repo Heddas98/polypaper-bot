@@ -11,8 +11,10 @@ intentional and logged.
 """
 
 import asyncio
+import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -31,6 +33,15 @@ logger = logging.getLogger("polypaper.data.scanner")
 # WS price ticks also now update odds_cache (see _on_ws_price).
 # ═══════════════════════════════════════════════════════════════════
 SCAN_INTERVAL_S = max(2, int(os.getenv("SCAN_INTERVAL_S", "5")))
+
+# 2026-05-21 (Heddas direktifi): her market'in TAM bilgisini kaydet.
+# WS DOWN token için book event yollamıyor (binary market — kanıtlandı:
+# DOWN order book REST'te dolu ama WS event gelmiyor). Bu yüzden scanner
+# her scan'de aktif market'lerin UP+DOWN order book'unu REST get_orderbook
+# ile çekip ob_snapshots'a yazar (full depth, iki token). Backtest tick-level
+# verisini zenginleştirir. Önce mkts[:2] sadece odds için tarıyordu →
+# OB_RECORD_MARKETS ile genişledi (per asset/tf çifti).
+OB_RECORD_MARKETS = max(1, int(os.getenv("OB_RECORD_MARKETS", "8")))
 
 
 class MarketScanner:
@@ -86,6 +97,70 @@ class MarketScanner:
             f"| REST poll every {SCAN_INTERVAL_S}s "
             f"| WS→odds_cache bridge ACTIVE (Phase 82e scan-tighten)"
         )
+
+    async def _record_market_books(self, market: dict, odds: dict, asset: str, tf: str, slug: str):
+        """2026-05-21 (Heddas direktifi): UP+DOWN tam order book → ob_snapshots.
+
+        WS DOWN token için book event yollamıyor (binary market kanıtlandı:
+        DOWN order book REST'te dolu ama WS event yalnız YES asset_id ile
+        geliyor). Bu yüzden scanner her scan'de iki token'ın da order book'unu
+        REST get_orderbook ile çekip ob_snapshots'a yazar — backtest tick-level
+        verisini zenginleştirir (full depth, UP+DOWN).
+
+        Defansif: db yok / book çekilemez → sessiz skip (scan akışı bozulmaz).
+        WS persist (_persist_book_snapshot) korunur — gelirse INSERT OR REPLACE
+        ile aynı satırı tazeler, çakışma yok.
+        """
+        if self.db is None or getattr(self.db, "conn", None) is None:
+            return
+        condition_id = market.get("conditionId") or market.get("condition_id") or ""
+        ts_ms = int(time.time() * 1000)
+        for tk_key in ("up_token", "down_token"):
+            tid = odds.get(tk_key)
+            if not tid:
+                continue
+            try:
+                book = await self.client.get_orderbook(tid)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"_record_market_books get_orderbook {tk_key}: {e}")
+                continue
+            if not book:
+                continue
+            asks = book.get("asks") or []  # [[price, size], ...] low→high
+            bids = book.get("bids") or []  # high→low
+            best_ask = asks[0][0] if asks else None
+            best_bid = bids[0][0] if bids else None
+            if best_ask is None and best_bid is None:
+                continue  # boş defter — kayıt anlamsız
+            mid = (
+                (best_bid + best_ask) / 2 if best_bid is not None and best_ask is not None else None
+            )
+            spread = (
+                round(best_ask - best_bid, 4)
+                if best_bid is not None and best_ask is not None
+                else None
+            )
+            # Top 10 level (full depth — Heddas "her bilgi")
+            bids_json = json.dumps([{"price": p, "size": s} for p, s in bids[:10]])
+            asks_json = json.dumps([{"price": p, "size": s} for p, s in asks[:10]])
+            try:
+                await self.db.conn.execute(
+                    """INSERT OR REPLACE INTO ob_snapshots
+                       (ts_ms, asset_id, condition_id, asset, timeframe, slug,
+                        best_bid, best_ask, mid_price, spread,
+                        bids_json, asks_json, hash)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        ts_ms, tid, condition_id, asset, tf, slug,
+                        best_bid, best_ask, mid, spread, bids_json, asks_json, "",
+                    ),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"_record_market_books persist {tk_key}: {e}")
+        try:
+            await self.db.conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"_record_market_books commit: {e}")
 
     def get_token_meta(self, asset_id: str) -> tuple[str, str, str] | None:
         """2026-05-21: WS persist_book_snapshot için metadata lookup.
@@ -223,7 +298,8 @@ class MarketScanner:
             mkts = await self.client.discover_active_markets(asset, tf, series_id=series_id)
             if mkts:
                 self.active_markets[key] = mkts
-                for m in mkts[:2]:
+                # 2026-05-21: mkts[:2] → OB_RECORD_MARKETS (her market full snapshot)
+                for m in mkts[:OB_RECORD_MARKETS]:
                     slug = m.get("slug", "")
                     if not slug:
                         continue
@@ -232,6 +308,9 @@ class MarketScanner:
                         self.odds_cache[slug] = odds
                         self._save_last_odds(slug, odds)
                         await self._save_odds_to_db(slug, odds)
+                        # 2026-05-21 Heddas: her market UP+DOWN full order book
+                        # REST snapshot → ob_snapshots (WS DOWN event yollamıyor).
+                        await self._record_market_books(m, odds, asset, tf, slug)
                         # Feed to OddsFeed for indicators
                         if self.odds_feed and odds.get("up_odds"):
                             self.odds_feed.record_odds(slug, odds["up_odds"], odds.get("down_odds"))
