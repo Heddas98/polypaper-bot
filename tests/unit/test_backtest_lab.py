@@ -22,7 +22,6 @@ from telegram_bot.handlers.backtest_lab import (
     _build_compare,
     _build_legacy,
     _build_main,
-    _build_quick,
     _main_kb,
     _panel_nav_kb,
     _reality_gap_block,
@@ -91,18 +90,18 @@ def _db(row_map: dict | None = None, raise_on: str | None = None):
 def test_main_kb_has_panels_plus_legacy():
     kb = _main_kb()
     assert isinstance(kb, InlineKeyboardMarkup)
-    # 5 panel + legacy = 6 rows (candle eklendi 2026-05-21)
+    # 2026-05-22: Hızlı Test → Stratejilerim'e birleşti (6→5 buton)
     rows = kb.inline_keyboard
-    assert len(rows) == 6
+    assert len(rows) == 5
     callbacks = [r[0].callback_data for r in rows]
     assert callbacks == [
-        "lab_quick",
-        "lab_candle",
         "lab_builder",
+        "lab_candle",
         "lab_compare",
         "lab_calibrate",
         "lab_legacy",
     ]
+    assert "lab_quick" not in callbacks  # birleştirildi
 
 
 def test_panel_nav_kb_default():
@@ -204,21 +203,22 @@ async def test_build_main_smoke():
     assert "Gerçeklik" in text  # reality-gap block injected
     assert "Hangi panele" in text
     assert isinstance(kb, InlineKeyboardMarkup)
-    assert kb.inline_keyboard[0][0].callback_data == "lab_quick"
+    # 2026-05-22: ilk buton artık Stratejilerim (Hızlı Test birleşti)
+    assert kb.inline_keyboard[0][0].callback_data == "lab_builder"
 
 
 @pytest.mark.asyncio
-async def test_build_quick_smoke():
+async def test_build_builder_hub_smoke():
+    """2026-05-22 konsolidasyon: Stratejilerim tek hub (Hızlı Test birleşti)."""
     db = _db({"FROM live_trades": (0, 0.0, 0.0), "FROM ob_snapshots": (100, 0, 0)})
-    text, kb = await _build_quick(db)
-    assert "HIZLI TEST" in text
-    # Adım 3: copy-paste komut bridge kaldırıldı — buton-driven
-    # (Heddas "komut gibi yazmakla uğraşmayayım")
-    assert "/backtest_replay" not in text
+    text, kb = await _build_builder(db)
+    assert "Tek merkez" in text  # hub subtitle
+    assert "Tick veri" in text  # ob_snapshots özeti (Hızlı Test'ten taşındı)
+    assert "/backtest_replay" not in text  # buton-driven, komut yok
     assert isinstance(kb, InlineKeyboardMarkup)
-    # Kurucu butonu her zaman mevcut (filesystem'den bağımsız stabil kontrol)
     cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
-    assert "lab_builder" in cbs
+    assert "lab_pw" in cbs  # preset sihirbazı
+    assert "lab_quick" not in cbs  # Hızlı Test butonu kaldırıldı
 
 
 # ── Adım 3 — _humanize_conditions + inline backtest ─────────
@@ -514,9 +514,9 @@ async def test_run_inline_backtest_no_db():
 
 @pytest.mark.asyncio
 async def test_build_builder_placeholder():
-    db = _db({"FROM live_trades": (0, 0.0, 0.0)})
+    db = _db({"FROM live_trades": (0, 0.0, 0.0), "FROM ob_snapshots": (10, 0, 1)})
     text, kb = await _build_builder(db)
-    assert "STRATEJİ KURUCU" in text
+    assert "STRATEJİLERİM" in text  # 2026-05-22: hub başlığı (eski "Kurucu")
     # Faz 4: JSON paste flow + /lab_save komut örneği + field listesi
     assert "/lab_save" in text
     assert "JSON" in text
@@ -769,7 +769,8 @@ async def test_backtest_lab_callback_dispatches_to_builder():
     q.answer.assert_awaited_once()
     q.edit_message_text.assert_awaited_once()
     edited_text = q.edit_message_text.await_args.args[0]
-    assert "HIZLI TEST" in edited_text
+    # 2026-05-22: lab_quick alias → Stratejilerim hub'a düşer
+    assert "Tek merkez" in edited_text
 
 
 @pytest.mark.asyncio

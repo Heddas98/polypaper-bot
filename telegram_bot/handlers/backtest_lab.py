@@ -2,14 +2,15 @@
 PolyPaper Bot - /backtest LAB
 ==============================
 2026-05-20 (Heddas direktifi): backtest modülü çok-fonksiyonel
-"trade istasyonu". /backtest tek kapı, 4 panel:
+"trade istasyonu". /backtest tek kapı. Paneller (2026-05-22 konsolidasyon):
 
-    🚀 Hızlı Test       — preset config'lerle replay backtest (köprü)
-    🛠 Strateji Kurucu  — Faz 4: JSON paste + listele/sil interaktif
-    🆚 Karşılaştır      — multi-strategy /compare (köprü)
-    🎯 Kalibrasyon      — live vs paper reality gap
+    🛠 Stratejilerim     — no-code kural kur + tek-tık test + statlar (tek hub)
+    🎲 Candle/Martingale — yön/streak/martingale + edge tarama
+    🆚 Karşılaştır       — multi-strategy /compare (köprü)
+    🎯 Kalibrasyon       — live vs paper reality gap
 
 Eski /backtest_v2 + /backtest_replay legacy alias olarak yaşar.
+("Hızlı Test" 2026-05-22'de Stratejilerim'e birleşti; lab_quick artık alias.)
 
 Mimari notlar:
 - Callback prefix `lab_*`. Parametresiz: lab_main/quick/builder/compare/
@@ -71,9 +72,8 @@ def _main_kb() -> InlineKeyboardMarkup:
     """Mode-select ekranı keyboard'u — paneller + legacy köprü."""
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🚀 Hızlı Test (tick)", callback_data="lab_quick")],
+            [InlineKeyboardButton("🛠 Stratejilerim (kur + test)", callback_data="lab_builder")],
             [InlineKeyboardButton("🎲 Candle / Martingale", callback_data="lab_candle")],
-            [InlineKeyboardButton("🛠 Strateji Kurucu", callback_data="lab_builder")],
             [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
             [InlineKeyboardButton("🎯 Kalibrasyon", callback_data="lab_calibrate")],
             [InlineKeyboardButton("📚 Eski paneller (/bt2)", callback_data="lab_legacy")],
@@ -220,95 +220,26 @@ async def _build_main(db) -> tuple[str, InlineKeyboardMarkup]:
         f"  ob_snapshots: {ob}\n"
         f"  📋 Kendi kuralların: <b>{user_rs_n}</b> kayıtlı ruleset\n\n"
         "Hangi panele girmek istersin?\n\n"
-        "🚀 <b>Hızlı Test</b> — kendi kuralını L2 veri üzerinde koş\n"
-        "🛠 <b>Strateji Kurucu</b> — no-code kural yaz (sihirbaz veya JSON)\n"
+        "🛠 <b>Stratejilerim</b> — no-code kural kur, tek-tık test et, statları gör\n"
+        "🎲 <b>Candle / Martingale</b> — yön/streak/martingale + edge tarama\n"
         "🆚 <b>Karşılaştır</b> — iki+ kuralı yan yana\n"
         "🎯 <b>Kalibrasyon</b> — paper × MULT vs live drift\n"
     )
     return text, _main_kb()
 
 
-async def _build_quick(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🚀 Hızlı Test paneli — kullanıcının kendi kuralları.
+async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
+    """🛠 Stratejilerim — tek strateji merkezi (2026-05-22 konsolidasyon).
 
-    Heddas direktifi 2026-05-21: "ben hazır assetleri kullanmak
-    istemiyorum". Bu yüzden:
-      • Kullanıcı ruleset'leri ÖN PLANDA — her biri için tek-tık buton
-      • Hiç ruleset yoksa: Kurucu'ya net yönlendirme
-
-    Not: 2026-05-21 strateji temizliğinden sonra hazır/sabit Python
-    stratejisi yok; tek motor `rule_based` (kullanıcı kuralları).
+    Heddas "Hızlı Test'i kaldır, tek hub": bu panel artık LAB'ın tek
+    strateji kapısı —
+      • kayıtlı no-code kuralları listeler (her biri → detay + tek-tık test)
+      • preset sihirbazı / JSON ile yeni kural oluşturur
+      • her stratejinin backtest stat'ını (N× test) gösterir
+      • tick veri (ob_snapshots) kapsamını özetler
     """
     gap = await _reality_gap_block(db)
     ob = await _ob_snapshots_summary(db)
-
-    # Kullanıcı ruleset'leri (data_store/bt_strategies/)
-    user_rulesets: list[dict] = []
-    try:
-        from backtest.strategies.rule_based import list_rulesets
-
-        user_rulesets = list_rulesets()
-    except Exception as e:  # noqa: BLE001
-        logger.debug("_build_quick rulesets list failed: %s", e)
-
-    lines = [
-        "🚀 <b>HIZLI TEST</b>",
-        "<i>Gerçek L2 ob_snapshots üzerinde replay backtest</i>",
-        "",
-        gap.rstrip(),
-        "",
-        f"📦 Veri: {ob}",
-        "",
-    ]
-
-    # Adım 3 (Heddas: "komut gibi yazmakla uğraşmayayım") — her ruleset bir
-    # buton; tıkla → detay + tek-tık market backtest + kapsam seçimi.
-    rs_buttons: list[list[InlineKeyboardButton]] = []
-    if user_rulesets:
-        lines.append(
-            "<b>📋 Kendi kuralların</b> — aşağıdaki butona bas → "
-            "backtest et (komut yok):"
-        )
-        for rs in user_rulesets[:8]:
-            nm = rs.get("name", "?")
-            direction = rs.get("direction", "?")
-            cond_n = len(rs.get("entry", {}).get("conditions", []))
-            lines.append(
-                f"  • <code>{esc(nm)}</code> "
-                f"({esc(direction)}, {cond_n} kural)"
-            )
-            if nm and nm != "?":
-                rs_buttons.append(
-                    [InlineKeyboardButton(f"🔍 {nm}", callback_data=f"lab_show:{nm}")]
-                )
-        if len(user_rulesets) > 8:
-            lines.append(f"  <i>...+{len(user_rulesets) - 8} daha (Kurucu'da)</i>")
-    else:
-        lines.append(
-            "<b>📋 Kendi kuralların:</b> <i>henüz yok</i>\n\n"
-            "🛠 <b>Strateji Kurucu</b>'ya geç — 2-3 tıkla preset "
-            "sihirbazı veya JSON paste ile kendi kuralını yaz."
-        )
-
-    text = "\n".join(lines)
-
-    extra = [
-        *rs_buttons,
-        [InlineKeyboardButton("🛠 Strateji Kurucu", callback_data="lab_builder")],
-        [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
-    ]
-    return text, _panel_nav_kb(extra_rows=extra)
-
-
-async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
-    """🛠 Strateji Kurucu paneli — Faz 4: interaktif liste + JSON paste.
-
-    Listede her kullanıcı ruleset'i için "🔍 Detay" butonu (sil flow'una
-    açılır). Yeni strateji eklemek için `/lab_save` komutu — JSON paste
-    flow (wizard'sız, geliştirici için en hızlı). Faz 4b'de preset
-    sihirbazı (saniye aralığı, fiyat trigger gibi hazır şablonlar).
-    """
-    gap = await _reality_gap_block(db)
 
     rs_list: list[dict] = []
     try:
@@ -346,11 +277,11 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         user_rulesets_txt = "<i>Henüz no-code strateji yok.</i>"
 
     text = (
-        "🛠 <b>STRATEJİ KURUCU</b>\n"
-        "<i>No-code rule builder — sihirbaz veya JSON</i>\n\n"
+        "🛠 <b>STRATEJİLERİM</b>\n"
+        "<i>Tek merkez: kur · tek-tık test · statlar</i>\n\n"
         f"{gap}"
-        "<b>📋 Kendi kuralların</b> "
-        "(<code>data_store/bt_strategies/</code>):\n"
+        f"📦 <b>Tick veri</b> (ob_snapshots): {ob}\n\n"
+        "<b>📋 Kayıtlı kuralların</b> — tıkla → detay + tek-tık backtest:\n"
         f"{user_rulesets_txt}\n\n"
         "<i>Hazır/sabit strateji yok — tüm kurallar <code>rule_based</code> "
         "motoruyla, senin tanımına göre çalışır.</i>\n\n"
@@ -391,7 +322,6 @@ async def _build_builder(db) -> tuple[str, InlineKeyboardMarkup]:
         *detail_rows,
         [InlineKeyboardButton("🧙 Preset Sihirbazı", callback_data="lab_pw")],
         [InlineKeyboardButton("📥 /lab_save yardım", callback_data="lab_help_save")],
-        [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
     ]
     return text, _panel_nav_kb(extra_rows=extra)
 
@@ -1245,7 +1175,7 @@ async def _build_compare(db) -> tuple[str, InlineKeyboardMarkup]:
         "hazır/sabit strateji yok.</i>"
     )
     extra = [
-        [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
+        [InlineKeyboardButton("🛠 Stratejilerim", callback_data="lab_builder")],
         [InlineKeyboardButton("🎯 Kalibrasyon", callback_data="lab_calibrate")],
     ]
     return text, _panel_nav_kb(extra_rows=extra)
@@ -1416,7 +1346,7 @@ async def _build_calibrate(db) -> tuple[str, InlineKeyboardMarkup]:
         f"<code>{os.getenv('REALITY_GAP_WINDOW_H', '168')}</code>h"
     )
     extra = [
-        [InlineKeyboardButton("🚀 Hızlı Test", callback_data="lab_quick")],
+        [InlineKeyboardButton("🛠 Stratejilerim", callback_data="lab_builder")],
         [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
     ]
     return text, _panel_nav_kb(extra_rows=extra)
@@ -1981,7 +1911,9 @@ async def backtest_lab_command(update: Update, context: ContextTypes.DEFAULT_TYP
 _BUILDERS = {
     "lab_main": _build_main,
     "lab_refresh": _build_main,
-    "lab_quick": _build_quick,
+    # lab_quick: "Hızlı Test" 2026-05-22'de Stratejilerim'e birleştirildi —
+    # eski buton/link'ler hub'a (lab_builder) düşsün (geri uyumluluk).
+    "lab_quick": _build_builder,
     "lab_candle": _build_candle_menu,  # 2026-05-21 Heddas: candle/martingale
     "lab_builder": _build_builder,
     "lab_compare": _build_compare,
