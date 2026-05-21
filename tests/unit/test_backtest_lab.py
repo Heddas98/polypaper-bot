@@ -297,25 +297,38 @@ def test_cycle_helper():
 async def test_build_mart_config_cycle_buttons():
     from telegram_bot.handlers.backtest_lab import _build_mart_config
 
-    text, kb = await _build_mart_config("BTC", "5m", "up", "m6", 50, 0)
-    assert "MARTINGALE KURUCU" in text
+    text, kb = await _build_mart_config("BTC", "5m", "up", "m6", 50, 0, 15)
+    assert "KURUCU" in text
     assert "BTC" in text and "Martingale ×6" in text
     cb = [b.callback_data for row in kb.inline_keyboard for b in row]
-    # Asset butonu BTC→ETH cycle
-    assert "lab_mw:ETH:5m:up:m6:50:0" in cb
+    # Asset butonu BTC→ETH cycle (7 param: ...:15)
+    assert "lab_mw:ETH:5m:up:m6:50:0:15" in cb
     # TF butonu 5m→15m cycle
-    assert "lab_mw:BTC:15m:up:m6:50:0" in cb
+    assert "lab_mw:BTC:15m:up:m6:50:0:15" in cb
     # Çalıştır butonu
-    assert "lab_mwrun:BTC:5m:up:m6:50:0" in cb
+    assert "lab_mwrun:BTC:5m:up:m6:50:0:15" in cb
+
+
+@pytest.mark.asyncio
+async def test_build_mart_config_rev_mode():
+    """rev_up yönünde Rev eşiği aktif + mean-reversion açıklaması."""
+    from telegram_bot.handlers.backtest_lab import _build_mart_config
+
+    text, kb = await _build_mart_config("BTC", "1h", "rev_up", "m6", 50, 0, 15)
+    assert "Rev↑" in text
+    assert "mean-reversion" in text
+    cb = [b.callback_data for row in kb.inline_keyboard for b in row]
+    # Eşik cycle 15→20
+    assert "lab_mw:BTC:1h:rev_up:m6:50:0:20" in cb
 
 
 @pytest.mark.asyncio
 async def test_build_mart_config_stop_label():
     from telegram_bot.handlers.backtest_lab import _build_mart_config
 
-    text, kb = await _build_mart_config("BTC", "5m", "up", "m6", 50, 7)
+    text, kb = await _build_mart_config("BTC", "5m", "up", "m6", 50, 7, 15)
     assert "7 ardışıkta dur" in text
-    text2, _ = await _build_mart_config("BTC", "5m", "up", "flat", 50, 0)
+    text2, _ = await _build_mart_config("BTC", "5m", "up", "flat", 50, 0, 15)
     assert "kapalı" in text2
 
 
@@ -323,7 +336,7 @@ async def test_build_mart_config_stop_label():
 async def test_run_mart_config_invalid():
     from telegram_bot.handlers.backtest_lab import _run_mart_config
 
-    text, kb = await _run_mart_config("DOGE", "5m", "up", "m6", 50, 0, _db())
+    text, kb = await _run_mart_config("DOGE", "5m", "up", "m6", 50, 0, 15, _db())
     assert "Geçersiz" in text or "DB" in text
 
 

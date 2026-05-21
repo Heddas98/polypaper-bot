@@ -81,7 +81,10 @@ class CandleRunConfig:
     asset: str = "BTC"
     timeframe: str = "5m"
     # Strateji (yön kararı)
-    bet_direction: str = "up"  # up | down | follow_trend | fade_trend
+    # up | down | follow_trend | fade_trend | rev_up | rev_down | rev
+    # rev_*: 2026-05-21 mean-reversion — önceki candle büyük hareketse ters bahis.
+    bet_direction: str = "up"
+    rev_threshold: float = 0.0015  # rev_* için "büyük hareket" eşiği (|prev_body|)
     hour_filter: list[int] = field(default_factory=list)  # boş = tüm saatler
     weekday_filter: list[int] = field(default_factory=list)  # boş = tüm günler
     # Bahis
@@ -358,6 +361,18 @@ class CandleBacktestRunner:
                 return "down"
             if prev_dir == "down":
                 return "up"
+            return None
+        # 2026-05-21 mean-reversion modları (rev↑ edge): önceki candle
+        # eşikten BÜYÜK hareketse ters yöne bahis, küçükse işlem yok (None).
+        if bd == "rev_up":
+            return "up" if market.prev_body_pct < -cfg.rev_threshold else None
+        if bd == "rev_down":
+            return "down" if market.prev_body_pct > cfg.rev_threshold else None
+        if bd == "rev":  # iki yönlü reversal
+            if market.prev_body_pct < -cfg.rev_threshold:
+                return "up"
+            if market.prev_body_pct > cfg.rev_threshold:
+                return "down"
             return None
         return "up"
 
