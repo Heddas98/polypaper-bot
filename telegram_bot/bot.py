@@ -626,8 +626,11 @@ class PolyPaperBot:
             self.app.add_handler(CallbackQueryHandler(brain_toggle_callback, pattern=f"^{pattern}"))
 
         # Phase 35: Candle refresh
+        # 2026-05-21 fix: button (markets.py:208) emits "candles_refresh"
+        # (plural, matches docstring) but registration was "^candle_refresh$"
+        # (singular) → /candles "🔄 Refresh" button was dead. Pattern aligned.
         self.app.add_handler(
-            CallbackQueryHandler(candle_refresh_callback, pattern="^candle_refresh$")
+            CallbackQueryHandler(candle_refresh_callback, pattern="^candles_refresh$")
         )
 
         # Phase 36: Market recorder
