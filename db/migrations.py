@@ -471,6 +471,24 @@ MIGRATIONS = [
             "ON reference_price_audit(dev_binance_bps)",
         ],
     },
+    # ════════════════════════════════════════════════════════════════════
+    # v22 (2026-05-22, Heddas: fan 3. kez) — ob_deltas KULLANILMAYAN 2 ikincil
+    # index'i düşür. ob_deltas write-only (hiçbir sorgu okumuyor; backtest +
+    # gerçekçi fill ob_snapshots kullanıyor). (asset_id,ts_ms) + (condition_id,
+    # ts_ms) index'leri rastgele B-tree insert → milyonlarca satırda cache'e
+    # sığmaz → her yazımda disk → aiosqlite %88 / CPU %107 / fan. Düşürünce
+    # yazımlar zaman-sıralı PK'ya (sona-ekleme) iner = ucuz. Kayıt SÜRER (veri
+    # korunur). 14g retention (db_retention_job) disk'i kapar. İleride ultra-
+    # gerçekçi fill-sim (maker kuyruk pozisyonu) yaparsak index geri eklenir.
+    # ════════════════════════════════════════════════════════════════════
+    {
+        "version": 22,
+        "name": "ob_deltas_drop_unused_indexes",
+        "sql": [
+            "DROP INDEX IF EXISTS idx_ob_deltas_asset_ts",
+            "DROP INDEX IF EXISTS idx_ob_deltas_condition_ts",
+        ],
+    },
 ]
 
 

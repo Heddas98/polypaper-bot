@@ -16,6 +16,7 @@ backtests while keeping the live DB lean.
 All thresholds are env-driven:
   DB_RETENTION_MODE                (default "report")  # Phase 57: safe default
   DB_RETENTION_OB_SNAPSHOTS_DAYS  (default 7)
+  DB_RETENTION_OB_DELTAS_DAYS     (default 14)  # 2026-05-22 fan/disk
   DB_RETENTION_OB_TRADES_DAYS     (default 14)
   DB_RETENTION_ODDS_HISTORY_DAYS  (default 14)
   DB_RETENTION_CANDLES_POLY_DAYS  (default 30)
@@ -248,6 +249,7 @@ async def db_retention_job(
 
     # Thresholds
     ob_snap_days = _days("DB_RETENTION_OB_SNAPSHOTS_DAYS", 7)
+    ob_deltas_days = _days("DB_RETENTION_OB_DELTAS_DAYS", 14)
     ob_trade_days = _days("DB_RETENTION_OB_TRADES_DAYS", 14)
     odds_days = _days("DB_RETENTION_ODDS_HISTORY_DAYS", 14)
     candles_poly_days = _days("DB_RETENTION_CANDLES_POLY_DAYS", 30)
@@ -280,6 +282,14 @@ async def db_retention_job(
     cutoff_ms = _ms_cutoff(ob_snap_days)
     summary["ob_snapshots"] = await action(
         db, "ob_snapshots", f"ts_ms < {cutoff_ms}", f"ob_snapshots>{ob_snap_days}d"
+    )
+
+    # 1b) ob_deltas — ts_ms INTEGER (2026-05-22: 14g retention, fan/disk).
+    # ob_deltas write-only (hiçbir sorgu okumuyor) ama gelecekteki ultra-
+    # gerçekçi fill-sim için tutuluyor — 14 günlük pencere disk'i kapar.
+    cutoff_ms = _ms_cutoff(ob_deltas_days)
+    summary["ob_deltas"] = await action(
+        db, "ob_deltas", f"ts_ms < {cutoff_ms}", f"ob_deltas>{ob_deltas_days}d"
     )
 
     # 2) ob_trades — ts_ms INTEGER

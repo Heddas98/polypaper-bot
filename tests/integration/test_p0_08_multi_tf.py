@@ -533,6 +533,25 @@ async def test_batch_flush_empty_is_noop():
             pass
 
 
+# ════ 2026-05-22: migration v22 — ob_deltas kullanılmayan index'ler ════
+@pytest.mark.asyncio
+async def test_v22_ob_deltas_secondary_indexes_dropped():
+    """v22: ob_deltas (asset_id,ts)+(condition_id,ts) ikincil index'leri
+    düşürüldü (fan fix — rastgele insert cache-miss). PK autoindex kalır."""
+    db, path = await _make_fresh_db()
+    try:
+        async with db.conn.execute("PRAGMA index_list('ob_deltas')") as cur:
+            idx = [r[1] async for r in cur]
+        assert "idx_ob_deltas_asset_ts" not in idx, "v22 asset_ts index'i düşürmeli"
+        assert "idx_ob_deltas_condition_ts" not in idx, "v22 condition_ts index'i düşürmeli"
+    finally:
+        await db.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 # ════ P0-08-H: LIVE_STRATEGIES whitelist intact ═══════════════════
 def test_h_live_strategies_whitelist_only_5m_baseline():
     from core.live_trader import LIVE_STRATEGIES
