@@ -29,11 +29,12 @@ Performans:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 
 from backtest.simulation.fee_model_v3 import FeeCalculatorV3
-from backtest.simulation.fill_model import FillResult
+from backtest.simulation.fill_model import FillMode, FillSimulator
 from backtest.simulation.portfolio import VirtualPortfolio
 from backtest.strategies.base import (
     BaseBacktestStrategy,
@@ -57,6 +58,34 @@ _TF_DURATION = {
 }
 
 
+def _parse_levels(js: str | None) -> tuple[list[list[float]], float]:
+    """ob_snapshots bids_json/asks_json → ([[price, size], ...], depth_usd).
+
+    Kayıt formatı [{"price": p, "size": s}, ...] (WS + scanner _record_market_books).
+    FillSimulator REAL_ORDERBOOK [[price, size], ...] (indexable) bekler →
+    dönüştürürüz. depth = Σ price×size (USDC). Bozuk/eksik → ([], 0.0).
+    """
+    if not js:
+        return [], 0.0
+    try:
+        arr = json.loads(js)
+    except (TypeError, ValueError):
+        return [], 0.0
+    levels: list[list[float]] = []
+    depth = 0.0
+    for d in arr if isinstance(arr, list) else []:
+        try:
+            p = float(d["price"])
+            s = float(d["size"])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if p <= 0 or s <= 0:
+            continue
+        levels.append([p, s])
+        depth += p * s
+    return levels, depth
+
+
 @dataclass
 class RunConfig:
     """Backtest run config — minimal knob set (Heddas direktifi)."""
@@ -72,6 +101,10 @@ class RunConfig:
     # min_snapshots: bir market'in dahil edilmesi için en az snap sayısı
     # (UP+DOWN merged sonrası 2+ snap gerek — entry + settle).
     min_snapshots: int = 4
+    # 2026-05-22: gerçekçi fill — FillSimulator modu. real_orderbook = kayıtlı
+    # L2 derinliğinde VWAP yürüyüşü + spread maliyeti (en gerçekçi). Diğer:
+    # midpoint / simple / maker_hybrid. Bilinmeyen değer → real_orderbook.
+    fill_mode: str = "real_orderbook"
 
 
 @dataclass
@@ -89,6 +122,7 @@ class RunSummary:
     total_pnl: float = 0.0
     avg_pnl: float = 0.0
     fees_total: float = 0.0
+    slippage_total: float = 0.0  # 2026-05-22: toplam spread/slippage maliyeti
     final_balance: float = 0.0
     note: str = ""  # özel mesaj (örn. "0 market — veri yok")
 
@@ -101,6 +135,7 @@ class BacktestRunner:
         self.fee_calc = fee_calc or FeeCalculatorV3()
         self.portfolio: VirtualPortfolio | None = None
         self._strategy: BaseBacktestStrategy | None = None
+        self._fill_sim: FillSimulator | None = None
 
     async def run(self, cfg: RunConfig) -> RunSummary:
         """Backtest çalıştır, RunSummary döner."""
@@ -109,6 +144,13 @@ class BacktestRunner:
             trade_amount=cfg.trade_amount,
             fee_calculator=self.fee_calc,
         )
+        # 2026-05-22: gerçekçi giriş fill'i — FillSimulator (REAL_ORDERBOOK
+        # VWAP derinlik yürüyüşü + spread cost). Bilinmeyen mod → real_orderbook.
+        try:
+            _mode = FillMode(cfg.fill_mode)
+        except ValueError:
+            _mode = FillMode.REAL_ORDERBOOK
+        self._fill_sim = FillSimulator(mode=_mode)
         # 2026-05-21: RuleBasedStrategy ruleset dict'i from_ruleset() ile
         # yüklenir — generic create(name, **params) `name` argüman çakışması
         # verir (ruleset'in kendi "name" alanı var). Diğer stratejiler (yok
@@ -184,6 +226,7 @@ class BacktestRunner:
             total_pnl=stats.total_pnl,
             avg_pnl=getattr(stats, "avg_pnl", 0.0),
             fees_total=getattr(stats, "total_fees", 0.0),
+            slippage_total=getattr(stats, "total_slippage", 0.0),
             # PortfolioStats'te final_balance yok — initial + pnl hesapla
             final_balance=cfg.initial_balance + stats.total_pnl,
         )
@@ -304,7 +347,8 @@ class BacktestRunner:
         merge'i biz yapıyoruz.
         """
         rows = await self.db.conn.execute_fetchall(
-            "SELECT ts_ms, asset_id, best_bid, best_ask, mid_price, spread "
+            "SELECT ts_ms, asset_id, best_bid, best_ask, mid_price, spread, "
+            "bids_json, asks_json "
             "FROM ob_snapshots WHERE condition_id=? ORDER BY ts_ms ASC",
             (window["condition_id"],),
         )
@@ -324,7 +368,7 @@ class BacktestRunner:
 
         first_ts = rows[0][0]
         merged: dict[int, dict] = {}
-        for ts, aid, bid, ask, _mid, spread in rows:
+        for ts, aid, bid, ask, _mid, spread, bids_js, asks_js in rows:
             d = merged.setdefault(
                 ts,
                 {
@@ -336,12 +380,23 @@ class BacktestRunner:
                     "raw": {},
                 },
             )
+            # 2026-05-22: L2 derinliğini parse et → REAL_ORDERBOOK VWAP fill için
+            asks_levels, ask_depth = _parse_levels(asks_js)
+            bids_levels, bid_depth = _parse_levels(bids_js)
             if aid == up_token:
                 d["up_best_bid"] = bid or 0.0
                 d["up_best_ask"] = ask or 0.0
+                d["up_ask_depth"] = ask_depth
+                d["up_bid_depth"] = bid_depth
+                d["raw"]["up_asks"] = asks_levels
+                d["raw"]["up_bids"] = bids_levels
             elif aid == down_token:
                 d["down_best_bid"] = bid or 0.0
                 d["down_best_ask"] = ask or 0.0
+                d["down_ask_depth"] = ask_depth
+                d["down_bid_depth"] = bid_depth
+                d["raw"]["down_asks"] = asks_levels
+                d["raw"]["down_bids"] = bids_levels
 
         total_dur = (rows[-1][0] - first_ts) / 1000.0 if rows[-1][0] > first_ts else 1.0
         snaps: list[OrderbookSnapshot] = []
@@ -368,32 +423,29 @@ class BacktestRunner:
     async def _open_and_settle(
         self, market, signal, entry_snap, exit_snap, cfg: RunConfig
     ) -> None:
-        """Trade aç + binary settle (market sonunda)."""
-        # Entry price: signal yönündeki ask
+        """Trade aç (gerçekçi fill) + binary settle (market sonunda)."""
+        # Binary settle: market sonunda kazanan yön → exit price 1.0/0.0
         if signal.direction == Direction.UP:
-            entry_price = entry_snap.up_best_ask or 0.5
-            # Binary settle: market sonunda UP "kazandı mı" → exit price 1.0/0.0
             up_won = exit_snap.up_best_ask > exit_snap.down_best_ask
             exit_price = 1.0 if up_won else 0.0
         else:
-            entry_price = entry_snap.down_best_ask or 0.5
             down_won = exit_snap.down_best_ask > exit_snap.up_best_ask
             exit_price = 1.0 if down_won else 0.0
 
-        if entry_price <= 0.0 or entry_price >= 1.0:
+        # 2026-05-22: GERÇEKÇİ giriş — FillSimulator (REAL_ORDERBOOK VWAP +
+        # spread cost). Eski naif best_ask/slippage=0 yerine kayıtlı L2
+        # derinliğinde yürür (raw["up_asks"]/["down_asks"]). Likidite yok /
+        # geçersiz fiyat → fill.filled=False → trade AÇILMAZ (canlıdaki
+        # 'no match' davranışı — gerçekçi). spread/slippage fill_price'a yansır
+        # → shares = amount/fill_price azalır → kazançta gerçekçi daha az payout.
+        fill = self._fill_sim.simulate_fill(
+            direction=signal.direction,
+            amount_usd=cfg.trade_amount,
+            snapshot=entry_snap,
+        )
+        if not fill.filled or fill.fill_price <= 0.0 or fill.fill_price >= 1.0:
             return
 
-        # FillResult: midpoint giriş (basit). Faz ileri: real_orderbook depth walk.
-        fill = FillResult(
-            filled=True,
-            fill_price=entry_price,
-            slippage=0.0,
-            fill_amount=cfg.trade_amount,
-            shares=cfg.trade_amount / entry_price,
-            reason="midpoint",
-            is_maker=False,
-            rebate=0.0,
-        )
         trade = self.portfolio.open_trade(
             signal=signal,
             fill=fill,
