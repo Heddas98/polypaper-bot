@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-23 (KRİTİK FIX `d89b1ee`: rev martingale giriş penceresi 0.30→0.90 — stratejiler hiç trade etmiyordu [motor market'i mid-life değerlendiriyor, %30 pencere her şeyi blokluyordu]. + 14 paper config + per-strateji statlar + tick rule_based paper port. Restart sonrası paper trade akmalı. Gerçek canlı trade hâlâ 3 manuel adım, otomatik DEĞİL).
+> Son güncelleme: 2026-05-23 (`017e7be` streak-reversal martingale stratejisi [Heddas fikri: N ardışık aynı-yön mum → ters al, giriş streak≥2, max 15 katlama]. + KRİTİK FIX `d89b1ee`: rev martingale giriş penceresi 0.30→0.90 — stratejiler hiç trade etmiyordu. Restart sonrası paper trade akmalı. Gerçek canlı trade hâlâ 3 manuel adım, otomatik DEĞİL).
 > Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
@@ -19,6 +19,15 @@
 - GitHub: `Heddas98/polypaper-bot`
 
 ## Mevcut Faz
+
+**STREAK-REVERSAL MARTİNGALE ✅ (2026-05-23, `017e7be`)** — Heddas fikri: "1h'da 2. streaktan sonra girilen, max 15'e limit koyduğumuz strateji; amacım ilk streakın kaybını engellemek". N ardışık aynı-yön mum (close>open=up) sonrası TERS al + martingale.
+- **Plugin** (`core/live_strategies.py` `StreakRevMartingaleStrategy`, name="streak_rev" — RevMartingale'den AYRI): meta `streak_len`/`streak_dir` okur; `slen < entry_streak (2)` → no-trade (1. mumu atla); `trade_dir = streak'in tersi`; martingale `base×2^min(loss_streak, max_levels=15)` (bet tavanı $1×2^15=$32768). `entry_max_time_pct=0.90` (rev ile aynı gevşek pencere). entry_streak/max_levels override edilebilir.
+- **Motor**: `engine.__init__` register; `engine_signals.py` section 7 (`stype in ("martingale","streak_rev")`) candle_collector'dan en yeni TAMAMLANMIŞ mumdan geriye ardışık aynı-yön sayar (`_cdir` close>open) → `streak_len`/`streak_dir` enjekte; sized_amount + Kelly + conviction gate'leri "streak_rev" eklendi.
+- **LAB UI**: 3 config (BTC 1h/15m/5m "streak") Paper Auto-Trade panelinde; aktivasyon mode="streak" → `strategy_type="streak_rev"`, `direction=ANY`, label "streak↩". **KRİTİK FIX**: `_activate_paper_strategy` `strategy_type` artık `_stype` (eskiden hardcode "martingale" → streak satırı yanlışlıkla highvol-rev plugin'ine yönleniyordu; hv+streak ikisi de direction=ANY, sadece strategy_type ayırıyor).
+- **DÜRÜST DEĞERLENDİRME** (Heddas'a verildi): giriş-zamanlaması fikri (1. streak'i atla, 2'den gir) zekice + veri hafif destekliyor (1h streak-2 reversal %58 > streak-1 %53). AMA reversal genelde ~%50 (kumarbaz yanılgısı); "max 12-13 streak sonra mutlaka ters" = üstel nadirlik (0.5^n), reversal kuvveti DEĞİL. max-15 martingale klasik tuzak: nadir uzun streak ya da cap TÜM birikmiş kazancı siler. Net beklenti: zararda — ama **paper** (LIVE_ENABLED=false), sıfır risk, gözlemlenmeye değer.
+- **E2E** (gerçek BTC candle, read-only): 1h şu an 2× down → UP al (fires); 15m 1× up → no-trade (eşik altı); 5m 2× up → DOWN al. `_cdir` walk-back hesabı doğru. **+14 test** (streak unit 11 + aktivasyon 3 — dedup hv≠streak regresyonu dahil), 71 PASS live+paper, 103 PASS lab+candle, 76 PASS engine, ruff temiz. **KALAN**: bot restart → 13+3 strateji + streak gözlemle.
+
+---
 
 **BACKTEST GERÇEKÇİ FILL ✅ (2026-05-22, `9840ed6`)** — Heddas: "backtest gerçekçi olsun". Tick backtest (`backtest/runner.py`) eskiden naif best_ask'ta `slippage=0` ile fill varsayıyordu (gelişmiş `FillSimulator` yazılıydı ama runner'a BAĞLI DEĞİLdi — eski replay_engine kullanıyordu, silinmişti).
 - **`runner._load_merged_snapshots`**: ob_snapshots `bids_json`/`asks_json` → `snapshot.raw` (up_asks/down_asks `[[price,size]]`) + L2 depth. `_parse_levels` helper (kayıt `[{"price","size"}]` → `[[p,s]]`; bozuk → boş).
