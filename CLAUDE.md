@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-22 (6 paper rev martingale config — rev↑/rev↓/highvol-rev × BTC/ETH/SOL/XRP; kapsamlı tarama 14 OOS-edge, discovery-matrix guard. Gerçek canlı trade hâlâ 3 manuel adım, otomatik DEĞİL).
+> Son güncelleme: 2026-05-23 (KRİTİK FIX `d89b1ee`: rev martingale giriş penceresi 0.30→0.90 — stratejiler hiç trade etmiyordu [motor market'i mid-life değerlendiriyor, %30 pencere her şeyi blokluyordu]. + 14 paper config + per-strateji statlar + tick rule_based paper port. Restart sonrası paper trade akmalı. Gerçek canlı trade hâlâ 3 manuel adım, otomatik DEĞİL).
 > Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
