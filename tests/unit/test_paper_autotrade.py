@@ -238,7 +238,9 @@ async def test_panel_shows_active_and_stop_button():
     db = _FakeDB()
     db.strategies.append(_mart(tf=Timeframe.M5, status=StrategyStatus.ACTIVE))
     text, kb = await _build_paper_strategy(db, 123)
-    assert "aktif" in text
+    # stats bölümü render olur (Heddas "statlar olsun"): toplam + per-strateji
+    assert "Toplam paper" in text
+    assert "trade" in text
     cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
     assert any(c.startswith("lab_paper_off:") for c in cbs)  # durdur butonu
     # 1h hâlâ kapalı → çalıştır butonu var (yön ekli)
@@ -250,6 +252,25 @@ async def test_panel_shows_active_and_stop_button():
     assert "lab_paper_on:XRP:15m:up" in cbs
     # Adım 4: Canlıya Geçiş giriş butonu
     assert "lab_live" in cbs
+
+
+@pytest.mark.asyncio
+async def test_panel_shows_per_strategy_stats():
+    """Heddas 'statlar olsun': panel per-strateji trade/WR/PnL + toplam gösterir."""
+    db = _FakeDB()
+    s = _mart(tf=Timeframe.M5, status=StrategyStatus.ACTIVE)
+    db.strategies.append(s)
+    db.stats = [{
+        "id": s.id, "strategy_type": "martingale",
+        "completed": 20, "wins": 12, "losses": 8,
+        "realized_pnl": 5.5, "open_trades": 1,
+    }]
+    text, kb = await _build_paper_strategy(db, 123)
+    assert "20 trade" in text
+    assert "WR %60" in text       # 12 / (12+8)
+    assert "$+5.50" in text
+    assert "1 açık" in text
+    assert "Toplam paper" in text
 
 
 # ── Adım 4: Canlıya Geçiş (live promote) paneli ─────────────

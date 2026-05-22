@@ -1401,14 +1401,25 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
 # o market'i taramıyorsa strateji ÖLÜ olur — bu yüzden 15m çoklu coin.)
 #   rev↑ (dip-buy: önceki mum düştü→UP) · rev↓ (pump-fade: yükseldi→DOWN)
 # mode: up=rev↑ (dip-buy) · down=rev↓ (pump-fade) · hv=highvol-rev
-# (yüksek-vol adaptif reversal — direction=ANY; en güçlü edge te+17, "bambaşka")
+# (yüksek-vol adaptif reversal — direction=ANY; en güçlü edge, "bambaşka").
+# Heddas "hepsini ekle, EV şart değil": tarama'da test-pozitif (✅ veya ➕te+)
+# + bot'un GERÇEKTEN taradığı (discovery matrix: BTC any TF · diğerleri 15m)
+# TÜM reversal config'leri. (momentum ailesi OOS-zayıf, eklenmedi.)
 _PAPER_CONFIGS = [
-    ("BTC", "5m", "up"),     # rev↑ — 5m=BTC
-    ("BTC", "1h", "up"),     # rev↑ — 1h=BTC
-    ("ETH", "15m", "down"),  # rev↓ — te+7 WR60% (15m çoklu coin)
-    ("SOL", "15m", "up"),    # rev↑ — te+1 (OOS)
-    ("SOL", "15m", "hv"),    # highvol-rev — te+17 WR60% (en güçlü!)
-    ("XRP", "15m", "up"),    # rev↑ — te+6 WR57% (OOS)
+    ("BTC", "5m", "up"),     # rev↑ ✅
+    ("BTC", "15m", "up"),    # rev↑ te+8
+    ("BTC", "15m", "down"),  # rev↓ te+5
+    ("BTC", "15m", "hv"),    # highvol-rev te+1
+    ("BTC", "1h", "up"),     # rev↑ ✅
+    ("BTC", "1h", "down"),   # rev↓ te+0
+    ("BTC", "1h", "hv"),     # highvol-rev te+7
+    ("ETH", "15m", "down"),  # rev↓ ✅ te+7
+    ("SOL", "15m", "up"),    # rev↑ ✅ te+1
+    ("SOL", "15m", "down"),  # rev↓ te+6
+    ("SOL", "15m", "hv"),    # highvol-rev ✅ te+17 🔥
+    ("XRP", "15m", "up"),    # rev↑ ✅ te+6
+    ("XRP", "15m", "down"),  # rev↓ te+6
+    ("XRP", "15m", "hv"),    # highvol-rev te+15
 ]
 _PAPER_TF_ENUM = {"5m": "M5", "15m": "M15", "1h": "H1"}
 
@@ -1492,16 +1503,43 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
         for s in mart
         if s.status == StrategyStatus.ACTIVE
     }
+    # Per-strateji statlar (executions: trade/WR/PnL) — Heddas "statlar olsun"
+    stats_map: dict = {}
+    try:
+        for _st in await db.get_per_strategy_stats(user.id):
+            stats_map[_st.get("id")] = _st
+    except Exception as e:  # noqa: BLE001
+        logger.debug("paper stats map: %s", e)
 
     lines = [_PAPER_HEADER.rstrip()]
     if mart:
-        lines.append("\n<b>Stratejilerin:</b>")
+        _tot_pnl = sum(
+            float((stats_map.get(s.id) or {}).get("realized_pnl", 0) or 0) for s in mart
+        )
+        _tot_tr = sum(
+            int((stats_map.get(s.id) or {}).get("completed", 0) or 0) for s in mart
+        )
+        _te = "🟢" if _tot_pnl > 0 else "🔴" if _tot_pnl < 0 else "⚪"
+        lines.append(
+            f"\n<b>📊 Toplam paper:</b> {_tot_tr} trade · {_te} ${_tot_pnl:+.2f}"
+        )
+        lines.append("\n<b>Stratejilerin (performans):</b>")
         for s in mart:
-            em = "🟢 aktif" if s.status == StrategyStatus.ACTIVE else "⚫ durduruldu"
+            em = "🟢" if s.status == StrategyStatus.ACTIVE else "⚫"
+            st = stats_map.get(s.id) or {}
+            comp = int(st.get("completed", 0) or 0)
+            w = int(st.get("wins", 0) or 0)
+            ls = int(st.get("losses", 0) or 0)
+            pnl = float(st.get("realized_pnl", 0) or 0)
+            opn = int(st.get("open_trades", 0) or 0)
+            wr = (w / (w + ls) * 100.0) if (w + ls) > 0 else 0.0
+            pe = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
+            _open = f" · {opn} açık" if opn else ""
             lines.append(
-                f"  • {_rev_label(_dir_to_mode(s.direction.value))} "
-                f"{esc(s.asset.value)} {esc(s.timeframe.value)} "
-                f"({em}) · base ${s.trade_amount:.0f}"
+                f"  {em} {_rev_label(_dir_to_mode(s.direction.value))} "
+                f"{esc(s.asset.value)} {esc(s.timeframe.value)} · base "
+                f"${s.trade_amount:.0f}\n"
+                f"      {pe} {comp} trade · WR %{wr:.0f} · PnL ${pnl:+.2f}{_open}"
             )
     else:
         lines.append("\n<i>Henüz paper strateji yok.</i>")
