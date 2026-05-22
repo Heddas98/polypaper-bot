@@ -21,7 +21,6 @@ from telegram_bot.handlers.backtest_lab import (
     _build_calibrate,
     _build_compare,
     _build_main,
-    _build_quick,
     _main_kb,
     _panel_nav_kb,
     _reality_gap_block,
@@ -90,17 +89,19 @@ def _db(row_map: dict | None = None, raise_on: str | None = None):
 def test_main_kb_has_panels():
     kb = _main_kb()
     assert isinstance(kb, InlineKeyboardMarkup)
-    # 5 panel (lab_legacy "Eski paneller" butonu silindi 2026-05-22 #9)
+    # 4 panel: "Hızlı Test" → Stratejilerim'e birleşti (main) + lab_legacy
+    # "Eski paneller" butonu silindi (#9). 6→4 buton.
     rows = kb.inline_keyboard
-    assert len(rows) == 5
+    assert len(rows) == 4
     callbacks = [r[0].callback_data for r in rows]
     assert callbacks == [
-        "lab_quick",
-        "lab_candle",
         "lab_builder",
+        "lab_candle",
         "lab_compare",
         "lab_calibrate",
     ]
+    assert "lab_quick" not in callbacks  # Stratejilerim'e birleşti
+    assert "lab_legacy" not in callbacks  # #9 silindi
 
 
 def test_panel_nav_kb_default():
@@ -202,16 +203,22 @@ async def test_build_main_smoke():
     assert "Gerçeklik" in text  # reality-gap block injected
     assert "Hangi panele" in text
     assert isinstance(kb, InlineKeyboardMarkup)
-    assert kb.inline_keyboard[0][0].callback_data == "lab_quick"
+    # 2026-05-22: ilk buton artık Stratejilerim (Hızlı Test birleşti)
+    assert kb.inline_keyboard[0][0].callback_data == "lab_builder"
 
 
 @pytest.mark.asyncio
-async def test_build_quick_smoke():
+async def test_build_builder_hub_smoke():
+    """2026-05-22 konsolidasyon: Stratejilerim tek hub (Hızlı Test birleşti)."""
     db = _db({"FROM live_trades": (0, 0.0, 0.0), "FROM ob_snapshots": (100, 0, 0)})
-    text, kb = await _build_quick(db)
-    assert "HIZLI TEST" in text
-    assert "/backtest_replay" in text  # legacy command bridge
+    text, kb = await _build_builder(db)
+    assert "Tek merkez" in text  # hub subtitle
+    assert "Tick veri" in text  # ob_snapshots özeti (Hızlı Test'ten taşındı)
+    assert "/backtest_replay" not in text  # buton-driven, komut yok
     assert isinstance(kb, InlineKeyboardMarkup)
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_pw" in cbs  # preset sihirbazı
+    assert "lab_quick" not in cbs  # Hızlı Test butonu kaldırıldı
 
 
 # ── Adım 3 — _humanize_conditions + inline backtest ─────────
@@ -255,6 +262,125 @@ async def test_run_inline_backtest_invalid_params():
     # Geçersiz isim (path traversal)
     text, kb = await _run_inline_backtest("../escape", "BTC", "5m", _db())
     assert "Geçersiz" in text
+
+
+def test_scope_buttons():
+    """Adım 3 — kapsam (last_n) butonları: 4 seçenek, aktif ✅, tümü=0."""
+    from telegram_bot.handlers.backtest_lab import _scope_buttons
+
+    row = _scope_buttons("my_rs", "BTC", "5m", 200)
+    assert len(row) == 4
+    cbs = [b.callback_data for b in row]
+    assert "lab_btr:my_rs:BTC:5m:50" in cbs
+    assert "lab_btr:my_rs:BTC:5m:200" in cbs
+    assert "lab_btr:my_rs:BTC:5m:500" in cbs
+    assert "lab_btr:my_rs:BTC:5m:0" in cbs  # tümü
+    # aktif kapsam ✅ ile işaretli (yalnız biri)
+    active = [b.text for b in row if b.text.startswith("✅")]
+    assert active == ["✅200"]
+    # n=0 etiketi "tümü"
+    assert any(b.text in ("tümü", "✅tümü") for b in row)
+
+
+def test_scope_buttons_all_active():
+    """last_n=0 (tümü) seçiliyse 'tümü' butonu ✅ olur."""
+    from telegram_bot.handlers.backtest_lab import _scope_buttons
+
+    row = _scope_buttons("rs", "ETH", "15m", 0)
+    active = [b.text for b in row if b.text.startswith("✅")]
+    assert active == ["✅tümü"]
+
+
+@pytest.mark.asyncio
+async def test_run_inline_backtest_last_n_kwarg():
+    """_run_inline_backtest last_n kwarg'ını kabul eder (imza pin'i)."""
+    from telegram_bot.handlers.backtest_lab import _run_inline_backtest
+
+    # last_n verilse de geçersiz asset guard'ı önce döner (crash yok)
+    text, kb = await _run_inline_backtest("x", "DOGE", "5m", _db(), last_n=500)
+    assert "Geçersiz" in text
+
+
+def test_done_kb_with_name_has_market_buttons():
+    """Adım 3 — kaydedilen strateji adıyla market test butonları gelir."""
+    from telegram_bot.handlers.backtest_lab import _done_kb
+
+    kb = _done_kb("sec_30_60_up")
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_bt:sec_30_60_up:BTC:5m" in cbs
+    assert "lab_bt:sec_30_60_up:ETH:15m" in cbs
+    assert "lab_builder" in cbs  # nav korunur
+
+
+def test_done_kb_no_name_no_market_buttons():
+    """Ad yok / geçersiz (kayıt başarısız) → test butonu gösterme."""
+    from telegram_bot.handlers.backtest_lab import _done_kb
+
+    for nm in (None, "", "../escape"):
+        kb = _done_kb(nm)
+        cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+        assert not any(c.startswith("lab_bt:") for c in cbs)
+        assert "lab_builder" in cbs
+
+
+def test_save_preset_ruleset_success_no_command(monkeypatch, tmp_path):
+    """Başarılı kayıt metni komut bridge içermez (Heddas: buton-driven)."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _save_preset_ruleset
+
+    real_save = rb.save_ruleset
+    monkeypatch.setattr(
+        rb, "save_ruleset", lambda rs, dir_path=None: real_save(rs, dir_path=tmp_path)
+    )
+    rs = {
+        "name": "tmp_test", "version": "1.0", "direction": "up", "confidence": 0.7,
+        "entry": {"logic": "AND",
+                  "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 0}]},
+    }
+    txt, name = _save_preset_ruleset(rs)
+    assert name == "tmp_test"
+    assert "Kaydedildi" in txt
+    assert "/backtest_replay" not in txt
+
+
+def test_save_preset_ruleset_invalid_empty_name():
+    """Geçersiz ruleset → name='' (test butonu bastırılır)."""
+    from telegram_bot.handlers.backtest_lab import _save_preset_ruleset
+
+    txt, name = _save_preset_ruleset(
+        {"name": "x", "direction": "bad", "entry": {"conditions": []}}
+    )
+    assert name == ""
+
+
+@pytest.mark.asyncio
+async def test_build_show_ruleset_stat_block(monkeypatch):
+    """Strateji detayında son backtest statı görünür (yoksa 'henüz')."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _build_show_ruleset
+
+    fake_rs = {
+        "name": "demo_rs", "direction": "up", "confidence": 0.7,
+        "entry": {"logic": "AND",
+                  "conditions": [{"field": "elapsed_seconds", "op": ">=", "value": 30}]},
+    }
+    monkeypatch.setattr(rb, "list_rulesets", lambda *a, **k: [fake_rs])
+
+    monkeypatch.setattr(rb, "load_backtest_stat", lambda *a, **k: None)
+    text, kb = await _build_show_ruleset("demo_rs")
+    assert "Henüz backtest edilmedi" in text
+
+    monkeypatch.setattr(
+        rb, "load_backtest_stat",
+        lambda *a, **k: {
+            "runs": 3, "last_market": "BTC 5m", "last_scope": "son 200",
+            "last_pnl": -2.04, "last_win_rate": 50.0, "last_n_trades": 6, "last_ts": 0,
+        },
+    )
+    text, kb = await _build_show_ruleset("demo_rs")
+    assert "Son backtest" in text
+    assert "3× çalıştırıldı" in text
+    assert "BTC 5m" in text
 
 
 @pytest.mark.asyncio
@@ -388,9 +514,9 @@ async def test_run_inline_backtest_no_db():
 
 @pytest.mark.asyncio
 async def test_build_builder_placeholder():
-    db = _db({"FROM live_trades": (0, 0.0, 0.0)})
+    db = _db({"FROM live_trades": (0, 0.0, 0.0), "FROM ob_snapshots": (10, 0, 1)})
     text, kb = await _build_builder(db)
-    assert "STRATEJİ KURUCU" in text
+    assert "STRATEJİLERİM" in text  # 2026-05-22: hub başlığı (eski "Kurucu")
     # Faz 4: JSON paste flow + /lab_save komut örneği + field listesi
     assert "/lab_save" in text
     assert "JSON" in text
@@ -634,7 +760,8 @@ async def test_backtest_lab_callback_dispatches_to_builder():
     q.answer.assert_awaited_once()
     q.edit_message_text.assert_awaited_once()
     edited_text = q.edit_message_text.await_args.args[0]
-    assert "HIZLI TEST" in edited_text
+    # 2026-05-22: lab_quick alias → Stratejilerim hub'a düşer
+    assert "Tek merkez" in edited_text
 
 
 @pytest.mark.asyncio

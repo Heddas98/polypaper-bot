@@ -217,7 +217,7 @@ async def test_e4_wss_price_change_persists_deltas():
             "timestamp": str(int(time.time() * 1000)),
         }
         ws._handle_price_change_event(ev)
-        await asyncio.sleep(0.3)
+        await ws.flush()  # 2026-05-22: batched writes → explicit flush
 
         async with db.conn.execute("SELECT COUNT(*), side FROM ob_deltas GROUP BY side") as cur:
             rows = {r[1]: r[0] async for r in cur}
@@ -251,7 +251,7 @@ async def test_e5_wss_last_trade_price_persists_public_trades():
             "timestamp": str(int(time.time() * 1000)),
         }
         ws._extract_trade(ev)
-        await asyncio.sleep(0.3)
+        await ws.flush()  # 2026-05-22: batched writes → explicit flush
 
         async with db.conn.execute(
             "SELECT taker_side, price, size, fee_rate_bps FROM public_trades"
@@ -282,6 +282,10 @@ def test_f_marketsnapshot_has_timeframe_field():
     assert s2.total_minutes == 60.0
 
 
+@pytest.mark.skip(
+    reason="PennyContractStrategy 2026-05-21 radikal strateji temizliğinde silindi "
+    "(test_phase70 TestPennyContract ile aynı; pre-existing stale test)"
+)
 def test_f_pennycontract_tf_adaptive_threshold():
     """PennyContract too_close_to_close uses ratio, not absolute minutes."""
     from core.strategy_plugins import MarketSnapshot, PennyContractStrategy
@@ -324,6 +328,209 @@ def test_g_brain_system_has_tf_matrix():
     assert "24h" in ai_brain.BRAIN_SYSTEM
     assert "series_id=10114" in ai_brain.BRAIN_SYSTEM
     assert "series_id=41" in ai_brain.BRAIN_SYSTEM
+
+
+# ════ 2026-05-22: WS BATCHED WRITES (sessiz mod) ══════════════════
+# Per-mesaj commit → buffer + periyodik flush. Kanit: VERI AYNI kalir
+# (her event, dogru alanlarla persist), yalniz commit sayisi duser.
+class _FakeScannerMeta:
+    """get_token_meta sabit metadata dondurur (ob_snapshots asset/tf/slug)."""
+
+    def get_token_meta(self, asset_id):
+        return ("BTC", "5m", "btc-updown-5m-123")
+
+
+async def _count(db, table) -> int:
+    async with db.conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+        row = await cur.fetchone()
+    return row[0]
+
+
+@pytest.mark.asyncio
+async def test_batch_book_event_buffered_then_flushed():
+    """book event flush ÖNCESİ buffer'da (DB'de 0), flush SONRASI tam satır."""
+    db, path = await _make_fresh_db()
+    try:
+        from data.websocket_client import PolymarketWebSocket
+
+        ws = PolymarketWebSocket(db=db)
+        ws._handle_book_event(
+            {
+                "event_type": "book",
+                "asset_id": "AIDBOOK",
+                "market": "0xCOND",
+                "bids": [{"price": "0.48", "size": "100"}, {"price": "0.47", "size": "50"}],
+                "asks": [{"price": "0.52", "size": "80"}],
+                "timestamp": str(int(time.time() * 1000)),
+                "hash": "bookhash",
+            }
+        )
+        # flush ÖNCESİ: buffer'da, DB'de değil
+        assert len(ws._buf_snapshots) == 1
+        assert await _count(db, "ob_snapshots") == 0
+
+        await ws.flush()
+
+        async with db.conn.execute(
+            "SELECT asset_id, condition_id, best_bid, best_ask, mid_price FROM ob_snapshots"
+        ) as cur:
+            rows = [r async for r in cur]
+        assert len(rows) == 1
+        assert rows[0]["asset_id"] == "AIDBOOK"
+        assert rows[0]["condition_id"] == "0xCOND"
+        assert abs(rows[0]["best_bid"] - 0.48) < 1e-6
+        assert abs(rows[0]["best_ask"] - 0.52) < 1e-6
+        assert abs(rows[0]["mid_price"] - 0.50) < 1e-6
+        assert len(ws._buf_snapshots) == 0  # flush sonrası buffer boş
+    finally:
+        await db.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_batch_data_parity_no_loss():
+    """N event → flush → TAM N satır (hiçbiri düşmez, çoğalmaz)."""
+    db, path = await _make_fresh_db()
+    try:
+        from data.websocket_client import PolymarketWebSocket
+
+        ws = PolymarketWebSocket(db=db)
+        N = 25
+        ts = int(time.time() * 1000)
+        for i in range(N):
+            ws._handle_price_change_event(
+                {
+                    "event_type": "price_change",
+                    "market": "0xC",
+                    "timestamp": str(ts + i),
+                    "price_changes": [
+                        {
+                            "asset_id": f"A{i}", "price": "0.5", "size": "10", "side": "BUY",
+                            "hash": f"h{i}b", "best_bid": "0.5", "best_ask": "0.51",
+                        },
+                        {
+                            "asset_id": f"A{i}", "price": "0.49", "size": "5", "side": "SELL",
+                            "hash": f"h{i}s", "best_bid": "0.49", "best_ask": "0.5",
+                        },
+                    ],
+                }
+            )
+            ws._handle_book_event(
+                {
+                    "event_type": "book", "asset_id": f"A{i}", "market": "0xC",
+                    "bids": [{"price": "0.48", "size": "100"}],
+                    "asks": [{"price": "0.52", "size": "80"}],
+                    "timestamp": str(ts + i), "hash": f"bh{i}",
+                }
+            )
+            ws._extract_trade(
+                {
+                    "event_type": "last_trade_price", "asset_id": f"A{i}", "market": "0xC",
+                    "price": "0.5", "size": "3", "side": "BUY", "fee_rate_bps": "7",
+                    "timestamp": str(ts + i),
+                }
+            )
+
+        await ws.flush()
+
+        assert await _count(db, "ob_deltas") == N * 2  # her event 2 delta
+        assert await _count(db, "ob_snapshots") == N
+        assert await _count(db, "public_trades") == N
+        assert ws._flush_count >= 1
+        assert ws._rows_persisted == N * 2 + N + N
+    finally:
+        await db.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_batch_metadata_from_scanner_preserved():
+    """Scanner bağlıysa ob_snapshots asset/timeframe/slug doldurulur (NULL bug yok)."""
+    db, path = await _make_fresh_db()
+    try:
+        from data.websocket_client import PolymarketWebSocket
+
+        ws = PolymarketWebSocket(db=db)
+        ws.attach_scanner(_FakeScannerMeta())
+        ws._handle_book_event(
+            {
+                "event_type": "book", "asset_id": "AIDM", "market": "0xC",
+                "bids": [{"price": "0.4", "size": "10"}],
+                "asks": [{"price": "0.6", "size": "10"}],
+                "timestamp": str(int(time.time() * 1000)), "hash": "h",
+            }
+        )
+        await ws.flush()
+        async with db.conn.execute(
+            "SELECT asset, timeframe, slug FROM ob_snapshots WHERE asset_id='AIDM'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["asset"] == "BTC"
+        assert row["timeframe"] == "5m"
+        assert row["slug"] == "btc-updown-5m-123"
+    finally:
+        await db.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_batch_burst_autoflush_no_data_loss():
+    """Buffer eşiği aşılınca otomatik flush; sonda explicit flush → tam sayı."""
+    db, path = await _make_fresh_db()
+    try:
+        from data.websocket_client import PolymarketWebSocket
+
+        ws = PolymarketWebSocket(db=db)
+        ws._flush_max_rows = 5  # düşük eşik → burst tetiklensin
+        ts = int(time.time() * 1000)
+        for i in range(10):
+            ws._extract_trade(
+                {
+                    "event_type": "last_trade_price", "asset_id": f"B{i}", "market": "0xC",
+                    "price": "0.5", "size": "3", "side": "BUY", "fee_rate_bps": "7",
+                    "timestamp": str(ts + i),
+                }
+            )
+        await asyncio.sleep(0.1)  # burst flush task'inin koşmasına izin ver
+        # eşik aşıldığında en az bir otomatik flush olmalı
+        assert await _count(db, "public_trades") >= 5
+
+        await ws.flush()  # kalanı yaz
+        assert await _count(db, "public_trades") == 10
+    finally:
+        await db.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_batch_flush_empty_is_noop():
+    """Boş buffer flush → hata yok, satır yok, sayaç artmaz."""
+    db, path = await _make_fresh_db()
+    try:
+        from data.websocket_client import PolymarketWebSocket
+
+        ws = PolymarketWebSocket(db=db)
+        await ws.flush()
+        assert await _count(db, "ob_deltas") == 0
+        assert ws._flush_count == 0
+    finally:
+        await db.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 # ════ P0-08-H: LIVE_STRATEGIES whitelist intact ═══════════════════

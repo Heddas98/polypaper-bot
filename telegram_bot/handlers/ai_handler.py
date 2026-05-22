@@ -345,7 +345,6 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🧠 AI Brain (10dk cycle): {fmt_flag('ai_brain')}\n"
             f"🎯 Thompson Sampling:     {fmt_flag('thompson_sampling')}\n"
             f"🌐 Regime Detection:      {fmt_flag('regime_detection')}\n"
-            f"📹 Market Recorder:       {fmt_flag('market_recorder')}\n"
             f"🤖 AutoPilot:            {fmt_flag('autopilot')}\n"
             f"📈 Kelly Sizing:          {fmt_flag('kelly_sizing')}\n"
             f"📊 Candle Collector:      {fmt_flag('candle_collector')}\n\n"
@@ -367,14 +366,13 @@ async def brain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     _BrainBtn("🌐 Regime", callback_data="brain_toggle_regime_detection"),
-                    _BrainBtn("📹 Recorder", callback_data="brain_toggle_market_recorder"),
-                ],
-                [
                     _BrainBtn("🤖 AutoPilot", callback_data="brain_toggle_autopilot"),
-                    _BrainBtn("📈 Kelly", callback_data="brain_toggle_kelly_sizing"),
                 ],
                 [
+                    _BrainBtn("📈 Kelly", callback_data="brain_toggle_kelly_sizing"),
                     _BrainBtn("📊 Candles", callback_data="brain_toggle_candle_collector"),
+                ],
+                [
                     _BrainBtn("🔄 Yenile", callback_data="brain_refresh"),
                 ],
             ]
@@ -438,7 +436,6 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
             "autopilot",
             "kelly_sizing",
             "candle_collector",
-            "market_recorder",
         }
         if feature not in valid_features:
             await query.answer(f"Bilinmeyen feature: {feature}", show_alert=True)
@@ -462,10 +459,6 @@ async def brain_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
             cc = getattr(engine, "candle_collector", None)
             if cc:
                 cc._enabled = new_state
-        if feature == "market_recorder":
-            mr = getattr(engine, "market_recorder", None)
-            if mr:
-                mr._enabled = new_state
 
         status = "✅ AÇIK" if new_state else "⚫ KAPALI"
         feature_display = feature.replace("_", " ").title()

@@ -22,7 +22,10 @@ from backtest.strategies.rule_based import (
     _eval_entry_block,
     delete_ruleset,
     list_rulesets,
+    load_all_stats,
+    load_backtest_stat,
     load_ruleset,
+    record_backtest_stat,
     save_ruleset,
     validate_ruleset,
 )
@@ -473,6 +476,51 @@ def test_delete_ruleset_missing(tmp_path: Path):
 def test_delete_ruleset_invalid_name(tmp_path: Path):
     """../escape gibi adlar reddedilmeli — path traversal koruması."""
     assert delete_ruleset("../escape", dir_path=tmp_path) is False
+
+
+# ── Adım 3 — backtest istatistikleri ────────────────────────
+
+
+def test_backtest_stat_roundtrip(tmp_path: Path):
+    """record → load: runs sayacı artar, son sonuç saklanır."""
+    assert load_backtest_stat("s1", dir_path=tmp_path) is None  # henüz yok
+    record_backtest_stat("s1", "BTC 5m", "son 200", -2.5, 42.9, 7, dir_path=tmp_path)
+    rec = load_backtest_stat("s1", dir_path=tmp_path)
+    assert rec is not None
+    assert rec["runs"] == 1
+    assert rec["last_market"] == "BTC 5m"
+    assert rec["last_scope"] == "son 200"
+    assert rec["last_pnl"] == -2.5
+    assert rec["last_win_rate"] == 42.9
+    assert rec["last_n_trades"] == 7
+    assert "last_ts" in rec
+    # ikinci run → runs=2, son değer güncellenir
+    record_backtest_stat("s1", "BTC 1h", "tümü", 5.0, 70.0, 3, dir_path=tmp_path)
+    rec = load_backtest_stat("s1", dir_path=tmp_path)
+    assert rec["runs"] == 2
+    assert rec["last_market"] == "BTC 1h"
+    assert rec["last_pnl"] == 5.0
+
+
+def test_backtest_stat_invalid_name_noop(tmp_path: Path):
+    """Path-traversal isim → kayıt yapılmaz, dosya oluşmaz."""
+    record_backtest_stat("../escape", "BTC 5m", "son 50", 1.0, 50.0, 2, dir_path=tmp_path)
+    assert load_backtest_stat("../escape", dir_path=tmp_path) is None
+    assert not (tmp_path / "_stats.json").exists()
+
+
+def test_load_all_stats_corrupt_returns_empty(tmp_path: Path):
+    (tmp_path / "_stats.json").write_text("{ not json", encoding="utf-8")
+    assert load_all_stats(dir_path=tmp_path) == {}
+
+
+def test_list_rulesets_skips_stats_file(tmp_path: Path):
+    """_stats.json ruleset olarak yüklenmemeli (warning bile üretmemeli)."""
+    save_ruleset(_valid_ruleset("real_rs"), dir_path=tmp_path)
+    record_backtest_stat("real_rs", "BTC 5m", "son 200", 1.0, 60.0, 5, dir_path=tmp_path)
+    assert (tmp_path / "_stats.json").exists()
+    out = list_rulesets(tmp_path)
+    assert [r["name"] for r in out] == ["real_rs"]  # _stats.json atlandı
 
 
 # ── Faz 5b — RuleSet limit alanları ─────────────────────────

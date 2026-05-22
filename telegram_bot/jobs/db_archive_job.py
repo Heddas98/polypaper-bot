@@ -286,7 +286,7 @@ def _archive_to_parquet_sync(cutoff_ms: int, dry_run: bool = False) -> dict:
                     f"(total {deleted_total:,}/{archived:,})"
                 )
             # Yield to other connections (writers) between batches.
-            # Tiny sleep gives market_recorder INSERT a chance.
+            # Tiny sleep gives WS/scanner INSERT a chance.
             time.sleep(0.02)
 
         elapsed_del = time.monotonic() - t0

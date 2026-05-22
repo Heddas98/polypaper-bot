@@ -72,6 +72,21 @@ class PolymarketWebSocket:
         self._cap_hit_count: int = 0
         self._cap_skipped_total: int = 0
         self._last_cap_hit_ts: float = 0.0
+        # 2026-05-22 (Heddas: sessiz mod) — WRITE BATCHING.
+        # Eskiden her WS event'i ayrı bir safe_create_task açıp kendi
+        # INSERT+commit'ini yapıyordu → saniyede yüzlerce ayrı transaction
+        # (py-spy: CPU'nun %72'si aiosqlite). Veri AYNI (her event kaydedilir),
+        # sadece commit sayısı ~100x düşer: buffer'lar event-loop thread'inde
+        # doldurulur (kilit gerekmez — asyncio tek-thread), _flush_loop
+        # periyodik TEK transaction'da executemany ile yazar.
+        self._buf_snapshots: list[tuple] = []
+        self._buf_deltas: list[tuple] = []
+        self._buf_trades: list[tuple] = []
+        self._flush_task = None
+        self._flush_interval: float = float(os.getenv("WS_FLUSH_INTERVAL_S", "1.0"))
+        self._flush_max_rows: int = int(os.getenv("WS_FLUSH_MAX_ROWS", "2000"))
+        self._flush_count: int = 0
+        self._rows_persisted: int = 0
 
     @property
     def is_connected(self) -> bool:
@@ -83,10 +98,24 @@ class PolymarketWebSocket:
         self._running = True
         # Phase 82e Sprint 2.1: WS loop death = no price data = trading halt
         self._task = safe_create_task(self._loop(), name="polymarket_ws_loop")
+        # 2026-05-22: batched-write flush loop (sn'de 1 toplu commit)
+        if self.db is not None:
+            self._flush_task = safe_create_task(self._flush_loop(), name="ws_flush_loop")
         logger.info("🔌 WS starting")
 
     async def stop(self):
         self._running = False
+        # 2026-05-22: flush loop'u durdur, sonra buffer'da kalanı SON KEZ yaz
+        if self._flush_task:
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+        try:
+            await self._flush_buffers()
+        except Exception:  # noqa: BLE001
+            pass
         if self._ws:
             try:
                 await self._ws.close()
@@ -370,7 +399,7 @@ class PolymarketWebSocket:
 
         # P0-08-E5 (2026-05-08): public_trades tablosuna persist.
         # Polymarket spec field: fee_rate_bps (taker fee bps cinsinden).
-        # Callback chain'inden bağımsız — paralel async write.
+        # 2026-05-22: per-mesaj commit yerine buffer (flush loop yazar).
         if self.db is not None and self.db.conn is not None:
             condition_id = str(ev.get("market", "") or "")
             fee_rate_bps_raw = ev.get("fee_rate_bps")
@@ -378,18 +407,10 @@ class PolymarketWebSocket:
                 fee_rate_bps = float(fee_rate_bps_raw) if fee_rate_bps_raw is not None else None
             except (TypeError, ValueError):
                 fee_rate_bps = None
-            safe_create_task(
-                self._persist_public_trade(
-                    ts_ms,
-                    asset_id,
-                    condition_id,
-                    side,
-                    price,
-                    size,
-                    fee_rate_bps,
-                ),
-                name=f"persist_trade_{asset_id[:8]}",
+            self._buf_trades.append(
+                (ts_ms, asset_id, condition_id, side, price, size, fee_rate_bps)
             )
+            self._maybe_flush_soon()
 
     def _extract_price(self, ev, now_iso: str):
         """Extract price from any known Polymarket WS format."""
@@ -547,21 +568,31 @@ class PolymarketWebSocket:
         spread = (best_ask - best_bid) if best_bid and best_ask else None
         ts_ms = self._parse_ts_ms(ev.get("timestamp"))
         hash_ = str(ev.get("hash", "") or "")[:64]
-        safe_create_task(
-            self._persist_book_snapshot(
+        # 2026-05-22: metadata lookup (eskiden _persist_book_snapshot içindeydi)
+        # + buffer'a tam satır ekle (flush loop tek transaction'da yazar).
+        asset = timeframe = slug = None
+        if self._scanner is not None:
+            meta = self._scanner.get_token_meta(asset_id)
+            if meta:
+                asset, timeframe, slug = meta
+        self._buf_snapshots.append(
+            (
                 ts_ms,
                 asset_id,
                 condition_id,
+                asset,
+                timeframe,
+                slug,
                 best_bid,
                 best_ask,
                 mid,
                 spread,
-                bids[:5],
-                asks[:5],
+                json.dumps(bids[:5]),
+                json.dumps(asks[:5]),
                 hash_,
-            ),
-            name=f"persist_book_{asset_id[:8]}",
+            )
         )
+        self._maybe_flush_soon()
 
     def _handle_price_change_event(self, ev):
         if not isinstance(ev, dict):
@@ -594,10 +625,9 @@ class PolymarketWebSocket:
                 (ts_ms, asset_id, condition_id, side, price, size, hash_, best_bid, best_ask)
             )
         if rows:
-            safe_create_task(
-                self._persist_deltas(rows),
-                name=f"persist_deltas_{condition_id[:8]}",
-            )
+            # 2026-05-22: per-mesaj commit yerine buffer (flush loop yazar).
+            self._buf_deltas.extend(rows)
+            self._maybe_flush_soon()
 
     @staticmethod
     def _parse_ts_ms(ts) -> int:
@@ -619,80 +649,93 @@ class PolymarketWebSocket:
         """
         self._scanner = scanner
 
-    async def _persist_book_snapshot(
-        self, ts_ms, asset_id, condition_id, best_bid, best_ask, mid, spread, bids, asks, hash_
-    ):
+    # ════════════════════════════════════════════════════════════════════
+    # 2026-05-22 (Heddas: sessiz mod) — BATCHED WRITES
+    # Eskiden _handle_book_event/_handle_price_change/_extract_trade her
+    # event icin ayri safe_create_task → INSERT + commit yapiyordu (saniyede
+    # yuzlerce transaction; py-spy: CPU'nun %72'si aiosqlite). Artik event'ler
+    # buffer'a yazilir, flush_loop sn'de 1 kez executemany + TEK commit yapar.
+    # VERI AYNI (her event, ayni ts_ms ile kaydedilir) — yalniz commit ~100x az.
+    # ════════════════════════════════════════════════════════════════════
+    def _maybe_flush_soon(self) -> None:
+        """Burst guard: buffer cok buyurse periyodik flush'i beklemeden yaz
+        (ani yogunlukta bellegi sinirlar). Normalde flush_loop sn'de 1 yazar."""
+        if (
+            len(self._buf_deltas) + len(self._buf_snapshots) + len(self._buf_trades)
+        ) >= self._flush_max_rows:
+            safe_create_task(self._flush_buffers(), name="ws_flush_burst")
+
+    async def _flush_loop(self) -> None:
+        """Periyodik toplu yazim (default sn'de 1)."""
+        while self._running:
+            try:
+                await asyncio.sleep(self._flush_interval)
+                await self._flush_buffers()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"ws flush loop: {e}")
+
+    async def flush(self) -> None:
+        """Public: buffer'i hemen DB'ye yaz (test + shutdown icin)."""
+        await self._flush_buffers()
+
+    async def _flush_buffers(self) -> None:
+        if self.db is None or self.db.conn is None:
+            return
+        # Atomik swap (asyncio tek-thread → await'e kadar kesilmez)
+        snaps = self._buf_snapshots
+        deltas = self._buf_deltas
+        trades = self._buf_trades
+        if not (snaps or deltas or trades):
+            return
+        self._buf_snapshots = []
+        self._buf_deltas = []
+        self._buf_trades = []
+        wrote = 0
         try:
-            # 2026-05-21 Heddas direktifi: asset/timeframe/slug metadata
-            # lookup (NULL bug fix). Scanner cache'inden cek; cache miss
-            # halinde None (eski davranis — eski 50k row'un tutarli olmasi).
-            asset = None
-            timeframe = None
-            slug = None
-            if self._scanner is not None:
-                meta = self._scanner.get_token_meta(asset_id)
-                if meta:
-                    asset, timeframe, slug = meta
-
-            await self.db.conn.execute(
-                """INSERT OR REPLACE INTO ob_snapshots
-                   (ts_ms, asset_id, condition_id, asset, timeframe, slug,
-                    best_bid, best_ask, mid_price, spread,
-                    bids_json, asks_json, hash)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    ts_ms,
-                    asset_id,
-                    condition_id,
-                    asset,
-                    timeframe,
-                    slug,
-                    best_bid,
-                    best_ask,
-                    mid,
-                    spread,
-                    json.dumps(bids),
-                    json.dumps(asks),
-                    hash_,
-                ),
-            )
-            await self.db.conn.commit()
+            if snaps:
+                await self.db.conn.executemany(
+                    """INSERT OR REPLACE INTO ob_snapshots
+                       (ts_ms, asset_id, condition_id, asset, timeframe, slug,
+                        best_bid, best_ask, mid_price, spread,
+                        bids_json, asks_json, hash)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    snaps,
+                )
+                wrote += len(snaps)
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"persist_book_snapshot: {e}")
-
-    async def _persist_deltas(self, rows):
+            logger.debug(f"flush ob_snapshots ({len(snaps)}): {e}")
         try:
-            await self.db.conn.executemany(
-                """INSERT OR REPLACE INTO ob_deltas
-                   (ts_ms, asset_id, condition_id, side, price, size,
-                    hash, best_bid, best_ask)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                rows,
-            )
-            await self.db.conn.commit()
+            if deltas:
+                await self.db.conn.executemany(
+                    """INSERT OR REPLACE INTO ob_deltas
+                       (ts_ms, asset_id, condition_id, side, price, size,
+                        hash, best_bid, best_ask)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    deltas,
+                )
+                wrote += len(deltas)
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"persist_deltas: {e}")
-
-    async def _persist_public_trade(
-        self, ts_ms, asset_id, condition_id, taker_side, price, size, fee_rate_bps
-    ):
-        """P0-08-E5 (2026-05-08): public_trades insert.
-
-        Polymarket last_trade_price field'larıyla 1:1: ts_ms, asset_id,
-        condition_id (market), taker_side ('BUY'/'SELL'), price, size,
-        fee_rate_bps.
-        """
+            logger.debug(f"flush ob_deltas ({len(deltas)}): {e}")
         try:
-            await self.db.conn.execute(
-                """INSERT OR REPLACE INTO public_trades
-                   (ts_ms, asset_id, condition_id,
-                    taker_side, price, size, fee_rate_bps)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (ts_ms, asset_id, condition_id, taker_side, price, size, fee_rate_bps),
-            )
-            await self.db.conn.commit()
+            if trades:
+                await self.db.conn.executemany(
+                    """INSERT OR REPLACE INTO public_trades
+                       (ts_ms, asset_id, condition_id,
+                        taker_side, price, size, fee_rate_bps)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    trades,
+                )
+                wrote += len(trades)
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"persist_public_trade: {e}")
+            logger.debug(f"flush public_trades ({len(trades)}): {e}")
+        try:
+            await self.db.conn.commit()  # TEK commit — fsync storm biter
+            self._flush_count += 1
+            self._rows_persisted += wrote
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"flush commit: {e}")
 
     def get_live_price(self, token_id: str) -> Optional[float]:
         """Get cached price. Returns None if stale (>WS_STALE_THRESHOLD, default 60s).
@@ -783,6 +826,10 @@ class PolymarketWebSocket:
             "last_cap_hit_age": (
                 round(time.time() - self._last_cap_hit_ts, 1) if self._last_cap_hit_ts else None
             ),
+            # 2026-05-22: batched-write telemetry
+            "flushes": self._flush_count,
+            "rows_persisted": self._rows_persisted,
+            "buffered": len(self._buf_snapshots) + len(self._buf_deltas) + len(self._buf_trades),
         }
 
     async def _send(self, msg):

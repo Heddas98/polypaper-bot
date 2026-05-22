@@ -116,7 +116,7 @@ def _flag_is_consumed_in_engine(flag_key: str) -> list[str]:
     #
     # For such flags, accept "self._enabled" reads (not writes!) inside
     # files whose path basename == flag_key.py.
-    sibling_enabled_flags = {"candle_collector", "market_recorder"}
+    sibling_enabled_flags = {"candle_collector"}
 
     # Walk all .py files except excluded dirs
     for py in REPO_ROOT.rglob("*.py"):
@@ -212,7 +212,6 @@ def test_no_reverse_ghost_flags():
         "thompson_sampling",
         "regime_detection",
         "candle_collector",
-        "market_recorder",
     ],
 )
 def test_known_good_flag_has_engine_consumer(flag):
@@ -267,10 +266,10 @@ def test_no_true_ghost_flags(flag):
 def test_brain_flags_init_matches_expected_set():
     """Pin the post-T6.3 brain_flags shape.
 
-    Pre-T6.3 dict had 8 keys (incl. 3 ghosts). Post-T6.3 dict should be:
+    Pre-T6.3 dict had 8 keys (incl. 3 ghosts). Post-cleanup dict should be:
       ai_brain, thompson_sampling, regime_detection, autopilot,
-      candle_collector, market_recorder
-    (drift_monitor + kelly_sizing removed; autopilot gated not removed.)
+      candle_collector
+    (drift_monitor + kelly_sizing + market_recorder removed.)
     """
     expected = {
         "ai_brain",
@@ -278,7 +277,6 @@ def test_brain_flags_init_matches_expected_set():
         "regime_detection",
         "autopilot",
         "candle_collector",
-        "market_recorder",
     }
     actual = _extract_brain_flags_keys()
     # Intentionally a strict equality check — we want to catch any silent
