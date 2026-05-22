@@ -138,10 +138,12 @@ class TradingEngine(
             from core.live_strategies import (
                 RevMartingaleStrategy,
                 RuleBasedLiveStrategy,
+                StreakRevMartingaleStrategy,
             )
 
             self.plugins.register(RevMartingaleStrategy())  # rev↑/rev↓/highvol
             self.plugins.register(RuleBasedLiveStrategy())  # LAB rule_based port
+            self.plugins.register(StreakRevMartingaleStrategy())  # streak-reversal
         except Exception as _rme:  # noqa: BLE001
             logger.warning("live strateji register edilemedi: %s", _rme)
         self.optimizer = AutoOptimizer(db)

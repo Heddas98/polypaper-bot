@@ -392,3 +392,104 @@ class RuleBasedLiveStrategy(BaseStrategy):
             should_trade=True,
             reason=f"rule_based '{rs_name}': koşullar sağlandı → {direction.upper()}",
         )
+
+
+# ─── StreakRevMartingaleStrategy — streak-reversal + martingale (2026-05-23) ───
+# Heddas fikri: N ardışık aynı-yön mum sonrası TERS al + martingale. Giriş
+# streak≥2'de (ilk mumun zayıf bahsini atla — veri: 1h streak-2 reversal %58 >
+# streak-1 %53). strategy_type="streak_rev" (martingale plumbing'i kullanır).
+# DÜRÜST UYARI: veri streak-reversal'ı ~%50 (kumarbaz yanılgısı) gösterdi; max
+# katlama yüksekse (15→bet $32768) nadir uzun streak/cap TÜM kazançları siler
+# (klasik martingale tuzağı). Negatif-EV beklentisi → paper'da gözlemle.
+# streak_len + streak_dir motor section 7'de candle'lardan hesaplanıp enjekte.
+
+DEFAULT_STREAK_ENTRY = 2     # streak ≥2'de gir (ilk mumu atla)
+DEFAULT_STREAK_MAX_LEVELS = 15  # Heddas: max 15 katlama (bet tavanı $1×2^15)
+
+
+class StreakRevMartingaleStrategy(BaseStrategy):
+    """N ardışık aynı-yön mum → TERS yön al + martingale (Heddas streak fikri)."""
+
+    origin = "core"
+
+    def __init__(
+        self,
+        entry_streak: int = DEFAULT_STREAK_ENTRY,
+        max_levels: int = DEFAULT_STREAK_MAX_LEVELS,
+        entry_max_time_pct: float = DEFAULT_ENTRY_MAX_TIME_PCT,
+    ):
+        self.entry_streak = int(entry_streak)
+        self.max_levels = int(max_levels)
+        self.entry_max_time_pct = float(entry_max_time_pct)
+
+    @property
+    def name(self) -> str:
+        return "streak_rev"
+
+    @property
+    def description(self) -> str:
+        return (
+            "streak-reversal: N ardışık aynı-yön mum sonrası ters al + "
+            "martingale (Heddas fikri; veri ~%50 = kumarbaz yanılgısı riski)"
+        )
+
+    def evaluate(self, snapshot: MarketSnapshot) -> StrategySignal:
+        meta = snapshot.metadata or {}
+        slen = meta.get("streak_len")
+        sdir = meta.get("streak_dir")
+        if slen is None or sdir not in ("up", "down"):
+            return StrategySignal(reason="streak_rev: streak verisi yok (mum bekleniyor)")
+        try:
+            slen = int(slen)
+        except (TypeError, ValueError):
+            return StrategySignal(reason="streak_rev: streak_len sayısal değil")
+
+        # Erken pencere (rev ile aynı — settle-yönü bazlı, gevşek)
+        time_pct = meta.get("time_pct")
+        if time_pct is not None:
+            try:
+                if float(time_pct) > self.entry_max_time_pct:
+                    return StrategySignal(
+                        reason=f"streak_rev: giriş penceresi geçti "
+                        f"(time_pct {float(time_pct):.2f} > {self.entry_max_time_pct})"
+                    )
+            except (TypeError, ValueError):
+                pass
+
+        if slen < self.entry_streak:
+            return StrategySignal(
+                reason=f"streak_rev: streak {slen} < giriş eşiği {self.entry_streak}"
+            )
+
+        # TERS yön al (streak up ise DOWN, down ise UP)
+        trade_dir = "down" if sdir == "up" else "up"
+
+        # Martingale (motor _mg_streak ile aynı: kaybedince katla, kazanınca reset)
+        try:
+            loss_streak = int(meta.get("loss_streak", 0) or 0)
+        except (TypeError, ValueError):
+            loss_streak = 0
+        try:
+            base = float(meta.get("base_amount", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            base = 1.0
+        if base <= 0:
+            base = 1.0
+        level = max(0, min(loss_streak, self.max_levels))
+        sized = round(base * (2 ** level), 2)
+
+        return StrategySignal(
+            direction=trade_dir,
+            confidence=0.58,  # ~1h streak-2 reversal oranı (zayıf)
+            should_trade=True,
+            reason=(
+                f"streak-rev: {slen}× {sdir} streak → {trade_dir.upper()} al, "
+                f"martingale L{level} → ${sized:.2f}"
+            ),
+            metadata={
+                "sized_amount": sized,
+                "level": level,
+                "streak_len": slen,
+                "streak_dir": sdir,
+            },
+        )

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from core.live_strategies import (
     RevMartingaleStrategy,
+    StreakRevMartingaleStrategy,
     is_live_candidate,
     live_readiness,
     load_live_candidates,
@@ -348,3 +349,108 @@ def test_mark_live_candidate_empty_label_noop(tmp_path):
     p = tmp_path / "c.json"
     mark_live_candidate("", path=p)
     assert load_live_candidates(p) == {}
+
+
+# ── StreakRevMartingaleStrategy (Heddas streak fikri, 2026-05-23) ────
+# N ardışık aynı-yön mum → TERS al + martingale. Giriş streak≥2 (1. atla).
+
+
+def test_streak_no_data_no_trade():
+    """streak_len/streak_dir yoksa → no-trade (mum bekleniyor)."""
+    sig = StreakRevMartingaleStrategy().evaluate(_snap())
+    assert sig.should_trade is False
+    assert "streak verisi yok" in sig.reason
+
+
+def test_streak_below_entry_no_trade():
+    """streak 1 < giriş eşiği 2 → no-trade (ilk mumu atla)."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len=1, streak_dir="up")
+    )
+    assert sig.should_trade is False
+    assert "giriş eşiği" in sig.reason
+
+
+def test_streak_up_bets_down():
+    """2× up streak → TERS = DOWN al (reversal bahsi)."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len=2, streak_dir="up", base_amount=1.0)
+    )
+    assert sig.should_trade is True
+    assert sig.direction == "down"
+    assert sig.metadata["streak_len"] == 2
+    assert sig.metadata["streak_dir"] == "up"
+
+
+def test_streak_down_bets_up():
+    """3× down streak → TERS = UP al."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len=3, streak_dir="down", base_amount=1.0)
+    )
+    assert sig.should_trade is True
+    assert sig.direction == "up"
+
+
+def test_streak_entry_threshold_custom():
+    """entry_streak=3 → streak 2 ateşlemez, 3 ateşler."""
+    s = StreakRevMartingaleStrategy(entry_streak=3)
+    assert s.evaluate(_snap(streak_len=2, streak_dir="up")).should_trade is False
+    assert s.evaluate(_snap(streak_len=3, streak_dir="up")).should_trade is True
+
+
+def test_streak_martingale_sizing():
+    """loss_streak=3, base=1 → 2^3 = $8, level=3."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len=2, streak_dir="up", base_amount=1.0, loss_streak=3)
+    )
+    assert sig.metadata["sized_amount"] == 8.0
+    assert sig.metadata["level"] == 3
+
+
+def test_streak_martingale_caps_at_15():
+    """default max_levels=15 → loss_streak 20'de level 15 tavanı (bet $32768)."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len=2, streak_dir="up", base_amount=1.0, loss_streak=20)
+    )
+    assert sig.metadata["level"] == 15
+    assert sig.metadata["sized_amount"] == 32768.0  # 2^15
+
+
+def test_streak_entry_window_blocks_late():
+    """time_pct giriş penceresini geçtiyse → no-trade."""
+    s = StreakRevMartingaleStrategy(entry_max_time_pct=0.30)
+    early = s.evaluate(_snap(streak_len=2, streak_dir="up", time_pct=0.1))
+    assert early.should_trade is True
+    late = s.evaluate(_snap(streak_len=2, streak_dir="up", time_pct=0.8))
+    assert late.should_trade is False
+    assert "pencere" in late.reason
+
+
+def test_streak_bad_dir_no_trade():
+    """streak_dir geçersizse → no-trade, crash yok."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len=5, streak_dir="sideways")
+    )
+    assert sig.should_trade is False
+
+
+def test_streak_non_numeric_len_no_trade():
+    """streak_len sayısal değilse → no-trade, exception YOK."""
+    sig = StreakRevMartingaleStrategy().evaluate(
+        _snap(streak_len="oops", streak_dir="up")
+    )
+    assert sig.should_trade is False
+
+
+def test_streak_registry_routes():
+    """register → name='streak_rev' ile yönlenir (martingale'den ayrı)."""
+    reg = StrategyRegistry()
+    assert reg.get("streak_rev") is None
+    reg.register(StreakRevMartingaleStrategy())
+    assert reg.get("streak_rev") is not None
+    sig = reg.evaluate(
+        "streak_rev", _snap(streak_len=2, streak_dir="down", base_amount=1.0)
+    )
+    assert isinstance(sig, StrategySignal)
+    assert sig.should_trade is True
+    assert sig.direction == "up"

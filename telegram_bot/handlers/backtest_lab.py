@@ -1429,6 +1429,11 @@ _PAPER_CONFIGS = [
     ("XRP", "15m", "up"),    # rev↑ ✅ te+6
     ("XRP", "15m", "down"),  # rev↓ te+6
     ("XRP", "15m", "hv"),    # highvol-rev te+15
+    # streak-reversal (Heddas fikri) — strategy_type=streak_rev, DENEYSEL
+    # (veri ~%50 kumarbaz yanılgısı + max-15 martingale tuzağı; paper'da gözlem)
+    ("BTC", "1h", "streak"),   # Heddas asıl isteği: 1h streak↩
+    ("BTC", "15m", "streak"),
+    ("BTC", "5m", "streak"),
 ]
 _PAPER_TF_ENUM = {"5m": "M5", "15m": "M15", "1h": "H1"}
 
@@ -1453,12 +1458,25 @@ def _is_tradeable(asset: str, tf: str) -> bool:
 
 
 def _rev_label(mode: str) -> str:
-    return {"down": "rev↓", "hv": "hvRev↕"}.get(str(mode).lower(), "rev↑")
+    return {"down": "rev↓", "hv": "hvRev↕", "streak": "streak↩"}.get(
+        str(mode).lower(), "rev↑"
+    )
 
 
 def _dir_to_mode(direction: str) -> str:
     """DB direction → panel mode (any=highvol-rev, down=rev↓, else rev↑)."""
     return {"down": "down", "any": "hv"}.get(str(direction).lower(), "up")
+
+
+def _strat_mode(s) -> str:
+    """Strateji satırı → panel modu (strategy_type + direction birlikte).
+
+    streak_rev → streak · martingale → up/down/hv. (highvol-rev ve streak_rev
+    ikisi de direction=ANY; strategy_type ile ayrılır.)
+    """
+    if getattr(s, "strategy_type", "") == "streak_rev":
+        return "streak"
+    return _dir_to_mode(s.direction.value)
 
 
 def _paper_kb(extra: list | None = None) -> InlineKeyboardMarkup:
@@ -1507,12 +1525,14 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
         return (_PAPER_HEADER + "⚠️ Strateji listesi alınamadı.", _paper_kb())
 
     paper_strats = [
-        s for s in strats if s.strategy_type in ("martingale", "rule_based")
+        s for s in strats
+        if s.strategy_type in ("martingale", "rule_based", "streak_rev")
     ]
     active_keys = {
-        (s.asset.value, s.timeframe.value, _dir_to_mode(s.direction.value)): s.id
+        (s.asset.value, s.timeframe.value, _strat_mode(s)): s.id
         for s in paper_strats
-        if s.strategy_type == "martingale" and s.status == StrategyStatus.ACTIVE
+        if s.strategy_type in ("martingale", "streak_rev")
+        and s.status == StrategyStatus.ACTIVE
     }
     rb_active = [
         s for s in paper_strats
@@ -1555,7 +1575,7 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
             if s.strategy_type == "rule_based":
                 _disp = f"📋 {esc(s.label or '?')}"
             else:
-                _disp = _rev_label(_dir_to_mode(s.direction.value))
+                _disp = _rev_label(_strat_mode(s))
             lines.append(
                 f"  {em} {_disp} {esc(s.asset.value)} {esc(s.timeframe.value)} · "
                 f"base ${s.trade_amount:.0f}\n"
@@ -1613,8 +1633,9 @@ async def _activate_paper_strategy(
     mode: up=rev↑ · down=rev↓ · hv=highvol-rev (DB direction=ANY).
     """
     mode = str(direction).lower()
-    if mode not in ("up", "down", "hv"):
+    if mode not in ("up", "down", "hv", "streak"):
         mode = "up"
+    _stype = "streak_rev" if mode == "streak" else "martingale"
     if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in _PAPER_TF_ENUM:
         return ("⚠️ Geçersiz market.", _paper_kb())
     if not _is_tradeable(asset, tf):
@@ -1633,21 +1654,26 @@ async def _activate_paper_strategy(
         existing = await db.get_strategies_by_user(user.id, wallet.id)
         for s in existing:
             if (
-                s.strategy_type == "martingale"
+                s.strategy_type == _stype
                 and s.asset.value == asset
                 and s.timeframe.value == tf
-                and _dir_to_mode(s.direction.value) == mode
+                and _strat_mode(s) == mode
             ):
                 if s.status != StrategyStatus.ACTIVE:
                     await db.update_strategy_status(s.id, StrategyStatus.ACTIVE)
                 return await _build_paper_strategy(db, telegram_id)
-        _dir_enum = {"down": Direction.DOWN, "hv": Direction.ANY}.get(
-            mode, Direction.UP
+        _dir_enum = {
+            "down": Direction.DOWN, "hv": Direction.ANY, "streak": Direction.ANY,
+        }.get(mode, Direction.UP)
+        _label = (
+            f"streak↩ {asset} {tf}"
+            if mode == "streak"
+            else f"{_rev_label(mode)} martingale {asset} {tf}"
         )
         strat = Strategy(
             user_id=user.id,
             wallet_id=wallet.id,
-            label=f"{_rev_label(mode)} martingale {asset} {tf}",
+            label=_label,
             asset=Asset(asset),
             timeframe=Timeframe[_PAPER_TF_ENUM[tf]],
             direction=_dir_enum,
@@ -1655,7 +1681,7 @@ async def _activate_paper_strategy(
             odds_threshold=0.50,         # truthy (0/None motor tarafından reddedilir)
             max_executions_per_event=1,  # market başına 1 trade
             max_entry_slippage=None,     # SLIP gate kapalı (rev odds-agnostik)
-            strategy_type="martingale",
+            strategy_type=_stype,        # streak→streak_rev · diğer→martingale
             status=StrategyStatus.ACTIVE,
         )
         await db.create_strategy(strat)

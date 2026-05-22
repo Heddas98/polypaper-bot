@@ -611,8 +611,8 @@ class EngineSignalsMixin:
                 # Epic 8 T8.1: narrow — external_feed.get_divergence dict parse
                 logger.debug(f"plugin_meta div err: {_de}")
 
-            # 7. STRATEGY-SPECIFIC (martingale + rev↑ girişi)
-            if stype == "martingale":
+            # 7. STRATEGY-SPECIFIC (martingale-ailesi: rev/highvol/streak girişi)
+            if stype in ("martingale", "streak_rev"):
                 plugin_meta["loss_streak"] = self._mg_streak.get(s.id, 0)
                 plugin_meta["base_amount"] = s.trade_amount
                 # rev↑ girdisi: önceki TAMAMLANMIŞ mum % değişimi (RevMartingale
@@ -654,6 +654,26 @@ class EngineSignalsMixin:
                                 plugin_meta["vol_med_pct"] = round(
                                     _sr[len(_sr) // 2], 4
                                 )
+                            # streak-rev girdisi: en yeni tamamlanmış mumdan
+                            # geriye doğru ardışık aynı-yön sayısı (close>open=up)
+                            if _done:
+                                def _cdir(_c):
+                                    return (
+                                        "up"
+                                        if float(_c.get("close", 0) or 0)
+                                        > float(_c.get("open", 0) or 0)
+                                        else "down"
+                                    )
+
+                                _sdir = _cdir(_done[-1])
+                                _slen = 0
+                                for _c in reversed(_done):
+                                    if _cdir(_c) == _sdir:
+                                        _slen += 1
+                                    else:
+                                        break
+                                plugin_meta["streak_len"] = _slen
+                                plugin_meta["streak_dir"] = _sdir
                 except (TypeError, ValueError, KeyError, AttributeError) as _rce:
                     # Epic 8 T8.1: narrow — candle fetch/delta best-effort
                     logger.debug(f"plugin_meta rev err: {_rce}")
@@ -1398,7 +1418,7 @@ class EngineSignalsMixin:
         trade_amount = s.trade_amount
 
         # Martingale amount override
-        if stype == "martingale" and psig and psig.metadata.get("sized_amount"):
+        if stype in ("martingale", "streak_rev") and psig and psig.metadata.get("sized_amount"):
             trade_amount = psig.metadata["sized_amount"]
             mg_level = psig.metadata.get("level", 0)
             if mg_level > 0:
@@ -1411,7 +1431,7 @@ class EngineSignalsMixin:
         if _lc and _lc.kelly_enabled is not None:
             _kelly_on = _lc.kelly_enabled
         kelly = {}
-        if _kelly_on and stype not in ("martingale", "rule_based"):
+        if _kelly_on and stype not in ("martingale", "rule_based", "streak_rev"):
             try:
                 _current_regime = getattr(self, "regime_classifier", None)
                 _regime_str = _current_regime.regime if _current_regime else "ranging"
@@ -1488,7 +1508,7 @@ class EngineSignalsMixin:
 
         # Conviction-based sizing
         _conv_enabled = os.getenv("CONVICTION_ENABLED", "true").lower() == "true"
-        if _conv_enabled and stype not in ("martingale", "rule_based"):
+        if _conv_enabled and stype not in ("martingale", "rule_based", "streak_rev"):
             try:
                 _sig_norm = min(max(signal_score, 0.0), 1.0)
                 _conf_map = {"low": 0.5, "medium": 0.75, "high": 1.0}

@@ -189,6 +189,45 @@ async def test_activate_hv_distinct_from_rev_up():
     assert len(db.created) == 2
 
 
+# ── streak-reversal paper (Heddas streak fikri, 2026-05-23) ──
+
+
+@pytest.mark.asyncio
+async def test_activate_creates_streak_rev_row():
+    """mode=streak → strategy_type=streak_rev (martingale DEĞİL), direction=ANY."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "BTC", "1h", "streak")
+    s = db.created[0]
+    assert s.strategy_type == "streak_rev"   # ayrı plugin'e yönlenir
+    assert s.direction == Direction.ANY      # yön streak'e göre adaptif
+    assert s.asset == Asset.BTC
+    assert s.timeframe == Timeframe.H1
+    assert "streak↩" in (s.label or "")
+    assert s.trade_amount == 1.0
+    assert s.max_executions_per_event == 1
+
+
+@pytest.mark.asyncio
+async def test_activate_streak_distinct_from_hv():
+    """BTC 1h: hv ve streak ikisi de direction=ANY ama strategy_type farklı →
+    ayrı satır (strategy_type hardcode 'martingale' bug'ı regresyonu)."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "BTC", "1h", "hv")
+    await _activate_paper_strategy(db, 123, "BTC", "1h", "streak")
+    assert len(db.created) == 2
+    types = {s.strategy_type for s in db.created}
+    assert types == {"martingale", "streak_rev"}
+
+
+@pytest.mark.asyncio
+async def test_activate_streak_reactivates_no_duplicate():
+    """Aynı streak satırı tekrar aktive → yeni satır YOK (mod-duyarlı dedup)."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "BTC", "1h", "streak")
+    await _activate_paper_strategy(db, 123, "BTC", "1h", "streak")
+    assert len(db.created) == 1
+
+
 # ── rule_based paper port (tick → paper) ────────────────────
 
 
