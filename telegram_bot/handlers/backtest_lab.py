@@ -1394,16 +1394,39 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
 # RevMartingaleStrategy plugin'ini tetikler (core/live_strategies.py).
 
 # rev↑ OOS-doğrulanan TF'ler (LAB train/test): BTC 5m + 1h
-# LAB OOS-doğrulanan rev martingale konfigürasyonları (asset, tf, yön):
-#   rev↑ (dip-buy: önceki mum düştü→UP)  — BTC 5m/1h, ETH 5m
-#   rev↓ (pump-fade: önceki mum yükseldi→DOWN) — ETH 15m
+# LAB OOS-doğrulanan rev martingale konfigürasyonları (asset, tf, yön).
+# ⚠️ SADECE bot'un GERÇEKTEN taradığı market'ler (discovery matrix,
+# config/settings.py): 5m=BTC · 15m=BTC/ETH/SOL/XRP · 1h=BTC · 24h=BTC.
+# (Binance candle backtest tüm coin'lerde edge bulsa da, bot Polymarket'te
+# o market'i taramıyorsa strateji ÖLÜ olur — bu yüzden 15m çoklu coin.)
+#   rev↑ (dip-buy: önceki mum düştü→UP) · rev↓ (pump-fade: yükseldi→DOWN)
 _PAPER_CONFIGS = [
-    ("BTC", "5m", "up"),
-    ("BTC", "1h", "up"),
-    ("ETH", "5m", "up"),
-    ("ETH", "15m", "down"),
+    ("BTC", "5m", "up"),     # rev↑ — 5m=BTC
+    ("BTC", "1h", "up"),     # rev↑ — 1h=BTC
+    ("ETH", "15m", "down"),  # rev↓ — te+7 WR60% (15m çoklu coin)
+    ("SOL", "15m", "up"),    # rev↑ — te+1 (OOS)
+    ("XRP", "15m", "up"),    # rev↑ — te+6 WR57% (OOS)
 ]
 _PAPER_TF_ENUM = {"5m": "M5", "15m": "M15", "1h": "H1"}
+
+
+def _is_tradeable(asset: str, tf: str) -> bool:
+    """Bot bu (asset, tf)'yi GERÇEKTEN tarıyor mu? (discovery matrix).
+
+    5m/15m → assets listesi · 1h/24h → series_map. Matrix dışı = ÖLÜ
+    strateji (Polymarket'te market yok). Hata → fail-open (engelleme).
+    """
+    try:
+        from config.settings import _load_tf_discovery_matrix
+
+        entry = _load_tf_discovery_matrix().get(tf, {})
+        if "assets" in entry:
+            return asset in entry["assets"]
+        if "series_map" in entry:
+            return asset in entry["series_map"]
+        return False
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def _rev_label(direction: str) -> str:
@@ -1511,6 +1534,13 @@ async def _activate_paper_strategy(
     direction = "down" if str(direction).lower() == "down" else "up"
     if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in _PAPER_TF_ENUM:
         return ("⚠️ Geçersiz market.", _paper_kb())
+    if not _is_tradeable(asset, tf):
+        return (
+            f"⚠️ Bot <b>{esc(asset)} {esc(tf)}</b> market'ini taramıyor "
+            "(discovery matrix: 5m=BTC · 15m=4 coin · 1h=BTC). Strateji ölü "
+            "olurdu — eklenmedi.",
+            _paper_kb(),
+        )
     user, wallet = await _resolve_user_wallet(db, telegram_id)
     if not user or not wallet:
         return (_PAPER_HEADER + "⚠️ Kullanıcı/cüzdan yok. Önce /start.", _paper_kb())

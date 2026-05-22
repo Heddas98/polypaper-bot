@@ -96,6 +96,27 @@ async def test_activate_invalid_market():
     assert db.created == []
 
 
+def test_is_tradeable_matrix():
+    """Discovery matrix: 5m=BTC · 15m=4 coin · 1h=BTC."""
+    from telegram_bot.handlers.backtest_lab import _is_tradeable
+
+    assert _is_tradeable("BTC", "5m") is True
+    assert _is_tradeable("ETH", "5m") is False   # 5m=BTC only
+    assert _is_tradeable("ETH", "15m") is True
+    assert _is_tradeable("SOL", "15m") is True
+    assert _is_tradeable("SOL", "1h") is False   # 1h=BTC only
+    assert _is_tradeable("BTC", "1h") is True
+
+
+@pytest.mark.asyncio
+async def test_activate_rejects_untradeable():
+    """Bot'un taramadığı (asset,tf) → ölü strateji oluşturulmaz."""
+    db = _FakeDB()
+    text, kb = await _activate_paper_strategy(db, 123, "ETH", "5m")  # 5m=BTC only
+    assert "taramıyor" in text
+    assert db.created == []
+
+
 # ── activation happy path ───────────────────────────────────
 
 
@@ -200,8 +221,10 @@ async def test_panel_shows_active_and_stop_button():
     assert any(c.startswith("lab_paper_off:") for c in cbs)  # durdur butonu
     # 1h hâlâ kapalı → çalıştır butonu var (yön ekli)
     assert "lab_paper_on:BTC:1h:up" in cbs
-    # ETH 15m rev↓ (pump-fade) konfigürasyonu da var
+    # ETH 15m rev↓ (pump-fade) + SOL/XRP 15m rev↑ konfigürasyonları
     assert "lab_paper_on:ETH:15m:down" in cbs
+    assert "lab_paper_on:SOL:15m:up" in cbs
+    assert "lab_paper_on:XRP:15m:up" in cbs
     # Adım 4: Canlıya Geçiş giriş butonu
     assert "lab_live" in cbs
 
