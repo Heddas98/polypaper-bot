@@ -611,10 +611,47 @@ class EngineSignalsMixin:
                 # Epic 8 T8.1: narrow — external_feed.get_divergence dict parse
                 logger.debug(f"plugin_meta div err: {_de}")
 
-            # 7. STRATEGY-SPECIFIC (martingale)
+            # 7. STRATEGY-SPECIFIC (martingale + rev↑ girişi)
             if stype == "martingale":
                 plugin_meta["loss_streak"] = self._mg_streak.get(s.id, 0)
                 plugin_meta["base_amount"] = s.trade_amount
+                # rev↑ girdisi: önceki TAMAMLANMIŞ mum % değişimi (RevMartingale
+                # stratejisi dip-buy sinyali için). candle_collector (Binance
+                # OHLC — zaten toplanıyor, yeni API yok) → compute_price_deltas.
+                # Yalnız martingale stype'ta (ek DB sorgusu sınırlı).
+                try:
+                    _cc = getattr(self, "candle_collector", None)
+                    if _cc is not None and hasattr(_cc, "get_ext_candles"):
+                        from data.candle_collector import (
+                            BINANCE_SYMBOLS,
+                            compute_price_deltas,
+                        )
+
+                        _sym = BINANCE_SYMBOLS.get(_asset_up)
+                        if _sym:
+                            _tf = s.timeframe.value
+                            _candles = await _cc.get_ext_candles(_sym, _tf, limit=4)
+                            _deltas = compute_price_deltas(_candles)
+                            plugin_meta["prev_window_change_pct"] = _deltas.get(
+                                "last_delta_pct"
+                            )
+                except (TypeError, ValueError, KeyError, AttributeError) as _rce:
+                    # Epic 8 T8.1: narrow — candle fetch/delta best-effort
+                    logger.debug(f"plugin_meta rev↑ err: {_rce}")
+                # strategy_params override (rev_threshold_pct/max_levels/...)
+                try:
+                    _pj = getattr(s, "strategy_params", None)
+                    if _pj:
+                        _pp = json.loads(_pj) if isinstance(_pj, str) else _pj
+                        for _k in (
+                            "rev_threshold_pct",
+                            "max_levels",
+                            "entry_max_time_pct",
+                        ):
+                            if isinstance(_pp, dict) and _k in _pp:
+                                plugin_meta[_k] = _pp[_k]
+                except (json.JSONDecodeError, TypeError, ValueError, AttributeError, KeyError):
+                    pass
 
             # 8. RISK STATE (engine-wide)
             try:

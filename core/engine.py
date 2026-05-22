@@ -130,6 +130,16 @@ class TradingEngine(
         self.drift = DriftDetector(window=100)
         self.signals = SignalFusion(SignalWeights(), drift_detector=self.drift)
         self.plugins = StrategyRegistry()
+        # 2026-05-22 (Heddas): rev↑ + martingale paper stratejisi — LAB'da
+        # bulunan tek OOS-dayanıklı edge. SADECE kod kaydı; DB'de aktif satır
+        # yoksa motor onu hiç değerlendirmez (trade YOK). LIVE_ENABLED=false
+        # iken zaten yalnız paper. Bare StrategyRegistry() (testlerde) boş kalır.
+        try:
+            from core.live_strategies import RevMartingaleStrategy
+
+            self.plugins.register(RevMartingaleStrategy())
+        except Exception as _rme:  # noqa: BLE001
+            logger.warning("RevMartingaleStrategy register edilemedi: %s", _rme)
         self.optimizer = AutoOptimizer(db)
         # Phase 74b: Per-strategy adaptive parameter learning
         from core.strategy_lifecycle import StrategyLifecycle
