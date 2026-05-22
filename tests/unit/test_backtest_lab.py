@@ -20,7 +20,6 @@ from telegram_bot.handlers.backtest_lab import (
     _build_builder,
     _build_calibrate,
     _build_compare,
-    _build_legacy,
     _build_main,
     _build_quick,
     _main_kb,
@@ -88,12 +87,12 @@ def _db(row_map: dict | None = None, raise_on: str | None = None):
 # ── Keyboard structure ──────────────────────────────────────
 
 
-def test_main_kb_has_panels_plus_legacy():
+def test_main_kb_has_panels():
     kb = _main_kb()
     assert isinstance(kb, InlineKeyboardMarkup)
-    # 5 panel + legacy = 6 rows (candle eklendi 2026-05-21)
+    # 5 panel (lab_legacy "Eski paneller" butonu silindi 2026-05-22 #9)
     rows = kb.inline_keyboard
-    assert len(rows) == 6
+    assert len(rows) == 5
     callbacks = [r[0].callback_data for r in rows]
     assert callbacks == [
         "lab_quick",
@@ -101,7 +100,6 @@ def test_main_kb_has_panels_plus_legacy():
         "lab_builder",
         "lab_compare",
         "lab_calibrate",
-        "lab_legacy",
     ]
 
 
@@ -521,15 +519,6 @@ async def test_build_calibrate_includes_per_strategy_block(monkeypatch):
     assert "Strateji bazında drift" in text
     assert "hour_edge" in text
     assert "classic_btc" in text
-
-
-@pytest.mark.asyncio
-async def test_build_legacy_lists_old_commands():
-    db = _db({"FROM live_trades": (0, 0.0, 0.0)})
-    text, kb = await _build_legacy(db)
-    assert "ESKİ PANELLER" in text
-    assert "/backtest_v2" in text
-    assert "/backtest_replay" in text
 
 
 # ── _BUILDERS dispatch map ──────────────────────────────────

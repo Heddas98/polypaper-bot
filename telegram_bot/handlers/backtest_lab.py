@@ -9,7 +9,7 @@ PolyPaper Bot - /backtest LAB
     🆚 Karşılaştır      — multi-strategy /compare (köprü)
     🎯 Kalibrasyon      — live vs paper reality gap
 
-Eski /backtest_v2 + /backtest_replay legacy alias olarak yaşar.
+/backtest_v2 + /bt2 silindi (2026-05-22); /backtest_replay + /compare CLI olarak yaşar.
 
 Mimari notlar:
 - Callback prefix `lab_*`. Parametresiz: lab_main/quick/builder/compare/
@@ -76,7 +76,6 @@ def _main_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("🛠 Strateji Kurucu", callback_data="lab_builder")],
             [InlineKeyboardButton("🆚 Karşılaştır", callback_data="lab_compare")],
             [InlineKeyboardButton("🎯 Kalibrasyon", callback_data="lab_calibrate")],
-            [InlineKeyboardButton("📚 Eski paneller (/bt2)", callback_data="lab_legacy")],
         ]
     )
 
@@ -1353,22 +1352,6 @@ async def _build_calibrate(db) -> tuple[str, InlineKeyboardMarkup]:
     return text, _panel_nav_kb(extra_rows=extra)
 
 
-async def _build_legacy(db) -> tuple[str, InlineKeyboardMarkup]:
-    """📚 Eski paneller — /bt2 ve eski komutlara köprü (geri uyumluluk)."""
-    gap = await _reality_gap_block(db)
-    text = (
-        "📚 <b>ESKİ PANELLER</b>\n"
-        "<i>Geri uyumluluk — eski komutlar çalışmaya devam ediyor</i>\n\n"
-        f"{gap}"
-        "  • <code>/backtest_v2</code> (alias <code>/bt2</code>) — "
-        "PolyCop-style interactive panel\n"
-        "  • <code>/backtest_replay</code> — gerçek L2 replay (CLI-style)\n"
-        "  • <code>/compare</code> — multi-strategy karşılaştırma\n\n"
-        "<i>Yeni LAB tek kapı; eskileri zamanla deprecate edeceğiz.</i>"
-    )
-    return text, _panel_nav_kb()
-
-
 # ── 🎲 Candle / Martingale (market-level, candles_ext) ──────
 
 
@@ -1917,7 +1900,6 @@ _BUILDERS = {
     "lab_builder": _build_builder,
     "lab_compare": _build_compare,
     "lab_calibrate": _build_calibrate,
-    "lab_legacy": _build_legacy,
 }
 
 

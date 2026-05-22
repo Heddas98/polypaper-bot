@@ -6,8 +6,8 @@ PolyPaper Bot - Backtest Telegram Handlers (replay-only)
   • polybacktest API/gamma_hist bagimliligi kaldirildi.
   • PolyCop interactive config panel + STRATEGY_CATALOG silindi
     (config_callback, bt2c_* + bt2_* callback'leri unwired).
-  • /backtest_v2 + /bt2 artik /backtest LAB tek kapisina yonlendiren
-    deprecation shim'ler. Eski engine_v2 yolunu hic cagirmaz.
+  • /backtest_v2 + /bt2 shim'i silindi 2026-05-22 (#9) — /backtest LAB tek
+    gorunur kapi. Bu modulde /compare + /backtest_replay CLI motoru kalir.
   • /compare replay_engine'e refactor edildi (gercek L2 ob_snapshots).
   • /backtest_replay (Phase 51 P51-03) korundu — replay panel + button
     flow + multi-strategy compare hepsi replay_engine uzerinde.
@@ -46,37 +46,9 @@ REPLAY_STRATEGIES = {
 }
 
 
-# ════════════════════════════════════════════════════════════════════
-# /backtest_v2 + /bt2 → LAB deprecation shim
-# ════════════════════════════════════════════════════════════════════
-
-
-async def backtest_v2_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /backtest_v2 + /bt2 — LAB'a yonlendiren deprecation shim.
-
-    Eski sentetik snapshot motoru (engine_v2) 2026-05-21'de silindi.
-    Komut artik /backtest LAB tek kapisini acar.
-    """
-    try:
-        from telegram_bot.handlers.backtest_lab import backtest_lab_command
-
-        await update.message.reply_text(
-            "ℹ️ <b>/backtest_v2 → /backtest LAB</b>\n\n"
-            "Eski sentetik snapshot motoru kaldirildi. Yeni LAB tek kapi:\n"
-            "  • Gercek L2 replay (en dogru sonuc)\n"
-            "  • No-code Strateji Kurucu\n"
-            "  • Multi-strategy Karsilastir\n"
-            "  • Reality-gap kalibrasyon\n\n"
-            "Yonlendiriliyorsun...",
-            parse_mode="HTML",
-        )
-        await backtest_lab_command(update, context)
-    except Exception:  # noqa: BLE001
-        logger.exception("/backtest_v2 shim failed")
-        await update.message.reply_text(
-            "❌ LAB acilamadi. /backtest komutuyla tekrar dene.",
-            parse_mode="HTML",
-        )
+# 2026-05-22 (Heddas #9 "akilli tam"): /backtest_v2 + /bt2 shim'i (backtest_v2_cmd)
+# silindi — saf yonlendirme idi. /backtest LAB tek gorunur kapi. Bu moduldeki
+# /compare + /backtest_replay (gercek replay motoru, esnek asset/tf) KORUNDU.
 
 
 # ════════════════════════════════════════════════════════════════════

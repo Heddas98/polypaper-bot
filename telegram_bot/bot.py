@@ -61,7 +61,7 @@ from telegram_bot.handlers.backtest_lab import (  # 2026-05-20: /backtest LAB mo
 )
 from telegram_bot.handlers.backtest_v2 import (  # Phase 51 P51-03 Faz-2 Cluster F
     backtest_replay_command,  # merged from backtest_replay.py
-    backtest_v2_cmd,  # 2026-05-21: LAB'a yonlendiren deprecation shim
+    # backtest_v2_cmd silindi 2026-05-22 (#9) — /backtest_v2 + /bt2 shim kaldirildi.
     # Becker commands removed 2026-04-28; engine_v2 yolu removed 2026-05-21.
     # backtest_v2_callback / backtest_v2_config_callback / handle_limit_input
     # silindi — eski PolyCop config panel yolu artik LAB tek kapida.
@@ -130,9 +130,6 @@ from telegram_bot.handlers.menu_handler import (
     menu_advanced_callback,
     menu_backtest_callback,
     menu_brain_callback,
-    menu_bt_compare_callback,
-    menu_bt_replay_callback,
-    menu_bt_v2_callback,
     menu_candles_callback,
     menu_cmd_mistakes_callback,
     # T1.3 Commit 4: markov/capital callback imports silindi
@@ -467,13 +464,10 @@ class PolyPaperBot:
             ("alert", alert_set_cmd),
             ("alerts", alerts_list_cmd),
             ("alert_del", alert_delete_cmd),
-            # Backtest (Phase 38a: legacy v1 removed; replay + v2 only)
-            # Phase 50 P1-05: backtest_legacy alias removed — use /backtest_v2 or /bt2
-            ("backtest_v2", backtest_v2_cmd),
-            ("bt2", backtest_v2_cmd),
+            # Backtest: /backtest LAB tek gorunur kapi (alias /bt /lab).
+            # /backtest_replay + /compare CLI replay motoru olarak kalir.
+            # /backtest_v2 + /bt2 shim'i silindi 2026-05-22 (#9 akilli tam trim).
             ("compare", compare_cmd),
-            # 2026-05-20 (Heddas direktifi): /backtest LAB mode-first tek kapı.
-            # Eski /backtest_v2 + /backtest_replay legacy alias olarak kalır.
             ("backtest", backtest_lab_command),
             ("bt", backtest_lab_command),
             ("lab", backtest_lab_command),
@@ -750,9 +744,8 @@ class PolyPaperBot:
             ("menu_live", menu_live_callback),
             ("menu_help", menu_help_callback),
             ("menu_refresh", menu_refresh_callback),
-            ("menu_bt_replay", menu_bt_replay_callback),
-            ("menu_bt_v2", menu_bt_v2_callback),
-            ("menu_bt_compare", menu_bt_compare_callback),
+            # menu_bt_replay/v2/compare silindi 2026-05-22 (#9) — hub backtest
+            # submenu kaldirilmisti, menu_backtest direkt LAB'a gidiyor.
             # Phase 77: Learning row callbacks
             ("menu_learning", menu_learning_callback),
             ("menu_experiment", menu_experiment_callback),
@@ -1322,7 +1315,7 @@ class PolyPaperBot:
             "<b>🧪 Backtest LAB</b>\n"
             "/backtest — Backtest LAB tek kapi <i>(/bt, /lab)</i>\n"
             "  ↳ 4 panel: Hizli Test · Strateji Kurucu · Karsilastir · Kalibrasyon\n"
-            "<i>Eski: /backtest_v2 /bt2 /backtest_replay /compare → LAB icinde</i>\n\n"
+            "<i>CLI: /backtest_replay · /compare (gercek replay motoru)</i>\n\n"
             "<b>📊 Istatistik</b>\n"
             "/stats_hub — Tum istatistikler (tab menu)\n"
             "/daily — Gunluk ozet\n"

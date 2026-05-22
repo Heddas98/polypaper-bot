@@ -193,43 +193,9 @@ async def menu_backtest_callback(update: Update, context: ContextTypes.DEFAULT_T
         await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
 
 
-async def menu_bt_replay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """LEGACY shim — eski 'Replay' submenu butonu LAB'a yonlendirir."""
-    q = update.callback_query
-    await q.answer()
-    try:
-        from telegram_bot.handlers.backtest_lab import backtest_lab_command
-
-        await _invoke_command(backtest_lab_command, update, context)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"menu_bt_replay shim error: {esc(e)}", exc_info=True)
-        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
-
-
-async def menu_bt_v2_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """LEGACY shim — eski 'Quick v2' submenu butonu LAB'a yonlendirir."""
-    q = update.callback_query
-    await q.answer()
-    try:
-        from telegram_bot.handlers.backtest_lab import backtest_lab_command
-
-        await _invoke_command(backtest_lab_command, update, context)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"menu_bt_v2 shim error: {esc(e)}", exc_info=True)
-        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
-
-
-async def menu_bt_compare_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """LEGACY shim — eski 'Karsilastir' submenu butonu LAB Karsilastir'e yonlendirir."""
-    q = update.callback_query
-    await q.answer()
-    try:
-        from telegram_bot.handlers.backtest_lab import backtest_lab_command
-
-        await _invoke_command(backtest_lab_command, update, context)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"menu_bt_compare shim error: {esc(e)}", exc_info=True)
-        await q.message.reply_text("⚠️ LAB yüklenemedi. /backtest dene.")
+# 2026-05-22 (Heddas #9): menu_bt_replay/v2/compare legacy shim'leri silindi —
+# hub backtest submenu'su kaldirilmisti (menu_backtest direkt LAB'a gidiyor),
+# bu 3 shim sadece stale buton icin duruyordu. Olu callback yuzeyi temizlendi.
 
 
 async def menu_positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -489,7 +455,7 @@ async def menu_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "/patterns — En iyi/kötü pattern'ler\n"
         "/markov — Markov Chain | /capital — Sermaye dağılımı\n\n"
         "<b>🧪 Backtest & Deney</b>\n"
-        "/backtest_v2 — Hızlı v2\n"
+        "/backtest — Backtest LAB (alias /bt /lab)\n"
         "/experiment KEY=VAL — Parametre testi\n\n"
         "<b>🚀 Gelişmiş</b>\n"
         "/breed — Genetik | /vote — Swarm | /whale — Whale akış\n"

@@ -12,7 +12,7 @@ real command via `core.intent_parser.parse_intent()`. Three outcomes:
 
 Phase 51 P51-05 piggy-backs on the same handler for natural-language
 backtest queries: any intent that resolves to `/compare`, `/backtest`,
-`/backtest_v2`, or `/bt2` is treated as a backtest query and we forward
+or `/backtest_replay` is treated as a backtest query and we forward
 the extracted args directly to the mapped handler.
 
 T11.8-B (2026-04-24): Every catch in this module is annotated `# noqa:
@@ -63,10 +63,8 @@ async def _invoke_mapped_command(
     Returns True on success, False if the handler can't be resolved.
     """
     # Lazy import — avoids circular import with bot.py
-    from telegram_bot.handlers.backtest_v2 import (
-        backtest_v2_cmd,
-        compare_cmd,
-    )
+    from telegram_bot.handlers.backtest_lab import backtest_lab_command
+    from telegram_bot.handlers.backtest_v2 import compare_cmd
     from telegram_bot.handlers.dashboard import (
         alert_set_cmd,
         alerts_list_cmd,
@@ -112,8 +110,7 @@ async def _invoke_mapped_command(
         "/alerts": alerts_list_cmd,
         "/alert": alert_set_cmd,
         "/compare": compare_cmd,
-        "/backtest_v2": backtest_v2_cmd,
-        "/bt2": backtest_v2_cmd,
+        "/backtest": backtest_lab_command,
         "/promote": promote_command,
         "/canary": canary_command,
         "/demote": demote_command,

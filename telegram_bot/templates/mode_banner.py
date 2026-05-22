@@ -91,7 +91,7 @@ def format_mode_status_text() -> str:
         "<b>İlgili komutlar:</b>\n"
         "• /strategies — paper strateji yönetimi\n"
         "• /stats — paper performance\n"
-        "• /backtest_v2 — geçmiş veri replay\n\n"
+        "• /backtest — Backtest LAB\n\n"
         "<i>REAL mode'a geçmek için: önce Polymarket'a deposit ($3+), "
         "sonra aşağıdaki butona bas.</i>"
     )

@@ -178,11 +178,9 @@ COMMAND_CATALOG: tuple[CommandSpec, ...] = (
         example_args="hour_edge streak_reversal",
     ),
     CommandSpec(
-        "/backtest_v2",
-        "Backtest v2 — tek strateji geçmiş simülasyonu",
-        ("backtest", "backtest v2", "geriye dönük", "simülasyon", "bt2"),
-        takes_args=True,
-        example_args="hour_edge BTC 5m",
+        "/backtest",
+        "Backtest LAB — geçmiş veri simülasyonu (tek kapı)",
+        ("backtest", "geriye dönük", "simülasyon", "lab"),
     ),
     CommandSpec(
         "/promote",
