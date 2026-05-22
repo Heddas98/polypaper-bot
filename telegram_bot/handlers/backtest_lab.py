@@ -1381,10 +1381,173 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
             [InlineKeyboardButton("🔬 Edge Tarama — basit (BTC)", callback_data="lab_edge:BTC")],
             [InlineKeyboardButton("🧠 Akıllı Edge — koşullu (BTC)", callback_data="lab_sedge:BTC:5m")],
             [InlineKeyboardButton("🔍 rev↑ Koşul Analizi (BTC)", callback_data="lab_revc:BTC:1h")],
+            [InlineKeyboardButton("🤖 Paper Auto-Trade (rev↑ martingale)", callback_data="lab_paper")],
             [InlineKeyboardButton("◀️ Ana Panel", callback_data="lab_main")],
         ]
     )
     return text, kb
+
+
+# ── Paper Auto-Trade (rev↑ martingale) ──────────────────────
+# Heddas: LAB rev↑ edge'ini PAPER modda otomatik çalıştır. LIVE_ENABLED=false
+# → sadece paper (executions). strategy_type="martingale" motorun
+# RevMartingaleStrategy plugin'ini tetikler (core/live_strategies.py).
+
+# rev↑ OOS-doğrulanan TF'ler (LAB train/test): BTC 5m + 1h
+_PAPER_ASSETS_TF = [("BTC", "5m"), ("BTC", "1h")]
+_PAPER_TF_ENUM = {"5m": "M5", "15m": "M15", "1h": "H1"}
+
+
+def _paper_kb(extra: list | None = None) -> InlineKeyboardMarkup:
+    rows = list(extra or [])
+    rows.append([InlineKeyboardButton("◀️ Candle menü", callback_data="lab_candle")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _resolve_user_wallet(db, telegram_id: int):
+    """(user, wallet) döndür — paper strateji için. Yoksa (None, None)."""
+    if db is None or getattr(db, "conn", None) is None or not telegram_id:
+        return None, None
+    try:
+        user = await db.get_user_by_telegram_id(int(telegram_id))
+        if not user:
+            return None, None
+        wallet = await db.get_active_wallet(user.id)
+        return user, wallet
+    except Exception as e:  # noqa: BLE001
+        logger.debug("paper resolve_user_wallet: %s", e)
+        return None, None
+
+
+_PAPER_HEADER = (
+    "🤖 <b>PAPER AUTO-TRADE — rev↑ martingale</b>\n"
+    "<i>LAB'da bulunan tek OOS-edge: önceki mum büyük düştü → UP al "
+    "(dip-buy) + martingale sizing.</i>\n\n"
+    "🟢 <b>SADECE PAPER</b> — gerçek para DEĞİL (LIVE_ENABLED=false).\n\n"
+)
+
+
+async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    """🤖 Paper Auto-Trade paneli — rev↑ martingale'i paper'da aç/kapat."""
+    user, wallet = await _resolve_user_wallet(db, telegram_id)
+    if not user or not wallet:
+        return (
+            _PAPER_HEADER + "⚠️ Kullanıcı/cüzdan bulunamadı. Önce /start.",
+            _paper_kb(),
+        )
+    try:
+        from db.models import StrategyStatus
+
+        strats = await db.get_strategies_by_user(user.id, wallet.id)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("paper list failed: %s", e)
+        return (_PAPER_HEADER + "⚠️ Strateji listesi alınamadı.", _paper_kb())
+
+    mart = [s for s in strats if s.strategy_type == "martingale"]
+    active_keys = {
+        (s.asset.value, s.timeframe.value): s.id
+        for s in mart
+        if s.status == StrategyStatus.ACTIVE
+    }
+
+    lines = [_PAPER_HEADER.rstrip()]
+    if mart:
+        lines.append("\n<b>Stratejilerin:</b>")
+        for s in mart:
+            em = "🟢 aktif" if s.status == StrategyStatus.ACTIVE else "⚫ durduruldu"
+            lines.append(
+                f"  • {esc(s.asset.value)} {esc(s.timeframe.value)} "
+                f"({em}) · base ${s.trade_amount:.0f}"
+            )
+    else:
+        lines.append("\n<i>Henüz paper strateji yok.</i>")
+    lines.append(
+        "\n⚠️ <i>Açtıktan sonra bot'u <b>start.bat</b> ile YENİDEN BAŞLAT — "
+        "motor yeni stratejiyi + rev↑ plugin'ini restart sonrası yükler.</i>"
+    )
+    lines.append(
+        "<i>Candle backtest sabit $0.50 girişle test etti; canlı paper "
+        "gerçek odds'la girer → sonucu paper'da gözlemle, abartma.</i>"
+    )
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for asset, tf in _PAPER_ASSETS_TF:
+        sid = active_keys.get((asset, tf))
+        if sid:
+            rows.append(
+                [InlineKeyboardButton(
+                    f"⏸ Durdur — {asset} {tf}", callback_data=f"lab_paper_off:{sid}")]
+            )
+        else:
+            rows.append(
+                [InlineKeyboardButton(
+                    f"▶️ Paper'da çalıştır — {asset} {tf}",
+                    callback_data=f"lab_paper_on:{asset}:{tf}")]
+            )
+    return "\n".join(lines), _paper_kb(rows)
+
+
+async def _activate_paper_strategy(
+    db, telegram_id: int, asset: str, tf: str
+) -> tuple[str, InlineKeyboardMarkup]:
+    """rev↑ martingale paper stratejisini oluştur/yeniden aktive et."""
+    if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in _PAPER_TF_ENUM:
+        return ("⚠️ Geçersiz market.", _paper_kb())
+    user, wallet = await _resolve_user_wallet(db, telegram_id)
+    if not user or not wallet:
+        return (_PAPER_HEADER + "⚠️ Kullanıcı/cüzdan yok. Önce /start.", _paper_kb())
+    try:
+        from db.models import Asset, Direction, Strategy, StrategyStatus, Timeframe
+
+        existing = await db.get_strategies_by_user(user.id, wallet.id)
+        for s in existing:
+            if (
+                s.strategy_type == "martingale"
+                and s.asset.value == asset
+                and s.timeframe.value == tf
+            ):
+                if s.status != StrategyStatus.ACTIVE:
+                    await db.update_strategy_status(s.id, StrategyStatus.ACTIVE)
+                return await _build_paper_strategy(db, telegram_id)
+        strat = Strategy(
+            user_id=user.id,
+            wallet_id=wallet.id,
+            label=f"rev↑ martingale {asset} {tf}",
+            asset=Asset(asset),
+            timeframe=Timeframe[_PAPER_TF_ENUM[tf]],
+            direction=Direction.UP,
+            trade_amount=1.0,            # base bet = $1 (Polymarket min)
+            odds_threshold=0.50,         # truthy (0/None motor tarafından reddedilir)
+            max_executions_per_event=1,  # market başına 1 trade
+            max_entry_slippage=None,     # SLIP gate kapalı (rev↑ odds-agnostik)
+            strategy_type="martingale",
+            status=StrategyStatus.ACTIVE,
+        )
+        await db.create_strategy(strat)
+        # started_at + commit garanti
+        await db.update_strategy_status(strat.id, StrategyStatus.ACTIVE)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("paper activate failed: %s", e)
+        return (_PAPER_HEADER + "⚠️ Strateji oluşturulamadı.", _paper_kb())
+    return await _build_paper_strategy(db, telegram_id)
+
+
+async def _stop_paper_strategy(
+    db, telegram_id: int, sid: str
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Paper martingale stratejisini durdur (status=stopped)."""
+    if db is None or getattr(db, "conn", None) is None:
+        return (_PAPER_HEADER + "⚠️ DB yok.", _paper_kb())
+    try:
+        from db.models import StrategyStatus
+
+        s = await db.get_strategy(sid)
+        # Yalnız bizim martingale stratejilerini durdur (yanlış sid koruması)
+        if s and s.strategy_type == "martingale":
+            await db.update_strategy_status(sid, StrategyStatus.STOPPED)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("paper stop failed: %s", e)
+    return await _build_paper_strategy(db, telegram_id)
 
 
 async def _build_rev_analysis(asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
@@ -1926,6 +2089,28 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     data = q.data or ""
     db = context.bot_data.get("db")
+
+    # 0) Paper Auto-Trade (rev↑ martingale) — telegram_id gerekir, _BUILDERS
+    # haritası db-only çağırır, bu yüzden burada özel handle.
+    _tg_id = q.from_user.id if getattr(q, "from_user", None) else 0
+    if data == "lab_paper" or data.startswith(("lab_paper_on:", "lab_paper_off:")):
+        try:
+            if data == "lab_paper":
+                text, kb = await _build_paper_strategy(db, _tg_id)
+            elif data.startswith("lab_paper_on:"):
+                _p = data.split(":")
+                if len(_p) == 3:
+                    text, kb = await _activate_paper_strategy(db, _tg_id, _p[1], _p[2])
+                else:
+                    text, kb = "⚠️ Geçersiz parametre.", _main_kb()
+            else:  # lab_paper_off:<sid>
+                _sid = data.split(":", 1)[1]
+                text, kb = await _stop_paper_strategy(db, _tg_id, _sid)
+            await _safe_edit(q, text, kb)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("lab_paper dispatch failed: %s", e)
+            await _safe_edit(q, "⚠️ Paper paneli açılamadı — log'da detay.", _main_kb())
+        return
 
     # 1) Parametresiz panel callback'leri (lab_main, lab_quick, ...)
     builder = _BUILDERS.get(data)
