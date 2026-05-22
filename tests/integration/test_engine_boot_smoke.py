@@ -10,16 +10,14 @@ Scope (pure construction; no await):
   * TradingEngine() instantiates with minimal AsyncMock db + MagicMock
     settings/scanner/odds_feed (no real DB, no network).
   * `_running` starts False.
-  * `brain_flags` has the canonical 6-key set (T6.3 doctrine):
-      {ai_brain, autopilot, candle_collector, market_recorder,
+  * `brain_flags` has the canonical 5-key set (T6.3 doctrine):
+      {ai_brain, autopilot, candle_collector,
        regime_detection, thompson_sampling}
-  * All 6 flags default True at construction time (UI state = ON until
+  * All 5 flags default True at construction time (UI state = ON until
     user toggles or DB boot-restore flips).
   * Sibling modules attached: risk (RiskManager), plugins (StrategyRegistry),
     lifecycle (StrategyLifecycle), optimizer (AutoOptimizer), selector,
     regime, drift, signals, kill_switch.
-  * `market_recorder` sibling is NOT attached by __init__ (T6.3e invariant:
-    wired by `main.py` or `engine.start()` — explicit late-bind).
   * `_max_moves` starts empty dict (per-instance, Sprint 2 S2-03 fix —
     class-attr bug regression guard).
   * `_pending` starts empty list (Epic 5 T5.3 reservation list invariant).
@@ -41,7 +39,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # Canonical 6-flag set pinned by T6.3 (brain_flags parity doctrine).
-# Any drift here → RED. Adding a 7th flag requires ALL of:
+# Any drift here → RED. Adding a 6th flag requires ALL of:
 #   (a) engine init dict update
 #   (b) ai_handler UI button + valid_features allow-list entry
 #   (c) DB boot-sync restore path update
@@ -50,7 +48,6 @@ CANONICAL_BRAIN_FLAGS = {
     "ai_brain",
     "autopilot",
     "candle_collector",
-    "market_recorder",
     "regime_detection",
     "thompson_sampling",
 }
@@ -95,13 +92,13 @@ class TestConstruction:
         assert engine._cycle == 0
 
 
-# ═══ 2. Brain flags — canonical 6-key set ══════════════════════════════
+# ═══ 2. Brain flags — canonical 5-key set ══════════════════════════════
 
 
 class TestBrainFlags:
     """T6.3 doctrine — canonical brain_flags set at boot."""
 
-    def test_canonical_six_keys(self):
+    def test_canonical_five_keys(self):
         engine, _ = _make_engine()
         assert set(engine.brain_flags.keys()) == CANONICAL_BRAIN_FLAGS, (
             "brain_flags key-set drifted — update T6.3 doctrine: UI panel, "
@@ -110,7 +107,7 @@ class TestBrainFlags:
         )
 
     def test_all_default_true(self):
-        """UI shows all 6 as AÇIK until user toggle or DB boot-restore."""
+        """UI shows all 5 as AÇIK until user toggle or DB boot-restore."""
         engine, _ = _make_engine()
         for k in CANONICAL_BRAIN_FLAGS:
             assert engine.brain_flags[k] is True, (
@@ -155,19 +152,6 @@ class TestSiblings:
             f"likely dropped a subsystem init."
         )
         assert getattr(engine, attr) is not None
-
-    def test_market_recorder_late_bound(self):
-        """T6.3e invariant: market_recorder is NOT attached by __init__.
-
-        It is wired later by main.py / engine.start() / phase-boot code.
-        The UI toggle handler (T6.3e) guards for this with
-        `mr = getattr(engine, "market_recorder", None); if mr: ...`.
-        """
-        engine, _ = _make_engine()
-        assert not hasattr(engine, "market_recorder"), (
-            "market_recorder attached at __init__ — breaks T6.3e late-bind "
-            "invariant. If this is intentional, update sibling-sync test."
-        )
 
 
 # ═══ 4. Collection invariants (empty on boot) ══════════════════════════

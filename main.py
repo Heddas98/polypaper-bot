@@ -39,7 +39,6 @@ from data.binance_multistream import BinanceMultiStream  # Phase 44a
 from data.candle_collector import CandleCollector
 from data.chainlink_oracle import ChainlinkOracle  # Phase 44b
 from data.external_feed import ExternalFeed
-from data.market_recorder import MarketRecorder
 from data.market_scanner import MarketScanner
 from data.odds_feed import OddsFeed
 from data.polymarket_client import PolymarketClient
@@ -350,16 +349,6 @@ async def main():
     # Attach candle_collector to engine for bot access
     engine.candle_collector = candle_collector
 
-    # Phase 36: High-fidelity market data recorder (10s L2 orderbook snapshots)
-    market_recorder = MarketRecorder(
-        db=db,
-        polymarket_client=poly_client,
-        scanner=scanner,
-        external_feed=external_feed,
-        ws_client=ws_client,
-    )
-    engine.market_recorder = market_recorder
-
     bot = PolyPaperBot(
         settings=settings,
         db=db,
@@ -400,31 +389,11 @@ async def main():
         # Start candle collector (Phase 35)
         await candle_collector.start()
 
-        # Phase 38d: scanner MUST start BEFORE market_recorder, so that
-        # the scanner wires its _on_price_callback first and the recorder's
-        # combined_callback can then wrap it. Previously the recorder started
-        # first and scanner overwrote the recorder's callback, silently
-        # breaking tick-level ob_trades recording.
+        # 2026-05-22: scanner WS _on_price_callback'i (OddsFeed köprüsü) bağlar.
+        # market_recorder kaldırıldı (bozuk+gereksiz) — L2 snapshot'ı scanner
+        # ._record_market_books yapıyor (UP+DOWN top-10, modern şema).
         await scanner.start()
 
-        # 2026-05-22 (Heddas: sessiz mod) — market_recorder VARSAYILAN KAPALI.
-        # Teşhis (py-spy + canlı DB): _recording_loop her 2s TÜM marketlerin
-        # orderbook'unu REST ile çekiyor (network + CPU), sonra ob_snapshots'a
-        # ESKİ şemayla (up_token_id, up_best_bid...) yazmaya çalışıp modern
-        # tabloyla (asset_id/condition_id...) uyumsuz → %100 sessiz başarısız
-        # (45201 satırın hepsi WS/scanner'dan; recorder'dan 0). Aynı L2 snapshot
-        # işini scanner._record_market_books zaten yapıyor (UP+DOWN top-10 depth,
-        # modern şema, çalışıyor). Recorder'ın tek ürettiği ob_trades ise
-        # backtest/UI tarafından OKUNMUYOR (yalnız kendi stats + backfill script).
-        # Mevcut ob_trades satırları korunur; sadece büyümesi durur.
-        # Açmak için: MARKET_RECORDER_ENABLED=true (.env).
-        if os.getenv("MARKET_RECORDER_ENABLED", "false").lower() == "true":
-            await market_recorder.start()
-        else:
-            logger.info(
-                "📸 MarketRecorder: DISABLED (bozuk+gereksiz; L2 snapshot'ı "
-                "scanner kaydediyor). MARKET_RECORDER_ENABLED=true ile açılır."
-            )
         await engine.start()
         await bot.run()
     except KeyboardInterrupt:
@@ -432,7 +401,6 @@ async def main():
     finally:
         await engine.stop()
         await scanner.stop()
-        await market_recorder.stop()
         await candle_collector.stop()
         if binance_ms is not None:
             await binance_ms.stop()

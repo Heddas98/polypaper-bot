@@ -154,9 +154,7 @@ async def backtest_replay_command(update: Update, context: ContextTypes.DEFAULT_
         return await update.message.reply_text(
             "⚠️ <b>Yetersiz Veri</b>\n\n"
             f"Kayitli snapshot: {snap_count}\n"
-            "MarketRecorder'in veri toplamasini bekleyin.\n"
-            "Her 2 saniyede 1 snapshot kaydedilir.\n\n"
-            "Durum icin: /recorder",
+            "Scanner + WS veri topladikca artar (bot calistikca).\n",
             parse_mode="HTML",
         )
 

@@ -7658,15 +7658,6 @@ class TestMarketScannerImports:
         assert market_scanner is not None
 
 
-class TestMarketRecorderImports:
-    """data/market_recorder.py — at 6.5%."""
-
-    def test_module_imports(self):
-        from data import market_recorder
-
-        assert market_recorder is not None
-
-
 class TestWebsocketClientImports:
     """data/websocket_client.py — at 52.6%."""
 
@@ -11160,29 +11151,6 @@ class TestHandlerSafeHelpers:
                             ret.close()
                     except Exception:
                         pass
-
-
-class TestRecorderModuleLevelExec:
-    """data/market_recorder.py module-level execution paths."""
-
-    def test_module_level_globals(self):
-        from data import market_recorder
-
-        # Module loads, has globals
-        attrs = dir(market_recorder)
-        assert len(attrs) > 5
-
-    def test_class_lookup(self):
-        from data import market_recorder
-
-        # Look for MarketRecorder class
-        cls = getattr(market_recorder, "MarketRecorder", None)
-        if cls is not None:
-            try:
-                inst = cls(db=MagicMock())
-                assert inst is not None
-            except TypeError:
-                pytest.skip("MarketRecorder ctor differs")
 
 
 class TestBinanceMultiStreamForceAttr:
@@ -17948,26 +17916,6 @@ class TestBacktestArchiveReaderFull:
                     try:
                         obj(*args)
                         break
-                    except TypeError:
-                        continue
-
-
-class TestDataMarketRecorderFull:
-    """data/market_recorder.py."""
-
-    def test_market_recorder_init(self):
-        from data import market_recorder
-
-        for name in dir(market_recorder):
-            if name.startswith("_"):
-                continue
-            obj = getattr(market_recorder, name, None)
-            if isinstance(obj, type):
-                for args in [(MagicMock(),), (), (MagicMock(), MagicMock())]:
-                    try:
-                        inst = obj(*args)
-                        if inst is not None:
-                            break
                     except TypeError:
                         continue
 

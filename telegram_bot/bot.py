@@ -280,8 +280,6 @@ from telegram_bot.handlers.strategies import (  # Phase 51 P51-03 Faz-2 Cluster 
     optimize_deploy_callback,
     quick_strategy_command,  # Phase 52 BUG #2
     quick_strategy_wizard_callback,
-    recorder_command,
-    recorder_refresh_callback,
     start_all_callback,
     start_all_command,
     start_strategy_callback,
@@ -433,7 +431,6 @@ class PolyPaperBot:
             ("m", monitor_command),
             ("brain", brain_command),
             ("candles", candles_command),
-            ("recorder", recorder_command),
             ("backtest_replay", backtest_replay_command),
             ("live", live_command),
             # 2026-05-05 Heddas: custom amount manuel BUY/SELL + allowance approve
@@ -630,10 +627,6 @@ class PolyPaperBot:
             CallbackQueryHandler(candle_refresh_callback, pattern="^candle_refresh$")
         )
 
-        # Phase 36: Market recorder
-        self.app.add_handler(
-            CallbackQueryHandler(recorder_refresh_callback, pattern="^recorder_refresh$")
-        )
         self.app.add_handler(CallbackQueryHandler(replay_callback, pattern="^replay_"))
 
         # Phase 34: Live trader buttons (+ Phase 52 ÖNERİ #6 confirm/cancel)

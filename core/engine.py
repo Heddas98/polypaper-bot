@@ -175,7 +175,6 @@ class TradingEngine(
             "regime_detection": True,
             "autopilot": True,
             "candle_collector": True,
-            "market_recorder": True,
         }
         self.analyst = AIBrain(db, self, bot_app, settings)  # Phase 30: AI Brain
         self.autopilot = AutoPilot(db, self)  # Phase 27.1
@@ -420,7 +419,6 @@ class TradingEngine(
             # Sync here so a restart honors the persisted DB state.
             _sibling_gates = [
                 ("candle_collector", "candle_collector"),
-                ("market_recorder", "market_recorder"),
             ]
             for flag_key, attr_name in _sibling_gates:
                 sibling = getattr(self, attr_name, None)
@@ -636,13 +634,6 @@ class TradingEngine(
             self.recon_task = None
 
         # ═══ Sprint 3 P1 WIRE END ════════════════════════════════════════
-
-        # Phase 39 (P1.2): Register trade listener with MarketRecorder so we
-        # can advance maker queue position when real fills happen on the WS.
-        recorder = getattr(self, "market_recorder", None)
-        if recorder is not None:
-            recorder._engine_trade_listener = self.on_real_trade
-            logger.info("📨 Engine: trade listener registered (P1.2 maker queue)")
 
         of = self.odds_feed.get_status()
         bnc = ""
