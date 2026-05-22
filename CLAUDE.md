@@ -20,6 +20,14 @@
 
 ## Mevcut Faz
 
+**BACKTEST GERÇEKÇİ FILL ✅ (2026-05-22, `9840ed6`)** — Heddas: "backtest gerçekçi olsun". Tick backtest (`backtest/runner.py`) eskiden naif best_ask'ta `slippage=0` ile fill varsayıyordu (gelişmiş `FillSimulator` yazılıydı ama runner'a BAĞLI DEĞİLdi — eski replay_engine kullanıyordu, silinmişti).
+- **`runner._load_merged_snapshots`**: ob_snapshots `bids_json`/`asks_json` → `snapshot.raw` (up_asks/down_asks `[[price,size]]`) + L2 depth. `_parse_levels` helper (kayıt `[{"price","size"}]` → `[[p,s]]`; bozuk → boş).
+- **`runner._open_and_settle`**: naif `FillResult(slippage=0)` yerine `FillSimulator.simulate_fill` (REAL_ORDERBOOK = kayıtlı L2 derinliğinde VWAP). Likidite yok → `filled=False` → trade AÇILMAZ (canlı "no match"). spread/slippage `fill_price`'a → `shares=amount/fill_price` azalır → kazançta gerçekçi daha az payout.
+- **`RunConfig.fill_mode`** (default `real_orderbook`; midpoint/simple/maker_hybrid) + **`RunSummary.slippage_total`** + LAB raporu "Spread/slippage" satırı.
+- **+6 test** (parse, ince defter slippage>0, derin defter ~0, naiften az share, L2-yok fallback). 89 backtest test PASS, ruff temiz. **E2E (178 BTC 5m market)**: real_orderbook slippage **$0.007** (küçük $5 order+derin defter=dürüst), midpoint **$3.18** (kalibre %2.3 spread). **DÜRÜST SINIR**: REAL_ORDERBOOK görünen defter derinliğini modeller (veri-grounded, deterministik) ama adverse-selection/latency'yi modellemez → küçük order'da hafif iyimser olabilir; midpoint/simple live-kalibre spread ekler. Deploy: worktree `d5e2cbf` → cherry-pick `9840ed6` (backtest_v2.py auto-merge, çakışmasız).
+
+---
+
 **PAPER AUTO-TRADE — rev↑ martingale ✅ (2026-05-22, `25cd2c2` + `8851463`)** — Heddas: "adım4'e geç, bu martingale stratejisini en kazançlılarla oluşturalım, bot paper mode auto trade açılsın". LAB'da bulunan TEK OOS-edge'i (rev↑ mean-reversion: önceki tamamlanmış mum büyük DÜŞTÜ → UP al, dip-buy) + martingale sizing'i CANLI motora strateji olarak ekledim — **ÖNCE paper** (LIVE_ENABLED=false → sadece paper, gerçek para YOK).
 - **Plugin** (`core/live_strategies.py` `RevMartingaleStrategy`, name="martingale"): rev↑ giriş (`prev_window_change_pct` ≤ -eşik%, default %0.15) + sınırlı martingale (base×2^loss_streak, max_levels=6 tavan — sınırsız katlama YOK) + erken-pencere (time_pct<0.30). Parametreler `strategy_params`'tan override.
 - **Motor**: `engine.__init__` plugin'i register eder (bare `StrategyRegistry()` boş kalır → testler etkilenmez); `engine_signals.py` section 7 rev↑ girdisini `candle_collector`→`compute_price_deltas` ile enjekte. `strategy_type="martingale"` mevcut plumbing'i kullanır (loss_streak/base_amount + sized_amount override + Kelly skip).
