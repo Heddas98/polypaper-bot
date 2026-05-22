@@ -353,6 +353,16 @@ def test_save_preset_ruleset_invalid_empty_name():
     assert name == ""
 
 
+def test_edge_legend_explains_terms():
+    """Edge bulucu legend düz-dil açıklama içerir (Heddas: açıklayıcı yap)."""
+    from telegram_bot.handlers.backtest_lab import _EDGE_LEGEND
+
+    assert "TEST PnL" in _EDGE_LEGEND
+    assert "eğitim PnL" in _EDGE_LEGEND
+    assert "OOS-dayanıklı" in _EDGE_LEGEND
+    assert "overfit" in _EDGE_LEGEND
+
+
 @pytest.mark.asyncio
 async def test_build_show_ruleset_stat_block(monkeypatch):
     """Strateji detayında son backtest statı görünür (yoksa 'henüz')."""

@@ -1550,6 +1550,18 @@ async def _stop_paper_strategy(
     return await _build_paper_strategy(db, telegram_id)
 
 
+# Edge panellerinde ortak açıklama (Heddas "edge bulucu daha açıklayıcı yap").
+# Quant olmayan biri için: tr/te/WR ne demek + train/test mantığı düz dille.
+_EDGE_LEGEND = (
+    "📖 <i><b>Nasıl okunur:</b> geçmişin %70'inde sinyali kurduk "
+    "(<b>tr</b> = eğitim PnL), sonra sinyalin HİÇ görmediği son %30'da denedik "
+    "(<b>te</b> = TEST PnL). <b>te asıl önemli</b> — şans mı, gerçek edge mi "
+    "onu söyler. WR = kazanma oranı, t = işlem sayısı.\n"
+    "✅ tr+te <b>ikisi de artı</b> = OOS-dayanıklı (güvenilir) · "
+    "⚠️ yalnız tr artı = şans/overfit (güvenme) · boş = zarar.</i>"
+)
+
+
 async def _build_rev_analysis(asset: str, tf: str, db) -> tuple[str, InlineKeyboardMarkup]:
     """🔍 rev↑ Koşul Analizi — saat/volatilite segmentlerinde rev↑ gücü.
 
@@ -1589,7 +1601,9 @@ async def _build_rev_analysis(asset: str, tf: str, db) -> tuple[str, InlineKeybo
 
     lines = [
         f"🔍 <b>rev↑ KOŞUL ANALİZİ — {esc(asset)} {esc(tf)}</b>",
-        "<i>rev↑'i saat/vol segmentinde test et. ✅ = OOS+ (≥10 trade).</i>",
+        "<i>rev↑ sinyalini saat/volatilite segmentlerinde test et — hangi "
+        "koşulda güçlü?</i>",
+        _EDGE_LEGEND,
         "",
     ]
     for x in res:
@@ -1649,8 +1663,10 @@ async def _build_smart_edge(asset: str, tf: str, db) -> tuple[str, InlineKeyboar
 
     lines = [
         f"🧠 <b>AKILLI EDGE — {esc(asset)} {esc(tf)}</b>",
-        "<i>Önceki candle hareketine bağlı 6 hipotez. %70 train/%30 test.</i>",
-        "<i>✅ = ikisi pozitif + test ≥20 trade (OOS-dayanıklı).</i>",
+        "<i>Önceki candle'ın hareketine/volatilitesine bağlı 6 hipotez "
+        "(reversal / momentum / vol). Sinyal adı kuralı gösterir: "
+        "örn. <code>rev↑ prev↓big→UP</code> = önceki mum büyük düştüyse UP al.</i>",
+        _EDGE_LEGEND,
         "",
     ]
     edge_found = False
@@ -1711,7 +1727,10 @@ async def _build_edge_scan(asset: str, db) -> tuple[str, InlineKeyboardMarkup]:
     _dir_short = {"up": "UP", "down": "DOWN", "follow_trend": "trend→", "fade_trend": "trend←"}
     lines = [
         f"🔬 <b>EDGE TARAMA — {esc(asset)}</b>",
-        "<i>%70 train / %30 test (OOS). ✅ = ikisi de pozitif (gerçek edge).</i>",
+        "<i>Her (zaman dilimi × yön) için basit sinyal taraması.</i>",
+        "<i>Yönler: <b>UP</b>=hep UP al · <b>DOWN</b>=hep DOWN · "
+        "<b>trend→</b>=önceki yönü izle · <b>trend←</b>=tersine.</i>",
+        _EDGE_LEGEND,
         "",
     ]
     edge_found = False
