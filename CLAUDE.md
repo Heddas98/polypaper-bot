@@ -20,6 +20,14 @@
 
 ## Mevcut Faz
 
+**PERFORMANS / SESSİZ MOD** (2026-05-22) — Heddas: "bot fanları neden çalıştırıyor, sessizce çalışsın, performans kaybetmeden". **Ölçüm-önce** yaklaşımı (Heddas "önce ölç" dedi):
+- **Teşhis** (py-spy + canlı DB): bot ~1.4 çekirdek (CPU %138, 33 thread). py-spy 30s/5107 örnek: **CPU'nun %77'si SQLite yazma** (aiosqlite thread, `core.py:115` tek başına %72.5). Binance/RTDS/json <%1 — ilk "Binance firehose" tahmini **ölçümle çürüdü**. Kök neden: WS per-mesaj INSERT+commit + 6.2GB şişmiş DB + bozuk recorder.
+- **`c7a6c9f`** (cherry-pick `2213dd1`) perf(data): ① WS yazımları batch'lendi (`data/websocket_client.py` book/price_change/last_trade → buffer + `_flush_loop` sn'de TEK transaction executemany; **veri AYNI**, her event aynı ts_ms korunur, commit ~100x az; stop()'ta final flush; `WS_FLUSH_INTERVAL_S`/`WS_FLUSH_MAX_ROWS` env) ② `main.py` `market_recorder` VARSAYILAN KAPALI (`MARKET_RECORDER_ENABLED` env) — eski şemayla (`up_token_id`) %100 sessiz başarısız yazıyordu (45201 ob_snapshots'ın HEPSİ WS/scanner'dan, recorder'dan 0); L2 işini `scanner._record_market_books` zaten yapıyor (UP+DOWN top-10); tek ürünü `ob_trades` backtest/UI'da OKUNMUYOR (mevcut 82400 satır korundu). +5 batch testi (veri-paritesi N event→tam N satır) 8/8 + 86 regresyon PASS, ruff temiz.
+- **DB bakımı** (veri korunarak — Heddas "veri kalitesini düşürme"): `ob_deltas` 11.6M satır (write-only, hiçbir şey okumuyor, fill-sim hiç yapılmadı) → cold `.db` arşiv (`data_store/ob_deltas_archive.db`, 2813MB, satır-sayısı MATCH doğrulandı) + tam yedek (`polypaper.db.bak-pre-vacuum-20260522-025303`) + VACUUM → **hot DB 6.2GB → 131MB** (%98). integrity_check ok, diğer tüm tablolar (ob_snapshots/executions/wallets/trade_log...) bozulmadı.
+- **DEPLOY**: ana dizine cherry-pick + push edildi. **KALAN**: bot restart (start.bat) → batch+recorder-off aktif → py-spy ile yeniden ölç (CPU %138→?). Geri açma: `MARKET_RECORDER_ENABLED=true`; `ob_deltas` cold archive'dan restore. **UYARI**: eski kodla restart edilirse WS batch'siz olur → ob_deltas yeniden şişer (artık deploy edildi, sorun yok).
+
+---
+
 **BACKTEST LAB yeniden inşası + RADİKAL strateji temizliği** (2026-05-21) — Heddas direktifi: "para kazandırmayan tüm hazır stratejileri sil, backtest'i sıfırdan kur, kendi edge'lerimizi bulalım". **DURUM ÖZETİ**:
 - 🔴 **Bot otomatik trade YAPMAZ** — 20 live plugin + 11 backtest class + 72 DB stratejisi + PROTECTED_STRATEGIES hepsi silindi (Heddas: "hiçbiri para kazandırmadı"). `core/strategy_plugins.py` bone-thin (boş registry). Manuel `/buy /sell` + LAB backtest + cüzdan/recon ÇALIŞIR.
 - 🟢 **Backtest LAB tam fonksiyonel** — `/backtest` `/bt` `/lab` tek kapı. İki motor: **tick** (`backtest/runner.py`, ob_snapshots, saniye kuralları) + **candle** (`backtest/candle_runner.py`, candles_ext Binance, market-level + martingale + streak). Eski `replay_engine.py` + `engine_v2.py` + `data_sources/` silindi (schema-broken).
