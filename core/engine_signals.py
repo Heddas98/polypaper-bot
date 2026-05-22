@@ -154,6 +154,32 @@ class EngineSignalsMixin:
             return False
         return os.getenv("CLASSIC_BYPASS_ALL_GATES", "true").lower() != "false"
 
+    @staticmethod
+    def _rev_family(stype) -> bool:
+        """rev/streak/rule_based martingale stype mı?
+
+        Bant (REV_BAND) kararı için kullanılır — env'den BAĞIMSIZ, üyelik testi.
+        """
+        return str(stype or "") in ("martingale", "streak_rev", "rule_based")
+
+    @classmethod
+    def _rev_free_mode(cls, stype) -> bool:
+        """rev-family + REV_BYPASS_SIGNAL_GATES açık → SEZGİSEL sinyal/EV
+        gate'lerini baypas et.
+
+        Gerekçe (2026-05-23): rev/streak/rule_based kendi kararını veren plugin
+        stratejileridir — giriş koşulu plugin'de, fee hesabı candle backtest'te
+        (gerçek per-trade fee) zaten yapıldı. Eski classic/fusion döneminden
+        kalma EDGE_GATE/LOW_EDGE_VS_FEE/BRIER/EV/REGIME/Thompson gate'leri
+        plugin'i İKİNCİ KEZ sorgular ve candle backtest'te YOK → canlıyı
+        backtest'e sadık tutmak için baypas. PRICE disiplini (rev band) +
+        SERT güvenlik (NO_LIQ/HALT/MAX_EXEC/MAX_LOSS/RISK/UNSELLABLE) KORUNUR.
+        REV_BYPASS_SIGNAL_GATES=false → strict mod (tüm gate'ler geri gelir).
+        """
+        if not cls._rev_family(stype):
+            return False
+        return os.getenv("REV_BYPASS_SIGNAL_GATES", "true").lower() != "false"
+
     # ───────────────────────────────────────────────────────────────────
     # Epic 5 T5.3 (2026-04-21): pending_reserved helper
     # ───────────────────────────────────────────────────────────────────
@@ -893,9 +919,12 @@ class EngineSignalsMixin:
 
         # Sprint 5 HOTFIX v3: classic FREE-MODE check for downstream gates
         _classic_free = self._classic_free_mode(stype)
+        # 2026-05-23: rev/streak/rule_based de sezgisel sinyal gate'lerini baypas
+        # (backtest'te regime/Thompson/edge/fee/brier/EV YOK; bkz _rev_free_mode).
+        _rev_free = self._rev_free_mode(stype)
 
         # REGIME GATE
-        if not _classic_free and self.regime.should_skip(stype):
+        if not _classic_free and not _rev_free and self.regime.should_skip(stype):
             self.skips.record("REGIME")
             if verbose and self.skips.should_log(sid, "REGIME"):
                 logger.info(
@@ -906,7 +935,7 @@ class EngineSignalsMixin:
 
         # THOMPSON SAMPLING GATE
         # P2-01 FIX: Pass engine=self so brain_flags['thompson_sampling'] toggle works
-        if not _classic_free and not self.selector.should_trade(s.id, engine=self):
+        if not _classic_free and not _rev_free and not self.selector.should_trade(s.id, engine=self):
             self.skips.record("TS_SKIP")
             if verbose and self.skips.should_log(sid, "TS_SKIP"):
                 arm = self.selector.get_or_create(s.id)
@@ -944,21 +973,42 @@ class EngineSignalsMixin:
         # intent and bypass the global ALLOWED_ZONES filter for classic.
         # Override via CLASSIC_RESPECT_ZONES=true if user wants to apply
         # zones to classic too.
-        _classic_bypass_zones = (
-            stype == "classic" and os.getenv("CLASSIC_RESPECT_ZONES", "false").lower() != "true"
-        )
-        if (
-            self._ALLOWED_ZONES
-            and not _classic_bypass_zones
-            and not self._in_allowed_zone(best_ask, self._ALLOWED_ZONES)
-        ):
-            self.skips.record("ZONE_BLOCKED")
-            if verbose and self.skips.should_log(sid, "ZONE_BLOCKED"):
-                zone_str = ",".join(f"{lo*100:.0f}-{hi*100:.0f}c" for lo, hi in self._ALLOWED_ZONES)
-                logger.info(
-                    f"  [{sid}] ❌ ZONE_BLOCKED: price {best_ask*100:.2f}c not in [{zone_str}]"
-                )
-            return None
+        # Reversal-family (martingale/streak_rev/rule_based) — 2026-05-23:
+        # global ALLOWED_ZONES (eski classic/fusion era) YERİNE fair-coin'e yakın
+        # KENDİ bandını uygula. Backtest edge'i SABİT 0.50 girişte bulundu →
+        # bant canlı girişi 0.50 varsayımına sadık tutar ve 97c favori ASLA
+        # alınmaz (martingale telafisini bozar). .env: REV_ENTRY_PRICE_MIN/MAX.
+        if self._rev_family(stype):
+            _rev_lo = float(os.getenv("REV_ENTRY_PRICE_MIN", "0.40"))
+            _rev_hi = float(os.getenv("REV_ENTRY_PRICE_MAX", "0.60"))
+            if not (_rev_lo <= best_ask <= _rev_hi):
+                self.skips.record("REV_BAND_BLOCKED")
+                if verbose and self.skips.should_log(sid, "REV_BAND_BLOCKED"):
+                    logger.info(
+                        f"  [{sid}] ❌ REV_BAND: price {best_ask*100:.2f}c not in "
+                        f"[{_rev_lo*100:.0f}-{_rev_hi*100:.0f}c] (0.50 yakını gir — "
+                        "backtest 0.50 girişe sadık)"
+                    )
+                return None
+        else:
+            _classic_bypass_zones = (
+                stype == "classic"
+                and os.getenv("CLASSIC_RESPECT_ZONES", "false").lower() != "true"
+            )
+            if (
+                self._ALLOWED_ZONES
+                and not _classic_bypass_zones
+                and not self._in_allowed_zone(best_ask, self._ALLOWED_ZONES)
+            ):
+                self.skips.record("ZONE_BLOCKED")
+                if verbose and self.skips.should_log(sid, "ZONE_BLOCKED"):
+                    zone_str = ",".join(
+                        f"{lo*100:.0f}-{hi*100:.0f}c" for lo, hi in self._ALLOWED_ZONES
+                    )
+                    logger.info(
+                        f"  [{sid}] ❌ ZONE_BLOCKED: price {best_ask*100:.2f}c not in [{zone_str}]"
+                    )
+                return None
 
         # Phase 82c Task #19: Per-strategy-type blocked zone (fusion/AI_F)
         # AI_F strategies lose ~72% of 30-40c entries in production. Block
@@ -1263,6 +1313,7 @@ class EngineSignalsMixin:
         # to user-directed classic triggers. RISK_ERROR/RISK/STP remain
         # as hard safety (wallet/balance state).
         _classic_free = self._classic_free_mode(ctx)
+        _rev_free = self._rev_free_mode(ctx.get("stype"))  # 2026-05-23 (bkz _rev_free_mode)
 
         # SLIPPAGE GATE (Phase 75: per-strategy override via lifecycle)
         # Sprint 5 HOTFIX v5: classic bypasses SLIPPAGE — user expects the
@@ -1297,7 +1348,7 @@ class EngineSignalsMixin:
         # Apply lifecycle multiplier (< 1.0 = looser, > 1.0 = tighter)
         if _edge_mult != 1.0:
             min_sig = round(min_sig * _edge_mult, 3)
-        if not _classic_free and signal_score < min_sig:
+        if not _classic_free and not _rev_free and signal_score < min_sig:
             self.skips.record("EDGE_GATE")
             if verbose:
                 logger.info(
@@ -1309,7 +1360,7 @@ class EngineSignalsMixin:
         # Block trades where edge doesn't cover fee by MIN_EDGE_OVER_FEE multiplier.
         # Crypto fee is ~2-7%. If signal edge < fee * multiplier → net negative EV trade.
         _fee_gate_enabled = os.getenv("FEE_GATE_ENABLED", "true").lower() == "true"
-        if not _classic_free and _fee_gate_enabled:
+        if not _classic_free and not _rev_free and _fee_gate_enabled:
             _min_edge_over_fee = float(os.getenv("MIN_EDGE_OVER_FEE", "2.0"))
             _estimated_edge = abs(signal_score - 0.5)  # signal's distance from random
             _fee_pct = polymarket_fee_percent_v2(best_ask) / 100.0  # convert % to decimal
@@ -1325,7 +1376,7 @@ class EngineSignalsMixin:
         # Phase 79 S4-04: BRIER CALIBRATION ALARM
         # Block trades in high-calibration-gap zones (bot confidence = actual accuracy gap)
         _brier_enabled = os.getenv("BRIER_ALARM_ENABLED", "true").lower() != "false"
-        if not _classic_free and _brier_enabled and self.BRIER_GAP_MAX > 0:
+        if not _classic_free and not _rev_free and _brier_enabled and self.BRIER_GAP_MAX > 0:
             try:
                 skip_trade, reason = await self._check_brier_alarm(best_ask)
                 if skip_trade:
@@ -1414,6 +1465,7 @@ class EngineSignalsMixin:
         # canary cap, lifecycle, capital cap) still apply — they only
         # adjust trade_amount, never block the trade.
         _classic_free = self._classic_free_mode(stype)
+        _rev_free = self._rev_free_mode(stype)  # 2026-05-23: EV gate baypas (bkz _rev_free_mode)
 
         trade_amount = s.trade_amount
 
@@ -1588,7 +1640,7 @@ class EngineSignalsMixin:
                     fee_pct=_fee_pct,
                     is_maker=_is_maker,
                 )
-                if not ev_result.should_trade and not _classic_free:
+                if not ev_result.should_trade and not _classic_free and not _rev_free:
                     self.skips.record("EV_NEGATIVE")
                     if verbose:
                         logger.info(

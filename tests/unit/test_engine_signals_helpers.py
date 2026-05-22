@@ -138,6 +138,69 @@ class TestClassicFreeMode:
         assert EngineSignalsMixin._classic_free_mode("classic") is True
 
 
+# ═══ _rev_family / _rev_free_mode — 2026-05-23 (rev/streak/rule_based) ══
+
+
+class TestRevFamily:
+    """rev/streak/rule_based üyelik testi — env'den BAĞIMSIZ (band kararı).
+
+    Bu gate, ZONE_BLOCKED'ı rev-stratejileri için fair-coin bandına çevirir
+    (canlı stratejiler hiç trade etmiyordu — global ALLOWED_ZONES kesiyordu).
+    """
+
+    def test_martingale_is_family(self):
+        assert EngineSignalsMixin._rev_family("martingale") is True
+
+    def test_streak_rev_is_family(self):
+        assert EngineSignalsMixin._rev_family("streak_rev") is True
+
+    def test_rule_based_is_family(self):
+        assert EngineSignalsMixin._rev_family("rule_based") is True
+
+    def test_classic_not_family(self):
+        assert EngineSignalsMixin._rev_family("classic") is False
+
+    def test_fusion_not_family(self):
+        assert EngineSignalsMixin._rev_family("fusion") is False
+
+    def test_none_not_family(self):
+        assert EngineSignalsMixin._rev_family(None) is False
+
+    def test_family_ignores_env(self, monkeypatch):
+        """Band üyeliği REV_BYPASS_SIGNAL_GATES'ten ETKİLENMEZ."""
+        monkeypatch.setenv("REV_BYPASS_SIGNAL_GATES", "false")
+        assert EngineSignalsMixin._rev_family("martingale") is True
+
+
+class TestRevFreeMode:
+    """rev-family + REV_BYPASS_SIGNAL_GATES açık → sezgisel sinyal/EV gate'leri
+    baypas (EDGE/FEE/BRIER/EV/REGIME/Thompson). Default açık; classic gibi."""
+
+    def test_martingale_default_env_is_free(self, monkeypatch):
+        monkeypatch.delenv("REV_BYPASS_SIGNAL_GATES", raising=False)
+        assert EngineSignalsMixin._rev_free_mode("martingale") is True
+
+    def test_streak_rev_default_free(self, monkeypatch):
+        monkeypatch.delenv("REV_BYPASS_SIGNAL_GATES", raising=False)
+        assert EngineSignalsMixin._rev_free_mode("streak_rev") is True
+
+    def test_bypass_false_is_strict(self, monkeypatch):
+        """Opt-out: tüm sezgisel gate'ler geri gelir (strict mod)."""
+        monkeypatch.setenv("REV_BYPASS_SIGNAL_GATES", "false")
+        assert EngineSignalsMixin._rev_free_mode("martingale") is False
+
+    def test_non_family_never_free(self, monkeypatch):
+        monkeypatch.setenv("REV_BYPASS_SIGNAL_GATES", "true")
+        assert EngineSignalsMixin._rev_free_mode("classic") is False
+        assert EngineSignalsMixin._rev_free_mode("fusion") is False
+
+    def test_runtime_reread(self, monkeypatch):
+        monkeypatch.setenv("REV_BYPASS_SIGNAL_GATES", "false")
+        assert EngineSignalsMixin._rev_free_mode("martingale") is False
+        monkeypatch.setenv("REV_BYPASS_SIGNAL_GATES", "true")
+        assert EngineSignalsMixin._rev_free_mode("martingale") is True
+
+
 # ═══ _compute_pending_reserved — instance method ═══════════════════════
 
 
