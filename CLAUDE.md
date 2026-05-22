@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-22 (LAB cila — Hızlı Test → Stratejilerim tek hub birleşimi; menü 6→5 panel).
+> Son güncelleme: 2026-05-22 (Komut & keyboard haritası denetimi — 10 bulgu kapandı, 8 commit main'e merge+push `4388949`; strateji yüzeyi gizlendi, ölü kod temizlendi).
 > Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
@@ -26,6 +26,18 @@
 - **DB bakımı** (veri korunarak — Heddas "veri kalitesini düşürme"): `ob_deltas` 11.6M satır (write-only, hiçbir şey okumuyor, fill-sim hiç yapılmadı) → cold `.db` arşiv (`data_store/ob_deltas_archive.db`, 2813MB, satır-sayısı MATCH doğrulandı) + tam yedek (`polypaper.db.bak-pre-vacuum-20260522-025303`) + VACUUM → **hot DB 6.2GB → 131MB** (%98). integrity_check ok, diğer tüm tablolar (ob_snapshots/executions/wallets/trade_log...) bozulmadı.
 - **`eb390e8`** refactor(data): `market_recorder` TAMAMEN SİLİNDİ (Heddas "gereksizse sil") — 15 dosya −1791 sat (modül + backfill script + main wiring + engine brain_flag/sibling-gate/trade-listener + ai_handler panel + `/recorder` komutu + bot.py kaydı + 4 test). brain_flags 6→5 (ai_brain/thompson/regime/autopilot/candle). `ob_trades` tablosu (82400 sat) KORUNDU (dormant, artık yazılmıyor/okunmuyor). 179 hedefli regresyon PASS, ruff temiz. Geri dönüş: `git revert eb390e8`.
 - **DEPLOY**: `c7a6c9f` + `eb390e8` ana dizine cherry-pick + push edildi (origin/main güncel). **KALAN**: bot restart (start.bat) → batch + recorder-yok aktif → py-spy ile yeniden ölç (CPU %138→?). `ob_deltas` cold archive'dan restore mümkün. **UYARI**: artık deploy edildiği için eski-kod-restart riski yok. **NOT**: tam suite, strateji-temizliği loose-end'i `test_phase82_metadata.py` (silinmiş `CalibrationArbLiveStrategy` import) collection-error'ı veriyor — recorder'la ilgisiz pre-existing.
+
+**KOMUT & KEYBOARD HARİTASI DENETİMİ ✅ (2026-05-22, `4388949` main'e merge+push)** — Heddas direktifi: "tüm bot komutlarını + inline keyboard'ları haritala; çalışmayan/mantıksız/gereksiz/çakışan/tutarsız/amaç-dışı olanları bul, tek tek düzelt". bot.py (1577 sat) + 38 handler tarandı; Set A (tüm `callback_data`) ↔ Set B (kayıtlı pattern) çapraz kontrol. **10 bulgu kapandı:**
+- **#1** `9c205e5` `/candles` Refresh ölü buton — kayıt `^candle_refresh$` (tekil), buton `candles_refresh` (çoğul); pattern hizalandı.
+- **#2** `2496463` ölü `se_*` inline-edit sistemi silindi (−205 sat: `edit_strategy_callback`+`EDIT_FIELDS`+`strategy_field_edit_callback`+`handle_edit_input` — hiç kayıtlı değildi; ConversationHandler edit yolu sağlam).
+- **#3** `413001c` `/m` çift kayıt (monitor+mode) — mode'unki sessiz gölgeleniyordu; ölü kayıt + yanlış menü string temizlendi (/m=monitor değişmedi).
+- **#5** `490039c` `/help` bayat alias (silinmiş /risks /pattern /markov /capital) gerçeklerle değişti.
+- **#10** `554bb16` placeholder cüzdan butonları (select/info/delete/import → "Yakında") + ölü `_ph` kaldırıldı (gerçek cüzdan /portfolio).
+- **#7** `90a7a18`+`3a664c9` **STRATEJİ YÜZEYİ GİZLENDİ** (Heddas "gizle" seçti, sil DEĞİL): BotCommand menü + /help'ten çıkarıldı (strategies/test_strategy/brain/analyze/canary/promote/demote/experiment_*), /ai menüye eklendi; mode-select "bot 7/24 otomatik trade eder" YALANI düzeltildi; `STRATEGY_SYSTEM_DISABLED` guard (strategies/quick_strategy/builder → "devre dışı → LAB"). Handler'lar dormant. #4 (3 edit mekanizması) + #6 (/paper) buna katlandı.
+- **#9** `194b0b1` backtest giriş "akıllı tam" trim (Heddas seçti): saf shim'ler (/backtest_v2 /bt2 + menu_bt_* + LAB "Eski paneller"/lab_legacy) silindi; **fonksiyonel /backtest_replay + /compare KORUNDU** (LAB butonlarından esnek, herhangi asset/tf). NL "backtest" → /backtest LAB'a yeniden bağlandı.
+- **#8** (ws/daily merge artefaktı, butonlar çalışıyor) = sorun değil, bırakıldı.
+- **YENİ #11 (backlog):** `menu_handler` advanced-help'te ghost komutlar (/markov /capital /breed /vote /whale) hâlâ listeli — ayrı temizlik gerek.
+- **Entegrasyon:** branch main'den 10 commit geride + paralel LAB işiyle örtüşüyordu (main "Hızlı Test→Stratejilerim" hub birleşimi). main→branch merge (2 conflict: LAB keyboard 6→4 buton + test) çözüldü, ff-merge + push (origin senkron `0 0`). Tercih: yeniden-kullanılabilir kodu sil yerine gizle/koru ([[hide-vs-delete]]).
 
 ---
 
