@@ -8,7 +8,14 @@ penceresi, config override + registry entegrasyonu.
 
 from __future__ import annotations
 
-from core.live_strategies import RevMartingaleStrategy
+from core.live_strategies import (
+    RevMartingaleStrategy,
+    is_live_candidate,
+    live_readiness,
+    load_live_candidates,
+    mark_live_candidate,
+    unmark_live_candidate,
+)
 from core.strategy_plugins import MarketSnapshot, StrategyRegistry, StrategySignal
 
 
@@ -143,3 +150,48 @@ def test_bad_prev_change_type_no_crash():
     """prev_window_change_pct sayısal değilse → no-trade, exception YOK."""
     sig = RevMartingaleStrategy().evaluate(_snap(prev_window_change_pct="oops"))
     assert sig.should_trade is False
+
+
+# ── Adım 4: live readiness + candidate store ────────────────
+
+
+def test_live_readiness_ready():
+    r = live_readiness(120, 75, 45, 12.5)
+    assert r["ready"] is True
+    assert r["wr"] == 62.5
+    assert r["missing"] == []
+
+
+def test_live_readiness_not_ready_all():
+    r = live_readiness(40, 20, 20, -5.0)
+    assert r["ready"] is False
+    assert len(r["missing"]) == 3  # trade + WR + PnL hepsi eksik
+
+
+def test_live_readiness_partial_wr_fails():
+    # 150 trade (ok), PnL +5 (ok) ama WR %50 (<60 fail)
+    r = live_readiness(150, 75, 75, 5.0)
+    assert r["ready"] is False
+    assert any("WR" in m for m in r["missing"])
+
+
+def test_live_candidate_roundtrip(tmp_path):
+    p = tmp_path / "cands.json"
+    assert is_live_candidate("rev↑ BTC 5m", path=p) is False
+    mark_live_candidate("rev↑ BTC 5m", {"trades": 120}, path=p)
+    assert is_live_candidate("rev↑ BTC 5m", path=p) is True
+    assert "rev↑ BTC 5m" in load_live_candidates(p)
+    unmark_live_candidate("rev↑ BTC 5m", path=p)
+    assert is_live_candidate("rev↑ BTC 5m", path=p) is False
+
+
+def test_live_candidates_corrupt_returns_empty(tmp_path):
+    p = tmp_path / "bad.json"
+    p.write_text("{ broken json", encoding="utf-8")
+    assert load_live_candidates(p) == {}
+
+
+def test_mark_live_candidate_empty_label_noop(tmp_path):
+    p = tmp_path / "c.json"
+    mark_live_candidate("", path=p)
+    assert load_live_candidates(p) == {}

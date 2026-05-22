@@ -34,6 +34,10 @@ class _FakeDB:
         self.strategies: list[Strategy] = []
         self.created: list[Strategy] = []
         self.status_updates: list[tuple] = []
+        self.stats: list[dict] = []  # get_per_strategy_stats payload
+
+    async def get_per_strategy_stats(self, user_id):
+        return list(self.stats)
 
     async def get_user_by_telegram_id(self, tid):
         return self._user
@@ -174,3 +178,76 @@ async def test_panel_shows_active_and_stop_button():
     assert any(c.startswith("lab_paper_off:") for c in cbs)  # durdur butonu
     # 1h hâlâ kapalı → çalıştır butonu var
     assert "lab_paper_on:BTC:1h" in cbs
+    # Adım 4: Canlıya Geçiş giriş butonu
+    assert "lab_live" in cbs
+
+
+# ── Adım 4: Canlıya Geçiş (live promote) paneli ─────────────
+
+
+def _stat(sid="s1", label="rev↑ martingale BTC 5m", completed=10, wins=5,
+          losses=5, pnl=-2.0, stype="martingale"):
+    return {
+        "id": sid, "strategy_type": stype, "label": label,
+        "asset": "BTC", "timeframe": "5m",
+        "completed": completed, "wins": wins, "losses": losses,
+        "realized_pnl": pnl,
+    }
+
+
+@pytest.mark.asyncio
+async def test_live_promote_not_ready_no_button(monkeypatch, tmp_path):
+    import core.live_strategies as ls
+    from telegram_bot.handlers.backtest_lab import _build_live_promote
+
+    monkeypatch.setattr(ls, "_LIVE_CANDIDATES_PATH", tmp_path / "c.json")
+    db = _FakeDB()
+    db.stats = [_stat(completed=10, wins=5, losses=5, pnl=-2.0)]
+    text, kb = await _build_live_promote(db, 123)
+    assert "Hazır değil" in text
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert not any(c.startswith("lab_live_cand:") for c in cbs)  # aday butonu YOK
+    assert "GERÇEK PARA" in text  # go-live uyarısı
+
+
+@pytest.mark.asyncio
+async def test_live_promote_ready_shows_button(monkeypatch, tmp_path):
+    import core.live_strategies as ls
+    from telegram_bot.handlers.backtest_lab import _build_live_promote
+
+    monkeypatch.setattr(ls, "_LIVE_CANDIDATES_PATH", tmp_path / "c.json")
+    db = _FakeDB()
+    db.stats = [_stat(completed=150, wins=100, losses=40, pnl=20.0)]
+    text, kb = await _build_live_promote(db, 123)
+    assert "Canlıya hazır" in text
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "lab_live_cand:s1" in cbs
+
+
+@pytest.mark.asyncio
+async def test_mark_candidate_gated_by_readiness(monkeypatch, tmp_path):
+    """Hazır olmayan strateji aday İŞARETLENMEZ (server-side re-validate)."""
+    import core.live_strategies as ls
+    from telegram_bot.handlers.backtest_lab import _mark_live_candidate_action
+
+    p = tmp_path / "c.json"
+    monkeypatch.setattr(ls, "_LIVE_CANDIDATES_PATH", p)
+    db = _FakeDB()
+    db.stats = [_stat(completed=10, wins=5, losses=5, pnl=-2.0)]  # hazır değil
+    await _mark_live_candidate_action(db, 123, "s1")
+    assert ls.load_live_candidates(p) == {}  # işaretlenmedi
+
+
+@pytest.mark.asyncio
+async def test_mark_candidate_ready_marks(monkeypatch, tmp_path):
+    import core.live_strategies as ls
+    from telegram_bot.handlers.backtest_lab import _mark_live_candidate_action
+
+    p = tmp_path / "c.json"
+    monkeypatch.setattr(ls, "_LIVE_CANDIDATES_PATH", p)
+    db = _FakeDB()
+    db.stats = [_stat(label="rev↑ martingale BTC 5m",
+                      completed=150, wins=100, losses=40, pnl=20.0)]
+    await _mark_live_candidate_action(db, 123, "s1")
+    cands = ls.load_live_candidates(p)
+    assert "rev↑ martingale BTC 5m" in cands

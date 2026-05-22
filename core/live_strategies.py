@@ -24,7 +24,10 @@ tarafından enjekte edilir (candle_collector → compute_price_deltas).
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from pathlib import Path
 
 from core.strategy_plugins import BaseStrategy, MarketSnapshot, StrategySignal
 
@@ -150,3 +153,81 @@ class RevMartingaleStrategy(BaseStrategy):
                 "rev_prev_change_pct": prev_chg,
             },
         )
+
+
+# ─── Live aday (candidate) işareti — Adım 4 (2026-05-22) ─────
+# SADECE NİYET KAYDI. maybe_mirror bunu OKUMAZ — gerçek canlı trade için
+# core/live_trader.py LIVE_STRATEGIES whitelist + LIVE_ENABLED=true + 2-tık
+# toggle MANUEL gerekir. Bu işaret "Heddas bu stratejiyi canlıya aday gördü"
+# der; readiness kriterleri sağlanınca LAB'dan işaretlenir. Ayrı JSON dosya
+# (data_store/live_candidates.json) — DB/real-money kodu DEĞİŞMEZ.
+
+_LIVE_CANDIDATES_PATH = Path("data_store/live_candidates.json")
+
+# Canlıya geçiş readiness kriterleri (code doctrine live_trader.py:147):
+# "100+ paper trade + WR>=60% + PnL>0 + Heddas manuel onayı".
+LIVE_READY_MIN_TRADES = 100
+LIVE_READY_MIN_WR = 60.0
+LIVE_READY_MIN_PNL = 0.0
+
+
+def load_live_candidates(path: Path | None = None) -> dict:
+    """İşaretli canlı adayları oku (label → meta). Bozuk/yok → {}."""
+    p = path or _LIVE_CANDIDATES_PATH
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("load_live_candidates bozuk: %s", e)
+        return {}
+
+
+def is_live_candidate(label: str, path: Path | None = None) -> bool:
+    return bool(label) and label in load_live_candidates(path)
+
+
+def mark_live_candidate(label: str, stats: dict | None = None, path: Path | None = None) -> None:
+    """Stratejiyi canlı aday işaretle (yalnız niyet — trade AÇMAZ)."""
+    if not label:
+        return
+    p = path or _LIVE_CANDIDATES_PATH
+    data = load_live_candidates(p)
+    data[label] = {"marked_ts": int(time.time()), "stats": stats or {}}
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        logger.warning("mark_live_candidate yazılamadı: %s", e)
+
+
+def unmark_live_candidate(label: str, path: Path | None = None) -> None:
+    p = path or _LIVE_CANDIDATES_PATH
+    data = load_live_candidates(p)
+    if label in data:
+        del data[label]
+        try:
+            p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            logger.warning("unmark_live_candidate yazılamadı: %s", e)
+
+
+def live_readiness(completed: int, wins: int, losses: int, pnl: float) -> dict:
+    """Paper track-record'a göre canlıya hazırlık değerlendir.
+
+    Returns: {ready: bool, wr: float, checks: [(ad, ok, detay)...], missing: [...]}.
+    """
+    decided = wins + losses
+    wr = (wins / decided * 100.0) if decided > 0 else 0.0
+    checks = [
+        (
+            f"≥{LIVE_READY_MIN_TRADES} paper trade",
+            completed >= LIVE_READY_MIN_TRADES,
+            f"{completed}",
+        ),
+        (f"WR ≥ %{LIVE_READY_MIN_WR:.0f}", wr >= LIVE_READY_MIN_WR, f"%{wr:.0f}"),
+        ("PnL > 0", pnl > LIVE_READY_MIN_PNL, f"${pnl:+.2f}"),
+    ]
+    missing = [name for name, ok, _ in checks if not ok]
+    return {"ready": not missing, "wr": round(wr, 1), "checks": checks, "missing": missing}

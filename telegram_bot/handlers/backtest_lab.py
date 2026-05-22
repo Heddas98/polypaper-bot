@@ -1484,6 +1484,9 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
                     f"▶️ Paper'da çalıştır — {asset} {tf}",
                     callback_data=f"lab_paper_on:{asset}:{tf}")]
             )
+    rows.append(
+        [InlineKeyboardButton("🚀 Canlıya Geçiş (hazırlık)", callback_data="lab_live")]
+    )
     return "\n".join(lines), _paper_kb(rows)
 
 
@@ -1548,6 +1551,122 @@ async def _stop_paper_strategy(
     except Exception as e:  # noqa: BLE001
         logger.exception("paper stop failed: %s", e)
     return await _build_paper_strategy(db, telegram_id)
+
+
+# ── Adım 4: Canlıya Geçiş (live promotion readiness) ────────
+# Heddas "adım4'ü yap" + seçim: GÜVENLİ aday/hazırlık UI (maybe_mirror real-money
+# gate'ine DOKUNMA). Paper track-record vs kriter gösterir + 'canlı aday'
+# işaretler (yalnız niyet). Gerçek canlıya geçiş 3 manuel adım (panel yapmaz).
+
+_LIVE_HEADER = (
+    "🚀 <b>CANLIYA GEÇİŞ — Hazırlık</b>\n"
+    "<i>Paper'da kanıtlanan stratejiyi canlıya aday yap. Bu panel GERÇEK "
+    "PARA HAREKETİ YAPMAZ — yalnız hazırlığı gösterir + aday işaretler.</i>\n"
+)
+
+_LIVE_GOLIVE_NOTE = (
+    "\n⚠️ <b>GERÇEK PARA</b> — canlı trade 3 AYRI MANUEL adım gerektirir "
+    "(bu panel hiçbirini yapmaz):\n"
+    "  1️⃣ <code>core/live_trader.py</code> LIVE_STRATEGIES whitelist'e label ekle\n"
+    "  2️⃣ <code>.env</code> LIVE_ENABLED=true\n"
+    "  3️⃣ /live → 2-tık canlı toggle ON\n"
+    "<i>Her biri bilinçli + ayrı. 'Canlı aday' YALNIZ niyet kaydıdır — trade "
+    "açmaz. Doktrin: 100+ paper trade + WR%60 + PnL>0 + senin onayın.</i>"
+)
+
+
+async def _build_live_promote(db, telegram_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    """🚀 Canlıya Geçiş paneli — paper readiness + aday işaretle (güvenli sınır).
+
+    maybe_mirror (real-money gate) DEĞİŞMEZ. Yalnız hazırlık gösterir.
+    """
+    user, _wallet = await _resolve_user_wallet(db, telegram_id)
+    if not user:
+        return (_LIVE_HEADER + "\n⚠️ Kullanıcı bulunamadı. Önce /start.", _paper_kb())
+    try:
+        from core.live_strategies import is_live_candidate, live_readiness
+
+        stats = await db.get_per_strategy_stats(user.id)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("live promote stats failed: %s", e)
+        return (_LIVE_HEADER + "\n⚠️ İstatistik alınamadı.", _paper_kb())
+
+    mart = [s for s in stats if s.get("strategy_type") == "martingale"]
+    lines = [_LIVE_HEADER.rstrip()]
+    rows: list[list[InlineKeyboardButton]] = []
+    if not mart:
+        lines.append(
+            "\n<i>Henüz paper martingale stratejisi yok. Önce LAB → "
+            "🎲 Candle/Martingale → 🤖 Paper Auto-Trade ile aç ve paper'da "
+            "biriktir.</i>"
+        )
+    else:
+        for s in mart:
+            label = s.get("label") or f"{s.get('asset')} {s.get('timeframe')}"
+            completed = int(s.get("completed", 0) or 0)
+            wins = int(s.get("wins", 0) or 0)
+            losses = int(s.get("losses", 0) or 0)
+            pnl = float(s.get("realized_pnl", 0) or 0)
+            rd = live_readiness(completed, wins, losses, pnl)
+            lines.append(f"\n📊 <b>{esc(label)}</b>")
+            lines.append(
+                f"   Paper: {completed} trade · WR %{rd['wr']:.0f} · PnL ${pnl:+.2f}"
+            )
+            chk = " · ".join(
+                f"{'🟢' if ok else '🔴'} {esc(name)} ({esc(det)})"
+                for name, ok, det in rd["checks"]
+            )
+            lines.append(f"   {chk}")
+            if is_live_candidate(label):
+                lines.append(
+                    "   ✅ <b>Canlı aday işaretlendi</b> — manuel go-live "
+                    "adımları aşağıda."
+                )
+            elif rd["ready"]:
+                lines.append("   ✅ <b>Canlıya hazır!</b>")
+                rows.append(
+                    [InlineKeyboardButton(
+                        f"🚀 Canlı Aday Yap — {label[:18]}",
+                        callback_data=f"lab_live_cand:{s.get('id')}")]
+                )
+            else:
+                lines.append(f"   ⏳ Hazır değil — eksik: {esc(', '.join(rd['missing']))}")
+    lines.append(_LIVE_GOLIVE_NOTE)
+    rows.append([InlineKeyboardButton("◀️ Paper Auto-Trade", callback_data="lab_paper")])
+    return "\n".join(lines), _paper_kb(rows)
+
+
+async def _mark_live_candidate_action(
+    db, telegram_id: int, sid: str
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Canlı aday işaretle — server-side readiness re-validate (güvenlik)."""
+    user, _wallet = await _resolve_user_wallet(db, telegram_id)
+    if not user:
+        return (_LIVE_HEADER + "\n⚠️ Kullanıcı yok.", _paper_kb())
+    try:
+        from core.live_strategies import live_readiness, mark_live_candidate
+
+        stats = await db.get_per_strategy_stats(user.id)
+        s = next(
+            (x for x in stats
+             if x.get("id") == sid and x.get("strategy_type") == "martingale"),
+            None,
+        )
+        if s is not None:
+            completed = int(s.get("completed", 0) or 0)
+            wins = int(s.get("wins", 0) or 0)
+            losses = int(s.get("losses", 0) or 0)
+            pnl = float(s.get("realized_pnl", 0) or 0)
+            rd = live_readiness(completed, wins, losses, pnl)
+            if rd["ready"]:  # KRİTER tekrar doğrulanır — callback'e güvenme
+                label = s.get("label") or f"{s.get('asset')} {s.get('timeframe')}"
+                mark_live_candidate(
+                    label,
+                    {"trades": completed, "wr": rd["wr"], "pnl": round(pnl, 2)},
+                )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("mark live candidate failed: %s", e)
+    return await _build_live_promote(db, telegram_id)
 
 
 # Edge panellerinde ortak açıklama (Heddas "edge bulucu daha açıklayıcı yap").
@@ -2112,7 +2231,12 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # 0) Paper Auto-Trade (rev↑ martingale) — telegram_id gerekir, _BUILDERS
     # haritası db-only çağırır, bu yüzden burada özel handle.
     _tg_id = q.from_user.id if getattr(q, "from_user", None) else 0
-    if data == "lab_paper" or data.startswith(("lab_paper_on:", "lab_paper_off:")):
+    if (
+        data == "lab_paper"
+        or data.startswith(("lab_paper_on:", "lab_paper_off:"))
+        or data == "lab_live"
+        or data.startswith("lab_live_cand:")
+    ):
         try:
             if data == "lab_paper":
                 text, kb = await _build_paper_strategy(db, _tg_id)
@@ -2122,13 +2246,18 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                     text, kb = await _activate_paper_strategy(db, _tg_id, _p[1], _p[2])
                 else:
                     text, kb = "⚠️ Geçersiz parametre.", _main_kb()
-            else:  # lab_paper_off:<sid>
+            elif data.startswith("lab_paper_off:"):
                 _sid = data.split(":", 1)[1]
                 text, kb = await _stop_paper_strategy(db, _tg_id, _sid)
+            elif data == "lab_live":
+                text, kb = await _build_live_promote(db, _tg_id)
+            else:  # lab_live_cand:<sid>
+                _sid = data.split(":", 1)[1]
+                text, kb = await _mark_live_candidate_action(db, _tg_id, _sid)
             await _safe_edit(q, text, kb)
         except Exception as e:  # noqa: BLE001
-            logger.exception("lab_paper dispatch failed: %s", e)
-            await _safe_edit(q, "⚠️ Paper paneli açılamadı — log'da detay.", _main_kb())
+            logger.exception("lab_paper/live dispatch failed: %s", e)
+            await _safe_edit(q, "⚠️ Panel açılamadı — log'da detay.", _main_kb())
         return
 
     # 1) Parametresiz panel callback'leri (lab_main, lab_quick, ...)
