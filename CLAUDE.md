@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-23 (`017e7be` streak-reversal martingale stratejisi [Heddas fikri: N ardışık aynı-yön mum → ters al, giriş streak≥2, max 15 katlama]. + KRİTİK FIX `d89b1ee`: rev martingale giriş penceresi 0.30→0.90 — stratejiler hiç trade etmiyordu. Restart sonrası paper trade akmalı. Gerçek canlı trade hâlâ 3 manuel adım, otomatik DEĞİL).
+> Son güncelleme: 2026-05-23 (`e1ab2bf` rev/streak ZONE_BLOCKED teşhisi+fix: stratejiler sinyal üretiyordu ama global ALLOWED_ZONES [0-35,50-55] alış fiyatı bölge-dışı diye HEPSİNİ kesiyordu → fair-coin bandı [0.40-0.60] + sezgisel gate baypas. + `017e7be` streak-reversal martingale [Heddas fikri]. Restart sonrası paper trade akmalı. Gerçek canlı trade hâlâ 3 manuel adım, otomatik DEĞİL).
 > Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
@@ -19,6 +19,14 @@
 - GitHub: `Heddas98/polypaper-bot`
 
 ## Mevcut Faz
+
+**ZONE_BLOCKED TEŞHİSİ + rev/streak fair-coin bandı ✅ (2026-05-23, `e1ab2bf`)** — Heddas: "stratejiler neden trade atmıyor? detaylı araştır". **TEŞHİS** (canlı structured.jsonl, bot çalışıyor, restart 23:40 UTC): pencere fix'i (`d89b1ee`) ÇALIŞTI — 13 martingale stratejisi artık sinyal üretiyor (SIG_WEAK düştü). AMA yeni #1 blocker: her heartbeat `ZONE_BLOCKED` (`240skip [ZONE_BLOCKED=150 SIG_WEAK=90]`). Sinyal GEÇİYOR (`should_trade=True`) ama alış fiyatı 61c/72c/97c → global `ALLOWED_ZONES=0-35,50-55` (.env:269, eski classic/fusion dönemi) bölge-dışı kesiyor → `open=0`, 0 trade. `classic` bypass ediyor (`_classic_free_mode`), rev/streak/rule_based ETMİYOR. + ölçülen 2. duvar: `LOW_EDGE_VS_FEE` (rev conf~0.55 → edge 0.05 < fee×2=0.07 → bant içinde bile bloklar) + gauntlet (EDGE_GATE/BRIER/EV/REGIME/Thompson).
+- **KÖK NEDEN**: bu sezgisel gate'ler eski classic/fusion içindi; **candle backtest (ground truth) HİÇBİRİNİ uygulamıyor** (sadece koşul→giriş→fee'li settle). Plugin'i ikinci kez sorgulamak canlıyı backtest'ten saptırıyor.
+- **FIX** (Heddas seçimi AskUserQuestion: "0.50 yakını bant — önerilen"): `_rev_family()` (üyelik, env-bağımsız → bant) + `_rev_free_mode()` (env-gated → sezgisel gate baypas) helper'ları (`core/engine_signals.py`). ZONE_BLOCKED → rev-family için **REV_BAND [0.40-0.60]** (env `REV_ENTRY_PRICE_MIN/MAX`); backtest 0.50 girişe SADIK + 97c favori ASLA alınmaz (martingale telafisini bozar). Sezgisel sinyal/EV gate'leri (REGIME, Thompson, EDGE_GATE, LOW_EDGE_VS_FEE, BRIER, EV_NEGATIVE) rev-family için baypas (`REV_BYPASS_SIGNAL_GATES=true`, false→strict). Kelly+conviction zaten baypastı. **SERT güvenlik KORUNDU**: NO_LIQ/HALT/MAX_EXEC/MAX_LOSS/RISK/UNSELLABLE/CAPITAL_BUDGET/BAD_PRICE.
+- **DÜRÜST UYARI**: fee/EV gate baypası = motorun -EV saydığı trade'leri paper'a sokar. Bilinçli (gözlem için) + SADECE paper (LIVE_ENABLED=false) + geri-alınabilir (`REV_BYPASS_SIGNAL_GATES=false`). Reversal edge marjinal — canlı doğrula.
+- **+13 test** (rev_family/rev_free_mode unit), 41 PASS signals-helpers, 2216 PASS broad regresyon, ruff temiz, import OK. `.env`+`.env.example` belgeli. **KALAN**: bot restart → REV_BAND skip'leri + ilk paper trade'ler izle; sonraki blocker varsa log'dan (CAPITAL_BUDGET/UNSELLABLE) takip.
+
+---
 
 **FAN KÖK ÇÖZÜM — DB fragmentasyon/retention ✅ (2026-05-23, `e9618a9` + manuel VACUUM)** — Heddas: "fanlar yine ötüyor, iyice ölç tam nokta atışı". Fan 3. kez nüksetti (restart sonrası CPU %107). **Eleme ile kök sebep (kanıtlı)**: ob_deltas index-drop (CPU değişmedi), ob_deltas yazımı (~20-72/s ucuz), 13 paper-strat (DURDURDUM → hâlâ %104 = strat DEĞİL), checkpoint (WAL eşik-altı) — hepsi elendi. **VACUUM testi KESİN**: bot durdur → VACUUM (DB 2.5GB→1.7GB) → restart → **CPU %104→%10.8, threads 33→13.** Sebep = **DB fragmentasyonu/şişmesi**: 2.5GB parçalanmış dosya → aiosqlite random-I/O/page-cache thrash (%91 aiosqlite thread). **Asıl kök**: `db_retention_job` zamanlanmış (günlük, FIRST_SEC=900) AMA `.env`'de `DB_RETENTION_MODE` YOKtu → default "report" → job NO-OP (silmez/VACUUM'lamaz; VACUUM yalnız delete-mode+silme>0'da, kod `db_retention_job.py:331`) → DB sınırsız büyüyüp parçalanıyordu. py-spy SQL'i göremedi (aiosqlite C-kodu); eleme + VACUUM-testi ile bulundu.
 - **`e9618a9`** fix(db): migrations **v22** ob_deltas 2 kullanılmayan ikincil index DROP (asset_id/condition_id — hiçbir sorgu okumuyor) + `db_retention_job` ob_deltas `DB_RETENTION_OB_DELTAS_DAYS=14` entry (yoksa delete-mode bile budamaz — listede değildi) + v22 test. cherry-pick + push.
