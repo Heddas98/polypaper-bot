@@ -407,8 +407,24 @@ async def main():
         # breaking tick-level ob_trades recording.
         await scanner.start()
 
-        # Start market recorder (Phase 36: hardcore backtest data)
-        await market_recorder.start()
+        # 2026-05-22 (Heddas: sessiz mod) — market_recorder VARSAYILAN KAPALI.
+        # Teşhis (py-spy + canlı DB): _recording_loop her 2s TÜM marketlerin
+        # orderbook'unu REST ile çekiyor (network + CPU), sonra ob_snapshots'a
+        # ESKİ şemayla (up_token_id, up_best_bid...) yazmaya çalışıp modern
+        # tabloyla (asset_id/condition_id...) uyumsuz → %100 sessiz başarısız
+        # (45201 satırın hepsi WS/scanner'dan; recorder'dan 0). Aynı L2 snapshot
+        # işini scanner._record_market_books zaten yapıyor (UP+DOWN top-10 depth,
+        # modern şema, çalışıyor). Recorder'ın tek ürettiği ob_trades ise
+        # backtest/UI tarafından OKUNMUYOR (yalnız kendi stats + backfill script).
+        # Mevcut ob_trades satırları korunur; sadece büyümesi durur.
+        # Açmak için: MARKET_RECORDER_ENABLED=true (.env).
+        if os.getenv("MARKET_RECORDER_ENABLED", "false").lower() == "true":
+            await market_recorder.start()
+        else:
+            logger.info(
+                "📸 MarketRecorder: DISABLED (bozuk+gereksiz; L2 snapshot'ı "
+                "scanner kaydediyor). MARKET_RECORDER_ENABLED=true ile açılır."
+            )
         await engine.start()
         await bot.run()
     except KeyboardInterrupt:
