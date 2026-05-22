@@ -1400,11 +1400,14 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
 # (Binance candle backtest tüm coin'lerde edge bulsa da, bot Polymarket'te
 # o market'i taramıyorsa strateji ÖLÜ olur — bu yüzden 15m çoklu coin.)
 #   rev↑ (dip-buy: önceki mum düştü→UP) · rev↓ (pump-fade: yükseldi→DOWN)
+# mode: up=rev↑ (dip-buy) · down=rev↓ (pump-fade) · hv=highvol-rev
+# (yüksek-vol adaptif reversal — direction=ANY; en güçlü edge te+17, "bambaşka")
 _PAPER_CONFIGS = [
     ("BTC", "5m", "up"),     # rev↑ — 5m=BTC
     ("BTC", "1h", "up"),     # rev↑ — 1h=BTC
     ("ETH", "15m", "down"),  # rev↓ — te+7 WR60% (15m çoklu coin)
     ("SOL", "15m", "up"),    # rev↑ — te+1 (OOS)
+    ("SOL", "15m", "hv"),    # highvol-rev — te+17 WR60% (en güçlü!)
     ("XRP", "15m", "up"),    # rev↑ — te+6 WR57% (OOS)
 ]
 _PAPER_TF_ENUM = {"5m": "M5", "15m": "M15", "1h": "H1"}
@@ -1429,8 +1432,13 @@ def _is_tradeable(asset: str, tf: str) -> bool:
         return True
 
 
-def _rev_label(direction: str) -> str:
-    return "rev↓" if str(direction).lower() == "down" else "rev↑"
+def _rev_label(mode: str) -> str:
+    return {"down": "rev↓", "hv": "hvRev↕"}.get(str(mode).lower(), "rev↑")
+
+
+def _dir_to_mode(direction: str) -> str:
+    """DB direction → panel mode (any=highvol-rev, down=rev↓, else rev↑)."""
+    return {"down": "down", "any": "hv"}.get(str(direction).lower(), "up")
 
 
 def _paper_kb(extra: list | None = None) -> InlineKeyboardMarkup:
@@ -1480,7 +1488,7 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
 
     mart = [s for s in strats if s.strategy_type == "martingale"]
     active_keys = {
-        (s.asset.value, s.timeframe.value, s.direction.value): s.id
+        (s.asset.value, s.timeframe.value, _dir_to_mode(s.direction.value)): s.id
         for s in mart
         if s.status == StrategyStatus.ACTIVE
     }
@@ -1491,8 +1499,9 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
         for s in mart:
             em = "🟢 aktif" if s.status == StrategyStatus.ACTIVE else "⚫ durduruldu"
             lines.append(
-                f"  • {_rev_label(s.direction.value)} {esc(s.asset.value)} "
-                f"{esc(s.timeframe.value)} ({em}) · base ${s.trade_amount:.0f}"
+                f"  • {_rev_label(_dir_to_mode(s.direction.value))} "
+                f"{esc(s.asset.value)} {esc(s.timeframe.value)} "
+                f"({em}) · base ${s.trade_amount:.0f}"
             )
     else:
         lines.append("\n<i>Henüz paper strateji yok.</i>")
@@ -1506,9 +1515,9 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
     )
 
     rows: list[list[InlineKeyboardButton]] = []
-    for asset, tf, direction in _PAPER_CONFIGS:
-        rl = _rev_label(direction)
-        sid = active_keys.get((asset, tf, direction))
+    for asset, tf, mode in _PAPER_CONFIGS:
+        rl = _rev_label(mode)
+        sid = active_keys.get((asset, tf, mode))
         if sid:
             rows.append(
                 [InlineKeyboardButton(
@@ -1519,7 +1528,7 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
             rows.append(
                 [InlineKeyboardButton(
                     f"▶️ Çalıştır — {rl} {asset} {tf}",
-                    callback_data=f"lab_paper_on:{asset}:{tf}:{direction}")]
+                    callback_data=f"lab_paper_on:{asset}:{tf}:{mode}")]
             )
     rows.append(
         [InlineKeyboardButton("🚀 Canlıya Geçiş (hazırlık)", callback_data="lab_live")]
@@ -1530,8 +1539,13 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
 async def _activate_paper_strategy(
     db, telegram_id: int, asset: str, tf: str, direction: str = "up"
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """rev martingale paper stratejisini oluştur/yeniden aktive et (yön-duyarlı)."""
-    direction = "down" if str(direction).lower() == "down" else "up"
+    """rev martingale paper stratejisini oluştur/yeniden aktive et (mod-duyarlı).
+
+    mode: up=rev↑ · down=rev↓ · hv=highvol-rev (DB direction=ANY).
+    """
+    mode = str(direction).lower()
+    if mode not in ("up", "down", "hv"):
+        mode = "up"
     if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in _PAPER_TF_ENUM:
         return ("⚠️ Geçersiz market.", _paper_kb())
     if not _is_tradeable(asset, tf):
@@ -1553,16 +1567,18 @@ async def _activate_paper_strategy(
                 s.strategy_type == "martingale"
                 and s.asset.value == asset
                 and s.timeframe.value == tf
-                and s.direction.value == direction
+                and _dir_to_mode(s.direction.value) == mode
             ):
                 if s.status != StrategyStatus.ACTIVE:
                     await db.update_strategy_status(s.id, StrategyStatus.ACTIVE)
                 return await _build_paper_strategy(db, telegram_id)
-        _dir_enum = Direction.DOWN if direction == "down" else Direction.UP
+        _dir_enum = {"down": Direction.DOWN, "hv": Direction.ANY}.get(
+            mode, Direction.UP
+        )
         strat = Strategy(
             user_id=user.id,
             wallet_id=wallet.id,
-            label=f"{_rev_label(direction)} martingale {asset} {tf}",
+            label=f"{_rev_label(mode)} martingale {asset} {tf}",
             asset=Asset(asset),
             timeframe=Timeframe[_PAPER_TF_ENUM[tf]],
             direction=_dir_enum,

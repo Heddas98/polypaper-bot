@@ -111,26 +111,49 @@ class RevMartingaleStrategy(BaseStrategy):
             except (TypeError, ValueError):
                 pass
 
-        # Yön: row.direction "down" ise rev↓ (pump-fade), aksi halde rev↑ (dip-buy).
-        # snapshot.direction_filter motorda s.direction.value ile set edilir.
-        # LAB OOS: rev↑ BTC 5m/1h + ETH 5m, rev↓ ETH 15m.
-        rev_down = (snapshot.direction_filter or "up").lower() == "down"
-        if rev_down:
-            # rev↓: önceki mum büyük YÜKSELDİ mi? (prev_chg ≥ +rev_thr → DOWN al)
+        # Sinyal modu:
+        #   min_volatility>0 → highvol-rev (yüksek-vol adaptif reversal: prev↑→
+        #     DOWN, prev↓→UP; vol eşiği = motor-enjekte rolling vol_med).
+        #   else direction_filter "down" → rev↓ (pump-fade) · else rev↑ (dip-buy).
+        # LAB OOS: rev↑ BTC 5m/1h · rev↓ ETH 15m · highvol-rev SOL 15m.
+        _df = (snapshot.direction_filter or "up").lower()
+        if _df == "any":
+            # highvol-rev (direction=ANY): yüksek-vol rejiminde ADAPTİF reversal
+            # (prev↑→DOWN, prev↓→UP). vol eşiği = motor-enjekte rolling vol_med.
+            prev_range = meta.get("prev_range_pct")
+            vol_med = meta.get("vol_med_pct")
+            if prev_range is None or vol_med is None:
+                return StrategySignal(reason="highvol-rev: range/vol_med verisi yok")
+            try:
+                if float(prev_range) < float(vol_med):
+                    return StrategySignal(
+                        reason=f"highvol-rev: vol düşük "
+                        f"({float(prev_range):.3f}% < med {float(vol_med):.3f}%)"
+                    )
+            except (TypeError, ValueError):
+                return StrategySignal(reason="highvol-rev: range/vol_med sayısal değil")
+            if prev_chg == 0:
+                return StrategySignal(reason="highvol-rev: önceki mum flat")
+            trade_dir = "down" if prev_chg > 0 else "up"  # adaptif reversal
+            _lbl = "highvol-rev"
+        elif _df == "down":
+            # rev↓: önceki mum büyük YÜKSELDİ mi? (prev_chg ≥ +rev_thr → DOWN)
             if prev_chg < rev_thr:
                 return StrategySignal(
                     reason=f"rev↓: önceki mum yeterince yükselmedi "
                     f"({prev_chg:.3f}% < +{rev_thr}%)"
                 )
             trade_dir = "down"
+            _lbl = "rev↓ pump-fade"
         else:
-            # rev↑: önceki mum büyük DÜŞTÜ mü? (prev_chg ≤ -rev_thr → UP al)
+            # rev↑: önceki mum büyük DÜŞTÜ mü? (prev_chg ≤ -rev_thr → UP)
             if prev_chg > -rev_thr:
                 return StrategySignal(
                     reason=f"rev↑: önceki mum yeterince düşmedi "
                     f"({prev_chg:.3f}% > -{rev_thr}%)"
                 )
             trade_dir = "up"
+            _lbl = "rev↑ dip-buy"
 
         # ── Martingale sizing ──
         try:
@@ -153,14 +176,12 @@ class RevMartingaleStrategy(BaseStrategy):
         drop = abs(prev_chg)
         confidence = max(0.55, min(0.80, 0.55 + drop * 0.05))
 
-        _lbl = "rev↓ pump-fade" if rev_down else "rev↑ dip-buy"
-        _cmp = "≥ +" if rev_down else "≤ -"
         return StrategySignal(
             direction=trade_dir,
             confidence=round(confidence, 4),
             should_trade=True,
             reason=(
-                f"{_lbl}: önceki mum {prev_chg:.3f}% ({_cmp}{rev_thr}%), "
+                f"{_lbl}: önceki mum {prev_chg:.3f}%, "
                 f"martingale L{level} → ${sized:.2f}"
             ),
             metadata={

@@ -630,14 +630,33 @@ class EngineSignalsMixin:
                         _sym = BINANCE_SYMBOLS.get(_asset_up)
                         if _sym:
                             _tf = s.timeframe.value
-                            _candles = await _cc.get_ext_candles(_sym, _tf, limit=4)
+                            # 40 mum: compute_price_deltas son 2'yi; vol_med
+                            # (highvol-rev) rolling median icin gerisini kullanir.
+                            _candles = await _cc.get_ext_candles(_sym, _tf, limit=40)
                             _deltas = compute_price_deltas(_candles)
                             plugin_meta["prev_window_change_pct"] = _deltas.get(
                                 "last_delta_pct"
                             )
+                            # highvol-rev girdisi: önceki TAMAMLANMIŞ mum range% +
+                            # rolling vol_med (median range). compute_price_deltas
+                            # son mumu (devam eden) atar → [:-1] tamamlanmislar.
+                            _done = _candles[:-1] if len(_candles) > 1 else _candles
+                            _ranges = []
+                            for _c in _done:
+                                _o = float(_c.get("open", 0) or 0)
+                                _h = float(_c.get("high", 0) or 0)
+                                _lo = float(_c.get("low", 0) or 0)
+                                if _o > 0 and _h >= _lo:
+                                    _ranges.append((_h - _lo) / _o * 100.0)
+                            if _ranges:
+                                plugin_meta["prev_range_pct"] = round(_ranges[-1], 4)
+                                _sr = sorted(_ranges)
+                                plugin_meta["vol_med_pct"] = round(
+                                    _sr[len(_sr) // 2], 4
+                                )
                 except (TypeError, ValueError, KeyError, AttributeError) as _rce:
                     # Epic 8 T8.1: narrow — candle fetch/delta best-effort
-                    logger.debug(f"plugin_meta rev↑ err: {_rce}")
+                    logger.debug(f"plugin_meta rev err: {_rce}")
                 # strategy_params override (rev_threshold_pct/max_levels/...)
                 try:
                     _pj = getattr(s, "strategy_params", None)

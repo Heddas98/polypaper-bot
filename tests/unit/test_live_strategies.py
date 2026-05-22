@@ -93,6 +93,46 @@ def test_rev_up_no_trade_on_pump():
     assert sig.should_trade is False
 
 
+# ── highvol-rev (direction=any) — adaptif yüksek-vol reversal ───
+
+
+def test_highvol_rev_prev_up_bets_down():
+    """direction=any + yüksek vol + prev↑ → DOWN (adaptif reversal)."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="any", prev_window_change_pct=0.5,
+              prev_range_pct=0.9, vol_med_pct=0.4, base_amount=1.0)
+    )
+    assert sig.should_trade is True
+    assert sig.direction == "down"
+    assert "highvol-rev" in sig.reason
+
+
+def test_highvol_rev_prev_down_bets_up():
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="any", prev_window_change_pct=-0.5,
+              prev_range_pct=0.9, vol_med_pct=0.4)
+    )
+    assert sig.should_trade is True
+    assert sig.direction == "up"
+
+
+def test_highvol_rev_low_vol_no_trade():
+    """vol < median → highvol-rev ateşlemez (yüksek vol bekler)."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="any", prev_window_change_pct=0.5,
+              prev_range_pct=0.2, vol_med_pct=0.4)
+    )
+    assert sig.should_trade is False
+
+
+def test_highvol_rev_missing_vol_data_no_trade():
+    """range/vol_med metadata yoksa → no-trade (motor henüz enjekte etmedi)."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="any", prev_window_change_pct=0.5)
+    )
+    assert sig.should_trade is False
+
+
 # ── Martingale sizing ───────────────────────────────────────
 
 

@@ -160,11 +160,33 @@ async def test_activate_eth_15m_rev_down():
 
 @pytest.mark.asyncio
 async def test_activate_same_tf_both_directions_no_collision():
-    """Aynı (asset,tf) farklı yön → ayrı satır (dedup yön-duyarlı)."""
+    """Aynı (asset,tf) farklı yön → ayrı satır (dedup mod-duyarlı)."""
     db = _FakeDB()
     await _activate_paper_strategy(db, 123, "ETH", "15m", "up")
     await _activate_paper_strategy(db, 123, "ETH", "15m", "down")
     assert len(db.created) == 2  # up + down ayrı
+
+
+@pytest.mark.asyncio
+async def test_activate_highvol_rev():
+    """highvol-rev (mode=hv) → direction=ANY (adaptif), 15m=SOL geçerli."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "SOL", "15m", "hv")
+    s = db.created[0]
+    assert s.asset == Asset.SOL
+    assert s.timeframe == Timeframe.M15
+    assert s.direction == Direction.ANY  # highvol-rev = adaptif yön
+    assert s.strategy_type == "martingale"
+    assert "hvRev" in (s.label or "")
+
+
+@pytest.mark.asyncio
+async def test_activate_hv_distinct_from_rev_up():
+    """SOL 15m: rev↑ (up) ve highvol-rev (hv) ayrı satırlar (mod dedup)."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "SOL", "15m", "up")
+    await _activate_paper_strategy(db, 123, "SOL", "15m", "hv")
+    assert len(db.created) == 2
 
 
 @pytest.mark.asyncio
@@ -224,6 +246,7 @@ async def test_panel_shows_active_and_stop_button():
     # ETH 15m rev↓ (pump-fade) + SOL/XRP 15m rev↑ konfigürasyonları
     assert "lab_paper_on:ETH:15m:down" in cbs
     assert "lab_paper_on:SOL:15m:up" in cbs
+    assert "lab_paper_on:SOL:15m:hv" in cbs   # highvol-rev "bambaşka" edge
     assert "lab_paper_on:XRP:15m:up" in cbs
     # Adım 4: Canlıya Geçiş giriş butonu
     assert "lab_live" in cbs
