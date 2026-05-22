@@ -125,6 +125,28 @@ async def test_activate_1h_timeframe():
 
 
 @pytest.mark.asyncio
+async def test_activate_eth_15m_rev_down():
+    """ETH 15m rev↓ (pump-fade) — yeni edge, direction=DOWN."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "ETH", "15m", "down")
+    s = db.created[0]
+    assert s.asset == Asset.ETH
+    assert s.timeframe == Timeframe.M15
+    assert s.direction == Direction.DOWN
+    assert s.strategy_type == "martingale"
+    assert "rev↓" in (s.label or "")
+
+
+@pytest.mark.asyncio
+async def test_activate_same_tf_both_directions_no_collision():
+    """Aynı (asset,tf) farklı yön → ayrı satır (dedup yön-duyarlı)."""
+    db = _FakeDB()
+    await _activate_paper_strategy(db, 123, "ETH", "15m", "up")
+    await _activate_paper_strategy(db, 123, "ETH", "15m", "down")
+    assert len(db.created) == 2  # up + down ayrı
+
+
+@pytest.mark.asyncio
 async def test_activate_reactivates_existing_no_duplicate():
     db = _FakeDB()
     stopped = _mart(tf=Timeframe.M5, status=StrategyStatus.STOPPED)
@@ -176,8 +198,10 @@ async def test_panel_shows_active_and_stop_button():
     assert "aktif" in text
     cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
     assert any(c.startswith("lab_paper_off:") for c in cbs)  # durdur butonu
-    # 1h hâlâ kapalı → çalıştır butonu var
-    assert "lab_paper_on:BTC:1h" in cbs
+    # 1h hâlâ kapalı → çalıştır butonu var (yön ekli)
+    assert "lab_paper_on:BTC:1h:up" in cbs
+    # ETH 15m rev↓ (pump-fade) konfigürasyonu da var
+    assert "lab_paper_on:ETH:15m:down" in cbs
     # Adım 4: Canlıya Geçiş giriş butonu
     assert "lab_live" in cbs
 

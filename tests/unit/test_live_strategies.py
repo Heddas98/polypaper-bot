@@ -19,8 +19,8 @@ from core.live_strategies import (
 from core.strategy_plugins import MarketSnapshot, StrategyRegistry, StrategySignal
 
 
-def _snap(**meta) -> MarketSnapshot:
-    return MarketSnapshot(metadata=dict(meta))
+def _snap(direction_filter: str = "up", **meta) -> MarketSnapshot:
+    return MarketSnapshot(direction_filter=direction_filter, metadata=dict(meta))
 
 
 # ── Sinyal kararı ───────────────────────────────────────────
@@ -55,6 +55,42 @@ def test_big_drop_buys_up():
     assert sig.direction == "up"
     assert 0.55 <= sig.confidence <= 0.80
     assert "rev↑" in sig.reason
+
+
+# ── rev↓ (pump-fade) — direction_filter='down' ──────────────
+
+
+def test_rev_down_buys_down_on_pump():
+    """direction_filter='down' → rev↓: önceki mum büyük YÜKSELDİ → DOWN al."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="down", prev_window_change_pct=0.40)
+    )
+    assert sig.should_trade is True
+    assert sig.direction == "down"
+    assert "rev↓" in sig.reason
+
+
+def test_rev_down_no_trade_on_drop():
+    """rev↓ modunda önceki mum DÜŞTÜYSE ateşlemez (yükseliş bekler)."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="down", prev_window_change_pct=-0.40)
+    )
+    assert sig.should_trade is False
+
+
+def test_rev_down_small_pump_no_trade():
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="down", prev_window_change_pct=0.10)
+    )
+    assert sig.should_trade is False
+
+
+def test_rev_up_no_trade_on_pump():
+    """rev↑ modunda (up) önceki mum YÜKSELDİYSE ateşlemez."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(direction_filter="up", prev_window_change_pct=0.40)
+    )
+    assert sig.should_trade is False
 
 
 # ── Martingale sizing ───────────────────────────────────────

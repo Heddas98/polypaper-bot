@@ -70,8 +70,8 @@ class RevMartingaleStrategy(BaseStrategy):
     @property
     def description(self) -> str:
         return (
-            "rev↑ mean-reversion (önceki mum büyük düştü → UP al) + "
-            "martingale sizing (kaybedince 2× katla, kazanınca reset)"
+            "rev mean-reversion (rev↑: önceki mum düştü→UP · rev↓: yükseldi→DOWN, "
+            "row.direction'a göre) + martingale sizing (kaybedince 2× katla, reset)"
         )
 
     def evaluate(self, snapshot: MarketSnapshot) -> StrategySignal:
@@ -111,12 +111,26 @@ class RevMartingaleStrategy(BaseStrategy):
             except (TypeError, ValueError):
                 pass
 
-        # rev↑ sinyali: önceki mum eşikten fazla DÜŞTÜ mü? (prev_chg ≤ -rev_thr)
-        if prev_chg > -rev_thr:
-            return StrategySignal(
-                reason=f"rev↑: önceki mum yeterince düşmedi "
-                f"({prev_chg:.3f}% > -{rev_thr}%)"
-            )
+        # Yön: row.direction "down" ise rev↓ (pump-fade), aksi halde rev↑ (dip-buy).
+        # snapshot.direction_filter motorda s.direction.value ile set edilir.
+        # LAB OOS: rev↑ BTC 5m/1h + ETH 5m, rev↓ ETH 15m.
+        rev_down = (snapshot.direction_filter or "up").lower() == "down"
+        if rev_down:
+            # rev↓: önceki mum büyük YÜKSELDİ mi? (prev_chg ≥ +rev_thr → DOWN al)
+            if prev_chg < rev_thr:
+                return StrategySignal(
+                    reason=f"rev↓: önceki mum yeterince yükselmedi "
+                    f"({prev_chg:.3f}% < +{rev_thr}%)"
+                )
+            trade_dir = "down"
+        else:
+            # rev↑: önceki mum büyük DÜŞTÜ mü? (prev_chg ≤ -rev_thr → UP al)
+            if prev_chg > -rev_thr:
+                return StrategySignal(
+                    reason=f"rev↑: önceki mum yeterince düşmedi "
+                    f"({prev_chg:.3f}% > -{rev_thr}%)"
+                )
+            trade_dir = "up"
 
         # ── Martingale sizing ──
         try:
@@ -139,12 +153,14 @@ class RevMartingaleStrategy(BaseStrategy):
         drop = abs(prev_chg)
         confidence = max(0.55, min(0.80, 0.55 + drop * 0.05))
 
+        _lbl = "rev↓ pump-fade" if rev_down else "rev↑ dip-buy"
+        _cmp = "≥ +" if rev_down else "≤ -"
         return StrategySignal(
-            direction="up",
+            direction=trade_dir,
             confidence=round(confidence, 4),
             should_trade=True,
             reason=(
-                f"rev↑ dip-buy: önceki mum {prev_chg:.3f}% (≤ -{rev_thr}%), "
+                f"{_lbl}: önceki mum {prev_chg:.3f}% ({_cmp}{rev_thr}%), "
                 f"martingale L{level} → ${sized:.2f}"
             ),
             metadata={

@@ -1394,8 +1394,20 @@ async def _build_candle_menu(db) -> tuple[str, InlineKeyboardMarkup]:
 # RevMartingaleStrategy plugin'ini tetikler (core/live_strategies.py).
 
 # rev↑ OOS-doğrulanan TF'ler (LAB train/test): BTC 5m + 1h
-_PAPER_ASSETS_TF = [("BTC", "5m"), ("BTC", "1h")]
+# LAB OOS-doğrulanan rev martingale konfigürasyonları (asset, tf, yön):
+#   rev↑ (dip-buy: önceki mum düştü→UP)  — BTC 5m/1h, ETH 5m
+#   rev↓ (pump-fade: önceki mum yükseldi→DOWN) — ETH 15m
+_PAPER_CONFIGS = [
+    ("BTC", "5m", "up"),
+    ("BTC", "1h", "up"),
+    ("ETH", "5m", "up"),
+    ("ETH", "15m", "down"),
+]
 _PAPER_TF_ENUM = {"5m": "M5", "15m": "M15", "1h": "H1"}
+
+
+def _rev_label(direction: str) -> str:
+    return "rev↓" if str(direction).lower() == "down" else "rev↑"
 
 
 def _paper_kb(extra: list | None = None) -> InlineKeyboardMarkup:
@@ -1420,9 +1432,9 @@ async def _resolve_user_wallet(db, telegram_id: int):
 
 
 _PAPER_HEADER = (
-    "🤖 <b>PAPER AUTO-TRADE — rev↑ martingale</b>\n"
-    "<i>LAB'da bulunan tek OOS-edge: önceki mum büyük düştü → UP al "
-    "(dip-buy) + martingale sizing.</i>\n\n"
+    "🤖 <b>PAPER AUTO-TRADE — rev martingale</b>\n"
+    "<i>LAB OOS-edge'leri: rev↑ (önceki mum düştü→UP, dip-buy) + rev↓ "
+    "(önceki mum yükseldi→DOWN, pump-fade) + martingale sizing.</i>\n\n"
     "🟢 <b>SADECE PAPER</b> — gerçek para DEĞİL (LIVE_ENABLED=false).\n\n"
 )
 
@@ -1445,7 +1457,7 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
 
     mart = [s for s in strats if s.strategy_type == "martingale"]
     active_keys = {
-        (s.asset.value, s.timeframe.value): s.id
+        (s.asset.value, s.timeframe.value, s.direction.value): s.id
         for s in mart
         if s.status == StrategyStatus.ACTIVE
     }
@@ -1456,8 +1468,8 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
         for s in mart:
             em = "🟢 aktif" if s.status == StrategyStatus.ACTIVE else "⚫ durduruldu"
             lines.append(
-                f"  • {esc(s.asset.value)} {esc(s.timeframe.value)} "
-                f"({em}) · base ${s.trade_amount:.0f}"
+                f"  • {_rev_label(s.direction.value)} {esc(s.asset.value)} "
+                f"{esc(s.timeframe.value)} ({em}) · base ${s.trade_amount:.0f}"
             )
     else:
         lines.append("\n<i>Henüz paper strateji yok.</i>")
@@ -1471,18 +1483,20 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
     )
 
     rows: list[list[InlineKeyboardButton]] = []
-    for asset, tf in _PAPER_ASSETS_TF:
-        sid = active_keys.get((asset, tf))
+    for asset, tf, direction in _PAPER_CONFIGS:
+        rl = _rev_label(direction)
+        sid = active_keys.get((asset, tf, direction))
         if sid:
             rows.append(
                 [InlineKeyboardButton(
-                    f"⏸ Durdur — {asset} {tf}", callback_data=f"lab_paper_off:{sid}")]
+                    f"⏸ Durdur — {rl} {asset} {tf}",
+                    callback_data=f"lab_paper_off:{sid}")]
             )
         else:
             rows.append(
                 [InlineKeyboardButton(
-                    f"▶️ Paper'da çalıştır — {asset} {tf}",
-                    callback_data=f"lab_paper_on:{asset}:{tf}")]
+                    f"▶️ Çalıştır — {rl} {asset} {tf}",
+                    callback_data=f"lab_paper_on:{asset}:{tf}:{direction}")]
             )
     rows.append(
         [InlineKeyboardButton("🚀 Canlıya Geçiş (hazırlık)", callback_data="lab_live")]
@@ -1491,9 +1505,10 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
 
 
 async def _activate_paper_strategy(
-    db, telegram_id: int, asset: str, tf: str
+    db, telegram_id: int, asset: str, tf: str, direction: str = "up"
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """rev↑ martingale paper stratejisini oluştur/yeniden aktive et."""
+    """rev martingale paper stratejisini oluştur/yeniden aktive et (yön-duyarlı)."""
+    direction = "down" if str(direction).lower() == "down" else "up"
     if asset not in ("BTC", "ETH", "SOL", "XRP") or tf not in _PAPER_TF_ENUM:
         return ("⚠️ Geçersiz market.", _paper_kb())
     user, wallet = await _resolve_user_wallet(db, telegram_id)
@@ -1508,21 +1523,23 @@ async def _activate_paper_strategy(
                 s.strategy_type == "martingale"
                 and s.asset.value == asset
                 and s.timeframe.value == tf
+                and s.direction.value == direction
             ):
                 if s.status != StrategyStatus.ACTIVE:
                     await db.update_strategy_status(s.id, StrategyStatus.ACTIVE)
                 return await _build_paper_strategy(db, telegram_id)
+        _dir_enum = Direction.DOWN if direction == "down" else Direction.UP
         strat = Strategy(
             user_id=user.id,
             wallet_id=wallet.id,
-            label=f"rev↑ martingale {asset} {tf}",
+            label=f"{_rev_label(direction)} martingale {asset} {tf}",
             asset=Asset(asset),
             timeframe=Timeframe[_PAPER_TF_ENUM[tf]],
-            direction=Direction.UP,
+            direction=_dir_enum,
             trade_amount=1.0,            # base bet = $1 (Polymarket min)
             odds_threshold=0.50,         # truthy (0/None motor tarafından reddedilir)
             max_executions_per_event=1,  # market başına 1 trade
-            max_entry_slippage=None,     # SLIP gate kapalı (rev↑ odds-agnostik)
+            max_entry_slippage=None,     # SLIP gate kapalı (rev odds-agnostik)
             strategy_type="martingale",
             status=StrategyStatus.ACTIVE,
         )
@@ -2242,8 +2259,10 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 text, kb = await _build_paper_strategy(db, _tg_id)
             elif data.startswith("lab_paper_on:"):
                 _p = data.split(":")
-                if len(_p) == 3:
-                    text, kb = await _activate_paper_strategy(db, _tg_id, _p[1], _p[2])
+                if len(_p) == 4:  # lab_paper_on:<asset>:<tf>:<dir>
+                    text, kb = await _activate_paper_strategy(
+                        db, _tg_id, _p[1], _p[2], _p[3]
+                    )
                 else:
                     text, kb = "⚠️ Geçersiz parametre.", _main_kb()
             elif data.startswith("lab_paper_off:"):
