@@ -36,7 +36,7 @@
 - **#7** `90a7a18`+`3a664c9` **STRATEJİ YÜZEYİ GİZLENDİ** (Heddas "gizle" seçti, sil DEĞİL): BotCommand menü + /help'ten çıkarıldı (strategies/test_strategy/brain/analyze/canary/promote/demote/experiment_*), /ai menüye eklendi; mode-select "bot 7/24 otomatik trade eder" YALANI düzeltildi; `STRATEGY_SYSTEM_DISABLED` guard (strategies/quick_strategy/builder → "devre dışı → LAB"). Handler'lar dormant. #4 (3 edit mekanizması) + #6 (/paper) buna katlandı.
 - **#9** `194b0b1` backtest giriş "akıllı tam" trim (Heddas seçti): saf shim'ler (/backtest_v2 /bt2 + menu_bt_* + LAB "Eski paneller"/lab_legacy) silindi; **fonksiyonel /backtest_replay + /compare KORUNDU** (LAB butonlarından esnek, herhangi asset/tf). NL "backtest" → /backtest LAB'a yeniden bağlandı.
 - **#8** (ws/daily merge artefaktı, butonlar çalışıyor) = sorun değil, bırakıldı.
-- **YENİ #11 (backlog):** `menu_handler` advanced-help'te ghost komutlar (/markov /capital /breed /vote /whale) hâlâ listeli — ayrı temizlik gerek.
+- **#11 ✅** `48938af` `menu_handler` menu_help ghost komutları (/markov /capital /breed /vote /whale + /cap alias) silindi — kayıtsız komutlardı, kayıtlı komşular korundu.
 - **Entegrasyon:** branch main'den 10 commit geride + paralel LAB işiyle örtüşüyordu (main "Hızlı Test→Stratejilerim" hub birleşimi). main→branch merge (2 conflict: LAB keyboard 6→4 buton + test) çözüldü, ff-merge + push (origin senkron `0 0`). Tercih: yeniden-kullanılabilir kodu sil yerine gizle/koru ([[hide-vs-delete]]).
 
 ---
