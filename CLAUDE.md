@@ -1,7 +1,7 @@
 # Memory — PolyPaper Bot
 
 > Working memory. Her oturum başında okunur. Tam liste için `memory/` klasörü.
-> Son güncelleme: 2026-05-22 (Komut & keyboard haritası denetimi — 10 bulgu kapandı, 8 commit main'e merge+push `4388949`; strateji yüzeyi gizlendi, ölü kod temizlendi).
+> Son güncelleme: 2026-05-22 (Paper auto-trade rev↑ martingale + Adım 4 canlıya-geçiş hazırlık paneli — LAB Candle/Martingale → 🤖 Paper Auto-Trade / 🚀 Canlıya Geçiş. Gerçek canlı trade hâlâ 3 manuel adım gerektirir, otomatik DEĞİL).
 > Audit dosyaları: `docs/audits/2026_05_13_ultra_audit.md` + `docs/audits/2026_05_15_ultra_audit.md` (yeni, 22 bulgu).
 
 ## Me
@@ -26,7 +26,10 @@
 - **Aktivasyon UI**: LAB Candle/Martingale → "🤖 Paper Auto-Trade" → BTC 5m/1h Çalıştır/Durdur → aktif DB satırı (trade_amount=$1 base, max_exec=1, SLIP gate kapalı, odds_threshold=0.50). dispatcher `lab_paper`/`lab_paper_on`/`lab_paper_off` (bot.py `^lab_` yakalıyor).
 - **GÜVENLİK**: LIVE_ENABLED=false → sadece paper; default aktif satır yok = trade yok; restart şart (plugin engine.__init__'te). `STRATEGY_SYSTEM_DISABLED` (strategies.py, paralel iş) bu yolu ETKİLEMEZ — o yalnız eski Telegram strateji KOMUTLARINI gizler, motor loop'unu değil. **DÜRÜST UYARI**: candle backtest sabit $0.50 girişle test etti, canlı paper GERÇEK odds'la girer → paper'da doğrula, abartma.
 - **min-trade (connector araştırması)**: BTC up/down min order = **$1 notional** (`engine.py` MIN_ORDER_USD=1.0; Polymarket docs "$1 minimum order" + per-market `min_order_size` + CLOB pay-adedi min uç odds'ta efektif tabanı yükseltir). Martingale $1→$64 (×6) hepsi minimum üstü.
-- +23 test (live_strategies 13 + paper_autotrade 10), 197 PASS LAB+strategy+engine, 100 PASS phase/metadata/engine, ruff temiz, import OK. **KALAN**: bot restart → paper trade gözlemle/ayarla; Adım 4 (live strateji oluşturucu UI); edge bulucu daha açıklayıcı.
+- +23 test (live_strategies 13 + paper_autotrade 10), 197 PASS LAB+strategy+engine, ruff temiz, import OK.
+- **İstisna resmîleşti ✅** (`d8ce18d`, Heddas "istisna yap aynen"): mode-select + `STRATEGY_SYSTEM_DISABLED` belgelendi — paper rev↑ martingale, gizlenen eski sisteme TEK onaylı opt-in istisna (guard yalnız eski KOMUT yüzeyini gizler, motor loop'unu değil).
+- **Edge bulucu açıklayıcı ✅** (`aa93890`, Heddas "edge bulucu daha açıklayıcı yap"): 3 edge panelinde (Edge Tarama/Akıllı Edge/rev↑ Koşul) ortak `_EDGE_LEGEND` — tr=eğitim PnL, te=TEST PnL (asıl önemli), WR/t + train/test mantığı düz dille + ✅/⚠️/boş yorumu. Edge Tarama yön gloss + Akıllı Edge "sinyal adı kuralı gösterir" notu. +1 test.
+- **Adım 4 — Canlıya Geçiş hazırlık paneli ✅** (`a85b9f3`, Heddas "adım4'ü yap" + seçim GÜVENLİ sınır): `core/live_strategies.py` `live_readiness` (≥100 paper trade + WR≥%60 + PnL>0, live_trader.py:147 doktrini) + canlı aday store (`data_store/live_candidates.json`, yalnız NİYET — `maybe_mirror` OKUMAZ). LAB "🚀 Canlıya Geçiş" paneli (Paper Auto-Trade'den): paper track-record + readiness (🟢/🔴 her kriter) + hazırsa "Canlı Aday Yap" (server-side re-validate) + go-live 3-manuel-adım uyarısı. **maybe_mirror (real-money gate) DEĞİŞMEDİ** — gerçek canlı trade hâlâ LIVE_STRATEGIES whitelist + LIVE_ENABLED + 2-tık toggle gerektirir. +12 test, 151 PASS LAB+strategy+mode. **KALAN**: bot restart → paper rev↑ trade biriktir (100+) → readiness yeşilse Heddas manuel canlıya alır (3 adım).
 
 **PERFORMANS / SESSİZ MOD** (2026-05-22) — Heddas: "bot fanları neden çalıştırıyor, sessizce çalışsın, performans kaybetmeden". **Ölçüm-önce** yaklaşımı (Heddas "önce ölç" dedi):
 - **Teşhis** (py-spy + canlı DB): bot ~1.4 çekirdek (CPU %138, 33 thread). py-spy 30s/5107 örnek: **CPU'nun %77'si SQLite yazma** (aiosqlite thread, `core.py:115` tek başına %72.5). Binance/RTDS/json <%1 — ilk "Binance firehose" tahmini **ölçümle çürüdü**. Kök neden: WS per-mesaj INSERT+commit + 6.2GB şişmiş DB + bozuk recorder.
