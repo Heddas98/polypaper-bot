@@ -252,6 +252,16 @@ def test_entry_window_blocks_late():
     assert "pencere" in late.reason
 
 
+def test_default_window_allows_midmarket():
+    """2026-05-22 FIX: varsayılan pencere 0.90 — motor market ortasında
+    (time_pct 0.7) değerlendirse bile bloklamaz (eskiden 0.30 her şeyi
+    blokluyordu, hiç trade yoktu)."""
+    sig = RevMartingaleStrategy().evaluate(
+        _snap(prev_window_change_pct=-0.40, time_pct=0.7, base_amount=1.0)
+    )
+    assert sig.should_trade is True  # 0.7 < 0.90 → geçer
+
+
 # ── Config override (strategy_params → metadata) ────────────
 
 

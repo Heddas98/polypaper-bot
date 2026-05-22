@@ -38,7 +38,12 @@ logger = logging.getLogger("polypaper.core.live_strategies")
 # Varsayılanlar — LAB rev↑ araştırmasıyla hizalı (CLAUDE.md "rev↑ edge").
 DEFAULT_REV_THRESHOLD_PCT = 0.15   # önceki mum ≤ -%0.15 → "büyük düşüş"
 DEFAULT_MAX_LEVELS = 6             # martingale tavan (base × 2^6 = 64×)
-DEFAULT_ENTRY_MAX_TIME_PCT = 0.30  # market'in ilk %30'unda gir (geç girme)
+# 2026-05-22 FIX: 0.30 idi → motor market'leri ZATEN ilerlemişken (time_pct
+# 0.4-0.7) değerlendiriyor (açılışta değil), bu yüzden %30 penceresi HER ŞEYİ
+# blokluyordu (210 SIG_WEAK/cycle, hiç trade yok). rev edge'i SETTLE-YÖNÜ
+# bazlı (önceki muma bağlı) → giriş zamanı edge'i değiştirmez. 0.90 = son
+# %10 hariç (settle anı) her an gir → stratejiler artık trade eder.
+DEFAULT_ENTRY_MAX_TIME_PCT = 0.90
 
 
 class RevMartingaleStrategy(BaseStrategy):
