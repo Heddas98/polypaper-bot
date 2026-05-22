@@ -42,18 +42,25 @@ async def _deny_callback(update: Update) -> None:
         await q.answer("⛔ Admin only", show_alert=True)
 
 
-# 2026-05-22 (Heddas #7 "gizle"): strateji sistemi devre disi. Plugin
-# registry bos (2026-05-21), bot auto-trade etmiyor → burada strateji
-# olusturmak/calistirmak ise yaramaz. Guard kullanici-dostu uyari gosterir
-# + erken doner. Yeniden acmak: STRATEGY_SYSTEM_DISABLED=False + registry doldur.
+# 2026-05-22 (Heddas #7 "gizle"): ESKI strateji sistemi devre disi. Eski hazir
+# plugin'ler kaldirildi (2026-05-21); bu eski Telegram strateji KOMUTLARI
+# (strategies/quick_strategy/builder) ise yaramaz → guard kullanici-dostu uyari
+# gosterir + erken doner.
+# ISTISNA (Heddas 2026-05-22 "istisna yap aynen"): LAB → Candle/Martingale →
+# 🤖 Paper Auto-Trade rev↑ martingale, SANCTIONED paper auto-trade yoludur
+# (core/live_strategies.py plugin + DB satiri). Bu guard'dan BAGIMSIZ calisir —
+# guard yalniz eski komut yuzeyini gizler, motor loop'unu degil.
+# Eski sistemi geri acmak: STRATEGY_SYSTEM_DISABLED=False + registry doldur.
 STRATEGY_SYSTEM_DISABLED = True
 
 _STRATEGY_DISABLED_MSG = (
-    "🚫 <b>Strateji sistemi devre dışı</b>\n\n"
-    "Hazır strateji plugin'leri kaldırıldı (hiçbiri kâr etmedi) ve bot "
-    "otomatik trade etmiyor. Burada strateji oluşturmak/çalıştırmak işe yaramaz.\n\n"
+    "🚫 <b>Eski strateji sistemi devre dışı</b>\n\n"
+    "Hazır strateji plugin'leri kaldırıldı (hiçbiri kâr etmedi). Bu eski "
+    "komutlar artık iş yapmaz.\n\n"
     "✅ Bunun yerine:\n"
     "• <b>/backtest</b> → 🛠 Strateji Kurucu — kendi kuralını yaz + test et\n"
+    "• <b>/backtest</b> → 🎲 Candle/Martingale → 🤖 <b>Paper Auto-Trade</b> — "
+    "rev↑ martingale'i paper'da otomatik çalıştır (opt-in)\n"
     "• <b>/buy</b> · <b>/sell</b> — manuel mainnet trade\n"
     "• <b>/live</b> — trade istasyonu"
 )
