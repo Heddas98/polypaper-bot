@@ -456,70 +456,12 @@ class TestExperimentRunner:
 
 
 # ═══════════════════════════════════════
-# BONDING YIELD STRATEGY TESTS (Phase 76)
+# BONDING YIELD STRATEGY TESTS (Phase 76) — SİLİNDİ 2026-05-22
+# RADİKAL strateji temizliği (2026-05-21): bonding_yield + tüm hazır
+# stratejiler core/strategy_plugins.py bone-thin yapılırken silindi.
+# StrategyRegistry artık boş (0 plugin); TestBondingYield testleri stale
+# kaldı (registry-has-11 + evaluate("bonding_yield") no-signal) ve kaldırıldı.
 # ═══════════════════════════════════════
-
-
-class TestBondingYield:
-    def test_qualifying_trade(self):
-        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
-
-        reg = StrategyRegistry()
-        snap = MarketSnapshot(
-            up_odds=0.95, down_odds=0.05, spread=0.01, minutes_remaining=2.0, total_minutes=5.0
-        )
-        sig = reg.evaluate("bonding_yield", snap)
-        assert sig.should_trade
-        assert sig.direction == "up"
-        assert sig.confidence > 0.9
-
-    def test_non_qualifying(self):
-        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
-
-        reg = StrategyRegistry()
-        snap = MarketSnapshot(
-            up_odds=0.60, down_odds=0.40, spread=0.02, minutes_remaining=2.0, total_minutes=5.0
-        )
-        sig = reg.evaluate("bonding_yield", snap)
-        assert not sig.should_trade
-
-    def test_spread_too_wide(self):
-        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
-
-        reg = StrategyRegistry()
-        # 95c contract with 5c spread → yield is ~3%, spread is too wide
-        snap = MarketSnapshot(
-            up_odds=0.95, down_odds=0.05, spread=0.05, minutes_remaining=2.0, total_minutes=5.0
-        )
-        sig = reg.evaluate("bonding_yield", snap)
-        assert not sig.should_trade
-        assert "spread" in sig.reason.lower()
-
-    def test_down_direction(self):
-        from core.strategy_plugins import MarketSnapshot, StrategyRegistry
-
-        reg = StrategyRegistry()
-        snap = MarketSnapshot(
-            up_odds=0.05, down_odds=0.95, spread=0.01, minutes_remaining=2.0, total_minutes=5.0
-        )
-        sig = reg.evaluate("bonding_yield", snap)
-        assert sig.should_trade
-        assert sig.direction == "down"
-
-    def test_registry_has_11_strategies(self):
-        from core.strategy_plugins import StrategyRegistry
-
-        reg = StrategyRegistry()
-        assert len(reg.names) >= 11
-        assert "bonding_yield" in reg.names
-
-    def test_configurable(self):
-        from core.strategy_plugins import StrategyRegistry
-
-        reg = StrategyRegistry()
-        assert "bonding_yield" in reg.CONFIGURABLE
-        cfg = reg.get_config("bonding_yield")
-        assert "MIN_PRICE" in cfg
 
 
 # ═══════════════════════════════════════
