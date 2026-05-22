@@ -671,6 +671,12 @@ class EngineSignalsMixin:
                                 plugin_meta[_k] = _pp[_k]
                 except (json.JSONDecodeError, TypeError, ValueError, AttributeError, KeyError):
                     pass
+            elif stype == "rule_based":
+                # LAB rule_based: plugin ruleset'i strateji label'ından yükler;
+                # tick alanları (up_best_ask, time_pct, hour_utc...) zaten
+                # section 1-6'da plugin_meta'ya enjekte. coin map için lazım.
+                plugin_meta["ruleset_name"] = getattr(s, "label", None)
+                plugin_meta["coin"] = _asset_up
 
             # 8. RISK STATE (engine-wide)
             try:
@@ -1405,7 +1411,7 @@ class EngineSignalsMixin:
         if _lc and _lc.kelly_enabled is not None:
             _kelly_on = _lc.kelly_enabled
         kelly = {}
-        if _kelly_on and stype not in ("martingale",):
+        if _kelly_on and stype not in ("martingale", "rule_based"):
             try:
                 _current_regime = getattr(self, "regime_classifier", None)
                 _regime_str = _current_regime.regime if _current_regime else "ranging"
@@ -1482,7 +1488,7 @@ class EngineSignalsMixin:
 
         # Conviction-based sizing
         _conv_enabled = os.getenv("CONVICTION_ENABLED", "true").lower() == "true"
-        if _conv_enabled and stype not in ("martingale",):
+        if _conv_enabled and stype not in ("martingale", "rule_based"):
             try:
                 _sig_norm = min(max(signal_score, 0.0), 1.0)
                 _conf_map = {"low": 0.5, "medium": 0.75, "high": 1.0}

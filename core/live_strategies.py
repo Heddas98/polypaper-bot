@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from core.strategy_plugins import BaseStrategy, MarketSnapshot, StrategySignal
 
@@ -268,3 +270,120 @@ def live_readiness(completed: int, wins: int, losses: int, pnl: float) -> dict:
     ]
     missing = [name for name, ok, _ in checks if not ok]
     return {"ready": not missing, "wr": round(wr, 1), "checks": checks, "missing": missing}
+
+
+# ─── RuleBasedLiveStrategy — tick rule_based paper port (2026-05-22) ───
+# Heddas: LAB Strateji Kurucu'daki rule_based ruleset'lerini paper auto-trade'e
+# bağla. RuleSet koşulları (elapsed_seconds, up_best_ask, hour_utc...) motor
+# MarketSnapshot.metadata'sına EŞLENİR; eval LOGİĞİ backtest `_eval_entry_block`
+# ile AYNI (operator/AND-OR birebir → faithful). strategy_type="rule_based",
+# label=ruleset adı (plugin onunla yükler).
+# DÜRÜST UYARI: tick backtest ob_snapshots TINY-sample → düşük güven; ayrıca
+# canlı metadata ↔ backtest snapshot alan eşlemesi (units) birebir olmayabilir
+# → paper'da doğrula, abartma.
+
+_RS_NAME_RX = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+_RULESET_DIR = Path("data_store/bt_strategies")
+
+
+def _load_ruleset_json(name: str, dir_path: Path | None = None) -> dict | None:
+    """rule_based ruleset'i JSON dosyasından yükle (path-güvenli, name regex)."""
+    if not name or not _RS_NAME_RX.match(name):
+        return None
+    p = (dir_path or _RULESET_DIR) / f"{name}.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _engine_meta_to_ns(snapshot: MarketSnapshot) -> SimpleNamespace:
+    """Motor MarketSnapshot+metadata → rule_based alanlı SimpleNamespace.
+
+    backtest OrderbookSnapshot/MarketData alan adlarıyla birebir (eval reuse).
+    Eksik alan → makul default (defansif; koşul False'a düşer).
+    """
+    m = snapshot.metadata or {}
+
+    def _f(v, d: float = 0.0) -> float:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return d
+
+    total_min = _f(snapshot.total_minutes, 5.0) or 5.0
+    rem = _f(snapshot.minutes_remaining, 0.0)
+    up_ask = _f(m.get("up_best_ask"), _f(snapshot.best_ask, 0.5))
+    up_bid = _f(m.get("up_best_bid"), _f(snapshot.best_bid, 0.5))
+    return SimpleNamespace(
+        up_best_ask=up_ask,
+        up_best_bid=up_bid,
+        down_best_ask=_f(m.get("down_best_ask"), round(1.0 - up_bid, 4)),
+        down_best_bid=_f(m.get("down_best_bid"), round(1.0 - up_ask, 4)),
+        spread=_f(m.get("up_spread"), _f(snapshot.spread, 0.0)),
+        binance_price=_f(m.get("binance_mid"), _f(m.get("asset_spot_price"), 0.0)),
+        binance_price_change=_f(
+            m.get("asset_price_change"), _f(m.get("btc_price_change"), 0.0)
+        ),
+        up_bid_depth=_f(m.get("up_bid_depth")),
+        up_ask_depth=_f(m.get("up_ask_depth")),
+        down_bid_depth=_f(m.get("down_bid_depth")),
+        down_ask_depth=_f(m.get("down_ask_depth")),
+        elapsed_seconds=max(0.0, (total_min - rem) * 60.0),
+        remaining_seconds=rem * 60.0,
+        elapsed_pct=_f(m.get("time_pct"), 0.0),  # 0..1 (backtest ile aynı)
+        coin=str(m.get("coin", "BTC")),
+        market_type=str(snapshot.timeframe or "5m"),
+        hour_utc=int(_f(m.get("hour_utc"), 0)),
+    )
+
+
+class RuleBasedLiveStrategy(BaseStrategy):
+    """LAB rule_based ruleset'ini canlı motorda değerlendirir (paper port)."""
+
+    origin = "core"
+
+    @property
+    def name(self) -> str:
+        return "rule_based"
+
+    @property
+    def description(self) -> str:
+        return "LAB Strateji Kurucu rule_based ruleset (tick → paper port)"
+
+    def evaluate(self, snapshot: MarketSnapshot) -> StrategySignal:
+        meta = snapshot.metadata or {}
+        rs_name = meta.get("ruleset_name")
+        if not rs_name:
+            return StrategySignal(reason="rule_based: ruleset_name (label) yok")
+        ruleset = _load_ruleset_json(str(rs_name))
+        if not ruleset:
+            return StrategySignal(reason=f"rule_based: '{rs_name}' yüklenemedi")
+        entry = ruleset.get("entry") or {}
+        try:
+            # backtest eval logiği AYNI → operator/AND-OR birebir (faithful)
+            from backtest.strategies.rule_based import _eval_entry_block
+
+            ns = _engine_meta_to_ns(snapshot)
+            fired = _eval_entry_block(entry, ns, None)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("rule_based live eval err: %s", e)
+            return StrategySignal(reason="rule_based: eval hatası")
+        if not fired:
+            return StrategySignal(reason=f"rule_based '{rs_name}': koşullar sağlanmadı")
+        direction = (
+            "down" if str(ruleset.get("direction", "up")).lower() == "down" else "up"
+        )
+        try:
+            conf = max(0.5, min(0.85, float(ruleset.get("confidence", 0.7))))
+        except (TypeError, ValueError):
+            conf = 0.7
+        return StrategySignal(
+            direction=direction,
+            confidence=round(conf, 4),
+            should_trade=True,
+            reason=f"rule_based '{rs_name}': koşullar sağlandı → {direction.upper()}",
+        )

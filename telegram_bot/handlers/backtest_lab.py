@@ -406,6 +406,15 @@ async def _build_show_ruleset(name: str) -> tuple[str, InlineKeyboardMarkup]:
             InlineKeyboardButton("🟠 BTC 1h", callback_data=f"lab_bt:{name}:BTC:1h"),
             InlineKeyboardButton("🔵 ETH 15m", callback_data=f"lab_bt:{name}:ETH:15m"),
         ],
+        # 🤖 Paper auto-trade'e ekle (rule_based live port) — bot'un taradığı market
+        [
+            InlineKeyboardButton(
+                "🤖 Paper BTC 5m", callback_data=f"lab_rbpaper:{name}:BTC:5m"),
+            InlineKeyboardButton(
+                "🤖 BTC 15m", callback_data=f"lab_rbpaper:{name}:BTC:15m"),
+            InlineKeyboardButton(
+                "🤖 ETH 15m", callback_data=f"lab_rbpaper:{name}:ETH:15m"),
+        ],
         [InlineKeyboardButton("🗑 Sil", callback_data=f"lab_del_ask:{name}")],
         [InlineKeyboardButton("◀️ Kurucu", callback_data="lab_builder")],
     ]
@@ -1497,12 +1506,18 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
         logger.exception("paper list failed: %s", e)
         return (_PAPER_HEADER + "⚠️ Strateji listesi alınamadı.", _paper_kb())
 
-    mart = [s for s in strats if s.strategy_type == "martingale"]
+    paper_strats = [
+        s for s in strats if s.strategy_type in ("martingale", "rule_based")
+    ]
     active_keys = {
         (s.asset.value, s.timeframe.value, _dir_to_mode(s.direction.value)): s.id
-        for s in mart
-        if s.status == StrategyStatus.ACTIVE
+        for s in paper_strats
+        if s.strategy_type == "martingale" and s.status == StrategyStatus.ACTIVE
     }
+    rb_active = [
+        s for s in paper_strats
+        if s.strategy_type == "rule_based" and s.status == StrategyStatus.ACTIVE
+    ]
     # Per-strateji statlar (executions: trade/WR/PnL) — Heddas "statlar olsun"
     stats_map: dict = {}
     try:
@@ -1512,19 +1527,21 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
         logger.debug("paper stats map: %s", e)
 
     lines = [_PAPER_HEADER.rstrip()]
-    if mart:
+    if paper_strats:
         _tot_pnl = sum(
-            float((stats_map.get(s.id) or {}).get("realized_pnl", 0) or 0) for s in mart
+            float((stats_map.get(s.id) or {}).get("realized_pnl", 0) or 0)
+            for s in paper_strats
         )
         _tot_tr = sum(
-            int((stats_map.get(s.id) or {}).get("completed", 0) or 0) for s in mart
+            int((stats_map.get(s.id) or {}).get("completed", 0) or 0)
+            for s in paper_strats
         )
         _te = "🟢" if _tot_pnl > 0 else "🔴" if _tot_pnl < 0 else "⚪"
         lines.append(
             f"\n<b>📊 Toplam paper:</b> {_tot_tr} trade · {_te} ${_tot_pnl:+.2f}"
         )
         lines.append("\n<b>Stratejilerin (performans):</b>")
-        for s in mart:
+        for s in paper_strats:
             em = "🟢" if s.status == StrategyStatus.ACTIVE else "⚫"
             st = stats_map.get(s.id) or {}
             comp = int(st.get("completed", 0) or 0)
@@ -1535,21 +1552,28 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
             wr = (w / (w + ls) * 100.0) if (w + ls) > 0 else 0.0
             pe = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
             _open = f" · {opn} açık" if opn else ""
+            if s.strategy_type == "rule_based":
+                _disp = f"📋 {esc(s.label or '?')}"
+            else:
+                _disp = _rev_label(_dir_to_mode(s.direction.value))
             lines.append(
-                f"  {em} {_rev_label(_dir_to_mode(s.direction.value))} "
-                f"{esc(s.asset.value)} {esc(s.timeframe.value)} · base "
-                f"${s.trade_amount:.0f}\n"
+                f"  {em} {_disp} {esc(s.asset.value)} {esc(s.timeframe.value)} · "
+                f"base ${s.trade_amount:.0f}\n"
                 f"      {pe} {comp} trade · WR %{wr:.0f} · PnL ${pnl:+.2f}{_open}"
             )
     else:
         lines.append("\n<i>Henüz paper strateji yok.</i>")
     lines.append(
         "\n⚠️ <i>Açtıktan sonra bot'u <b>start.bat</b> ile YENİDEN BAŞLAT — "
-        "motor yeni stratejiyi + rev↑ plugin'ini restart sonrası yükler.</i>"
+        "motor yeni stratejiyi + plugin'leri restart sonrası yükler.</i>"
     )
     lines.append(
         "<i>Candle backtest sabit $0.50 girişle test etti; canlı paper "
         "gerçek odds'la girer → sonucu paper'da gözlemle, abartma.</i>"
+    )
+    lines.append(
+        "<i>📋 rule_based (tick) stratejilerini LAB → 🛠 Stratejilerim → "
+        "strateji detayı → 'Paper'da çalıştır' ile ekle.</i>"
     )
 
     rows: list[list[InlineKeyboardButton]] = []
@@ -1568,6 +1592,13 @@ async def _build_paper_strategy(db, telegram_id: int) -> tuple[str, InlineKeyboa
                     f"▶️ Çalıştır — {rl} {asset} {tf}",
                     callback_data=f"lab_paper_on:{asset}:{tf}:{mode}")]
             )
+    # rule_based paper stratejileri (Strateji Kurucu'dan eklenir) — durdur butonu
+    for s in rb_active:
+        rows.append(
+            [InlineKeyboardButton(
+                (f"⏸ Durdur — 📋 {s.label} {s.asset.value} {s.timeframe.value}")[:60],
+                callback_data=f"lab_paper_off:{s.id}")]
+        )
     rows.append(
         [InlineKeyboardButton("🚀 Canlıya Geçiş (hazırlık)", callback_data="lab_live")]
     )
@@ -1636,6 +1667,71 @@ async def _activate_paper_strategy(
     return await _build_paper_strategy(db, telegram_id)
 
 
+async def _activate_rulebased_paper(
+    db, telegram_id: int, name: str, asset: str, tf: str
+) -> tuple[str, InlineKeyboardMarkup]:
+    """LAB rule_based ruleset'ini paper auto-trade'e ekle (strategy_type=rule_based,
+    label=ruleset adı → RuleBasedLiveStrategy onunla yükler)."""
+    from backtest.strategies.rule_based import _NAME_RX, list_rulesets
+
+    if (
+        not _NAME_RX.match(name or "")
+        or asset not in ("BTC", "ETH", "SOL", "XRP")
+        or tf not in _PAPER_TF_ENUM
+    ):
+        return ("⚠️ Geçersiz parametre.", _paper_kb())
+    if not _is_tradeable(asset, tf):
+        return (
+            f"⚠️ Bot <b>{esc(asset)} {esc(tf)}</b> taramıyor (discovery matrix) "
+            "— strateji ölü olurdu, eklenmedi.",
+            _paper_kb(),
+        )
+    user, wallet = await _resolve_user_wallet(db, telegram_id)
+    if not user or not wallet:
+        return (_PAPER_HEADER + "⚠️ Kullanıcı/cüzdan yok. Önce /start.", _paper_kb())
+    try:
+        rs = next((r for r in list_rulesets() if r.get("name") == name), None)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("rulebased load: %s", e)
+        rs = None
+    if rs is None:
+        return (f"⚠️ Ruleset bulunamadı: <code>{esc(name)}</code>", _paper_kb())
+    direction = "down" if str(rs.get("direction", "up")).lower() == "down" else "up"
+    try:
+        from db.models import Asset, Direction, Strategy, StrategyStatus, Timeframe
+
+        for s in await db.get_strategies_by_user(user.id, wallet.id):
+            if (
+                s.strategy_type == "rule_based"
+                and s.label == name
+                and s.asset.value == asset
+                and s.timeframe.value == tf
+            ):
+                if s.status != StrategyStatus.ACTIVE:
+                    await db.update_strategy_status(s.id, StrategyStatus.ACTIVE)
+                return await _build_paper_strategy(db, telegram_id)
+        strat = Strategy(
+            user_id=user.id,
+            wallet_id=wallet.id,
+            label=name,  # = ruleset adı (plugin label ile yükler)
+            asset=Asset(asset),
+            timeframe=Timeframe[_PAPER_TF_ENUM[tf]],
+            direction=Direction.DOWN if direction == "down" else Direction.UP,
+            trade_amount=1.0,
+            odds_threshold=0.50,
+            max_executions_per_event=1,
+            max_entry_slippage=None,
+            strategy_type="rule_based",
+            status=StrategyStatus.ACTIVE,
+        )
+        await db.create_strategy(strat)
+        await db.update_strategy_status(strat.id, StrategyStatus.ACTIVE)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rulebased paper activate failed: %s", e)
+        return (_PAPER_HEADER + "⚠️ Strateji oluşturulamadı.", _paper_kb())
+    return await _build_paper_strategy(db, telegram_id)
+
+
 async def _stop_paper_strategy(
     db, telegram_id: int, sid: str
 ) -> tuple[str, InlineKeyboardMarkup]:
@@ -1646,8 +1742,8 @@ async def _stop_paper_strategy(
         from db.models import StrategyStatus
 
         s = await db.get_strategy(sid)
-        # Yalnız bizim martingale stratejilerini durdur (yanlış sid koruması)
-        if s and s.strategy_type == "martingale":
+        # Yalnız bizim paper stratejilerini durdur (yanlış sid koruması)
+        if s and s.strategy_type in ("martingale", "rule_based"):
             await db.update_strategy_status(sid, StrategyStatus.STOPPED)
     except Exception as e:  # noqa: BLE001
         logger.exception("paper stop failed: %s", e)
@@ -2337,6 +2433,7 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
         or data.startswith(("lab_paper_on:", "lab_paper_off:"))
         or data == "lab_live"
         or data.startswith("lab_live_cand:")
+        or data.startswith("lab_rbpaper:")
     ):
         try:
             if data == "lab_paper":
@@ -2354,9 +2451,17 @@ async def backtest_lab_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 text, kb = await _stop_paper_strategy(db, _tg_id, _sid)
             elif data == "lab_live":
                 text, kb = await _build_live_promote(db, _tg_id)
-            else:  # lab_live_cand:<sid>
+            elif data.startswith("lab_live_cand:"):
                 _sid = data.split(":", 1)[1]
                 text, kb = await _mark_live_candidate_action(db, _tg_id, _sid)
+            else:  # lab_rbpaper:<name>:<asset>:<tf>
+                _p = data.split(":")
+                if len(_p) == 4:
+                    text, kb = await _activate_rulebased_paper(
+                        db, _tg_id, _p[1], _p[2], _p[3]
+                    )
+                else:
+                    text, kb = "⚠️ Geçersiz parametre.", _main_kb()
             await _safe_edit(q, text, kb)
         except Exception as e:  # noqa: BLE001
             logger.exception("lab_paper/live dispatch failed: %s", e)

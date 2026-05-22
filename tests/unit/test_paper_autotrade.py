@@ -189,6 +189,54 @@ async def test_activate_hv_distinct_from_rev_up():
     assert len(db.created) == 2
 
 
+# ── rule_based paper port (tick → paper) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_activate_rulebased_paper(monkeypatch):
+    """LAB rule_based ruleset → strategy_type=rule_based, label=ruleset adı."""
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _activate_rulebased_paper
+
+    monkeypatch.setattr(
+        rb, "list_rulesets",
+        lambda *a, **k: [{"name": "my_rs", "direction": "up",
+                          "entry": {"conditions": [{"field": "x", "op": ">=", "value": 1}]}}],
+    )
+    db = _FakeDB()
+    await _activate_rulebased_paper(db, 123, "my_rs", "BTC", "5m")
+    assert len(db.created) == 1
+    s = db.created[0]
+    assert s.strategy_type == "rule_based"
+    assert s.label == "my_rs"      # plugin label ile yükler
+    assert s.asset == Asset.BTC
+    assert s.timeframe == Timeframe.M5
+    assert s.direction == Direction.UP
+
+
+@pytest.mark.asyncio
+async def test_activate_rulebased_untradeable():
+    """ETH 5m (bot taramıyor) → rule_based de eklenmez."""
+    from telegram_bot.handlers.backtest_lab import _activate_rulebased_paper
+
+    db = _FakeDB()
+    text, kb = await _activate_rulebased_paper(db, 123, "my_rs", "ETH", "5m")
+    assert "taramıyor" in text
+    assert db.created == []
+
+
+@pytest.mark.asyncio
+async def test_activate_rulebased_unknown_ruleset(monkeypatch):
+    import backtest.strategies.rule_based as rb
+    from telegram_bot.handlers.backtest_lab import _activate_rulebased_paper
+
+    monkeypatch.setattr(rb, "list_rulesets", lambda *a, **k: [])
+    db = _FakeDB()
+    text, kb = await _activate_rulebased_paper(db, 123, "missing_rs", "BTC", "5m")
+    assert "bulunamadı" in text
+    assert db.created == []
+
+
 @pytest.mark.asyncio
 async def test_activate_reactivates_existing_no_duplicate():
     db = _FakeDB()

@@ -135,11 +135,15 @@ class TradingEngine(
         # yoksa motor onu hiç değerlendirmez (trade YOK). LIVE_ENABLED=false
         # iken zaten yalnız paper. Bare StrategyRegistry() (testlerde) boş kalır.
         try:
-            from core.live_strategies import RevMartingaleStrategy
+            from core.live_strategies import (
+                RevMartingaleStrategy,
+                RuleBasedLiveStrategy,
+            )
 
-            self.plugins.register(RevMartingaleStrategy())
+            self.plugins.register(RevMartingaleStrategy())  # rev↑/rev↓/highvol
+            self.plugins.register(RuleBasedLiveStrategy())  # LAB rule_based port
         except Exception as _rme:  # noqa: BLE001
-            logger.warning("RevMartingaleStrategy register edilemedi: %s", _rme)
+            logger.warning("live strateji register edilemedi: %s", _rme)
         self.optimizer = AutoOptimizer(db)
         # Phase 74b: Per-strategy adaptive parameter learning
         from core.strategy_lifecycle import StrategyLifecycle

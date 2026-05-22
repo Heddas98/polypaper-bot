@@ -133,6 +133,73 @@ def test_highvol_rev_missing_vol_data_no_trade():
     assert sig.should_trade is False
 
 
+# ── RuleBasedLiveStrategy (tick rule_based paper port) ──────
+
+
+def test_rulebased_no_name_no_trade():
+    from core.live_strategies import RuleBasedLiveStrategy
+
+    sig = RuleBasedLiveStrategy().evaluate(MarketSnapshot(metadata={}))
+    assert sig.should_trade is False
+
+
+def test_rulebased_unknown_ruleset_no_trade(monkeypatch):
+    import core.live_strategies as ls
+
+    monkeypatch.setattr(ls, "_load_ruleset_json", lambda n: None)
+    sig = ls.RuleBasedLiveStrategy().evaluate(
+        MarketSnapshot(metadata={"ruleset_name": "nope"})
+    )
+    assert sig.should_trade is False
+
+
+def test_rulebased_fires_when_conditions_met(monkeypatch):
+    """Koşul sağlanınca ruleset.direction yönünde trade (gerçek eval reuse)."""
+    import core.live_strategies as ls
+
+    rs = {
+        "direction": "up", "confidence": 0.7,
+        "entry": {"logic": "AND",
+                  "conditions": [{"field": "up_best_ask", "op": ">=", "value": 0.55}]},
+    }
+    monkeypatch.setattr(ls, "_load_ruleset_json", lambda n: rs)
+    snap = MarketSnapshot(metadata={"ruleset_name": "x", "up_best_ask": 0.60})
+    sig = ls.RuleBasedLiveStrategy().evaluate(snap)
+    assert sig.should_trade is True
+    assert sig.direction == "up"
+    assert "rule_based" in sig.reason
+
+
+def test_rulebased_no_fire_when_conditions_unmet(monkeypatch):
+    import core.live_strategies as ls
+
+    rs = {
+        "direction": "up",
+        "entry": {"logic": "AND",
+                  "conditions": [{"field": "up_best_ask", "op": ">=", "value": 0.55}]},
+    }
+    monkeypatch.setattr(ls, "_load_ruleset_json", lambda n: rs)
+    snap = MarketSnapshot(metadata={"ruleset_name": "x", "up_best_ask": 0.40})
+    assert ls.RuleBasedLiveStrategy().evaluate(snap).should_trade is False
+
+
+def test_engine_meta_to_ns_mapping():
+    """Motor metadata → backtest alan adları (elapsed_seconds/up_best_ask/...)."""
+    from core.live_strategies import _engine_meta_to_ns
+
+    snap = MarketSnapshot(
+        total_minutes=5.0, minutes_remaining=4.0,
+        metadata={"up_best_ask": 0.6, "up_best_bid": 0.58, "time_pct": 0.2,
+                  "hour_utc": 14, "up_spread": 0.02},
+    )
+    ns = _engine_meta_to_ns(snap)
+    assert ns.elapsed_seconds == 60.0   # (5-4)*60
+    assert ns.up_best_ask == 0.6
+    assert ns.elapsed_pct == 0.2        # 0..1 (backtest ile aynı)
+    assert ns.hour_utc == 14
+    assert ns.spread == 0.02
+
+
 # ── Martingale sizing ───────────────────────────────────────
 
 
