@@ -307,21 +307,30 @@ async def db_retention_job(
         f"odds_history>{odds_days}d",
     )
 
-    # 4) candles_poly — close_ts TEXT (ISO)
-    cutoff_iso = _iso_cutoff(candles_poly_days)
+    # 4) candles_poly — open_ts INTEGER epoch (NOT close_ts/ISO).
+    # 2026-05-23 fix: the column is open_ts (close_ts never existed → the old
+    # query failed silently and pruned nothing). It is a numeric epoch, so an
+    # ISO-text cutoff would also be wrong: in SQLite INTEGER always sorts
+    # before TEXT, so `open_ts < '<iso>'` matches EVERY row → would wipe the
+    # table. candles_poly holds epoch SECONDS (live time.time() path) plus
+    # legacy epoch-MS rows; candles_ext is uniformly MS. Normalize open_ts to
+    # ms (>10e9 ⇒ already ms, else ×1000 — same boundary as candle_runner.py)
+    # and compare against a numeric ms cutoff.
+    cutoff_ms = _ms_cutoff(candles_poly_days)
+    candle_age_ms = "(CASE WHEN open_ts > 10000000000 THEN open_ts ELSE open_ts * 1000 END)"
     summary["candles_poly"] = await action(
         db,
         "candles_poly",
-        f"close_ts < '{cutoff_iso}'",
+        f"{candle_age_ms} < {cutoff_ms}",
         f"candles_poly>{candles_poly_days}d",
     )
 
-    # 5) candles_ext — close_ts TEXT (ISO)
-    cutoff_iso = _iso_cutoff(candles_ext_days)
+    # 5) candles_ext — open_ts INTEGER epoch ms (Binance kline open time).
+    cutoff_ms = _ms_cutoff(candles_ext_days)
     summary["candles_ext"] = await action(
         db,
         "candles_ext",
-        f"close_ts < '{cutoff_iso}'",
+        f"{candle_age_ms} < {cutoff_ms}",
         f"candles_ext>{candles_ext_days}d",
     )
 
